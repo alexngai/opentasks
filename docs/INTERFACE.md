@@ -13,7 +13,7 @@ See also:
 
 ## Design Philosophy
 
-OpenTasks is a **graph connector**, not a unified task API. Multiple task and spec systems can coexist, each with their own strengths:
+OpenTasks is a **graph connector** that adds a relationship layer to existing task systems. It does not replace those systems — each keeps its own tools, storage, and semantics. OpenTasks provides what they lack: cross-system edges.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐

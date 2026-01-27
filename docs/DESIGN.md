@@ -6,32 +6,48 @@
 
 ## Vision
 
-OpenTasks is a universal work graph data structure that serves as:
+OpenTasks is a **graph connector** that links heterogeneous task and spec systems:
 
-1. **A replacement for Claude's built-in tasks** — simple, immediate use for session-based work tracking
-2. **An abstraction over systems like beads/sudocode** — unified interface for different task management paradigms
-3. **A bridge to external systems** — Jira, Linear, GitHub Issues as graph nodes
+1. **A graph layer over existing tools** — connects Claude Tasks, Beads, Taskmaster, and other systems without replacing them
+2. **Cross-system relationships** — edges that span system boundaries (e.g., Claude subtask blocks Beads issue)
+3. **Unified queries** — find blockers, ready items, and dependencies across all connected systems
+4. **Optional native storage** — lightweight specs/issues for simple use cases when external providers aren't needed
 
-The goal is to create a minimal but extensible graph that can encapsulate different data sources centered around actionable work tracking, while providing integration points for existing systems.
+**What OpenTasks is NOT:**
+- Not a replacement for Claude's built-in tasks (use `TaskCreate`/`TaskUpdate` directly)
+- Not a replacement for Beads (use `bd` CLI directly)
+- Not a unified CRUD API (each system keeps its own interface)
+
+The goal is to provide the **relationship layer** that existing tools lack — the ability to say "this Claude task implements that Beads issue which references that Jira ticket."
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Agents / UIs                             │
 └─────────────────────────────────────────────────────────────────┘
-                              ↓
+          │                    │                    │
+          ▼                    ▼                    ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│  Claude Tasks   │  │     Beads       │  │   Taskmaster    │
+│  TaskCreate()   │  │   bd new/show   │  │   tm task       │
+│  TaskUpdate()   │  │   bd update     │  │   tm prd        │
+└────────┬────────┘  └────────┬────────┘  └────────┬────────┘
+         │                    │                    │
+         └────────────────────┼────────────────────┘
+                              │
+                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    OpenTasks Core Graph                          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────┐                   │
-│  │  Specs   │──│  Issues  │──│    Edges     │                   │
-│  │ (intent) │  │  (work)  │  │ (relations)  │                   │
-│  └──────────┘  └──────────┘  └──────────────┘                   │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                    Integration Layer                             │
-│  ┌─────────┐ ┌─────────┐ ┌──────┐ ┌────────┐ ┌───────────────┐  │
-│  │  Beads  │ │Sudocode │ │ Jira │ │ Linear │ │ GitHub Issues │  │
-│  └─────────┘ └─────────┘ └──────┘ └────────┘ └───────────────┘  │
+│                  OpenTasks Graph Layer                           │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                      Edges                                │   │
+│  │  claude://t-abc ──implements──▶ beads://./bd-x7k9        │   │
+│  │  beads://./bd-x7k9 ──blocks──▶ jira://PROJ-123           │   │
+│  │  taskmaster://./prd ◀──discovered-from── beads://./bd-y  │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  3 Tools: link() | query() | annotate()                         │
+│                                                                  │
+│  Optional: Native specs/issues for lightweight use              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -39,40 +55,37 @@ The goal is to create a minimal but extensible graph that can encapsulate differ
 
 ## Design Motivations
 
-### Why not just use beads or sudocode directly?
+### Why a graph connector?
 
-**Beads** is a powerful distributed issue tracker optimized for AI agent swarms, with:
-- 100+ fields on the Issue type
-- 19 dependency types
-- HOP federation, molecules, async gates
-- Sophisticated but complex
+Existing tools are good at what they do:
 
-**Sudocode** provides a requirements-to-implementation pipeline:
-- Specs (user intent) → Issues (work) → Executions (agent runs)
-- Anchored feedback flowing back to specs
-- Workflow orchestration
-- Tightly coupled to execution
+**Beads** — Distributed issue tracker for AI agent swarms (100+ fields, 19 dependency types, sophisticated)
 
-**Claude's Tasks** is simple but limited:
-- Session-scoped, no persistence
-- Basic status tracking
-- No external integrations
+**Claude's Tasks** — Simple session-scoped work tracking (TaskCreate, TaskUpdate, TaskList)
 
-**OpenTasks** aims to be:
-- **Simpler than beads** — not 100+ fields, selective feature adoption
-- **More structured than Claude's tasks** — persistent, richer semantics
-- **Decoupled from execution** — unlike sudocode, no workflow/execution layer
-- **Interoperable** — works with all of the above
+**Taskmaster** — PRD management and task breakdown
+
+**Jira/Linear/GitHub** — Team collaboration and project management
+
+**The problem**: These systems don't talk to each other. You can't say:
+- "This Claude subtask implements that Beads issue"
+- "This Beads issue is blocked by that Jira ticket"
+- "What's ready to work on across all my systems?"
+
+**OpenTasks solves this** by providing:
+- **Cross-system edges** — relationships that span system boundaries
+- **Unified queries** — find blockers/ready items across all connected systems
+- **Feedback routing** — comments that reference nodes in different systems
+- **Optional native storage** — simple specs/issues when you don't need a full-featured tracker
 
 ### Core Principles
 
-1. **Standalone first** — works fully without any integrations configured
-2. **Graph-native** — relationships are first-class, not an afterthought
-3. **Progressive complexity** — simple by default, rich when needed
-4. **Integration flexibility** — different backends can integrate differently
-5. **Git-friendly** — designed for version control and offline use
-6. **Location flexible** — works in-repo, cross-repo, or standalone
-7. **Topology aware** — handles branches, worktrees, and distributed agents
+1. **Graph-first** — edges/relationships are the primary value; node storage is secondary
+2. **Non-invasive** — works alongside existing tools without replacing them
+3. **Progressive enhancement** — start with edges only, add native nodes when needed
+4. **Provider-agnostic** — any system with a URI can participate in the graph
+5. **Git-friendly** — JSONL storage designed for version control
+6. **Designed for multi-agent** — handles concurrent access, branches, worktrees
 
 ### File Structure (Hybrid Model)
 
@@ -707,61 +720,41 @@ interface Node {
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Entity model | Specs + Issues (two types) | Captures both intent and work, from sudocode |
+| Core identity | Graph connector, not task system | Existing tools (Claude Tasks, Beads) handle CRUD; OpenTasks adds relationships |
+| Entity model | Edges + optional native nodes | Edges are primary; native specs/issues for lightweight use |
 | External refs | Phantom nodes with materialization | Flexible, progressive, clear boundaries |
-| Integration model | Flexible hooks (provider/adapter/sync) | Different backends need different patterns |
-| Storage | Owned local + delegated external | Standalone works; integrations optional |
+| Integration model | Provider URIs + native tools | Agents use each system's tools directly; OpenTasks links them |
+| Storage | Edges always local, nodes via providers | OpenTasks owns graph structure, providers own content |
 | Storage format | JSONL + SQLite | Git-friendly + fast queries |
-| Relationship storage | Always local | Opentasks owns the graph structure |
-| Location model | Hierarchical (global < workspace < repo) | Flexibility for different deployment scenarios |
-| Remote repos | Hybrid (location + provider resolution) | Git-native fetch, but with caching like external refs |
-| Standalone (no git) | Works but degraded | Future-proof, not fundamental |
-| Worktree handling | Redirect rules + optimistic merge | Balances simplicity with coordination needs |
-| Agent coordination | Basic primitives (claims), rest in app layer | Opentasks is graph, not orchestrator |
+| Location model | Single-location v1, multi-location v2 | Start simple, design for future cross-location |
+| Agent coordination | Basic primitives (claims), rest in app layer | OpenTasks is graph, not orchestrator |
 
 ---
 
 ## Open Questions
 
-### Core Data Model
-- [ ] What fields should be first-class on Spec and Issue vs. metadata?
-- [ ] Should we adopt beads' hash-based ID generation?
-- [ ] What's the minimal useful set of relationship types?
-- [ ] Branch-awareness fields: optional or always present?
+### Resolved
+- [x] **Core identity**: Graph connector, not task replacement
+- [x] **Daemon**: Required for multi-agent, but defer implementation to v2
+- [x] **3-tool interface**: Sufficient because providers have their own CRUD tools
+- [x] **Feedback**: Native first, design for cross-system routing
 
-### External References
-- [ ] How to handle broken/unavailable external refs?
-- [ ] Should phantom nodes be persisted or transient?
-- [ ] Cache TTL defaults per integration type?
+### Active — Cross-Location Design (Priority)
+- [ ] **v1 scope**: Single-location + provider URIs, or include opentasks:// URIs?
+- [ ] **URI canonicalization**: How to store/resolve relative vs absolute URIs?
+- [ ] **Schema preparation**: What fields needed now to support cross-location later?
 
-### Integrations
-- [ ] How to handle authentication for external systems?
-- [ ] Should integrations be plugins (dynamic) or compiled in?
-- [ ] How to version integration schemas?
+### Deferred to v2
+- [ ] Location discovery and expansion modes
+- [ ] Redirect rules for worktrees
+- [ ] Global daemon registry
+- [ ] Multi-location queries (ancestors, descendants, siblings)
 
-### Storage
-- [ ] Single `graph.jsonl` or split files (`specs.jsonl`, `issues.jsonl`, `edges.jsonl`)?
-- [ ] Compaction strategy for JSONL?
-- [ ] Schema migration approach?
-
-### Location Model
-- [ ] URI scheme finalization (`opentasks://` vs alternatives)
-- [ ] How to discover/configure workspace-level locations?
-- [ ] Remote repo authentication and caching strategy
-- [ ] What exactly degrades in standalone (no-git) mode?
-
-### Git Topology
-- [ ] Redirect rule syntax and configuration format
-- [ ] How to detect worktree context automatically?
-- [ ] Daemon vs. daemonless: when is daemon justified?
-- [ ] Conflict resolution strategies for optimistic merge
-- [ ] Should claims be stored in nodes or separate table?
-
-### Agent Coordination
-- [ ] What primitives belong in opentasks vs. application layer?
-- [ ] How much of beads' async gates to adopt (if any)?
-- [ ] Lock semantics: advisory vs. enforced?
-- [ ] How to handle orphaned claims (agent dies)?
+### Implementation Details (Address During Build)
+- [ ] Hash-based ID generation (adopt from beads?)
+- [ ] Compaction strategy for JSONL
+- [ ] Cache TTL defaults per provider
+- [ ] Provider authentication handling
 
 ---
 
