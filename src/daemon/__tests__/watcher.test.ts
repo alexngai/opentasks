@@ -24,6 +24,20 @@ describe('FileWatcher', () => {
     ...overrides,
   })
 
+  /**
+   * Wait for events array to have at least `count` items, with timeout
+   */
+  async function waitForEvents(
+    events: FileChangeEvent[],
+    count: number = 1,
+    timeoutMs: number = 2000
+  ): Promise<void> {
+    const start = Date.now()
+    while (events.length < count && Date.now() - start < timeoutMs) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+  }
+
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'opentasks-watcher-test-'))
     locationPath = path.join(tempDir, '.opentasks')
@@ -90,8 +104,7 @@ describe('FileWatcher', () => {
       // Modify file
       await fs.writeFile(path.join(locationPath, 'graph.jsonl'), '{"test":true}')
 
-      // Wait for debounce
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      await waitForEvents(events)
 
       expect(events.length).toBeGreaterThan(0)
       expect(events[0].category).toBe('graph')
@@ -107,7 +120,7 @@ describe('FileWatcher', () => {
 
       await fs.writeFile(path.join(locationPath, 'config.json'), '{"updated":true}')
 
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      await waitForEvents(events)
 
       expect(events.length).toBeGreaterThan(0)
       expect(events[0].category).toBe('config')
@@ -119,10 +132,12 @@ describe('FileWatcher', () => {
       watcher.onchange((event) => events.push(event))
 
       await watcher.start()
+      // Give FSEvents time to fully initialize directory watching
+      await new Promise((resolve) => setTimeout(resolve, 100))
 
       await fs.writeFile(path.join(locationPath, 'specs', 'test.md'), '# Test')
 
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      await waitForEvents(events)
 
       expect(events.length).toBeGreaterThan(0)
       expect(events[0].category).toBe('spec')
@@ -135,10 +150,12 @@ describe('FileWatcher', () => {
       watcher.onchange((event) => events.push(event))
 
       await watcher.start()
+      // Give FSEvents time to fully initialize directory watching
+      await new Promise((resolve) => setTimeout(resolve, 100))
 
       await fs.writeFile(path.join(locationPath, 'issues', 'test.md'), '# Test')
 
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      await waitForEvents(events)
 
       expect(events.length).toBeGreaterThan(0)
       expect(events[0].category).toBe('issue')
@@ -152,14 +169,10 @@ describe('FileWatcher', () => {
 
       await watcher.start()
 
-      // Give watcher time to fully initialize
-      await new Promise((resolve) => setTimeout(resolve, 100))
-
       // Delete graph.jsonl (which was watched from the start)
       await fs.unlink(path.join(locationPath, 'graph.jsonl'))
 
-      // Wait longer for unlink to be detected (can be slow)
-      await new Promise((resolve) => setTimeout(resolve, 300))
+      await waitForEvents(events)
 
       expect(events.length).toBeGreaterThan(0)
       expect(events[0].type).toBe('unlink')
@@ -212,7 +225,7 @@ describe('FileWatcher', () => {
 
       await fs.writeFile(path.join(locationPath, 'graph.jsonl'), '{"resumed":true}')
 
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      await waitForEvents(events)
 
       expect(events.length).toBeGreaterThan(0)
     })
@@ -268,7 +281,7 @@ describe('FileWatcher', () => {
 
       await fs.writeFile(path.join(locationPath, 'graph.jsonl'), '{"test":true}')
 
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      await waitForEvents(events)
 
       expect(events.length).toBeGreaterThan(0)
       expect(events[0].category).toBe('graph')
@@ -288,7 +301,7 @@ describe('FileWatcher', () => {
 
       await fs.writeFile(path.join(locationPath, 'graph.jsonl'), '{"multi":true}')
 
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      await waitForEvents(events1)
 
       expect(events1.length).toBeGreaterThan(0)
       expect(events2.length).toBeGreaterThan(0)
@@ -307,7 +320,7 @@ describe('FileWatcher', () => {
 
       await fs.writeFile(path.join(locationPath, 'graph.jsonl'), '{"error":true}')
 
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      await waitForEvents(events)
 
       // Second handler should still receive event
       expect(events.length).toBeGreaterThan(0)

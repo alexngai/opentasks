@@ -20,8 +20,12 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "vitest",
-    "test:run": "vitest run",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:slow": "RUN_SLOW_TESTS=1 vitest run",
+    "test:slow:watch": "RUN_SLOW_TESTS=1 vitest",
+    "test:e2e": "RUN_FULL_AGENT_TESTS=1 vitest run",
+    "test:all": "RUN_FULL_AGENT_TESTS=1 vitest run",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
