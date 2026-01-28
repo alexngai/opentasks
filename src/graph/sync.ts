@@ -3,9 +3,13 @@
  *
  * Handles debounced synchronization between SQLite and JSONL.
  * SQLite is the write-through cache, JSONL is the source of truth.
+ *
+ * Composes DebouncedFlusher for timing, adds node-level dirty tracking
+ * and Storage integration.
  */
 
 import type { Storage } from '../storage/interface.js'
+import { createDebouncedFlusher, type DebouncedFlusher } from './debounce.js'
 
 // ============================================================================
 // Types
@@ -72,92 +76,41 @@ export function createSyncManager(
   storage: Storage,
   onFlush: FlushCallback
 ): SyncManager {
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null
-  let maxDelayTimer: ReturnType<typeof setTimeout> | null = null
-  let flushPromise: Promise<void> | null = null
   let pendingDirtyNodes = new Set<string>()
 
-  /**
-   * Clear all timers
-   */
-  function clearTimers(): void {
-    if (debounceTimer) {
-      clearTimeout(debounceTimer)
-      debounceTimer = null
-    }
-    if (maxDelayTimer) {
-      clearTimeout(maxDelayTimer)
-      maxDelayTimer = null
-    }
-  }
-
-  /**
-   * Perform the actual flush operation
-   */
-  async function doFlush(): Promise<void> {
-    // Clear timers
-    clearTimers()
-
-    // If no pending changes, nothing to do
-    if (pendingDirtyNodes.size === 0) {
-      return
-    }
-
-    // Mark nodes as dirty in storage
+  // Create debounced flusher with our flush logic
+  const flusher: DebouncedFlusher = createDebouncedFlusher(config, async () => {
+    // Mark nodes as dirty in storage before flush
     for (const nodeId of pendingDirtyNodes) {
       await storage.markDirty(nodeId)
     }
     pendingDirtyNodes.clear()
 
-    // Perform the flush
+    // Perform the actual flush
     await onFlush()
-  }
+  })
 
   return {
     markDirty(nodeId: string): void {
       pendingDirtyNodes.add(nodeId)
+      flusher.markDirty()
     },
 
     scheduleFlush(): void {
-      // Clear existing debounce timer
-      if (debounceTimer) {
-        clearTimeout(debounceTimer)
-      }
-
-      // Set new debounce timer
-      debounceTimer = setTimeout(() => {
-        void this.flush()
-      }, config.debounceMs)
-
-      // Set max delay timer (only once per batch)
-      if (!maxDelayTimer) {
-        maxDelayTimer = setTimeout(() => {
-          void this.flush()
-        }, config.maxDelayMs)
-      }
+      flusher.schedule()
     },
 
     async flush(): Promise<void> {
-      // If already flushing, wait for it
-      if (flushPromise) {
-        return flushPromise
-      }
-
-      // Create new flush promise
-      flushPromise = doFlush().finally(() => {
-        flushPromise = null
-      })
-
-      return flushPromise
+      return flusher.flush()
     },
 
     cancel(): void {
-      clearTimers()
+      flusher.cancel()
       pendingDirtyNodes.clear()
     },
 
     hasPendingChanges(): boolean {
-      return pendingDirtyNodes.size > 0 || debounceTimer !== null
+      return pendingDirtyNodes.size > 0 || flusher.hasPending()
     },
   }
 }

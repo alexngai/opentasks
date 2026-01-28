@@ -39,6 +39,10 @@ export { createValidationService } from './validation.js'
 export type { QueryEngine } from './query.js'
 export { createQueryEngine } from './query.js'
 
+// Debounce (core timing utility)
+export type { DebouncedFlusher, DebounceConfig } from './debounce.js'
+export { createDebouncedFlusher } from './debounce.js'
+
 // Sync
 export type { SyncManager, SyncConfig } from './sync.js'
 export { createSyncManager, DEFAULT_SYNC_CONFIG } from './sync.js'
