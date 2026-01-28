@@ -50,6 +50,10 @@ export { registerLifecycleMethods } from './methods/lifecycle.js'
 export type { GraphMethodsOptions } from './methods/graph.js'
 export { registerGraphMethods } from './methods/graph.js'
 
+// Methods - Tools (3-tool agent interface)
+export type { ToolsMethodsOptions } from './methods/tools.js'
+export { registerToolsMethods } from './methods/tools.js'
+
 // Watcher
 export type {
   FileWatcher,
