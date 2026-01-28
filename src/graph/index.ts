@@ -50,3 +50,11 @@ export { createSyncManager, DEFAULT_SYNC_CONFIG } from './sync.js'
 // Store
 export type { GraphStore, GraphTransaction } from './store.js'
 export { createGraphStore } from './store.js'
+
+// Provider-Aware Store
+export type {
+  ProviderAwareStore,
+  ProviderStoreConfig,
+  ResolveOptions,
+} from './provider-store.js'
+export { createProviderAwareStore } from './provider-store.js'

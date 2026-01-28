@@ -1,0 +1,257 @@
+/**
+ * Native Provider
+ *
+ * Provider that wraps existing GraphStore node operations.
+ * Handles native:// and opentasks:// URI schemes.
+ */
+
+import type { GraphStore, NodeFilter as GraphNodeFilter } from '../graph/index.js'
+import type { Node } from '../schema/index.js'
+import type {
+  Provider,
+  ProviderCapabilities,
+  ProviderNode,
+  ProviderNodeType,
+  ProviderCreateInput,
+  ProviderUpdateInput,
+  ProviderFilter,
+  ParsedUri,
+  UriOptions,
+  SearchOptions,
+} from './types.js'
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Pattern for local node IDs (s-, i-, f-, e-, x-)
+ */
+const LOCAL_ID_PATTERN = /^[sifex]-[a-z0-9]+$/
+
+/**
+ * Pattern for native:// or opentasks:// URIs
+ */
+const NATIVE_URI_PATTERN = /^(native|opentasks):\/\/(.+)$/i
+
+// ============================================================================
+// Type Conversion
+// ============================================================================
+
+/**
+ * Map OpenTasks node types to provider node types
+ */
+function mapNodeType(nodeType: string): ProviderNodeType {
+  switch (nodeType) {
+    case 'spec':
+      return 'spec'
+    case 'issue':
+      return 'issue'
+    case 'feedback':
+      return 'feedback'
+    case 'external':
+      return 'external'
+    default:
+      return 'external'
+  }
+}
+
+/**
+ * Map provider node types to OpenTasks node types
+ */
+function mapProviderType(providerType: string): 'spec' | 'issue' | 'feedback' | 'external' {
+  switch (providerType) {
+    case 'spec':
+      return 'spec'
+    case 'issue':
+    case 'task':
+      return 'issue'
+    case 'feedback':
+      return 'feedback'
+    default:
+      return 'external'
+  }
+}
+
+/**
+ * Convert a Node to ProviderNode
+ */
+function nodeToProviderNode(node: Node): ProviderNode {
+  return {
+    id: node.id,
+    uri: `native://${node.id}`,
+    type: mapNodeType(node.type),
+    title: node.title,
+    content: node.content,
+    status: 'status' in node ? (node.status as string) : undefined,
+    priority: node.priority,
+    rawData: {
+      uuid: node.uuid,
+      created_at: node.created_at,
+      updated_at: node.updated_at,
+      tags: node.tags,
+      parent_id: node.parent_id,
+      archived: node.archived,
+      metadata: node.metadata,
+      // Type-specific fields
+      ...('assignee' in node ? { assignee: node.assignee } : {}),
+      ...('target_id' in node ? { target_id: node.target_id } : {}),
+      ...('feedback_type' in node ? { feedback_type: node.feedback_type } : {}),
+      ...('uri' in node ? { external_uri: node.uri } : {}),
+      ...('source' in node ? { source: node.source } : {}),
+    },
+    fetchedAt: new Date().toISOString(),
+  }
+}
+
+/**
+ * Convert ProviderFilter to GraphStore NodeFilter
+ */
+function convertFilter(filter?: ProviderFilter): GraphNodeFilter | undefined {
+  if (!filter) return undefined
+
+  return {
+    type: filter.type as GraphNodeFilter['type'],
+    status: filter.status,
+    search: filter.search,
+    limit: filter.limit,
+    offset: filter.offset,
+  }
+}
+
+// ============================================================================
+// Native Provider Implementation
+// ============================================================================
+
+/**
+ * Create a native provider wrapping a GraphStore
+ */
+export function createNativeProvider(store: GraphStore): Provider {
+  const capabilities: ProviderCapabilities = {
+    read: true,
+    write: true,
+    search: true,
+    watch: false,
+  }
+
+  return {
+    name: 'native',
+    schemes: ['native', 'opentasks'],
+    capabilities,
+
+    // =========================================================================
+    // URI Operations
+    // =========================================================================
+
+    parseUri(uri: string): ParsedUri | null {
+      // Check for native:// or opentasks:// URI
+      const uriMatch = uri.match(NATIVE_URI_PATTERN)
+      if (uriMatch) {
+        const scheme = uriMatch[1].toLowerCase()
+        const id = uriMatch[2]
+        return {
+          scheme,
+          id,
+          isRelative: false,
+        }
+      }
+
+      // Check for local ID (s-abc1, i-xyz2, etc.)
+      if (LOCAL_ID_PATTERN.test(uri)) {
+        return {
+          scheme: 'native',
+          id: uri,
+          isRelative: true,
+        }
+      }
+
+      return null
+    },
+
+    buildUri(id: string, options?: UriOptions): string {
+      if (options?.relative) {
+        return id
+      }
+      return `native://${id}`
+    },
+
+    isValidUri(uri: string): boolean {
+      return this.parseUri(uri) !== null
+    },
+
+    // =========================================================================
+    // CRUD Operations
+    // =========================================================================
+
+    async get(id: string): Promise<ProviderNode | null> {
+      // Parse URI if full URI is passed
+      const parsed = this.parseUri(id)
+      const nodeId = parsed?.id ?? id
+
+      const node = await store.getNode(nodeId)
+      if (!node) return null
+
+      return nodeToProviderNode(node)
+    },
+
+    async list(filter?: ProviderFilter): Promise<ProviderNode[]> {
+      const graphFilter = convertFilter(filter) ?? {}
+      const nodes = await store.query.nodes(graphFilter)
+      return nodes.map(nodeToProviderNode)
+    },
+
+    async create(input: ProviderCreateInput): Promise<ProviderNode> {
+      const nodeType = mapProviderType(input.type)
+
+      const node = await store.createNode({
+        type: nodeType,
+        title: input.title,
+        content: input.content,
+        status: input.status,
+        priority: input.priority,
+        metadata: input.metadata,
+      })
+
+      return nodeToProviderNode(node)
+    },
+
+    async update(id: string, updates: ProviderUpdateInput): Promise<ProviderNode> {
+      // Parse URI if full URI is passed
+      const parsed = this.parseUri(id)
+      const nodeId = parsed?.id ?? id
+
+      const node = await store.updateNode(nodeId, {
+        title: updates.title,
+        content: updates.content,
+        status: updates.status,
+        priority: updates.priority,
+        metadata: updates.metadata,
+      })
+
+      return nodeToProviderNode(node)
+    },
+
+    async delete(id: string): Promise<void> {
+      // Parse URI if full URI is passed
+      const parsed = this.parseUri(id)
+      const nodeId = parsed?.id ?? id
+
+      await store.deleteNode(nodeId)
+    },
+
+    // =========================================================================
+    // Search
+    // =========================================================================
+
+    async search(query: string, options?: SearchOptions): Promise<ProviderNode[]> {
+      const filter: GraphNodeFilter = {
+        search: query,
+        limit: options?.limit,
+        type: options?.type as GraphNodeFilter['type'],
+      }
+
+      const nodes = await store.query.nodes(filter)
+      return nodes.map(nodeToProviderNode)
+    },
+  }
+}

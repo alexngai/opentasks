@@ -100,13 +100,13 @@ describe('generateId', () => {
     expect(id).toMatch(/^x-[a-z0-9]{4,}$/)
   })
 
-  it('generates unique IDs', () => {
-    const ids = new Set<string>()
+  it('generates unique UUIDs', () => {
+    const uuids = new Set<string>()
     for (let i = 0; i < 100; i++) {
-      const { id } = generateId('issue')
-      ids.add(id)
+      const { uuid } = generateId('issue')
+      uuids.add(uuid)
     }
-    expect(ids.size).toBe(100)
+    expect(uuids.size).toBe(100)
   })
 
   it('respects existingCount for adaptive length', () => {

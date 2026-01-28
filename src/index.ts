@@ -156,3 +156,53 @@ export { link, query, annotate, ToolError } from './tools/index.js'
 export type { ClientOptions } from './client/index.js'
 
 export { OpenTasksClient, ClientError, createClient } from './client/index.js'
+
+// =============================================================================
+// Providers
+// =============================================================================
+
+export type {
+  Provider,
+  ProviderCapabilities,
+  ProviderNode,
+  ProviderNodeType,
+  ProviderCreateInput,
+  ProviderUpdateInput,
+  ProviderFilter,
+  ParsedUri,
+  UriOptions,
+  WatchCallback,
+  WatchEvent,
+  Unsubscribe,
+  SearchOptions,
+  MaterializationStrategy,
+  MaterializationConfig,
+  ProviderRegistry,
+  ProviderErrorCode,
+  MaterializationManager,
+  MaterializationContext,
+  BeadsConfig,
+  ClaudeTasksConfig,
+  ClaudeTask,
+  ClaudeTaskStore,
+} from './providers/index.js'
+
+export {
+  ProviderError,
+  DEFAULT_MATERIALIZATION_CONFIG,
+  createProviderRegistry,
+  createNativeProvider,
+  createBeadsProvider,
+  createClaudeTasksProvider,
+  createInMemoryTaskStore,
+  createMaterializationManager,
+} from './providers/index.js'
+
+// Provider-Aware Store
+export type {
+  ProviderAwareStore,
+  ProviderStoreConfig,
+  ResolveOptions,
+} from './graph/index.js'
+
+export { createProviderAwareStore } from './graph/index.js'
