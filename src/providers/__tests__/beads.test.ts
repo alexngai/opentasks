@@ -176,7 +176,8 @@ describe('BeadsProvider', () => {
     }
 
     it('should get an issue by ID', async () => {
-      mockExecResponse(JSON.stringify(mockIssue))
+      // bd show returns an array
+      mockExecResponse(JSON.stringify([mockIssue]))
 
       const result = await provider.get('bd-123')
 
@@ -195,7 +196,8 @@ describe('BeadsProvider', () => {
     })
 
     it('should get an issue by full URI', async () => {
-      mockExecResponse(JSON.stringify(mockIssue))
+      // bd show returns an array
+      mockExecResponse(JSON.stringify([mockIssue]))
 
       const result = await provider.get('beads://./bd-123')
 
@@ -214,7 +216,8 @@ describe('BeadsProvider', () => {
     })
 
     it('should include rawData', async () => {
-      mockExecResponse(JSON.stringify(mockIssue))
+      // bd show returns an array
+      mockExecResponse(JSON.stringify([mockIssue]))
 
       const result = await provider.get('bd-123')
 
@@ -323,7 +326,8 @@ describe('BeadsProvider', () => {
     }
 
     it('should update an issue', async () => {
-      mockExecResponse(JSON.stringify(mockUpdatedIssue))
+      // bd update returns an array
+      mockExecResponse(JSON.stringify([mockUpdatedIssue]))
 
       const result = await provider.update('bd-123', { title: 'Updated Title' })
 
@@ -336,7 +340,8 @@ describe('BeadsProvider', () => {
     })
 
     it('should update status', async () => {
-      mockExecResponse(JSON.stringify(mockUpdatedIssue))
+      // bd update returns an array
+      mockExecResponse(JSON.stringify([mockUpdatedIssue]))
 
       await provider.update('bd-123', { status: 'done' })
 
@@ -345,7 +350,8 @@ describe('BeadsProvider', () => {
     })
 
     it('should update by full URI', async () => {
-      mockExecResponse(JSON.stringify(mockUpdatedIssue))
+      // bd update returns an array
+      mockExecResponse(JSON.stringify([mockUpdatedIssue]))
 
       await provider.update('beads://./bd-123', { title: 'Updated' })
 
@@ -441,27 +447,30 @@ describe('BeadsProvider', () => {
 
   describe('priority mapping', () => {
     it('should map numeric priorities', async () => {
-      mockExecResponse(JSON.stringify({ id: 'bd-1', title: 'Test', priority: 0 }))
+      // bd show returns an array
+      mockExecResponse(JSON.stringify([{ id: 'bd-1', title: 'Test', priority: 0 }]))
       const result = await provider.get('bd-1')
       expect(result?.priority).toBe(0)
     })
 
     it('should map string priorities', async () => {
-      mockExecResponse(JSON.stringify({ id: 'bd-1', title: 'Test', priority: 'high' }))
+      // bd show returns an array
+      mockExecResponse(JSON.stringify([{ id: 'bd-1', title: 'Test', priority: 'high' }]))
       const result = await provider.get('bd-1')
       expect(result?.priority).toBe(1)
 
-      mockExecResponse(JSON.stringify({ id: 'bd-2', title: 'Test', priority: 'critical' }))
+      mockExecResponse(JSON.stringify([{ id: 'bd-2', title: 'Test', priority: 'critical' }]))
       const result2 = await provider.get('bd-2')
       expect(result2?.priority).toBe(0)
 
-      mockExecResponse(JSON.stringify({ id: 'bd-3', title: 'Test', priority: 'low' }))
+      mockExecResponse(JSON.stringify([{ id: 'bd-3', title: 'Test', priority: 'low' }]))
       const result3 = await provider.get('bd-3')
       expect(result3?.priority).toBe(3)
     })
 
     it('should handle missing priority', async () => {
-      mockExecResponse(JSON.stringify({ id: 'bd-1', title: 'Test' }))
+      // bd show returns an array
+      mockExecResponse(JSON.stringify([{ id: 'bd-1', title: 'Test' }]))
       const result = await provider.get('bd-1')
       expect(result?.priority).toBeUndefined()
     })
@@ -470,7 +479,8 @@ describe('BeadsProvider', () => {
   describe('configuration', () => {
     it('should use custom executable', async () => {
       const customProvider = createBeadsProvider({ executable: '/custom/bd' })
-      mockExecResponse(JSON.stringify({ id: 'bd-1', title: 'Test' }))
+      // bd show returns an array
+      mockExecResponse(JSON.stringify([{ id: 'bd-1', title: 'Test' }]))
 
       await customProvider.get('bd-1')
 

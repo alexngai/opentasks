@@ -142,10 +142,22 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider {
   }
 
   /**
+   * Shell-escape a single argument
+   */
+  function shellEscape(arg: string): string {
+    // If arg contains spaces, quotes, or special shell chars, wrap in single quotes
+    // and escape any existing single quotes
+    if (/['\s"\\$`!]/.test(arg)) {
+      return `'${arg.replace(/'/g, "'\\''")}'`
+    }
+    return arg
+  }
+
+  /**
    * Execute a bd CLI command
    */
   async function execBd(args: string[]): Promise<string> {
-    const command = [executable, ...args].join(' ')
+    const command = [executable, ...args.map(shellEscape)].join(' ')
 
     try {
       const { stdout } = await execAsync(command, {
@@ -254,13 +266,21 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider {
 
       try {
         const output = await execBd(['show', issueId, '--json'])
-        const issue = parseJson<BeadsIssue>(output)
-        return beadsIssueToProviderNode(issue, workspace)
+        // bd show returns an array, take the first element
+        const issues = parseJson<BeadsIssue[]>(output)
+        if (!issues || issues.length === 0) {
+          return null
+        }
+        return beadsIssueToProviderNode(issues[0], workspace)
       } catch (error) {
         // Return null for not found, re-throw other errors
         if (error instanceof ProviderErrorClass && error.code === 'OPERATION_FAILED') {
           const message = error.message.toLowerCase()
-          if (message.includes('not found') || message.includes('does not exist')) {
+          if (
+            message.includes('not found') ||
+            message.includes('does not exist') ||
+            message.includes('no issue found matching')
+          ) {
             return null
           }
         }
@@ -329,9 +349,13 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider {
       args.push('--json')
 
       const output = await execBd(args)
-      const issue = parseJson<BeadsIssue>(output)
+      // bd update returns an array, take the first element
+      const issues = parseJson<BeadsIssue[]>(output)
+      if (!issues || issues.length === 0) {
+        throw new ProviderErrorClass('OPERATION_FAILED', 'Update returned no results', 'beads')
+      }
 
-      return beadsIssueToProviderNode(issue)
+      return beadsIssueToProviderNode(issues[0])
     },
 
     async delete(id: string): Promise<void> {
