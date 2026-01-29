@@ -10,13 +10,13 @@ This document outlines the current state of testing in OpenTasks, identifies gap
 |-------|-----------|-------|---------------|
 | Core | 2 | 34 | Unit |
 | Schema | 1 | 24 | Unit |
-| Storage | 2 | 84 | Unit + File I/O |
-| Graph | 6 | 153 | Unit |
-| Daemon | 7 | 131 | Unit |
+| Storage | 2 | 65 | Unit + File I/O |
+| Graph | 9 | 332 | Unit |
+| Daemon | 8 | 174 | Unit |
 | Tools | 3 | 59 | Unit |
-| Client | 1 | 35 | Unit |
-| Providers | 5 | 203 | Unit |
-| **Total** | **28** | **723** | **Primarily Unit** |
+| Client | 1 | 23 | Unit |
+| Providers | 6 | 215 | Unit |
+| **Total** | **33** | **926** | **Primarily Unit** |
 
 ### What's Tested
 
@@ -25,10 +25,22 @@ This document outlines the current state of testing in OpenTasks, identifies gap
 - Schema validation (Zod parsing, type guards)
 - JSONL and SQLite persistence (file operations, transactions)
 - Graph operations (CRUD, queries, validation, cycles)
+- **Federated Graph layer:**
+  - EdgeTypeRegistry (12 built-in types, inverse relationships, provider support)
+  - GraphologyAdapter (in-memory graph with Graphology library)
+  - FederatedGraph (traversal API: related, reachable, shortestPath, traverse)
+  - HydratingFederatedGraph (lazy hydration, caching, federated ready query)
+  - Provider-aware store (cross-provider resolution)
+  - Selector syntax (+uri, uri+, @uri) and introspection methods
 - Daemon lifecycle, IPC, file watching, flush management
+- Daemon method handlers (graph operations, tool operations)
 - 3-tool agent interface (link, query, annotate)
 - Client library (connection, method calls, error handling)
 - Provider interface (URI parsing, type conversion, CRUD)
+- **Provider traits:**
+  - RelationshipQueryable (queryEdges, supportedEdgeTypes)
+  - NativeProvider with full edge support
+  - BeadsProvider with relationship queries
 
 **File I/O tested with temp directories:**
 - JSONL persister writes to real temp files
@@ -121,7 +133,7 @@ describe.skipIf(!AGENT_TESTS)('Multi-Agent Coordination', () => {
 
 ### Tier 2: Integration Tests
 
-**Status:** ✅ Phases 1-3 Complete (84 tests)
+**Status:** ✅ Phases 1-4 Complete (127 tests)
 
 **Purpose:** Verify components work together with real I/O and external systems.
 
@@ -824,9 +836,9 @@ jobs:
 - ✅ `tests/integration/daemon/lifecycle.integration.test.ts`
 - ✅ `tests/integration/daemon/ipc.integration.test.ts`
 
-### Phase 4: Provider Integration Tests (RUN_SLOW_TESTS) ✅ COMPLETE (BeadsProvider)
+### Phase 4: Provider & Graph Integration Tests (RUN_SLOW_TESTS) ✅ COMPLETE
 
-**Priority: Medium** - External system integration
+**Priority: Medium** - External system integration and federated graph
 
 1. ✅ BeadsProvider integration (17 tests)
    - CRUD operations (create, get, list, update, delete)
@@ -836,11 +848,24 @@ jobs:
    - Concurrent operations (5 creates, 10 reads)
    - Workspace isolation
    - Uses temp directories with git init + bd init
-2. ClaudeTasksProvider file store
+
+2. ✅ Federated Graph integration (26 tests)
+   - Schema migration (edge metadata columns)
+   - Edge type registry with inverse relationships
+   - Graphology adapter synchronization
+   - Traversal API (related, reachable, shortestPath, traverse)
+   - Provider hydration with TTL caching
+   - Federated ready query with external blockers
+   - Cross-provider edge resolution
+   - Cache staleness detection
+   - Cycle handling
+
+3. ClaudeTasksProvider file store
    - File-backed persistence tests (future work)
 
 **Deliverables:**
 - ✅ `tests/integration/providers/beads.integration.test.ts`
+- ✅ `tests/integration/graph/federated-graph.integration.test.ts`
 - `tests/integration/providers/claude-tasks.integration.test.ts` (future)
 
 **Provider Fixes Made:**
@@ -848,17 +873,25 @@ jobs:
 - Fixed "not found" detection to handle bd error messages
 - Fixed bd show/update returning arrays instead of single objects
 
-### Phase 5: E2E Test Infrastructure (RUN_FULL_AGENT_TESTS)
+### Phase 5: E2E Test Infrastructure (RUN_FULL_AGENT_TESTS) ✅ COMPLETE
 
-1. Create `tests/e2e/` directory structure
-2. Add `vitest.e2e.config.ts`
-3. Create TestAgent harness wrapping client
-4. Create full system setup/teardown helpers
+1. ✅ Create `tests/e2e/` directory structure
+2. ✅ Add `vitest.e2e.config.ts`
+3. ✅ Create TestAgent harness wrapping client
+4. ✅ Create full system setup/teardown helpers
 
 **Deliverables:**
-- `tests/e2e/harness.ts`
-- `tests/e2e/setup.ts`
-- `vitest.e2e.config.ts`
+- ✅ `tests/e2e/helpers/system-setup.ts` - Full system setup (IPC server, SQLite storage, graph store, tool handlers)
+- ✅ `tests/e2e/helpers/test-agent.ts` - TestAgent wrapper with 3-tool interface + convenience methods
+- ✅ `tests/e2e/helpers/index.ts` - Exports
+- ✅ `tests/e2e/infrastructure.e2e.test.ts` - 14 infrastructure smoke tests
+- ✅ `vitest.e2e.config.ts` - E2E-specific configuration
+
+**Infrastructure Features:**
+- `setupE2ESystem()` / `withE2ESystem()` - Create isolated test environment with storage, IPC, and client
+- `createTestAgent()` - Wrap client with named agent and logging
+- `createMultiAgents()` - Create multiple agents for coordination tests
+- Automatic cleanup on teardown
 
 ### Phase 6: Agent Workflow E2E Tests (RUN_FULL_AGENT_TESTS)
 
@@ -905,17 +938,17 @@ jobs:
 
 | Tier | Target | Current |
 |------|--------|---------|
-| Unit | >90% | 723 tests ✅ |
-| Integration | >70% of external interfaces | 101 tests (Phases 1-4) ✅ |
-| E2E | >80% of documented workflows | 0% |
+| Unit | >90% | 926 tests ✅ |
+| Integration | >70% of external interfaces | 127 tests (Phases 1-4) ✅ |
+| E2E | >80% of documented workflows | 14 infrastructure tests (Phase 5) ✅ |
 
 ### Performance Baselines
 
 | Operation | Target | Measured |
 |-----------|--------|----------|
-| Unit test suite | <10s | 2.7s ✅ |
-| Integration test suite | <2min | ~1s ✅ |
-| E2E test suite | <10min | TBD |
+| Unit test suite | <10s | ~3s ✅ |
+| Integration test suite | <2min | ~20s ✅ |
+| E2E test suite | <10min | ~300ms (infrastructure only) ✅ |
 | Create 1000 nodes (JSONL) | <1s | <500ms ✅ |
 | Load 1000 nodes (JSONL) | <500ms | <100ms ✅ |
 | Insert 10k nodes (SQLite) | <5s | ~650ms ✅ |
@@ -927,8 +960,10 @@ jobs:
 
 1. ~~**Immediate:** Implement Phase 1 (test infrastructure, helpers, config)~~ ✅ DONE
 2. ~~**Short-term:** Implement Phases 2-3 (storage + daemon integration tests)~~ ✅ DONE
-3. **Medium-term:** Implement Phase 4 (provider integration) and Phase 5 (E2E infrastructure)
-4. **Long-term:** Implement Phases 6-7 (agent workflow and provider sync E2E)
+3. ~~**Medium-term:** Implement Phase 4 (provider + graph integration)~~ ✅ DONE
+4. ~~**Next:** Implement Phase 5 (E2E infrastructure)~~ ✅ DONE
+5. **Next:** Implement Phase 6 (agent workflow E2E tests)
+6. **Long-term:** Implement Phase 7 (provider sync E2E)
 
 The testing strategy prioritizes system-level tests (storage, daemon) first as they:
 - Have no external dependencies (no `bd` CLI needed)
@@ -942,9 +977,9 @@ The testing strategy prioritizes system-level tests (storage, daemon) first as t
 | Phase 1: Infrastructure | ✅ Complete | 11 helper tests |
 | Phase 2: Storage | ✅ Complete | 33 tests (JSONL + SQLite) |
 | Phase 3: Daemon | ✅ Complete | 40 tests (lifecycle + IPC) |
-| Phase 4: Providers | ✅ Complete (BeadsProvider) | 17 tests |
-| Phase 5: E2E Infrastructure | Not started | - |
+| Phase 4: Providers & Graph | ✅ Complete | 43 tests (BeadsProvider + FederatedGraph) |
+| Phase 5: E2E Infrastructure | ✅ Complete | 14 tests (system setup, TestAgent, multi-agent) |
 | Phase 6: Agent Workflows | Not started | - |
 | Phase 7: Provider Sync | Not started | - |
 
-**Total Tests:** 824 (723 unit + 101 integration)
+**Total Tests:** 1067 (926 unit + 127 integration + 14 E2E)

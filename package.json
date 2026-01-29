@@ -24,8 +24,8 @@
     "test:watch": "vitest",
     "test:slow": "RUN_SLOW_TESTS=1 vitest run",
     "test:slow:watch": "RUN_SLOW_TESTS=1 vitest",
-    "test:e2e": "RUN_FULL_AGENT_TESTS=1 vitest run",
-    "test:all": "RUN_FULL_AGENT_TESTS=1 vitest run",
+    "test:e2e": "RUN_FULL_AGENT_TESTS=1 vitest run --config vitest.e2e.config.ts",
+    "test:all": "npm run test && npm run test:slow && npm run test:e2e",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
