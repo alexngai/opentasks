@@ -74,7 +74,9 @@ CREATE TABLE IF NOT EXISTS edges (
   type TEXT NOT NULL,
   created_at TEXT NOT NULL,
   created_by TEXT,
-  source TEXT
+  source TEXT,
+  metadata TEXT,
+  cached_at TEXT
 )
 `
 
@@ -110,6 +112,8 @@ export const CREATE_INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_id)',
   'CREATE INDEX IF NOT EXISTS idx_edges_to ON edges(to_id)',
   'CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(type)',
+  'CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source)',
+  'CREATE INDEX IF NOT EXISTS idx_edges_cached_at ON edges(cached_at)',
 ]
 
 /**
@@ -131,6 +135,33 @@ WHERE n.type = 'issue'
       AND blocker.archived = 0
   )
 `
+
+/**
+ * Migration statements for existing databases
+ * These are idempotent (safe to run multiple times)
+ */
+export const MIGRATIONS = [
+  // Add metadata and cached_at columns to edges table (v1.1.0)
+  `ALTER TABLE edges ADD COLUMN metadata TEXT`,
+  `ALTER TABLE edges ADD COLUMN cached_at TEXT`,
+]
+
+/**
+ * Apply migrations safely (ignores "duplicate column" errors)
+ */
+export function applyMigrations(db: { exec: (sql: string) => void }): void {
+  for (const migration of MIGRATIONS) {
+    try {
+      db.exec(migration)
+    } catch (error) {
+      // Ignore "duplicate column name" errors (migration already applied)
+      const message = error instanceof Error ? error.message : String(error)
+      if (!message.includes('duplicate column name')) {
+        throw error
+      }
+    }
+  }
+}
 
 /**
  * All schema creation statements in order

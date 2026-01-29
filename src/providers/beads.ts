@@ -20,6 +20,16 @@ import type {
   ProviderError,
 } from './types.js'
 import { ProviderError as ProviderErrorClass } from './types.js'
+import type {
+  RelationshipQueryable,
+  ProviderEdge,
+  QueryEdgesOptions,
+} from './traits/RelationshipQueryable.js'
+import {
+  filterEdgesByType,
+  filterEdgesByDirection,
+} from './traits/RelationshipQueryable.js'
+import type { EdgeTypeSupport } from '../graph/EdgeTypeRegistry.js'
 
 const execAsync = promisify(execCallback)
 
@@ -53,6 +63,14 @@ interface BeadsIssue {
   tags?: string[]
   created_at?: string
   updated_at?: string
+  /** IDs of issues this issue blocks */
+  blocks?: string[]
+  /** IDs of issues that block this issue */
+  blockedBy?: string[]
+  /** Parent issue ID */
+  parent?: string
+  /** Child issue IDs */
+  children?: string[]
   [key: string]: unknown
 }
 
@@ -127,9 +145,9 @@ function beadsIssueToProviderNode(issue: BeadsIssue, workspace: string = '.'): P
 // ============================================================================
 
 /**
- * Create a Beads provider
+ * Create a Beads provider with relationship querying support
  */
-export function createBeadsProvider(config: BeadsConfig = {}): Provider {
+export function createBeadsProvider(config: BeadsConfig = {}): Provider & RelationshipQueryable {
   const executable = config.executable ?? 'bd'
   const cwd = config.cwd
   const timeout = config.timeout ?? 30000
@@ -381,6 +399,102 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider {
       const issues = parseJson<BeadsIssue[]>(output)
 
       return issues.map((issue) => beadsIssueToProviderNode(issue))
+    },
+
+    // =========================================================================
+    // RelationshipQueryable Implementation
+    // =========================================================================
+
+    async queryEdges(nodeId: string, options?: QueryEdgesOptions): Promise<ProviderEdge[]> {
+      // Parse URI if full URI is passed
+      const parsed = this.parseUri(nodeId)
+      const issueId = parsed?.id ?? nodeId
+
+      try {
+        const output = await execBd(['show', issueId, '--json'])
+        const issues = parseJson<BeadsIssue[]>(output)
+        if (!issues || issues.length === 0) {
+          return []
+        }
+
+        const issue = issues[0]
+        let edges: ProviderEdge[] = []
+
+        // Parse blocks relationships (this issue blocks others)
+        if (issue.blocks && Array.isArray(issue.blocks)) {
+          for (const blockedId of issue.blocks) {
+            edges.push({
+              from: issueId,
+              to: blockedId,
+              type: 'blocks',
+            })
+          }
+        }
+
+        // Parse blockedBy relationships (others block this issue)
+        if (issue.blockedBy && Array.isArray(issue.blockedBy)) {
+          for (const blockerId of issue.blockedBy) {
+            edges.push({
+              from: blockerId,
+              to: issueId,
+              type: 'blocks',
+            })
+          }
+        }
+
+        // Parse parent relationship
+        if (issue.parent) {
+          edges.push({
+            from: issue.parent,
+            to: issueId,
+            type: 'parent-child',
+          })
+        }
+
+        // Parse children relationships
+        if (issue.children && Array.isArray(issue.children)) {
+          for (const childId of issue.children) {
+            edges.push({
+              from: issueId,
+              to: childId,
+              type: 'parent-child',
+            })
+          }
+        }
+
+        // Apply filters if specified
+        if (options?.edgeType) {
+          edges = filterEdgesByType(edges, options.edgeType)
+        }
+        if (options?.direction) {
+          edges = filterEdgesByDirection(edges, issueId, options.direction)
+        }
+        if (options?.limit && edges.length > options.limit) {
+          edges = edges.slice(0, options.limit)
+        }
+
+        return edges
+      } catch (error) {
+        // Return empty for not found, re-throw other errors
+        if (error instanceof ProviderErrorClass && error.code === 'OPERATION_FAILED') {
+          const message = error.message.toLowerCase()
+          if (
+            message.includes('not found') ||
+            message.includes('does not exist') ||
+            message.includes('no issue found matching')
+          ) {
+            return []
+          }
+        }
+        throw error
+      }
+    },
+
+    supportedEdgeTypes(): EdgeTypeSupport[] {
+      return [
+        { type: 'blocks', canQuery: true, canCreate: true, canDelete: true },
+        { type: 'parent-child', canQuery: true, canCreate: true, canDelete: true },
+      ]
     },
   }
 }

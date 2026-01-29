@@ -53,6 +53,9 @@
   "dependencies": {
     "better-sqlite3": "^12.6.2",
     "chokidar": "^5.0.0",
+    "graphology": "^0.26.0",
+    "graphology-shortest-path": "^2.1.0",
+    "graphology-traversal": "^0.3.1",
     "proper-lockfile": "^4.1.2"
   }
 }

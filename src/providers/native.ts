@@ -6,7 +6,7 @@
  */
 
 import type { GraphStore, NodeFilter as GraphNodeFilter } from '../graph/index.js'
-import type { Node } from '../schema/index.js'
+import type { Node, EdgeType } from '../schema/index.js'
 import type {
   Provider,
   ProviderCapabilities,
@@ -19,6 +19,16 @@ import type {
   UriOptions,
   SearchOptions,
 } from './types.js'
+import type {
+  RelationshipQueryable,
+  ProviderEdge,
+  QueryEdgesOptions,
+} from './traits/RelationshipQueryable.js'
+import {
+  filterEdgesByType,
+  filterEdgesByDirection,
+} from './traits/RelationshipQueryable.js'
+import type { EdgeTypeSupport } from '../graph/EdgeTypeRegistry.js'
 
 // ============================================================================
 // Constants
@@ -124,9 +134,9 @@ function convertFilter(filter?: ProviderFilter): GraphNodeFilter | undefined {
 // ============================================================================
 
 /**
- * Create a native provider wrapping a GraphStore
+ * Create a native provider wrapping a GraphStore with relationship querying support
  */
-export function createNativeProvider(store: GraphStore): Provider {
+export function createNativeProvider(store: GraphStore): Provider & RelationshipQueryable {
   const capabilities: ProviderCapabilities = {
     read: true,
     write: true,
@@ -252,6 +262,96 @@ export function createNativeProvider(store: GraphStore): Provider {
 
       const nodes = await store.query.nodes(filter)
       return nodes.map(nodeToProviderNode)
+    },
+
+    // =========================================================================
+    // RelationshipQueryable Implementation
+    // =========================================================================
+
+    async queryEdges(nodeId: string, options?: QueryEdgesOptions): Promise<ProviderEdge[]> {
+      // Parse URI if full URI is passed
+      const parsed = this.parseUri(nodeId)
+      const localId = parsed?.id ?? nodeId
+
+      // Check if node exists
+      const node = await store.getNode(localId)
+      if (!node) {
+        return []
+      }
+
+      // Determine which edges to fetch based on direction
+      const direction = options?.direction ?? 'both'
+      const edgeType = options?.edgeType as EdgeType | undefined
+
+      let edges: ProviderEdge[] = []
+
+      if (direction === 'out' || direction === 'both') {
+        const outEdges = await store.query.edgesFrom(localId, edgeType)
+        for (const edge of outEdges) {
+          edges.push({
+            from: edge.from_id,
+            to: edge.to_id,
+            type: edge.type,
+            metadata: edge.metadata,
+          })
+        }
+      }
+
+      if (direction === 'in' || direction === 'both') {
+        const inEdges = await store.query.edgesTo(localId, edgeType)
+        for (const edge of inEdges) {
+          edges.push({
+            from: edge.from_id,
+            to: edge.to_id,
+            type: edge.type,
+            metadata: edge.metadata,
+          })
+        }
+      }
+
+      // Deduplicate edges (in case of 'both' direction)
+      if (direction === 'both') {
+        const seen = new Set<string>()
+        edges = edges.filter((e) => {
+          const key = `${e.from}:${e.to}:${e.type}`
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+      }
+
+      // Apply additional filters if specified (when direction was used to fetch)
+      if (options?.edgeType && !edgeType) {
+        edges = filterEdgesByType(edges, options.edgeType)
+      }
+      if (options?.direction && options.direction !== 'both') {
+        edges = filterEdgesByDirection(edges, localId, options.direction)
+      }
+
+      // Apply limit
+      if (options?.limit && edges.length > options.limit) {
+        edges = edges.slice(0, options.limit)
+      }
+
+      return edges
+    },
+
+    supportedEdgeTypes(): EdgeTypeSupport[] {
+      // NativeProvider supports all built-in edge types with full capabilities
+      return [
+        { type: 'blocks', canQuery: true, canCreate: true, canDelete: true },
+        { type: 'blocked-by', canQuery: true, canCreate: true, canDelete: true },
+        { type: 'implements', canQuery: true, canCreate: true, canDelete: true },
+        { type: 'parent-of', canQuery: true, canCreate: true, canDelete: true },
+        { type: 'child-of', canQuery: true, canCreate: true, canDelete: true },
+        { type: 'discovered-from', canQuery: true, canCreate: true, canDelete: true },
+        { type: 'related', canQuery: true, canCreate: true, canDelete: true },
+        { type: 'references', canQuery: true, canCreate: true, canDelete: true },
+        { type: 'depends-on', canQuery: true, canCreate: true, canDelete: true },
+        { type: 'dependency-of', canQuery: true, canCreate: true, canDelete: true },
+        { type: 'duplicates', canQuery: true, canCreate: true, canDelete: true },
+        { type: 'supersedes', canQuery: true, canCreate: true, canDelete: true },
+      ]
     },
   }
 }

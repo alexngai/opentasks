@@ -293,6 +293,38 @@ describe('SQLitePersister', () => {
       const result = await persister.getEdge('x-r8s9')
       expect(result).toBeNull()
     })
+
+    it('creates and retrieves edge with metadata and cached_at', async () => {
+      const edgeWithMetadata: StoredEdge = {
+        ...testEdge,
+        id: 'x-meta1',
+        uuid: 'meta-uuid',
+        metadata: {
+          source_system: 'beads',
+          confidence: 0.95,
+          nested: { key: 'value' },
+        },
+        cached_at: '2025-01-26T12:00:00Z',
+      }
+      await persister.createEdge(edgeWithMetadata)
+      const result = await persister.getEdge('x-meta1')
+
+      expect(result).toBeDefined()
+      expect(result?.metadata).toEqual({
+        source_system: 'beads',
+        confidence: 0.95,
+        nested: { key: 'value' },
+      })
+      expect(result?.cached_at).toBe('2025-01-26T12:00:00Z')
+    })
+
+    it('handles edge without optional metadata and cached_at', async () => {
+      await persister.createEdge(testEdge)
+      const result = await persister.getEdge('x-r8s9')
+
+      expect(result?.metadata).toBeUndefined()
+      expect(result?.cached_at).toBeUndefined()
+    })
   })
 
   describe('tag operations', () => {

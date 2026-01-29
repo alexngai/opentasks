@@ -53,3 +53,18 @@ export {
   type MaterializationManager,
   type MaterializationContext,
 } from './materialization.js'
+
+// Traits
+export type {
+  RelationshipQueryable,
+  ProviderEdge,
+  EdgeDirection,
+  QueryEdgesOptions,
+} from './traits/index.js'
+
+export {
+  isRelationshipQueryable,
+  filterEdgesByType,
+  filterEdgesByDirection,
+  getNeighborFromEdge,
+} from './traits/index.js'

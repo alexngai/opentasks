@@ -58,4 +58,7 @@ export interface Edge {
 
   /** Additional metadata */
   metadata?: Record<string, unknown>
+
+  /** When edge was cached from provider (ISO 8601) */
+  cached_at?: string
 }

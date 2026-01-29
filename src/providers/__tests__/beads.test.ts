@@ -6,6 +6,8 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest'
 import { createBeadsProvider } from '../beads.js'
 import type { Provider } from '../types.js'
 import { ProviderError } from '../types.js'
+import type { RelationshipQueryable } from '../traits/RelationshipQueryable.js'
+import { isRelationshipQueryable } from '../traits/RelationshipQueryable.js'
 
 // Mock child_process
 vi.mock('child_process', () => ({
@@ -15,7 +17,7 @@ vi.mock('child_process', () => ({
 import { exec } from 'child_process'
 
 describe('BeadsProvider', () => {
-  let provider: Provider
+  let provider: Provider & RelationshipQueryable
   let mockExec: Mock
 
   // Helper to set up mock exec response
@@ -486,6 +488,263 @@ describe('BeadsProvider', () => {
 
       const callArgs = mockExec.mock.calls[0][0]
       expect(callArgs).toContain('/custom/bd')
+    })
+  })
+
+  describe('RelationshipQueryable', () => {
+    describe('isRelationshipQueryable', () => {
+      it('should return true for BeadsProvider', () => {
+        expect(isRelationshipQueryable(provider)).toBe(true)
+      })
+    })
+
+    describe('supportedEdgeTypes', () => {
+      it('should return supported edge types', () => {
+        const edgeTypes = provider.supportedEdgeTypes()
+
+        expect(edgeTypes).toHaveLength(2)
+        expect(edgeTypes).toContainEqual({
+          type: 'blocks',
+          canQuery: true,
+          canCreate: true,
+          canDelete: true,
+        })
+        expect(edgeTypes).toContainEqual({
+          type: 'parent-child',
+          canQuery: true,
+          canCreate: true,
+          canDelete: true,
+        })
+      })
+    })
+
+    describe('queryEdges', () => {
+      it('should return empty array for issue with no relationships', async () => {
+        mockExecResponse(JSON.stringify([{ id: 'bd-123', title: 'Test Issue' }]))
+
+        const edges = await provider.queryEdges('bd-123')
+
+        expect(edges).toEqual([])
+      })
+
+      it('should parse blocks relationships', async () => {
+        mockExecResponse(
+          JSON.stringify([
+            {
+              id: 'bd-123',
+              title: 'Test Issue',
+              blocks: ['bd-456', 'bd-789'],
+            },
+          ])
+        )
+
+        const edges = await provider.queryEdges('bd-123')
+
+        expect(edges).toHaveLength(2)
+        expect(edges).toContainEqual({
+          from: 'bd-123',
+          to: 'bd-456',
+          type: 'blocks',
+        })
+        expect(edges).toContainEqual({
+          from: 'bd-123',
+          to: 'bd-789',
+          type: 'blocks',
+        })
+      })
+
+      it('should parse blockedBy relationships', async () => {
+        mockExecResponse(
+          JSON.stringify([
+            {
+              id: 'bd-123',
+              title: 'Test Issue',
+              blockedBy: ['bd-001', 'bd-002'],
+            },
+          ])
+        )
+
+        const edges = await provider.queryEdges('bd-123')
+
+        expect(edges).toHaveLength(2)
+        expect(edges).toContainEqual({
+          from: 'bd-001',
+          to: 'bd-123',
+          type: 'blocks',
+        })
+        expect(edges).toContainEqual({
+          from: 'bd-002',
+          to: 'bd-123',
+          type: 'blocks',
+        })
+      })
+
+      it('should parse parent relationship', async () => {
+        mockExecResponse(
+          JSON.stringify([
+            {
+              id: 'bd-child',
+              title: 'Child Issue',
+              parent: 'bd-parent',
+            },
+          ])
+        )
+
+        const edges = await provider.queryEdges('bd-child')
+
+        expect(edges).toHaveLength(1)
+        expect(edges[0]).toEqual({
+          from: 'bd-parent',
+          to: 'bd-child',
+          type: 'parent-child',
+        })
+      })
+
+      it('should parse children relationships', async () => {
+        mockExecResponse(
+          JSON.stringify([
+            {
+              id: 'bd-parent',
+              title: 'Parent Issue',
+              children: ['bd-child1', 'bd-child2'],
+            },
+          ])
+        )
+
+        const edges = await provider.queryEdges('bd-parent')
+
+        expect(edges).toHaveLength(2)
+        expect(edges).toContainEqual({
+          from: 'bd-parent',
+          to: 'bd-child1',
+          type: 'parent-child',
+        })
+        expect(edges).toContainEqual({
+          from: 'bd-parent',
+          to: 'bd-child2',
+          type: 'parent-child',
+        })
+      })
+
+      it('should combine all relationship types', async () => {
+        mockExecResponse(
+          JSON.stringify([
+            {
+              id: 'bd-123',
+              title: 'Test Issue',
+              blocks: ['bd-456'],
+              blockedBy: ['bd-789'],
+              parent: 'bd-parent',
+              children: ['bd-child'],
+            },
+          ])
+        )
+
+        const edges = await provider.queryEdges('bd-123')
+
+        expect(edges).toHaveLength(4)
+      })
+
+      it('should filter by edge type', async () => {
+        mockExecResponse(
+          JSON.stringify([
+            {
+              id: 'bd-123',
+              title: 'Test Issue',
+              blocks: ['bd-456'],
+              parent: 'bd-parent',
+            },
+          ])
+        )
+
+        const edges = await provider.queryEdges('bd-123', { edgeType: 'blocks' })
+
+        expect(edges).toHaveLength(1)
+        expect(edges[0].type).toBe('blocks')
+      })
+
+      it('should filter by direction (out)', async () => {
+        mockExecResponse(
+          JSON.stringify([
+            {
+              id: 'bd-123',
+              title: 'Test Issue',
+              blocks: ['bd-456'], // outgoing
+              blockedBy: ['bd-789'], // incoming
+            },
+          ])
+        )
+
+        const edges = await provider.queryEdges('bd-123', { direction: 'out' })
+
+        expect(edges).toHaveLength(1)
+        expect(edges[0].from).toBe('bd-123')
+        expect(edges[0].to).toBe('bd-456')
+      })
+
+      it('should filter by direction (in)', async () => {
+        mockExecResponse(
+          JSON.stringify([
+            {
+              id: 'bd-123',
+              title: 'Test Issue',
+              blocks: ['bd-456'], // outgoing
+              blockedBy: ['bd-789'], // incoming
+            },
+          ])
+        )
+
+        const edges = await provider.queryEdges('bd-123', { direction: 'in' })
+
+        expect(edges).toHaveLength(1)
+        expect(edges[0].from).toBe('bd-789')
+        expect(edges[0].to).toBe('bd-123')
+      })
+
+      it('should apply limit', async () => {
+        mockExecResponse(
+          JSON.stringify([
+            {
+              id: 'bd-123',
+              title: 'Test Issue',
+              blocks: ['bd-1', 'bd-2', 'bd-3', 'bd-4', 'bd-5'],
+            },
+          ])
+        )
+
+        const edges = await provider.queryEdges('bd-123', { limit: 2 })
+
+        expect(edges).toHaveLength(2)
+      })
+
+      it('should query by full URI', async () => {
+        mockExecResponse(
+          JSON.stringify([
+            {
+              id: 'bd-123',
+              title: 'Test Issue',
+              blocks: ['bd-456'],
+            },
+          ])
+        )
+
+        const edges = await provider.queryEdges('beads://./bd-123')
+
+        expect(mockExec).toHaveBeenCalled()
+        const callArgs = mockExec.mock.calls[0][0]
+        expect(callArgs).toContain('bd show bd-123 --json')
+
+        expect(edges).toHaveLength(1)
+      })
+
+      it('should return empty array for non-existent issue', async () => {
+        const error = new Error('Issue not found') as Error & { code?: string }
+        mockExecError(error)
+
+        const edges = await provider.queryEdges('bd-notfound')
+
+        expect(edges).toEqual([])
+      })
     })
   })
 })

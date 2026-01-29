@@ -6,10 +6,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createNativeProvider } from '../native.js'
 import type { Provider, ProviderNode } from '../types.js'
 import type { GraphStore } from '../../graph/index.js'
-import type { Node, Spec, Issue, Feedback } from '../../schema/index.js'
+import type { Node, Spec, Issue, Feedback, Edge } from '../../schema/index.js'
+import type { RelationshipQueryable } from '../traits/RelationshipQueryable.js'
+import { isRelationshipQueryable } from '../traits/RelationshipQueryable.js'
 
 describe('NativeProvider', () => {
-  let provider: Provider
+  let provider: Provider & RelationshipQueryable
   let mockStore: GraphStore
 
   // Mock nodes for testing
@@ -50,6 +52,25 @@ describe('NativeProvider', () => {
     updated_at: '2024-01-01T00:00:00.000Z',
   }
 
+  // Mock edges for testing
+  const mockBlocksEdge: Edge = {
+    id: 'e-block1',
+    uuid: 'edge-uuid-1',
+    from_id: 'i-xyz2',
+    to_id: 's-abc1',
+    type: 'blocks',
+    created_at: '2024-01-01T00:00:00.000Z',
+  }
+
+  const mockImplementsEdge: Edge = {
+    id: 'e-impl1',
+    uuid: 'edge-uuid-2',
+    from_id: 'i-xyz2',
+    to_id: 's-abc1',
+    type: 'implements',
+    created_at: '2024-01-01T00:00:00.000Z',
+  }
+
   beforeEach(() => {
     mockStore = {
       getNode: vi.fn(),
@@ -59,13 +80,21 @@ describe('NativeProvider', () => {
       query: {
         nodes: vi.fn(),
         edges: vi.fn(),
+        edgesFrom: vi.fn().mockResolvedValue([]),
+        edgesTo: vi.fn().mockResolvedValue([]),
+        edgesFor: vi.fn().mockResolvedValue([]),
         blockers: vi.fn(),
         blocking: vi.fn(),
         ready: vi.fn(),
         children: vi.fn(),
         descendants: vi.fn(),
         ancestors: vi.fn(),
+        parent: vi.fn(),
+        implementers: vi.fn(),
+        specs: vi.fn(),
+        isBlocking: vi.fn(),
         feedback: vi.fn(),
+        unresolvedFeedback: vi.fn(),
       },
       initialize: vi.fn(),
       close: vi.fn(),
@@ -490,6 +519,171 @@ describe('NativeProvider', () => {
       expect(result?.rawData).toMatchObject({
         target_id: 's-abc1',
         feedback_type: 'comment',
+      })
+    })
+  })
+
+  describe('RelationshipQueryable', () => {
+    describe('isRelationshipQueryable', () => {
+      it('should return true for NativeProvider', () => {
+        expect(isRelationshipQueryable(provider)).toBe(true)
+      })
+    })
+
+    describe('supportedEdgeTypes', () => {
+      it('should return all built-in edge types', () => {
+        const edgeTypes = provider.supportedEdgeTypes()
+
+        expect(edgeTypes.length).toBe(12)
+        expect(edgeTypes).toContainEqual({
+          type: 'blocks',
+          canQuery: true,
+          canCreate: true,
+          canDelete: true,
+        })
+        expect(edgeTypes).toContainEqual({
+          type: 'implements',
+          canQuery: true,
+          canCreate: true,
+          canDelete: true,
+        })
+        expect(edgeTypes).toContainEqual({
+          type: 'parent-of',
+          canQuery: true,
+          canCreate: true,
+          canDelete: true,
+        })
+        expect(edgeTypes).toContainEqual({
+          type: 'related',
+          canQuery: true,
+          canCreate: true,
+          canDelete: true,
+        })
+      })
+    })
+
+    describe('queryEdges', () => {
+      it('should return empty array for non-existent node', async () => {
+        vi.mocked(mockStore.getNode).mockResolvedValue(null)
+
+        const edges = await provider.queryEdges('i-notfound')
+
+        expect(edges).toEqual([])
+      })
+
+      it('should return outgoing edges', async () => {
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+        vi.mocked(mockStore.query.edgesFrom).mockResolvedValue([mockBlocksEdge, mockImplementsEdge])
+        vi.mocked(mockStore.query.edgesTo).mockResolvedValue([])
+
+        const edges = await provider.queryEdges('i-xyz2', { direction: 'out' })
+
+        expect(mockStore.query.edgesFrom).toHaveBeenCalledWith('i-xyz2', undefined)
+        expect(edges).toHaveLength(2)
+        expect(edges[0]).toMatchObject({
+          from: 'i-xyz2',
+          to: 's-abc1',
+          type: 'blocks',
+        })
+        expect(edges[1]).toMatchObject({
+          from: 'i-xyz2',
+          to: 's-abc1',
+          type: 'implements',
+        })
+      })
+
+      it('should return incoming edges', async () => {
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockSpec)
+        vi.mocked(mockStore.query.edgesFrom).mockResolvedValue([])
+        vi.mocked(mockStore.query.edgesTo).mockResolvedValue([mockBlocksEdge])
+
+        const edges = await provider.queryEdges('s-abc1', { direction: 'in' })
+
+        expect(mockStore.query.edgesTo).toHaveBeenCalledWith('s-abc1', undefined)
+        expect(edges).toHaveLength(1)
+        expect(edges[0]).toMatchObject({
+          from: 'i-xyz2',
+          to: 's-abc1',
+          type: 'blocks',
+        })
+      })
+
+      it('should return both directions by default', async () => {
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+        vi.mocked(mockStore.query.edgesFrom).mockResolvedValue([mockImplementsEdge])
+        vi.mocked(mockStore.query.edgesTo).mockResolvedValue([mockBlocksEdge])
+
+        const edges = await provider.queryEdges('i-xyz2')
+
+        expect(mockStore.query.edgesFrom).toHaveBeenCalled()
+        expect(mockStore.query.edgesTo).toHaveBeenCalled()
+        expect(edges).toHaveLength(2)
+      })
+
+      it('should filter by edge type', async () => {
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+        vi.mocked(mockStore.query.edgesFrom).mockResolvedValue([mockBlocksEdge])
+
+        const edges = await provider.queryEdges('i-xyz2', {
+          direction: 'out',
+          edgeType: 'blocks',
+        })
+
+        expect(mockStore.query.edgesFrom).toHaveBeenCalledWith('i-xyz2', 'blocks')
+        expect(edges).toHaveLength(1)
+        expect(edges[0].type).toBe('blocks')
+      })
+
+      it('should deduplicate edges with both direction', async () => {
+        const sameEdge = mockBlocksEdge
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+        vi.mocked(mockStore.query.edgesFrom).mockResolvedValue([sameEdge])
+        vi.mocked(mockStore.query.edgesTo).mockResolvedValue([sameEdge])
+
+        const edges = await provider.queryEdges('i-xyz2', { direction: 'both' })
+
+        // Should deduplicate the same edge appearing in both directions
+        expect(edges).toHaveLength(1)
+      })
+
+      it('should apply limit', async () => {
+        const edges = [
+          { ...mockBlocksEdge, id: 'e-1', to_id: 's-1' },
+          { ...mockBlocksEdge, id: 'e-2', to_id: 's-2' },
+          { ...mockBlocksEdge, id: 'e-3', to_id: 's-3' },
+        ]
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+        vi.mocked(mockStore.query.edgesFrom).mockResolvedValue(edges)
+        vi.mocked(mockStore.query.edgesTo).mockResolvedValue([])
+
+        const result = await provider.queryEdges('i-xyz2', { direction: 'out', limit: 2 })
+
+        expect(result).toHaveLength(2)
+      })
+
+      it('should query by full URI', async () => {
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+        vi.mocked(mockStore.query.edgesFrom).mockResolvedValue([mockBlocksEdge])
+        vi.mocked(mockStore.query.edgesTo).mockResolvedValue([])
+
+        await provider.queryEdges('native://i-xyz2', { direction: 'out' })
+
+        expect(mockStore.getNode).toHaveBeenCalledWith('i-xyz2')
+        expect(mockStore.query.edgesFrom).toHaveBeenCalledWith('i-xyz2', undefined)
+      })
+
+      it('should include metadata in returned edges', async () => {
+        const edgeWithMetadata = {
+          ...mockBlocksEdge,
+          metadata: { reason: 'dependency' },
+        }
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+        vi.mocked(mockStore.query.edgesFrom).mockResolvedValue([edgeWithMetadata])
+        vi.mocked(mockStore.query.edgesTo).mockResolvedValue([])
+
+        const edges = await provider.queryEdges('i-xyz2', { direction: 'out' })
+
+        expect(edges[0].metadata).toEqual({ reason: 'dependency' })
       })
     })
   })

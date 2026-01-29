@@ -58,3 +58,63 @@ export type {
   ResolveOptions,
 } from './provider-store.js'
 export { createProviderAwareStore } from './provider-store.js'
+
+// Edge Type Registry
+export type {
+  EdgeTypeDefinition,
+  EdgeTypeSupport,
+  EdgeTypeLookupResult,
+} from './EdgeTypeRegistry.js'
+export {
+  EdgeTypeRegistry,
+  BUILTIN_EDGE_TYPES,
+  getEdgeTypeRegistry,
+  createEdgeTypeRegistry,
+  resetEdgeTypeRegistry,
+} from './EdgeTypeRegistry.js'
+
+// Graphology Adapter
+export type {
+  NodeURI,
+  GraphNodeAttributes,
+  GraphEdgeAttributes,
+  GraphologyAdapter,
+} from './GraphologyAdapter.js'
+export {
+  GraphologyAdapterImpl,
+  createGraphologyAdapter,
+} from './GraphologyAdapter.js'
+
+// Federated Graph
+export type {
+  TraversalDirection,
+  RelatedOptions,
+  ReachableOptions,
+  ShortestPathOptions,
+  NodePredicate,
+  EdgeStep,
+  TraversalPattern,
+  TraversalResult,
+  SelectorType,
+  ParsedSelector,
+  GraphCapabilities,
+  FederatedGraph,
+} from './FederatedGraph.js'
+export {
+  FederatedGraphImpl,
+  createFederatedGraph,
+} from './FederatedGraph.js'
+
+// Hydrating Federated Graph
+export type {
+  CacheConfig,
+  ResolvedNode,
+  FederatedReadyOptions,
+  HydratingFederatedGraph,
+  HydratingFederatedGraphConfig,
+} from './HydratingFederatedGraph.js'
+export {
+  DEFAULT_CACHE_CONFIG,
+  HydratingFederatedGraphImpl,
+  createHydratingFederatedGraph,
+} from './HydratingFederatedGraph.js'

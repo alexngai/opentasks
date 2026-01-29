@@ -11,7 +11,7 @@ import type { StoredNode, StoredEdge } from '../schema/storage.js'
 import type { EdgeType } from '../schema/edges.js'
 import type { Storage, Transaction, NodeFilter } from './interface.js'
 import { resolveNodeFilter } from './interface.js'
-import { ALL_SCHEMA } from './sqlite-schema.js'
+import { ALL_SCHEMA, applyMigrations } from './sqlite-schema.js'
 import { JSONLPersister } from './jsonl.js'
 
 /**
@@ -71,7 +71,7 @@ function rowToNode(row: Record<string, unknown>): StoredNode {
  * Map a database row to a StoredEdge
  */
 function rowToEdge(row: Record<string, unknown>): StoredEdge {
-  return {
+  const edge: StoredEdge = {
     id: row.id as string,
     uuid: row.uuid as string,
     from_id: row.from_id as string,
@@ -81,6 +81,18 @@ function rowToEdge(row: Record<string, unknown>): StoredEdge {
     created_by: row.created_by as string | undefined,
     source: row.source as string | undefined,
   }
+
+  // Add optional fields if present
+  if (row.metadata != null) {
+    try {
+      edge.metadata = JSON.parse(row.metadata as string)
+    } catch {
+      // Ignore parse errors
+    }
+  }
+  if (row.cached_at != null) edge.cached_at = row.cached_at as string
+
+  return edge
 }
 
 /**
@@ -116,6 +128,8 @@ export class SQLitePersister implements Storage {
     for (const sql of ALL_SCHEMA) {
       this.db.exec(sql)
     }
+    // Apply any pending migrations for existing databases
+    applyMigrations(this.db)
   }
 
   /**
@@ -333,8 +347,8 @@ export class SQLitePersister implements Storage {
 
   async createEdge(edge: StoredEdge): Promise<void> {
     const stmt = this.db.prepare(`
-      INSERT INTO edges (id, uuid, from_id, to_id, type, created_at, created_by, source)
-      VALUES (@id, @uuid, @from_id, @to_id, @type, @created_at, @created_by, @source)
+      INSERT INTO edges (id, uuid, from_id, to_id, type, created_at, created_by, source, metadata, cached_at)
+      VALUES (@id, @uuid, @from_id, @to_id, @type, @created_at, @created_by, @source, @metadata, @cached_at)
     `)
 
     stmt.run({
@@ -346,6 +360,8 @@ export class SQLitePersister implements Storage {
       created_at: edge.created_at,
       created_by: edge.created_by ?? null,
       source: edge.source ?? null,
+      metadata: edge.metadata ? JSON.stringify(edge.metadata) : null,
+      cached_at: edge.cached_at ?? null,
     })
   }
 
@@ -586,8 +602,8 @@ export class SQLitePersister implements Storage {
 
   private createEdgeSync(edge: StoredEdge): void {
     const stmt = this.db.prepare(`
-      INSERT INTO edges (id, uuid, from_id, to_id, type, created_at, created_by, source)
-      VALUES (@id, @uuid, @from_id, @to_id, @type, @created_at, @created_by, @source)
+      INSERT INTO edges (id, uuid, from_id, to_id, type, created_at, created_by, source, metadata, cached_at)
+      VALUES (@id, @uuid, @from_id, @to_id, @type, @created_at, @created_by, @source, @metadata, @cached_at)
     `)
 
     stmt.run({
@@ -599,6 +615,8 @@ export class SQLitePersister implements Storage {
       created_at: edge.created_at,
       created_by: edge.created_by ?? null,
       source: edge.source ?? null,
+      metadata: edge.metadata ? JSON.stringify(edge.metadata) : null,
+      cached_at: edge.cached_at ?? null,
     })
   }
 
