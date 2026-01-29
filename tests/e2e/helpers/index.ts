@@ -28,12 +28,23 @@ export {
 // Re-export GraphStore for direct access
 export type { GraphStore } from '../../../src/graph/store.js'
 
+// Re-export provider types for E2E tests
+export type {
+  Provider,
+  ProviderRegistry,
+  ProviderNode,
+  ProviderCreateInput,
+  ProviderUpdateInput,
+} from '../../../src/providers/types.js'
+
 // Test agent
 export type {
   TestAgentOptions,
   ExtendedLinkParams,
   QuickCreateSpecParams,
   QuickCreateIssueParams,
+  CreateSpecOptions,
+  CreateIssueOptions,
   TestAgent,
   MultiAgentContext,
 } from './test-agent.js'
@@ -42,6 +53,37 @@ export {
   createTestAgent,
   createMultiAgents,
 } from './test-agent.js'
+
+// Assertions
+export type {
+  ExpectFeedbackOptions,
+} from './assertions.js'
+
+export {
+  expectReady,
+  expectNotReady,
+  expectBlocks,
+  expectBlockers,
+  expectFeedback,
+  expectStatus,
+  expectTitle,
+} from './assertions.js'
+
+// Fixtures
+export type {
+  DiamondDependency,
+  SpecWithIssues,
+} from './fixtures.js'
+
+export {
+  resetFixtureCounter,
+  createTestSpec,
+  createTestIssue,
+  createBlockingChain,
+  createDiamondDependency,
+  createSpecWithIssues,
+  createBlockedIssue,
+} from './fixtures.js'
 
 // Re-export integration helpers that are useful for E2E tests
 export {

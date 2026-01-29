@@ -30,6 +30,11 @@ import {
 // Client
 import { OpenTasksClient, createClient } from '../../../src/client/index.js'
 
+// Providers
+import { createProviderRegistry, type ProviderRegistry } from '../../../src/providers/registry.js'
+import { createNativeProvider } from '../../../src/providers/native.js'
+import type { Provider } from '../../../src/providers/types.js'
+
 // Re-export test flags from integration helpers
 export { AGENT_TESTS, AGENT_SKIP_MESSAGE, SLOW_TESTS } from '../../integration/helpers/flags.js'
 
@@ -87,6 +92,12 @@ export interface E2ESystemContext {
 
   /** Storage type used */
   storageType: StorageType
+
+  /** Provider registry for resolving URIs */
+  providerRegistry: ProviderRegistry
+
+  /** Native provider for creating specs/issues */
+  nativeProvider: Provider
 
   /**
    * Create an additional client (for multi-agent tests)
@@ -178,6 +189,11 @@ export async function setupE2ESystem(options: E2ESystemOptions = {}): Promise<E2
   )
   await store.initialize()
 
+  // Create provider registry and native provider
+  const providerRegistry = createProviderRegistry()
+  const nativeProvider = createNativeProvider(store)
+  providerRegistry.register(nativeProvider)
+
   // Create flush manager (for tool handlers)
   const flushManager = createDaemonFlushManager(
     { debounceMs: flushDebounceMs, maxDelayMs: flushDebounceMs * 2 },
@@ -217,6 +233,8 @@ export async function setupE2ESystem(options: E2ESystemOptions = {}): Promise<E2
     store,
     client,
     storageType,
+    providerRegistry,
+    nativeProvider,
 
     async createClient(name?: string): Promise<OpenTasksClient> {
       const additionalClient = createClient({ socketPath })

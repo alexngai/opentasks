@@ -881,30 +881,59 @@ jobs:
 4. ✅ Create full system setup/teardown helpers
 
 **Deliverables:**
-- ✅ `tests/e2e/helpers/system-setup.ts` - Full system setup (IPC server, SQLite storage, graph store, tool handlers)
-- ✅ `tests/e2e/helpers/test-agent.ts` - TestAgent wrapper with 3-tool interface + convenience methods
+- ✅ `tests/e2e/helpers/system-setup.ts` - Full system setup (IPC server, SQLite storage, graph store, tool handlers, provider registry)
+- ✅ `tests/e2e/helpers/test-agent.ts` - TestAgent wrapper with 3-tool interface + provider operations + convenience methods
+- ✅ `tests/e2e/helpers/assertions.ts` - Assertion helpers (expectReady, expectNotReady, expectBlocks, expectBlockers, expectFeedback)
+- ✅ `tests/e2e/helpers/fixtures.ts` - Fixture helpers (createTestSpec, createTestIssue, createBlockingChain, createDiamondDependency)
 - ✅ `tests/e2e/helpers/index.ts` - Exports
-- ✅ `tests/e2e/infrastructure.e2e.test.ts` - 14 infrastructure smoke tests
+- ✅ `tests/e2e/infrastructure.e2e.test.ts` - 39 infrastructure tests
 - ✅ `vitest.e2e.config.ts` - E2E-specific configuration
 
 **Infrastructure Features:**
-- `setupE2ESystem()` / `withE2ESystem()` - Create isolated test environment with storage, IPC, and client
-- `createTestAgent()` - Wrap client with named agent and logging
+- `setupE2ESystem()` / `withE2ESystem()` - Create isolated test environment with storage, IPC, client, and provider registry
+- `createTestAgent()` - Wrap client with named agent, logging, and provider operations (createSpec, createIssue, updateNode, closeIssue, getNode)
 - `createMultiAgents()` - Create multiple agents for coordination tests
+- Assertion helpers for common test patterns
+- Fixture helpers for creating test data structures (chains, diamonds, spec+issues)
 - Automatic cleanup on teardown
 
-### Phase 6: Agent Workflow E2E Tests (RUN_FULL_AGENT_TESTS)
+### Phase 6: Agent Workflow E2E Tests (RUN_FULL_AGENT_TESTS) ✅ COMPLETE
 
 **Priority: High** - Core value proposition validation
 
-1. Spec-driven development workflow (create spec → create issue → close)
-2. Multi-agent coordination (blocking dependencies, ready queue)
-3. Feedback loop tests (annotate specs, close issues)
+1. ✅ Spec-driven development workflow (10 tests)
+   - Full spec→issue→close cycle
+   - Multiple issues implementing one spec
+   - Issue status filtering (open vs in_progress vs closed)
+   - Priority storage and retrieval
+   - Spec content preservation and updates
+
+2. ✅ Multi-agent coordination (9 tests)
+   - Sequential blocking between agents
+   - Cross-agent blocking relationships
+   - Diamond dependency resolution
+   - Concurrent issue creation
+   - Transitive blocking queries (blockers/blocking with transitive option)
+   - Agent isolation with shared state
+
+3. ✅ Feedback loop tests (10 tests)
+   - Basic feedback operations (add, query, types)
+   - Feedback with issue context (from_id)
+   - Resolve/reopen feedback lifecycle
+   - Dismiss and filter feedback
+   - Filter by type
+   - Anchored feedback
+   - Feedback assertion helper
 
 **Deliverables:**
-- `tests/e2e/workflows/spec-driven.e2e.test.ts`
-- `tests/e2e/workflows/multi-agent.e2e.test.ts`
-- `tests/e2e/workflows/feedback-loop.e2e.test.ts`
+- ✅ `tests/e2e/workflows/spec-driven.e2e.test.ts` - 10 tests
+- ✅ `tests/e2e/workflows/multi-agent.e2e.test.ts` - 9 tests
+- ✅ `tests/e2e/workflows/feedback-loop.e2e.test.ts` - 10 tests
+
+**Key Learnings:**
+- Ready query only returns `status: 'open'` issues (not `in_progress`)
+- Ready query doesn't sort by priority
+- LinkResult uses `success` and `edge_id` fields
 
 ### Phase 7: Provider Sync E2E Tests (RUN_FULL_AGENT_TESTS)
 
@@ -940,7 +969,7 @@ jobs:
 |------|--------|---------|
 | Unit | >90% | 926 tests ✅ |
 | Integration | >70% of external interfaces | 127 tests (Phases 1-4) ✅ |
-| E2E | >80% of documented workflows | 14 infrastructure tests (Phase 5) ✅ |
+| E2E | >80% of documented workflows | 68 tests (Phases 5-6) ✅ |
 
 ### Performance Baselines
 
@@ -948,7 +977,7 @@ jobs:
 |-----------|--------|----------|
 | Unit test suite | <10s | ~3s ✅ |
 | Integration test suite | <2min | ~20s ✅ |
-| E2E test suite | <10min | ~300ms (infrastructure only) ✅ |
+| E2E test suite | <10min | ~650ms (68 tests) ✅ |
 | Create 1000 nodes (JSONL) | <1s | <500ms ✅ |
 | Load 1000 nodes (JSONL) | <500ms | <100ms ✅ |
 | Insert 10k nodes (SQLite) | <5s | ~650ms ✅ |
@@ -962,8 +991,8 @@ jobs:
 2. ~~**Short-term:** Implement Phases 2-3 (storage + daemon integration tests)~~ ✅ DONE
 3. ~~**Medium-term:** Implement Phase 4 (provider + graph integration)~~ ✅ DONE
 4. ~~**Next:** Implement Phase 5 (E2E infrastructure)~~ ✅ DONE
-5. **Next:** Implement Phase 6 (agent workflow E2E tests)
-6. **Long-term:** Implement Phase 7 (provider sync E2E)
+5. ~~**Next:** Implement Phase 6 (agent workflow E2E tests)~~ ✅ DONE
+6. **Next:** Implement Phase 7 (provider sync E2E tests)
 
 The testing strategy prioritizes system-level tests (storage, daemon) first as they:
 - Have no external dependencies (no `bd` CLI needed)
@@ -978,8 +1007,8 @@ The testing strategy prioritizes system-level tests (storage, daemon) first as t
 | Phase 2: Storage | ✅ Complete | 33 tests (JSONL + SQLite) |
 | Phase 3: Daemon | ✅ Complete | 40 tests (lifecycle + IPC) |
 | Phase 4: Providers & Graph | ✅ Complete | 43 tests (BeadsProvider + FederatedGraph) |
-| Phase 5: E2E Infrastructure | ✅ Complete | 14 tests (system setup, TestAgent, multi-agent) |
-| Phase 6: Agent Workflows | Not started | - |
+| Phase 5: E2E Infrastructure | ✅ Complete | 39 tests (system setup, TestAgent, providers, assertions, fixtures) |
+| Phase 6: Agent Workflows | ✅ Complete | 29 tests (spec-driven, multi-agent, feedback-loop) |
 | Phase 7: Provider Sync | Not started | - |
 
-**Total Tests:** 1067 (926 unit + 127 integration + 14 E2E)
+**Total Tests:** 1121 (926 unit + 127 integration + 68 E2E)
