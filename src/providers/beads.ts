@@ -185,7 +185,13 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
       })
       return stdout.trim()
     } catch (error) {
-      const err = error as { code?: string; message?: string; killed?: boolean }
+      const err = error as {
+        code?: string | number
+        message?: string
+        killed?: boolean
+        stdout?: string
+        stderr?: string
+      }
 
       if (err.code === 'ENOENT') {
         throw new ProviderErrorClass(
@@ -199,9 +205,25 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
         throw new ProviderErrorClass('TIMEOUT', `Command timed out: ${command}`, 'beads')
       }
 
+      // Extract error details from stdout if available (bd returns JSON errors)
+      let errorMessage = err.message ?? 'Unknown error'
+      if (err.stdout) {
+        try {
+          const parsed = JSON.parse(err.stdout)
+          if (parsed.error) {
+            errorMessage = parsed.error
+          }
+        } catch {
+          // Not JSON, use stdout as-is if it has content
+          if (err.stdout.trim()) {
+            errorMessage = err.stdout.trim()
+          }
+        }
+      }
+
       throw new ProviderErrorClass(
         'OPERATION_FAILED',
-        `Beads CLI error: ${err.message}`,
+        `Beads CLI error: ${errorMessage}`,
         'beads',
         error instanceof Error ? error : undefined
       )

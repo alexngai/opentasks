@@ -36,7 +36,7 @@ export type { ValidationService } from './validation.js'
 export { createValidationService } from './validation.js'
 
 // Query
-export type { QueryEngine } from './query.js'
+export type { QueryEngine, NodeResolver, QueryEngineOptions } from './query.js'
 export { createQueryEngine } from './query.js'
 
 // Debounce (core timing utility)

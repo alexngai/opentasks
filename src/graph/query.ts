@@ -18,6 +18,39 @@ import type {
 import type { NodeFilter as StorageNodeFilter } from '../storage/interface.js'
 
 // ============================================================================
+// Cross-Provider Resolution Support
+// ============================================================================
+
+/**
+ * Pattern for local node IDs (s-, i-, f-, e-, x-)
+ */
+const LOCAL_ID_PATTERN = /^[sifex]-[a-z0-9]+$/
+
+/**
+ * Node resolver function for resolving external URIs
+ *
+ * When provided to the query engine, enables cross-provider query support.
+ * The resolver should handle external URIs (e.g., beads://./bd-123) and
+ * return the corresponding StoredNode, or null if not found.
+ */
+export type NodeResolver = (idOrUri: string) => Promise<StoredNode | null>
+
+/**
+ * Options for creating a query engine
+ */
+export interface QueryEngineOptions {
+  /** Storage for native nodes */
+  storage: Storage
+
+  /**
+   * Optional resolver for external nodes.
+   * If provided, queries like blockers/blocking/ready will resolve external URIs.
+   * If not provided, only local node IDs will be resolved.
+   */
+  nodeResolver?: NodeResolver
+}
+
+// ============================================================================
 // Query Engine Interface
 // ============================================================================
 
@@ -164,8 +197,48 @@ function toStorageFilter(filter: NodeFilter): StorageNodeFilter {
 
 /**
  * Create a query engine backed by a storage implementation
+ *
+ * @param options - Storage instance or QueryEngineOptions object
+ * @returns QueryEngine instance
+ *
+ * @example
+ * // Basic usage with storage only (native queries)
+ * const engine = createQueryEngine(storage)
+ *
+ * @example
+ * // With node resolver for cross-provider queries
+ * const engine = createQueryEngine({
+ *   storage,
+ *   nodeResolver: async (idOrUri) => {
+ *     return providerAwareStore.resolveNode(idOrUri)
+ *   }
+ * })
  */
-export function createQueryEngine(storage: Storage): QueryEngine {
+export function createQueryEngine(options: QueryEngineOptions | Storage): QueryEngine {
+  // Support both old signature (Storage) and new signature (QueryEngineOptions)
+  const storage: Storage = 'storage' in options ? options.storage : options
+  const nodeResolver: NodeResolver | undefined =
+    'nodeResolver' in options ? options.nodeResolver : undefined
+
+  /**
+   * Resolve a node by ID or URI
+   * Uses the nodeResolver for external URIs if available, otherwise falls back to storage
+   */
+  const resolveNode = async (idOrUri: string): Promise<StoredNode | null> => {
+    // For local IDs, always use storage directly
+    if (LOCAL_ID_PATTERN.test(idOrUri)) {
+      return storage.getNode(idOrUri)
+    }
+
+    // For URIs or unknown formats, try resolver first if available
+    if (nodeResolver) {
+      return nodeResolver(idOrUri)
+    }
+
+    // Fallback to storage (might work for materialized external nodes)
+    return storage.getNode(idOrUri)
+  }
+
   return {
     // =========================================================================
     // Basic Queries
@@ -258,7 +331,8 @@ export function createQueryEngine(storage: Storage): QueryEngine {
         const edges = await storage.getEdgesTo(id, 'blocks')
 
         for (const edge of edges) {
-          const blocker = await storage.getNode(edge.from_id)
+          // Use resolveNode to support cross-provider resolution
+          const blocker = await resolveNode(edge.from_id)
           if (!blocker) continue
 
           // Filter by activeOnly
@@ -294,7 +368,8 @@ export function createQueryEngine(storage: Storage): QueryEngine {
         const edges = await storage.getEdgesFrom(id, 'blocks')
 
         for (const edge of edges) {
-          const blocked = await storage.getNode(edge.to_id)
+          // Use resolveNode to support cross-provider resolution
+          const blocked = await resolveNode(edge.to_id)
           if (!blocked) continue
 
           // Filter by activeOnly
@@ -349,7 +424,8 @@ export function createQueryEngine(storage: Storage): QueryEngine {
 
       const issues: Issue[] = []
       for (const edge of edges) {
-        const node = await storage.getNode(edge.from_id)
+        // Use resolveNode to support cross-provider resolution
+        const node = await resolveNode(edge.from_id)
         if (node) {
           const parsed = safeParseNode(node)
           if (parsed && isIssue(parsed)) {
@@ -367,7 +443,8 @@ export function createQueryEngine(storage: Storage): QueryEngine {
 
       const specs: Spec[] = []
       for (const edge of edges) {
-        const node = await storage.getNode(edge.to_id)
+        // Use resolveNode to support cross-provider resolution
+        const node = await resolveNode(edge.to_id)
         if (node) {
           const parsed = safeParseNode(node)
           if (parsed && isSpec(parsed)) {
@@ -475,7 +552,8 @@ export function createQueryEngine(storage: Storage): QueryEngine {
 
         let hasActiveBlocker = false
         for (const edge of blockerEdges) {
-          const blocker = await storage.getNode(edge.from_id)
+          // Use resolveNode to support cross-provider resolution
+          const blocker = await resolveNode(edge.from_id)
           if (blocker && isActiveNode(blocker)) {
             hasActiveBlocker = true
             break

@@ -935,16 +935,76 @@ jobs:
 - Ready query doesn't sort by priority
 - LinkResult uses `success` and `edge_id` fields
 
-### Phase 7: Provider Sync E2E Tests (RUN_FULL_AGENT_TESTS)
+### Phase 7: Provider Sync E2E Tests (RUN_FULL_AGENT_TESTS) ✅ COMPLETE
 
-**Priority: Low** - Advanced features
+**Priority: Medium** - Cross-provider integration validation
 
-1. OpenTasks ↔ Beads materialization
-2. Background sync lifecycle
-3. Cross-system reference resolution
+**Purpose:** Test cross-provider blocking dependencies between NativeProvider and BeadsProvider, hydration/caching behavior, materialization strategies, and background sync.
+
+**Requirements:**
+- `bd` CLI installed (tests skip gracefully if unavailable)
+- `RUN_FULL_AGENT_TESTS=1` environment variable
+
+1. ✅ Hydration & Caching tests (12 tests)
+   - First access hydration from BeadsProvider
+   - cached_at timestamp tracking
+   - Cache reuse without re-fetching when fresh
+   - Staleness detection (TTL-based, non-hydrated nodes)
+   - Missing/non-existent node handling
+   - Concurrent hydration (same node, different nodes)
+   - Resolve API (single and batch resolution)
+
+2. ✅ Cross-provider edges (8 tests, 1 skipped)
+   - Native → External edge creation and queries
+   - External → Native edge creation and queries
+   - Bidirectional traversal via federated graph
+   - Transitive cross-provider chains (Native → Beads → Native)
+   - Ready query with cross-provider blockers
+   - Status change detection (skipped - requires cache invalidation investigation)
+
+3. ✅ Federated ready query (10 tests)
+   - Basic ready query (unblocked, closed blocker, open blocker)
+   - Cross-provider blockers (open external blocks, closed external unblocks)
+   - Multiple blockers (all native, mixed native+external)
+   - External status mapping (closed, open, in_progress)
+
+4. ✅ Materialization strategies (10 tests)
+   - Lazy strategy (materialize on resolve, explicit flag)
+   - On-demand strategy (explicit request only)
+   - Eager strategy (all access types)
+   - None strategy (never materialize)
+   - Per-provider strategy overrides
+   - Staleness detection (TTL, missing cached_at, stale flag)
+   - URI extraction for strategy lookup
+
+5. ✅ Background sync (16 tests)
+   - Start/stop lifecycle (running state, stop behavior)
+   - Configuration (interval=0 disables, negative interval, multiple starts)
+   - Materialization context (access types, explicit flag)
+   - Strategy handling (lazy, eager, on-demand, none)
+   - Default configuration and partial config merging
 
 **Deliverables:**
-- `tests/e2e/workflows/provider-sync.e2e.test.ts`
+- ✅ `tests/e2e/helpers/beads-helpers.ts` - Beads CLI helpers (isBdAvailable, createBeadsTask, getBeadsTask, updateBeadsStatus)
+- ✅ `tests/e2e/workflows/provider-sync/hydration.e2e.test.ts` - 12 tests
+- ✅ `tests/e2e/workflows/provider-sync/cross-provider-edges.e2e.test.ts` - 8 tests (1 skipped)
+- ✅ `tests/e2e/workflows/provider-sync/federated-ready.e2e.test.ts` - 10 tests
+- ✅ `tests/e2e/workflows/provider-sync/materialization.e2e.test.ts` - 10 tests
+- ✅ `tests/e2e/workflows/provider-sync/background-sync.e2e.test.ts` - 16 tests
+
+**Key Technical Patterns:**
+- Cross-provider queries use `HydratingFederatedGraph.related()` instead of daemon queries
+- Native nodes use `native://` URI prefix and must be added to GraphologyAdapter
+- bd CLI only supports statuses: `open`, `closed`, `blocked`, `in_progress`
+- CLOSED_STATUSES list includes: `closed`, `done`, `resolved`, `completed`, `cancelled`
+
+**Running Provider Sync Tests:**
+```bash
+# Run all provider sync tests (requires bd CLI)
+RUN_FULL_AGENT_TESTS=1 npx vitest run tests/e2e/workflows/provider-sync/
+
+# Tests skip gracefully if bd CLI is not available
+```
 
 ---
 
@@ -969,7 +1029,7 @@ jobs:
 |------|--------|---------|
 | Unit | >90% | 926 tests ✅ |
 | Integration | >70% of external interfaces | 127 tests (Phases 1-4) ✅ |
-| E2E | >80% of documented workflows | 68 tests (Phases 5-6) ✅ |
+| E2E | >80% of documented workflows | 124 tests (Phases 5-7) ✅ |
 
 ### Performance Baselines
 
@@ -977,7 +1037,7 @@ jobs:
 |-----------|--------|----------|
 | Unit test suite | <10s | ~3s ✅ |
 | Integration test suite | <2min | ~20s ✅ |
-| E2E test suite | <10min | ~650ms (68 tests) ✅ |
+| E2E test suite | <10min | ~2s (124 tests) ✅ |
 | Create 1000 nodes (JSONL) | <1s | <500ms ✅ |
 | Load 1000 nodes (JSONL) | <500ms | <100ms ✅ |
 | Insert 10k nodes (SQLite) | <5s | ~650ms ✅ |
@@ -992,7 +1052,12 @@ jobs:
 3. ~~**Medium-term:** Implement Phase 4 (provider + graph integration)~~ ✅ DONE
 4. ~~**Next:** Implement Phase 5 (E2E infrastructure)~~ ✅ DONE
 5. ~~**Next:** Implement Phase 6 (agent workflow E2E tests)~~ ✅ DONE
-6. **Next:** Implement Phase 7 (provider sync E2E tests)
+6. ~~**Next:** Implement Phase 7 (provider sync E2E tests)~~ ✅ DONE
+
+**All phases complete!** Future work may include:
+- ClaudeTasksProvider integration tests (when accessible outside Claude Code sessions)
+- Additional stress/performance tests for large graphs
+- CI integration with bd CLI installation
 
 The testing strategy prioritizes system-level tests (storage, daemon) first as they:
 - Have no external dependencies (no `bd` CLI needed)
@@ -1009,6 +1074,8 @@ The testing strategy prioritizes system-level tests (storage, daemon) first as t
 | Phase 4: Providers & Graph | ✅ Complete | 43 tests (BeadsProvider + FederatedGraph) |
 | Phase 5: E2E Infrastructure | ✅ Complete | 39 tests (system setup, TestAgent, providers, assertions, fixtures) |
 | Phase 6: Agent Workflows | ✅ Complete | 29 tests (spec-driven, multi-agent, feedback-loop) |
-| Phase 7: Provider Sync | Not started | - |
+| Phase 7: Provider Sync | ✅ Complete | 56 tests (hydration, cross-provider, federated-ready, materialization, background-sync) |
 
-**Total Tests:** 1121 (926 unit + 127 integration + 68 E2E)
+**Total Tests:** 1177 (926 unit + 127 integration + 124 E2E)
+
+**Note:** Provider sync tests require `bd` CLI and skip gracefully if unavailable. Run with `RUN_FULL_AGENT_TESTS=1`.

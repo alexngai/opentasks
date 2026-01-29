@@ -33,7 +33,20 @@ import { OpenTasksClient, createClient } from '../../../src/client/index.js'
 // Providers
 import { createProviderRegistry, type ProviderRegistry } from '../../../src/providers/registry.js'
 import { createNativeProvider } from '../../../src/providers/native.js'
+import { createBeadsProvider, type BeadsConfig } from '../../../src/providers/beads.js'
 import type { Provider } from '../../../src/providers/types.js'
+import { createMaterializationManager, type MaterializationManager } from '../../../src/providers/materialization.js'
+
+// Federated Graph
+import { createGraphologyAdapter, type GraphologyAdapter } from '../../../src/graph/GraphologyAdapter.js'
+import {
+  createHydratingFederatedGraph,
+  type HydratingFederatedGraph,
+  type CacheConfig,
+} from '../../../src/graph/HydratingFederatedGraph.js'
+
+// Beads helpers
+import { isBdAvailable, createBeadsWorkspace, getBdExecutable, type BeadsWorkspaceContext } from './beads-helpers.js'
 
 // Re-export test flags from integration helpers
 export { AGENT_TESTS, AGENT_SKIP_MESSAGE, SLOW_TESTS } from '../../integration/helpers/flags.js'
@@ -58,6 +71,19 @@ export interface E2ESystemOptions {
 
   /** Flush manager debounce in ms (default: 100 for fast tests) */
   flushDebounceMs?: number
+
+  /** Enable BeadsProvider integration (requires bd CLI) */
+  enableBeads?: boolean
+
+  /** Cache TTL in milliseconds for HydratingGraph (default: 1000 for fast tests) */
+  cacheTTL?: number
+
+  /**
+   * Reuse an existing Beads workspace instead of creating a new one.
+   * When provided, the workspace will NOT be cleaned up on stop().
+   * Use this with beforeAll/afterAll to share workspace across tests.
+   */
+  beadsWorkspacePath?: string
 }
 
 /**
@@ -98,6 +124,24 @@ export interface E2ESystemContext {
 
   /** Native provider for creating specs/issues */
   nativeProvider: Provider
+
+  /** Beads workspace directory (if bd available and enabled) */
+  beadsWorkspace?: string
+
+  /** BeadsProvider instance (if bd available and enabled) */
+  beadsProvider?: Provider
+
+  /** Graphology adapter for in-memory graph */
+  graphologyAdapter: GraphologyAdapter
+
+  /** Hydrating federated graph for cross-provider operations */
+  hydratingGraph: HydratingFederatedGraph
+
+  /** Materialization manager for external node caching */
+  materializationManager: MaterializationManager
+
+  /** Whether Beads integration is available */
+  beadsAvailable: boolean
 
   /**
    * Create an additional client (for multi-agent tests)
@@ -141,6 +185,9 @@ export async function setupE2ESystem(options: E2ESystemOptions = {}): Promise<E2
     createStructure = true,
     testName = 'e2e',
     flushDebounceMs = 100, // Fast debounce for tests
+    enableBeads = false,
+    cacheTTL = 1000, // Short TTL for fast tests
+    beadsWorkspacePath,
   } = options
 
   // Create temp directory
@@ -194,6 +241,71 @@ export async function setupE2ESystem(options: E2ESystemOptions = {}): Promise<E2
   const nativeProvider = createNativeProvider(store)
   providerRegistry.register(nativeProvider)
 
+  // Check if Beads is available and set up if requested
+  let beadsAvailable = false
+  let beadsWorkspaceContext: BeadsWorkspaceContext | undefined
+  let beadsProvider: Provider | undefined
+  let ownsBeadsWorkspace = false // Track if we created the workspace (for cleanup)
+
+  if (enableBeads) {
+    beadsAvailable = await isBdAvailable()
+    if (beadsAvailable) {
+      let beadsDir: string
+
+      if (beadsWorkspacePath) {
+        // Reuse existing workspace (don't clean up on stop)
+        beadsDir = beadsWorkspacePath
+        ownsBeadsWorkspace = false
+      } else {
+        // Create new Beads workspace in temp directory
+        beadsDir = join(rootDir, 'beads-workspace')
+        beadsWorkspaceContext = await createBeadsWorkspace(beadsDir, 'bd')
+        ownsBeadsWorkspace = true
+      }
+
+      // Create and register BeadsProvider
+      const beadsConfig: BeadsConfig = {
+        executable: getBdExecutable(),
+        cwd: beadsDir,
+        timeout: 30000,
+      }
+      beadsProvider = createBeadsProvider(beadsConfig)
+      providerRegistry.register(beadsProvider)
+
+      // If reusing workspace, create a minimal context for the path
+      if (!beadsWorkspaceContext) {
+        beadsWorkspaceContext = {
+          path: beadsDir,
+          prefix: 'bd',
+          async cleanup() {
+            // No-op for reused workspace
+          },
+        }
+      }
+    }
+  }
+
+  // Create Graphology adapter and load from storage
+  const graphologyAdapter = createGraphologyAdapter()
+  await graphologyAdapter.loadFromStorage(sqlite as Storage)
+
+  // Create materialization manager
+  const materializationManager = createMaterializationManager({
+    default: 'lazy',
+    staleAfter: cacheTTL,
+  })
+
+  // Create hydrating federated graph
+  const hydratingGraph = createHydratingFederatedGraph(graphologyAdapter, {
+    storage: sqlite as Storage,
+    providerRegistry,
+    cacheConfig: {
+      defaultTTL: cacheTTL,
+      staleWhileRevalidate: true,
+      providerTTL: {},
+    },
+  })
+
   // Create flush manager (for tool handlers)
   const flushManager = createDaemonFlushManager(
     { debounceMs: flushDebounceMs, maxDelayMs: flushDebounceMs * 2 },
@@ -235,6 +347,12 @@ export async function setupE2ESystem(options: E2ESystemOptions = {}): Promise<E2
     storageType,
     providerRegistry,
     nativeProvider,
+    beadsWorkspace: beadsWorkspaceContext?.path,
+    beadsProvider,
+    graphologyAdapter,
+    hydratingGraph,
+    materializationManager,
+    beadsAvailable,
 
     async createClient(name?: string): Promise<OpenTasksClient> {
       const additionalClient = createClient({ socketPath })
@@ -248,6 +366,11 @@ export async function setupE2ESystem(options: E2ESystemOptions = {}): Promise<E2
     },
 
     async stop(): Promise<void> {
+      // Stop background sync if running
+      if (materializationManager.isBackgroundSyncRunning()) {
+        materializationManager.stopBackgroundSync()
+      }
+
       // Disconnect all clients
       for (const c of additionalClients) {
         c.disconnect()
@@ -262,6 +385,11 @@ export async function setupE2ESystem(options: E2ESystemOptions = {}): Promise<E2
 
       // Close SQLite
       sqlite.close()
+
+      // Clean up Beads workspace only if we created it
+      if (beadsWorkspaceContext && ownsBeadsWorkspace) {
+        await beadsWorkspaceContext.cleanup()
+      }
 
       // Clean up temp directory
       if (existsSync(rootDir)) {

@@ -754,4 +754,249 @@ describe('QueryEngine', () => {
       expect(result[0].id).toBe('f-1')
     })
   })
+
+  // ============================================================================
+  // Cross-Provider Resolution Tests
+  // ============================================================================
+
+  describe('Cross-Provider Resolution', () => {
+    describe('with nodeResolver', () => {
+      it('blockers() should call resolver for external URIs', async () => {
+        const externalNode: StoredNode = {
+          id: 'x-ext1',
+          uuid: 'ext-uuid-1',
+          type: 'external',
+          title: 'External Blocker',
+          status: 'open',
+          uri: 'beads://./bd-blocker',
+          source: 'beads',
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z',
+        }
+
+        // Setup mock resolver
+        const mockResolver = vi.fn().mockResolvedValue(externalNode)
+
+        // Create engine with resolver
+        const engineWithResolver = createQueryEngine({
+          storage,
+          nodeResolver: mockResolver,
+        })
+
+        // Setup storage mocks
+        vi.mocked(storage.getEdgesTo).mockResolvedValue([
+          createEdge('e-1', 'beads://./bd-blocker', 'i-local', 'blocks'),
+        ])
+
+        await engineWithResolver.blockers('i-local')
+
+        // Resolver should be called for external URI
+        expect(mockResolver).toHaveBeenCalledWith('beads://./bd-blocker')
+        // Note: External nodes don't appear in results because they don't
+        // parse as valid Node types (spec/issue/feedback). The resolver is
+        // still called to support ready() blocking checks.
+      })
+
+      it('blockers() should return local issues resolved via resolver', async () => {
+        // When resolver returns a valid issue type, it should be in results
+        const localBlocker = createIssue('i-blocker', 'Local Blocker')
+        const mockResolver = vi.fn().mockResolvedValue(localBlocker)
+
+        const engineWithResolver = createQueryEngine({
+          storage,
+          nodeResolver: mockResolver,
+        })
+
+        vi.mocked(storage.getEdgesTo).mockResolvedValue([
+          createEdge('e-1', 'beads://./bd-blocker', 'i-local', 'blocks'),
+        ])
+
+        const result = await engineWithResolver.blockers('i-local')
+
+        expect(mockResolver).toHaveBeenCalledWith('beads://./bd-blocker')
+        expect(result).toHaveLength(1)
+        expect(result[0].title).toBe('Local Blocker')
+      })
+
+      it('blockers() should use storage for local IDs even with resolver', async () => {
+        const localBlocker = createIssue('i-blocker', 'Local Blocker')
+        const mockResolver = vi.fn()
+
+        const engineWithResolver = createQueryEngine({
+          storage,
+          nodeResolver: mockResolver,
+        })
+
+        vi.mocked(storage.getNode).mockResolvedValue(localBlocker)
+        vi.mocked(storage.getEdgesTo).mockResolvedValue([
+          createEdge('e-1', 'i-blocker', 'i-local', 'blocks'),
+        ])
+
+        await engineWithResolver.blockers('i-local')
+
+        // Resolver should NOT be called for local IDs
+        expect(mockResolver).not.toHaveBeenCalled()
+        expect(storage.getNode).toHaveBeenCalledWith('i-blocker')
+      })
+
+      it('blocking() should call resolver for external URIs', async () => {
+        const externalNode: StoredNode = {
+          id: 'x-ext1',
+          uuid: 'ext-uuid-1',
+          type: 'external',
+          title: 'External Blocked',
+          status: 'open',
+          uri: 'beads://./bd-blocked',
+          source: 'beads',
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z',
+        }
+
+        const mockResolver = vi.fn().mockResolvedValue(externalNode)
+        const engineWithResolver = createQueryEngine({
+          storage,
+          nodeResolver: mockResolver,
+        })
+
+        vi.mocked(storage.getEdgesFrom).mockResolvedValue([
+          createEdge('e-1', 'i-blocker', 'beads://./bd-blocked', 'blocks'),
+        ])
+
+        await engineWithResolver.blocking('i-blocker')
+
+        // Resolver should be called for external URI
+        expect(mockResolver).toHaveBeenCalledWith('beads://./bd-blocked')
+        // Note: External nodes don't appear in results because they don't
+        // parse as valid Node types (spec/issue/feedback).
+      })
+
+      it('blocking() should return local issues resolved via resolver', async () => {
+        const localBlocked = createIssue('i-blocked', 'Local Blocked Issue')
+        const mockResolver = vi.fn().mockResolvedValue(localBlocked)
+
+        const engineWithResolver = createQueryEngine({
+          storage,
+          nodeResolver: mockResolver,
+        })
+
+        vi.mocked(storage.getEdgesFrom).mockResolvedValue([
+          createEdge('e-1', 'i-blocker', 'beads://./bd-blocked', 'blocks'),
+        ])
+
+        const result = await engineWithResolver.blocking('i-blocker')
+
+        expect(mockResolver).toHaveBeenCalledWith('beads://./bd-blocked')
+        expect(result).toHaveLength(1)
+        expect(result[0].title).toBe('Local Blocked Issue')
+      })
+
+      it('ready() should consider external blockers when resolver provided', async () => {
+        const localIssue = createIssue('i-ready', 'Ready Issue')
+        const externalBlocker: StoredNode = {
+          id: 'x-ext1',
+          uuid: 'ext-uuid-1',
+          type: 'external',
+          title: 'External Blocker',
+          status: 'open', // Active blocker
+          uri: 'beads://./bd-blocker',
+          source: 'beads',
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z',
+        }
+
+        const mockResolver = vi.fn().mockResolvedValue(externalBlocker)
+        const engineWithResolver = createQueryEngine({
+          storage,
+          nodeResolver: mockResolver,
+        })
+
+        vi.mocked(storage.queryNodes).mockResolvedValue([localIssue])
+        vi.mocked(storage.getEdgesTo).mockResolvedValue([
+          createEdge('e-1', 'beads://./bd-blocker', 'i-ready', 'blocks'),
+        ])
+
+        const result = await engineWithResolver.ready()
+
+        // Issue should NOT be ready because external blocker is active
+        expect(result).toHaveLength(0)
+      })
+
+      it('ready() should include issue when external blocker is closed', async () => {
+        const localIssue = createIssue('i-ready', 'Ready Issue')
+        const closedBlocker: StoredNode = {
+          id: 'x-ext1',
+          uuid: 'ext-uuid-1',
+          type: 'external',
+          title: 'Closed External Blocker',
+          status: 'closed', // Closed - not blocking
+          uri: 'beads://./bd-blocker',
+          source: 'beads',
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z',
+        }
+
+        const mockResolver = vi.fn().mockResolvedValue(closedBlocker)
+        const engineWithResolver = createQueryEngine({
+          storage,
+          nodeResolver: mockResolver,
+        })
+
+        vi.mocked(storage.queryNodes).mockResolvedValue([localIssue])
+        vi.mocked(storage.getEdgesTo).mockResolvedValue([
+          createEdge('e-1', 'beads://./bd-blocker', 'i-ready', 'blocks'),
+        ])
+
+        const result = await engineWithResolver.ready()
+
+        // Issue should be ready because external blocker is closed
+        expect(result).toHaveLength(1)
+        expect(result[0].id).toBe('i-ready')
+      })
+
+      it('resolver returning null should skip the node', async () => {
+        const mockResolver = vi.fn().mockResolvedValue(null)
+        const engineWithResolver = createQueryEngine({
+          storage,
+          nodeResolver: mockResolver,
+        })
+
+        vi.mocked(storage.getEdgesTo).mockResolvedValue([
+          createEdge('e-1', 'beads://./bd-missing', 'i-local', 'blocks'),
+        ])
+
+        const result = await engineWithResolver.blockers('i-local')
+
+        expect(mockResolver).toHaveBeenCalledWith('beads://./bd-missing')
+        expect(result).toHaveLength(0)
+      })
+    })
+
+    describe('without nodeResolver (backward compatibility)', () => {
+      it('blockers() should skip external URIs that storage cannot find', async () => {
+        vi.mocked(storage.getNode).mockResolvedValue(null)
+        vi.mocked(storage.getEdgesTo).mockResolvedValue([
+          createEdge('e-1', 'beads://./bd-blocker', 'i-local', 'blocks'),
+        ])
+
+        const result = await engine.blockers('i-local')
+
+        expect(result).toHaveLength(0)
+      })
+
+      it('ready() should not be blocked by unresolvable external nodes', async () => {
+        const localIssue = createIssue('i-ready', 'Ready Issue')
+
+        vi.mocked(storage.queryNodes).mockResolvedValue([localIssue])
+        vi.mocked(storage.getEdgesTo).mockResolvedValue([
+          createEdge('e-1', 'beads://./bd-unresolvable', 'i-ready', 'blocks'),
+        ])
+        vi.mocked(storage.getNode).mockResolvedValue(null)
+
+        const result = await engine.ready()
+
+        // Issue should be ready because blocker cannot be resolved
+        expect(result).toHaveLength(1)
+      })
+    })
+  })
 })

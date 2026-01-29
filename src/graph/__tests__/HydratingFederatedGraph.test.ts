@@ -279,6 +279,68 @@ describe('HydratingFederatedGraph', () => {
       // Node should now be stale
       expect(graph.isStale('beads://./bd-123')).toBe(true)
     })
+
+    it('persists cache invalidation to storage', async () => {
+      // Hydrate a node
+      ;(mockProvider.get as Mock).mockResolvedValue(mockProviderNode)
+      await graph.hydrate('beads://./bd-123')
+
+      // Reset the mock to track invalidation calls
+      ;(mockStorage.updateNode as Mock).mockClear()
+
+      // Invalidate cache
+      await graph.invalidateCache('beads')
+
+      // Storage.updateNode should be called with cached_at: undefined
+      expect(mockStorage.updateNode).toHaveBeenCalled()
+      const updateCall = (mockStorage.updateNode as Mock).mock.calls[0]
+      expect(updateCall[1]).toMatchObject({
+        cached_at: undefined,
+      })
+    })
+
+    it('does not throw when storage update fails', async () => {
+      // Hydrate a node
+      ;(mockProvider.get as Mock).mockResolvedValue(mockProviderNode)
+      await graph.hydrate('beads://./bd-123')
+
+      // Make storage.updateNode fail
+      ;(mockStorage.updateNode as Mock).mockRejectedValue(new Error('Storage error'))
+
+      // Should not throw
+      await expect(graph.invalidateCache('beads')).resolves.not.toThrow()
+
+      // Node should still be stale in memory
+      expect(graph.isStale('beads://./bd-123')).toBe(true)
+    })
+
+    it('only invalidates nodes from specified provider', async () => {
+      // Add a beads node
+      ;(mockProvider.get as Mock).mockResolvedValue(mockProviderNode)
+      await graph.hydrate('beads://./bd-123')
+
+      // Add a native node (no source)
+      const nativeNode: StoredNode = {
+        id: 'i-native',
+        uuid: 'native-uuid',
+        type: 'issue',
+        title: 'Native Issue',
+        status: 'open',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+      adapter.onNodeCreated(nativeNode)
+
+      ;(mockStorage.updateNode as Mock).mockClear()
+
+      // Invalidate only beads
+      await graph.invalidateCache('beads')
+
+      // Only the beads node should have been invalidated
+      expect(graph.isStale('beads://./bd-123')).toBe(true)
+      // Native node should not be stale (it has no source)
+      expect(graph.isStale('native://i-native')).toBe(false)
+    })
   })
 
   describe('isStale()', () => {

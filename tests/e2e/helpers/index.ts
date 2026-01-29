@@ -37,6 +37,11 @@ export type {
   ProviderUpdateInput,
 } from '../../../src/providers/types.js'
 
+// Re-export graph types for E2E tests
+export type { GraphologyAdapter } from '../../../src/graph/GraphologyAdapter.js'
+export type { HydratingFederatedGraph, CacheConfig } from '../../../src/graph/HydratingFederatedGraph.js'
+export type { MaterializationManager } from '../../../src/providers/materialization.js'
+
 // Test agent
 export type {
   TestAgentOptions,
@@ -92,3 +97,26 @@ export {
   retry,
   type WaitOptions,
 } from '../../integration/helpers/index.js'
+
+// Beads helpers for provider sync tests
+export type {
+  CreateBeadsTaskOptions,
+  UpdateBeadsTaskOptions,
+  BeadsTask,
+  BeadsWorkspaceContext,
+} from './beads-helpers.js'
+
+export {
+  isBdAvailable,
+  getBdExecutable,
+  resetBdAvailableCache,
+  BD_SKIP_MESSAGE,
+  createBeadsWorkspace,
+  createBeadsTask,
+  getBeadsTask,
+  updateBeadsStatus,
+  updateBeadsTask,
+  deleteBeadsTask,
+  linkBeadsTasks,
+  listBeadsTasks,
+} from './beads-helpers.js'

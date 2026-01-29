@@ -340,9 +340,24 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
       }
     }
 
-    // Mark as stale by clearing cached_at
+    // Mark as stale by clearing cached_at in both graph AND storage
     for (const uri of nodesToInvalidate) {
+      // Update in-memory graph
       this.adapter.graph.setNodeAttribute(uri, 'cached_at', undefined)
+
+      // Persist to SQLite storage for durability across restarts
+      const attrs = this.adapter.graph.getNodeAttributes(uri)
+      const nodeId = attrs?.data?.id
+      if (nodeId) {
+        try {
+          await this.storage.updateNode(nodeId, {
+            cached_at: undefined,
+            updated_at: new Date().toISOString(),
+          })
+        } catch {
+          // Node may not exist in storage (graph-only placeholder) - continue
+        }
+      }
     }
   }
 
