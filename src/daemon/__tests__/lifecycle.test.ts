@@ -305,4 +305,36 @@ describe('Daemon Lifecycle', () => {
       expect(daemon2.getStatus().state).toBe('stopped')
     })
   })
+
+  describe('OpenTasksConfig integration', () => {
+    it('should use custom socket path from config', () => {
+      daemon = createDaemon(
+        createTestConfig({
+          openTasksConfig: {
+            daemon: { socketPath: 'custom.sock' },
+          },
+        })
+      )
+
+      expect(daemon.socketPath).toBe(path.join(locationPath, 'custom.sock'))
+    })
+
+    it('should use default socket path when config not provided', () => {
+      daemon = createDaemon(createTestConfig())
+
+      expect(daemon.socketPath).toBe(path.join(locationPath, 'daemon.sock'))
+    })
+
+    it('should use default socket path when daemon config is partial', () => {
+      daemon = createDaemon(
+        createTestConfig({
+          openTasksConfig: {
+            storage: { jsonlPath: 'custom.jsonl' },
+          },
+        })
+      )
+
+      expect(daemon.socketPath).toBe(path.join(locationPath, 'daemon.sock'))
+    })
+  })
 })

@@ -7,6 +7,35 @@
  */
 
 // =============================================================================
+// Config
+// =============================================================================
+
+export {
+  loadConfig,
+  getDefaults,
+  parseEnvConfig,
+  mergeConfigs,
+  validateConfig,
+  parseConfig,
+  ConfigParseError,
+  ConfigValidationError,
+  DEFAULT_CONFIG,
+} from './config/index.js'
+
+export type {
+  OpenTasksConfig,
+  PartialOpenTasksConfig,
+  StorageConfig,
+  DaemonConfig as DaemonConfigOptions,
+  ProvidersConfig,
+  BeadsProviderConfig,
+  ClaudeTasksProviderConfig,
+  LoggingConfig,
+  LoggingLevel,
+  ValidationResult as ConfigValidationResult,
+} from './config/index.js'
+
+// =============================================================================
 // Core
 // =============================================================================
 

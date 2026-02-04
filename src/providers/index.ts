@@ -68,3 +68,10 @@ export {
   filterEdgesByDirection,
   getNeighborFromEdge,
 } from './traits/index.js'
+
+// Config-based Provider Factory
+export {
+  createProvidersFromConfig,
+  type CreateProvidersOptions,
+  type CreateProvidersResult,
+} from './from-config.js'

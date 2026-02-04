@@ -10,6 +10,7 @@ import * as path from 'node:path'
 import { createLockManager, type LockManager } from './lock.js'
 import { createRegistryManager, type RegistryManager } from './registry.js'
 import { DaemonError, type DaemonState, type DaemonStatus, type DaemonEntry } from './types.js'
+import type { OpenTasksConfig, PartialOpenTasksConfig } from '../config/index.js'
 
 // ============================================================================
 // Types
@@ -30,6 +31,9 @@ export interface DaemonConfig {
 
   /** Custom registry path (for testing) */
   registryPath?: string
+
+  /** OpenTasks config override (for custom paths) */
+  openTasksConfig?: PartialOpenTasksConfig
 }
 
 /**
@@ -110,10 +114,15 @@ export function createDaemon(config: DaemonConfig): Daemon {
     version,
     shutdownTimeoutMs = DEFAULT_SHUTDOWN_TIMEOUT_MS,
     registryPath,
+    openTasksConfig,
   } = config
 
-  const socketPath = path.join(locationPath, 'daemon.sock')
-  const databasePath = path.join(locationPath, 'cache.db')
+  // Use config values for paths, falling back to defaults
+  const socketFileName = openTasksConfig?.daemon?.socketPath ?? 'daemon.sock'
+  const databaseFileName = openTasksConfig?.storage?.sqlitePath ?? 'cache.db'
+
+  const socketPath = path.join(locationPath, socketFileName)
+  const databasePath = path.join(locationPath, databaseFileName)
 
   // State
   let state: DaemonState = 'stopped'
