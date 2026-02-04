@@ -534,6 +534,141 @@ async function queryWithExpansion(
 
 ---
 
+## Query Architecture
+
+OpenTasks provides multiple query layers with different trade-offs between performance and cross-provider support.
+
+### Query Layers Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Query Consumers                          │
+│           (Daemon methods, CLI, MCP tools, etc.)                │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+              ┌───────────────┴───────────────┐
+              │                               │
+              ▼                               ▼
+┌─────────────────────────┐   ┌───────────────────────────────────┐
+│    Native QueryEngine   │   │     Federated Query Methods       │
+│  (createQueryEngine)    │   │  (HydratingFederatedGraph.ready)  │
+│  - Storage-only queries │   │  - Cross-provider resolution      │
+│  - Local node IDs only  │   │  - Hydration on demand            │
+└─────────────────────────┘   └───────────────────────────────────┘
+              │                               │
+              ▼                               ▼
+┌─────────────────────────┐   ┌───────────────────────────────────┐
+│      SQLite Storage     │   │        Provider Registry          │
+│    (graph.jsonl sync)   │   │   (Native + External Providers)   │
+└─────────────────────────┘   └───────────────────────────────────┘
+```
+
+### Native Query Engine
+
+The base `QueryEngine` operates on local SQLite storage:
+
+```typescript
+import { createQueryEngine } from './graph/query.js'
+
+// Create storage-only query engine
+const queryEngine = createQueryEngine(storage)
+
+// Queries resolve local node IDs only
+const blockers = await queryEngine.blockers('i-abc123')
+// External URI blockers (beads://...) are silently skipped
+```
+
+**Use cases:**
+- Quick local queries when external providers are unavailable
+- Performance-critical paths
+- Backward-compatible API
+
+### Federated Query Engine
+
+For cross-provider queries, provide a `nodeResolver`:
+
+```typescript
+import { createQueryEngine, type NodeResolver } from './graph/query.js'
+
+const resolver: NodeResolver = async (idOrUri) => {
+  return providerAwareStore.resolveNode(idOrUri)
+}
+
+const queryEngine = createQueryEngine({
+  storage,
+  nodeResolver: resolver,
+})
+
+// Now queries resolve both local IDs and external URIs
+const blockers = await queryEngine.blockers('i-abc123')
+```
+
+**How resolution works:**
+1. Local IDs (matching `/^[sifex]-[a-z0-9]+$/`) use storage directly
+2. External URIs (e.g., `beads://./bd-123`) go through the resolver
+
+### HydratingFederatedGraph
+
+Provides high-level federated queries with automatic hydration:
+
+```typescript
+const graph = createHydratingFederatedGraph(adapter, {
+  storage,
+  providerRegistry,
+  cacheConfig: { defaultTTL: 5 * 60 * 1000 }
+})
+
+// Federated ready query - considers blockers from all providers
+const readyIssues = await graph.ready({
+  type: 'issue',
+  status: 'open',
+  providers: ['native', 'beads']
+})
+
+// Resolve any URI to full node data
+const node = await graph.resolve('beads://./bd-123')
+
+// Traverse relationships across providers
+const blockers = graph.related('native://i-123', {
+  edgeType: 'blocks',
+  direction: 'in'
+})
+```
+
+### Cache Management
+
+External node data is cached in SQLite with TTL-based staleness:
+
+```typescript
+// Check staleness
+const isStale = graph.isStale('beads://./bd-123')
+
+// Invalidate cache (persists to storage)
+await graph.invalidateCache('beads')
+```
+
+**Important:** Cache invalidation persists to SQLite storage, ensuring invalidation survives process restarts.
+
+### Provider URI Conventions
+
+| Source | URI Format | Example |
+|--------|------------|---------|
+| Native | `native://{id}` | `native://i-abc123` |
+| Beads | `beads://{workspace}/{id}` | `beads://./bd-xyz789` |
+| Jira | `jira://{project}/{key}` | `jira://PROJ/PROJ-123` |
+
+### Query Method Resolution
+
+| Method | Without Resolver | With Resolver |
+|--------|------------------|---------------|
+| `blockers()` | Local IDs only | Resolves external URIs |
+| `blocking()` | Local IDs only | Resolves external URIs |
+| `ready()` | Skips unresolvable blockers | Considers all blockers |
+
+**Note:** External nodes affect `ready()` blocking behavior but don't appear in `blockers()`/`blocking()` results (they're not valid `Node` types).
+
+---
+
 ## Compaction and Deletion
 
 ### File Structure

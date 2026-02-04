@@ -1,0 +1,303 @@
+/**
+ * Tool Types
+ *
+ * Parameter and result types for the 3-tool agent interface.
+ */
+
+import type { Node, Edge, EdgeType, NodeType } from '../schema/index.js'
+import type {
+  NodeFilter,
+  EdgeFilter,
+  ReadyOptions,
+  BlockerOptions,
+  FeedbackOptions,
+} from '../graph/types.js'
+
+// Re-export for convenience
+export type { EdgeType, NodeType, Node, Edge }
+export type { NodeFilter, EdgeFilter, ReadyOptions, BlockerOptions, FeedbackOptions }
+
+// ============================================================================
+// Link Tool Types
+// ============================================================================
+
+/**
+ * Parameters for the link tool
+ */
+export interface LinkParams {
+  /** Source node ID or provider URI */
+  from_id: string
+
+  /** Target node ID or provider URI */
+  to_id: string
+
+  /** Relationship type */
+  type: EdgeType
+
+  /** Remove the edge instead of creating (default: false) */
+  remove?: boolean
+
+  /** Additional metadata for the edge */
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * Result from the link tool
+ */
+export interface LinkResult {
+  /** Whether the operation succeeded */
+  success: boolean
+
+  /** ID of the created edge (only when creating) */
+  edge_id?: string
+
+  /** Error message if operation failed */
+  error?: string
+}
+
+// ============================================================================
+// Query Tool Types
+// ============================================================================
+
+/**
+ * Parameters for querying blockers/blocking nodes
+ */
+export interface BlockerQueryParams {
+  /** Node ID to find blockers for */
+  node_id: string
+
+  /** Include transitive blockers (default: false) */
+  transitive?: boolean
+
+  /** Only include active (non-closed, non-archived) blockers (default: true) */
+  active_only?: boolean
+}
+
+/**
+ * Parameters for querying feedback
+ */
+export interface FeedbackQueryParams {
+  /** Node ID to get feedback for */
+  node_id: string
+
+  /** Filter by feedback type */
+  type?: 'comment' | 'suggestion' | 'request'
+
+  /** Filter by resolution status */
+  resolved?: boolean
+
+  /** Include dismissed feedback (default: false) */
+  include_dismissed?: boolean
+}
+
+/**
+ * Parameters for the query tool
+ *
+ * Exactly one query type must be specified.
+ */
+export interface QueryParams {
+  /** Query nodes with filter */
+  nodes?: NodeFilter
+
+  /** Query edges with filter */
+  edges?: EdgeFilter
+
+  /** Get unblocked issues ready to work on */
+  ready?: ReadyOptions
+
+  /** Get nodes blocking a specific node */
+  blockers?: BlockerQueryParams
+
+  /** Get nodes blocked by a specific node */
+  blocking?: BlockerQueryParams
+
+  /** Get feedback on a specific node */
+  feedback?: FeedbackQueryParams
+
+  /** Return full objects instead of summaries (default: false) */
+  verbose?: boolean
+
+  /** Maximum results to return (default: 50) */
+  limit?: number
+
+  /** Pagination offset (default: 0) */
+  offset?: number
+}
+
+/**
+ * Reduced node representation for context economy
+ */
+export interface NodeSummary {
+  /** Node ID */
+  id: string
+
+  /** Node type */
+  type: NodeType
+
+  /** Node title */
+  title: string
+
+  /** Issue status (only for issues) */
+  status?: string
+
+  /** Priority (0=highest, 4=lowest) */
+  priority?: number
+
+  /** Whether the node is archived */
+  archived: boolean
+}
+
+/**
+ * Reduced edge representation for context economy
+ */
+export interface EdgeSummary {
+  /** Edge ID */
+  id: string
+
+  /** Source node ID */
+  from_id: string
+
+  /** Target node ID */
+  to_id: string
+
+  /** Relationship type */
+  type: EdgeType
+}
+
+/**
+ * Reduced feedback representation for context economy
+ */
+export interface FeedbackSummary {
+  /** Feedback ID */
+  id: string
+
+  /** Target node ID */
+  target_id: string
+
+  /** Feedback type */
+  feedback_type: 'comment' | 'suggestion' | 'request'
+
+  /** Whether resolved */
+  resolved: boolean
+
+  /** Whether dismissed */
+  dismissed: boolean
+
+  /** Content preview (truncated) */
+  content_preview: string
+}
+
+/**
+ * Result from the query tool
+ */
+export interface QueryResult {
+  /** Query results (type depends on query and verbose flag) */
+  items: NodeSummary[] | EdgeSummary[] | FeedbackSummary[] | Node[] | Edge[]
+
+  /** Total count if available */
+  total?: number
+
+  /** Whether more results exist beyond limit */
+  has_more: boolean
+}
+
+// ============================================================================
+// Annotate Tool Types
+// ============================================================================
+
+/**
+ * Feedback type
+ */
+export type FeedbackType = 'comment' | 'suggestion' | 'request'
+
+/**
+ * Anchor for feedback positioning
+ */
+export interface FeedbackAnchor {
+  /** Line number in target content */
+  line?: number
+
+  /** Text snippet to anchor to */
+  text?: string
+}
+
+/**
+ * Parameters for creating new feedback
+ */
+export interface CreateFeedbackParams {
+  /** Feedback content (markdown) */
+  content: string
+
+  /** Feedback type (default: comment) */
+  type?: FeedbackType
+
+  /** Anchor in target content */
+  anchor?: FeedbackAnchor
+}
+
+/**
+ * Parameters for the annotate tool
+ *
+ * Exactly one operation must be specified.
+ */
+export interface AnnotateParams {
+  /** Target node ID receiving annotation */
+  target_id: string
+
+  /** Create new feedback */
+  create?: CreateFeedbackParams
+
+  /** Resolve feedback by ID */
+  resolve?: string
+
+  /** Dismiss feedback by ID */
+  dismiss?: string
+
+  /** Reopen resolved/dismissed feedback by ID */
+  reopen?: string
+
+  /** Issue ID providing feedback (creates link) */
+  from_id?: string
+}
+
+/**
+ * Result from the annotate tool
+ */
+export interface AnnotateResult {
+  /** Whether the operation succeeded */
+  success: boolean
+
+  /** ID of created/modified feedback */
+  feedback_id?: string
+
+  /** Error message if operation failed */
+  error?: string
+}
+
+// ============================================================================
+// Utility Types
+// ============================================================================
+
+/**
+ * Error codes for tool operations
+ */
+export type ToolErrorCode =
+  | 'NOT_FOUND'
+  | 'VALIDATION_ERROR'
+  | 'INVALID_PARAMS'
+  | 'CYCLE_DETECTED'
+  | 'OPERATION_FAILED'
+
+/**
+ * Tool operation error
+ */
+export class ToolError extends Error {
+  constructor(
+    public readonly code: ToolErrorCode,
+    message: string,
+    public readonly details?: Record<string, unknown>
+  ) {
+    super(message)
+    this.name = 'ToolError'
+  }
+}
