@@ -12,10 +12,12 @@ import type {
   BlockerOptions,
   FeedbackOptions,
 } from '../graph/types.js'
+import type { OperationContext } from '../graph/coordination.js'
 
 // Re-export for convenience
 export type { EdgeType, NodeType, Node, Edge }
 export type { NodeFilter, EdgeFilter, ReadyOptions, BlockerOptions, FeedbackOptions }
+export type { OperationContext }
 
 // ============================================================================
 // Link Tool Types

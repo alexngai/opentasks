@@ -75,3 +75,30 @@ export {
   type CreateProvidersOptions,
   type CreateProvidersResult,
 } from './from-config.js'
+
+// Sync Extensions
+export type {
+  VersionInfo,
+  SyncState,
+  SyncStatus,
+  ConflictInfo,
+  ConflictVersion,
+  ConflictResolution,
+  ResolutionResult,
+  SyncEventType,
+  SyncEvent,
+  SyncEventCallback,
+  SyncableProvider,
+  PushResult,
+  SyncManager,
+  SyncDirection,
+  SyncOptions,
+  SyncResult,
+} from './sync.js'
+export {
+  isSyncableProvider,
+  calculateContentHash,
+  compareVersions,
+  hasConflict,
+  suggestResolution,
+} from './sync.js'

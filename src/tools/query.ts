@@ -12,6 +12,7 @@ import type {
   NodeSummary,
   EdgeSummary,
   FeedbackSummary,
+  OperationContext,
 } from './types.js'
 
 // ============================================================================
@@ -132,9 +133,14 @@ function paginate<T>(items: T[], limit: number, offset: number): { items: T[]; h
  *
  * @param store - Graph store for data operations
  * @param params - Query parameters
+ * @param _context - Optional operation context (unused but kept for API consistency)
  * @returns Query result with items and pagination info
  */
-export async function query(store: GraphStore, params: QueryParams): Promise<QueryResult> {
+export async function query(
+  store: GraphStore,
+  params: QueryParams,
+  _context?: OperationContext
+): Promise<QueryResult> {
   // Validate exactly one query type
   const queryTypeCount = countQueryTypes(params)
 

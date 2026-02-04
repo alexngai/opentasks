@@ -6,7 +6,7 @@
 
 import type { Anchor } from '../schema/index.js'
 import type { GraphStore } from '../graph/store.js'
-import type { AnnotateParams, AnnotateResult, FeedbackAnchor } from './types.js'
+import type { AnnotateParams, AnnotateResult, FeedbackAnchor, OperationContext } from './types.js'
 
 // ============================================================================
 // Constants
@@ -70,9 +70,14 @@ function countOperations(params: AnnotateParams): number {
  *
  * @param store - Graph store for data operations
  * @param params - Annotate parameters
+ * @param context - Optional operation context for tracking agent activity
  * @returns Annotate result with success status
  */
-export async function annotate(store: GraphStore, params: AnnotateParams): Promise<AnnotateResult> {
+export async function annotate(
+  store: GraphStore,
+  params: AnnotateParams,
+  context?: OperationContext
+): Promise<AnnotateResult> {
   // Validate targetId is provided
   if (!params.targetId) {
     return { success: false, error: 'Missing required parameter: targetId' }
@@ -98,19 +103,19 @@ export async function annotate(store: GraphStore, params: AnnotateParams): Promi
   try {
     // Dispatch to appropriate operation handler
     if (params.create !== undefined) {
-      return await createFeedback(store, params.targetId, params.create, params.fromId)
+      return await createFeedback(store, params.targetId, params.create, params.fromId, context)
     }
 
     if (params.resolve !== undefined) {
-      return await resolveFeedback(store, params.resolve)
+      return await resolveFeedback(store, params.resolve, context)
     }
 
     if (params.dismiss !== undefined) {
-      return await dismissFeedback(store, params.dismiss)
+      return await dismissFeedback(store, params.dismiss, context)
     }
 
     if (params.reopen !== undefined) {
-      return await reopenFeedback(store, params.reopen)
+      return await reopenFeedback(store, params.reopen, context)
     }
 
     // Should never reach here
@@ -134,7 +139,8 @@ async function createFeedback(
   store: GraphStore,
   targetId: string,
   params: NonNullable<AnnotateParams['create']>,
-  fromId?: string
+  fromId?: string,
+  context?: OperationContext
 ): Promise<AnnotateResult> {
   // Validate target exists
   const targetNode = await store.getNode(targetId)
@@ -150,6 +156,18 @@ async function createFeedback(
   // Build anchor
   const anchor = buildAnchor(params.anchor)
 
+  // Build metadata with context if provided
+  const metadata = context
+    ? {
+        _context: {
+          agentId: context.agentId,
+          agentName: context.agentName,
+          sessionId: context.sessionId,
+          timestamp: context.timestamp ?? new Date().toISOString(),
+        },
+      }
+    : undefined
+
   // Create feedback node (underlying storage uses snake_case)
   const feedbackNode = await store.createNode({
     type: 'feedback',
@@ -158,14 +176,27 @@ async function createFeedback(
     target_id: targetId,
     target_anchor: anchor,
     feedback_type: params.type || 'comment',
+    metadata,
   })
 
   // If fromId provided, create edge linking issue to feedback
   if (fromId) {
+    const edgeMetadata = context
+      ? {
+          _context: {
+            agentId: context.agentId,
+            agentName: context.agentName,
+            sessionId: context.sessionId,
+            timestamp: context.timestamp ?? new Date().toISOString(),
+          },
+        }
+      : undefined
+
     await store.createEdge({
       from_id: fromId,
       to_id: feedbackNode.id,
       type: 'discovered-from',
+      metadata: edgeMetadata,
     })
   }
 
@@ -175,7 +206,11 @@ async function createFeedback(
 /**
  * Mark feedback as resolved
  */
-async function resolveFeedback(store: GraphStore, feedbackId: string): Promise<AnnotateResult> {
+async function resolveFeedback(
+  store: GraphStore,
+  feedbackId: string,
+  _context?: OperationContext // Unused but kept for API consistency
+): Promise<AnnotateResult> {
   // Validate feedback exists
   const feedbackNode = await store.getNode(feedbackId)
   if (!feedbackNode) {
@@ -195,7 +230,11 @@ async function resolveFeedback(store: GraphStore, feedbackId: string): Promise<A
 /**
  * Mark feedback as dismissed
  */
-async function dismissFeedback(store: GraphStore, feedbackId: string): Promise<AnnotateResult> {
+async function dismissFeedback(
+  store: GraphStore,
+  feedbackId: string,
+  _context?: OperationContext // Unused but kept for API consistency
+): Promise<AnnotateResult> {
   // Validate feedback exists
   const feedbackNode = await store.getNode(feedbackId)
   if (!feedbackNode) {
@@ -215,7 +254,11 @@ async function dismissFeedback(store: GraphStore, feedbackId: string): Promise<A
 /**
  * Reopen resolved or dismissed feedback
  */
-async function reopenFeedback(store: GraphStore, feedbackId: string): Promise<AnnotateResult> {
+async function reopenFeedback(
+  store: GraphStore,
+  feedbackId: string,
+  _context?: OperationContext // Unused but kept for API consistency
+): Promise<AnnotateResult> {
   // Validate feedback exists
   const feedbackNode = await store.getNode(feedbackId)
   if (!feedbackNode) {
