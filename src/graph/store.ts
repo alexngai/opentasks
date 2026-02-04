@@ -642,7 +642,7 @@ export function createGraphStore(
           },
 
           async updateNode(id: string, updates: UpdateNodeInput): Promise<Node> {
-            const existing = await storage.getNode(id)
+            const existing = await storageTx.getNode(id)
             if (!existing) {
               throw new GraphError('NOT_FOUND', `Node not found: ${id}`)
             }
@@ -662,12 +662,12 @@ export function createGraphStore(
             syncManager.markDirty(id)
 
             const updated = { ...existing, ...changes }
-            const tags = await storage.getTags(id)
+            const tags = await storageTx.getTags(id)
             return parseNode({ ...updated, tags })
           },
 
           async deleteNode(id: string): Promise<void> {
-            const existing = await storage.getNode(id)
+            const existing = await storageTx.getNode(id)
             if (!existing) {
               throw new GraphError('NOT_FOUND', `Node not found: ${id}`)
             }
@@ -683,7 +683,7 @@ export function createGraphStore(
           },
 
           async createEdge(input: CreateEdgeInput): Promise<Edge> {
-            const result = await validation.validateCreateEdge(input, (id) => storage.getNode(id))
+            const result = await validation.validateCreateEdge(input, (id) => storageTx.getNode(id))
             if (!result.valid) {
               const error = result.errors[0]
               throw new GraphError(
@@ -696,7 +696,7 @@ export function createGraphStore(
               const cycleResult = await validation.detectCycle(
                 input.from_id,
                 input.to_id,
-                (nodeId) => storage.getEdgesFrom(nodeId, 'blocks')
+                (nodeId) => storageTx.getEdgesFrom(nodeId, 'blocks')
               )
               if (cycleResult.hasCycle) {
                 throw new GraphError('CYCLE_DETECTED', 'Creating this edge would create a cycle', {
@@ -726,7 +726,7 @@ export function createGraphStore(
           },
 
           async deleteEdge(id: string): Promise<void> {
-            const existing = await storage.getEdge(id)
+            const existing = await storageTx.getEdge(id)
             if (!existing) {
               throw new GraphError('NOT_FOUND', `Edge not found: ${id}`)
             }

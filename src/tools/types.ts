@@ -26,10 +26,10 @@ export type { NodeFilter, EdgeFilter, ReadyOptions, BlockerOptions, FeedbackOpti
  */
 export interface LinkParams {
   /** Source node ID or provider URI */
-  from_id: string
+  fromId: string
 
   /** Target node ID or provider URI */
-  to_id: string
+  toId: string
 
   /** Relationship type */
   type: EdgeType
@@ -49,7 +49,7 @@ export interface LinkResult {
   success: boolean
 
   /** ID of the created edge (only when creating) */
-  edge_id?: string
+  edgeId?: string
 
   /** Error message if operation failed */
   error?: string
@@ -64,13 +64,13 @@ export interface LinkResult {
  */
 export interface BlockerQueryParams {
   /** Node ID to find blockers for */
-  node_id: string
+  nodeId: string
 
   /** Include transitive blockers (default: false) */
   transitive?: boolean
 
   /** Only include active (non-closed, non-archived) blockers (default: true) */
-  active_only?: boolean
+  activeOnly?: boolean
 }
 
 /**
@@ -78,7 +78,7 @@ export interface BlockerQueryParams {
  */
 export interface FeedbackQueryParams {
   /** Node ID to get feedback for */
-  node_id: string
+  nodeId: string
 
   /** Filter by feedback type */
   type?: 'comment' | 'suggestion' | 'request'
@@ -87,7 +87,23 @@ export interface FeedbackQueryParams {
   resolved?: boolean
 
   /** Include dismissed feedback (default: false) */
-  include_dismissed?: boolean
+  includeDismissed?: boolean
+}
+
+/**
+ * Parameters for querying implementers of a spec
+ */
+export interface ImplementersQueryParams {
+  /** Spec ID to find implementers for */
+  specId: string
+}
+
+/**
+ * Parameters for querying specs an issue implements
+ */
+export interface SpecsQueryParams {
+  /** Issue ID to find specs for */
+  issueId: string
 }
 
 /**
@@ -113,6 +129,12 @@ export interface QueryParams {
 
   /** Get feedback on a specific node */
   feedback?: FeedbackQueryParams
+
+  /** Get issues that implement a spec */
+  implementers?: ImplementersQueryParams
+
+  /** Get specs that an issue implements */
+  specs?: SpecsQueryParams
 
   /** Return full objects instead of summaries (default: false) */
   verbose?: boolean
@@ -155,10 +177,10 @@ export interface EdgeSummary {
   id: string
 
   /** Source node ID */
-  from_id: string
+  fromId: string
 
   /** Target node ID */
-  to_id: string
+  toId: string
 
   /** Relationship type */
   type: EdgeType
@@ -172,10 +194,10 @@ export interface FeedbackSummary {
   id: string
 
   /** Target node ID */
-  target_id: string
+  targetId: string
 
   /** Feedback type */
-  feedback_type: 'comment' | 'suggestion' | 'request'
+  feedbackType: 'comment' | 'suggestion' | 'request'
 
   /** Whether resolved */
   resolved: boolean
@@ -184,7 +206,7 @@ export interface FeedbackSummary {
   dismissed: boolean
 
   /** Content preview (truncated) */
-  content_preview: string
+  contentPreview: string
 }
 
 /**
@@ -198,7 +220,7 @@ export interface QueryResult {
   total?: number
 
   /** Whether more results exist beyond limit */
-  has_more: boolean
+  hasMore: boolean
 }
 
 // ============================================================================
@@ -242,7 +264,7 @@ export interface CreateFeedbackParams {
  */
 export interface AnnotateParams {
   /** Target node ID receiving annotation */
-  target_id: string
+  targetId: string
 
   /** Create new feedback */
   create?: CreateFeedbackParams
@@ -257,7 +279,7 @@ export interface AnnotateParams {
   reopen?: string
 
   /** Issue ID providing feedback (creates link) */
-  from_id?: string
+  fromId?: string
 }
 
 /**
@@ -268,7 +290,7 @@ export interface AnnotateResult {
   success: boolean
 
   /** ID of created/modified feedback */
-  feedback_id?: string
+  feedbackId?: string
 
   /** Error message if operation failed */
   error?: string

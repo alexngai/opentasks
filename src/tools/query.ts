@@ -46,8 +46,8 @@ function toNodeSummary(node: Node): NodeSummary {
 function toEdgeSummary(edge: Edge): EdgeSummary {
   return {
     id: edge.id,
-    from_id: edge.from_id,
-    to_id: edge.to_id,
+    fromId: edge.from_id,
+    toId: edge.to_id,
     type: edge.type,
   }
 }
@@ -64,11 +64,11 @@ function toFeedbackSummary(feedback: Feedback): FeedbackSummary {
 
   return {
     id: feedback.id,
-    target_id: feedback.target_id,
-    feedback_type: feedback.feedback_type as 'comment' | 'suggestion' | 'request',
+    targetId: feedback.target_id,
+    feedbackType: feedback.feedback_type as 'comment' | 'suggestion' | 'request',
     resolved: feedback.resolved ?? false,
     dismissed: feedback.dismissed ?? false,
-    content_preview: preview,
+    contentPreview: preview,
   }
 }
 
@@ -87,6 +87,8 @@ function countQueryTypes(params: QueryParams): number {
   if (params.blockers !== undefined) count++
   if (params.blocking !== undefined) count++
   if (params.feedback !== undefined) count++
+  if (params.implementers !== undefined) count++
+  if (params.specs !== undefined) count++
   return count
 }
 
@@ -100,6 +102,8 @@ function getQueryTypeName(params: QueryParams): string {
   if (params.blockers !== undefined) return 'blockers'
   if (params.blocking !== undefined) return 'blocking'
   if (params.feedback !== undefined) return 'feedback'
+  if (params.implementers !== undefined) return 'implementers'
+  if (params.specs !== undefined) return 'specs'
   return 'unknown'
 }
 
@@ -110,13 +114,13 @@ function getQueryTypeName(params: QueryParams): string {
 /**
  * Apply pagination to results
  */
-function paginate<T>(items: T[], limit: number, offset: number): { items: T[]; has_more: boolean } {
+function paginate<T>(items: T[], limit: number, offset: number): { items: T[]; hasMore: boolean } {
   const start = offset
   const end = offset + limit
   const paginated = items.slice(start, end)
-  const has_more = items.length > end
+  const hasMore = items.length > end
 
-  return { items: paginated, has_more }
+  return { items: paginated, hasMore }
 }
 
 // ============================================================================
@@ -135,11 +139,11 @@ export async function query(store: GraphStore, params: QueryParams): Promise<Que
   const queryTypeCount = countQueryTypes(params)
 
   if (queryTypeCount === 0) {
-    throw new Error('No query type specified. Provide one of: nodes, edges, ready, blockers, blocking, feedback')
+    throw new Error('No query type specified. Provide one of: nodes, edges, ready, blockers, blocking, feedback, implementers, specs')
   }
 
   if (queryTypeCount > 1) {
-    throw new Error('Multiple query types specified. Provide exactly one of: nodes, edges, ready, blockers, blocking, feedback')
+    throw new Error('Multiple query types specified. Provide exactly one of: nodes, edges, ready, blockers, blocking, feedback, implementers, specs')
   }
 
   const limit = params.limit ?? DEFAULT_LIMIT
@@ -171,6 +175,14 @@ export async function query(store: GraphStore, params: QueryParams): Promise<Que
     return queryFeedback(store, params.feedback, limit, offset, verbose)
   }
 
+  if (params.implementers !== undefined) {
+    return queryImplementers(store, params.implementers, limit, offset, verbose)
+  }
+
+  if (params.specs !== undefined) {
+    return querySpecs(store, params.specs, limit, offset, verbose)
+  }
+
   // Should never reach here
   throw new Error('Unknown query type')
 }
@@ -189,20 +201,20 @@ async function queryNodes(
   // Query without limit/offset first to get total
   const allNodes = await store.query.nodes({ ...filter, limit: undefined, offset: undefined })
 
-  const { items: paginatedNodes, has_more } = paginate(allNodes, limit, offset)
+  const { items: paginatedNodes, hasMore } = paginate(allNodes, limit, offset)
 
   if (verbose) {
     return {
       items: paginatedNodes,
       total: allNodes.length,
-      has_more,
+      hasMore,
     }
   }
 
   return {
     items: paginatedNodes.map(toNodeSummary),
     total: allNodes.length,
-    has_more,
+    hasMore,
   }
 }
 
@@ -216,20 +228,20 @@ async function queryEdges(
   // Query without limit/offset first to get total
   const allEdges = await store.query.edges({ ...filter, limit: undefined, offset: undefined })
 
-  const { items: paginatedEdges, has_more } = paginate(allEdges, limit, offset)
+  const { items: paginatedEdges, hasMore } = paginate(allEdges, limit, offset)
 
   if (verbose) {
     return {
       items: paginatedEdges,
       total: allEdges.length,
-      has_more,
+      hasMore,
     }
   }
 
   return {
     items: paginatedEdges.map(toEdgeSummary),
     total: allEdges.length,
-    has_more,
+    hasMore,
   }
 }
 
@@ -243,20 +255,20 @@ async function queryReady(
   // Query without limit first to get total
   const allReady = await store.query.ready({ ...options, limit: undefined })
 
-  const { items: paginatedReady, has_more } = paginate(allReady, limit, offset)
+  const { items: paginatedReady, hasMore } = paginate(allReady, limit, offset)
 
   if (verbose) {
     return {
       items: paginatedReady,
       total: allReady.length,
-      has_more,
+      hasMore,
     }
   }
 
   return {
     items: paginatedReady.map(toNodeSummary),
     total: allReady.length,
-    has_more,
+    hasMore,
   }
 }
 
@@ -267,27 +279,27 @@ async function queryBlockers(
   offset: number,
   verbose: boolean
 ): Promise<QueryResult> {
-  const { node_id, transitive, active_only } = params
+  const { nodeId, transitive, activeOnly } = params
 
-  const allBlockers = await store.query.blockers(node_id, {
+  const allBlockers = await store.query.blockers(nodeId, {
     transitive,
-    activeOnly: active_only,
+    activeOnly,
   })
 
-  const { items: paginatedBlockers, has_more } = paginate(allBlockers, limit, offset)
+  const { items: paginatedBlockers, hasMore } = paginate(allBlockers, limit, offset)
 
   if (verbose) {
     return {
       items: paginatedBlockers,
       total: allBlockers.length,
-      has_more,
+      hasMore,
     }
   }
 
   return {
     items: paginatedBlockers.map(toNodeSummary),
     total: allBlockers.length,
-    has_more,
+    hasMore,
   }
 }
 
@@ -298,27 +310,27 @@ async function queryBlocking(
   offset: number,
   verbose: boolean
 ): Promise<QueryResult> {
-  const { node_id, transitive, active_only } = params
+  const { nodeId, transitive, activeOnly } = params
 
-  const allBlocking = await store.query.blocking(node_id, {
+  const allBlocking = await store.query.blocking(nodeId, {
     transitive,
-    activeOnly: active_only,
+    activeOnly,
   })
 
-  const { items: paginatedBlocking, has_more } = paginate(allBlocking, limit, offset)
+  const { items: paginatedBlocking, hasMore } = paginate(allBlocking, limit, offset)
 
   if (verbose) {
     return {
       items: paginatedBlocking,
       total: allBlocking.length,
-      has_more,
+      hasMore,
     }
   }
 
   return {
     items: paginatedBlocking.map(toNodeSummary),
     total: allBlocking.length,
-    has_more,
+    hasMore,
   }
 }
 
@@ -329,27 +341,83 @@ async function queryFeedback(
   offset: number,
   verbose: boolean
 ): Promise<QueryResult> {
-  const { node_id, type, resolved, include_dismissed } = params
+  const { nodeId, type, resolved, includeDismissed } = params
 
-  const allFeedback = await store.query.feedback(node_id, {
+  const allFeedback = await store.query.feedback(nodeId, {
     type,
     resolved,
-    includeDismissed: include_dismissed,
+    includeDismissed,
   })
 
-  const { items: paginatedFeedback, has_more } = paginate(allFeedback, limit, offset)
+  const { items: paginatedFeedback, hasMore } = paginate(allFeedback, limit, offset)
 
   if (verbose) {
     return {
       items: paginatedFeedback,
       total: allFeedback.length,
-      has_more,
+      hasMore,
     }
   }
 
   return {
     items: paginatedFeedback.map(toFeedbackSummary),
     total: allFeedback.length,
-    has_more,
+    hasMore,
+  }
+}
+
+async function queryImplementers(
+  store: GraphStore,
+  params: NonNullable<QueryParams['implementers']>,
+  limit: number,
+  offset: number,
+  verbose: boolean
+): Promise<QueryResult> {
+  const { specId } = params
+
+  const allImplementers = await store.query.implementers(specId)
+
+  const { items: paginatedImplementers, hasMore } = paginate(allImplementers, limit, offset)
+
+  if (verbose) {
+    return {
+      items: paginatedImplementers,
+      total: allImplementers.length,
+      hasMore,
+    }
+  }
+
+  return {
+    items: paginatedImplementers.map(toNodeSummary),
+    total: allImplementers.length,
+    hasMore,
+  }
+}
+
+async function querySpecs(
+  store: GraphStore,
+  params: NonNullable<QueryParams['specs']>,
+  limit: number,
+  offset: number,
+  verbose: boolean
+): Promise<QueryResult> {
+  const { issueId } = params
+
+  const allSpecs = await store.query.specs(issueId)
+
+  const { items: paginatedSpecs, hasMore } = paginate(allSpecs, limit, offset)
+
+  if (verbose) {
+    return {
+      items: paginatedSpecs,
+      total: allSpecs.length,
+      hasMore,
+    }
+  }
+
+  return {
+    items: paginatedSpecs.map(toNodeSummary),
+    total: allSpecs.length,
+    hasMore,
   }
 }

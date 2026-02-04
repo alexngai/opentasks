@@ -40,9 +40,26 @@ export interface NodeFilter {
 /**
  * Transaction interface for atomic operations
  *
- * Subset of Storage methods that work within a transaction context.
+ * Includes both read and write methods that work within a transaction context.
+ * Reads within a transaction see uncommitted writes from the same transaction.
  */
 export interface Transaction {
+  // === Read Operations (transaction-isolated) ===
+
+  /** Get a node by ID within transaction */
+  getNode(id: string): Promise<StoredNode | null>
+
+  /** Get an edge by ID within transaction */
+  getEdge(id: string): Promise<StoredEdge | null>
+
+  /** Get all tags for a node within transaction */
+  getTags(nodeId: string): Promise<string[]>
+
+  /** Get all edges from a node within transaction */
+  getEdgesFrom(nodeId: string, type?: EdgeType): Promise<StoredEdge[]>
+
+  // === Write Operations ===
+
   /** Create a new node within transaction */
   createNode(node: StoredNode, actor?: string): Promise<void>
 

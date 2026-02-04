@@ -268,9 +268,9 @@ export class OpenTasksClient {
    * @param options - Blocker query options
    * @returns Array of blocking node summaries
    */
-  async blockers(nodeId: string, options?: Omit<BlockerOptions, 'node_id'>): Promise<NodeSummary[]> {
+  async blockers(nodeId: string, options?: Omit<BlockerOptions, 'nodeId'>): Promise<NodeSummary[]> {
     const result = await this.query({
-      blockers: { node_id: nodeId, ...options },
+      blockers: { nodeId, ...options },
     })
     return result.items as NodeSummary[]
   }
@@ -282,9 +282,9 @@ export class OpenTasksClient {
    * @param options - Blocker query options
    * @returns Array of blocked node summaries
    */
-  async blocking(nodeId: string, options?: Omit<BlockerOptions, 'node_id'>): Promise<NodeSummary[]> {
+  async blocking(nodeId: string, options?: Omit<BlockerOptions, 'nodeId'>): Promise<NodeSummary[]> {
     const result = await this.query({
-      blocking: { node_id: nodeId, ...options },
+      blocking: { nodeId, ...options },
     })
     return result.items as NodeSummary[]
   }
@@ -296,9 +296,9 @@ export class OpenTasksClient {
    * @param options - Feedback query options
    * @returns Array of feedback summaries
    */
-  async feedback(nodeId: string, options?: Omit<FeedbackOptions, 'node_id'>): Promise<FeedbackSummary[]> {
+  async feedback(nodeId: string, options?: Omit<FeedbackOptions, 'nodeId'>): Promise<FeedbackSummary[]> {
     const result = await this.query({
-      feedback: { node_id: nodeId, ...options },
+      feedback: { nodeId, ...options },
     })
     return result.items as FeedbackSummary[]
   }
