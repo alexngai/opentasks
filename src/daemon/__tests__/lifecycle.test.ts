@@ -247,7 +247,7 @@ describe('Daemon Lifecycle', () => {
       await daemon.stop()
 
       const status = daemon.getStatus()
-      expect(status.startedAt).toBe('')
+      expect(status.startedAt).toBeNull()
     })
   })
 
@@ -260,7 +260,7 @@ describe('Daemon Lifecycle', () => {
       expect(status.state).toBe('stopped')
       expect(status.pid).toBe(process.pid)
       expect(status.socketPath).toBe(path.join(locationPath, 'daemon.sock'))
-      expect(status.startedAt).toBe('')
+      expect(status.startedAt).toBeNull()
       expect(status.pendingFlush).toBe(false)
       expect(status.connectionCount).toBe(0)
     })

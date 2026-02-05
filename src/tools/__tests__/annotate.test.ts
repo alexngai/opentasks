@@ -144,7 +144,7 @@ describe('annotate tool', () => {
         expect.objectContaining({
           type: 'feedback',
           content: 'This is test feedback',
-          targetId: 's-test1',
+          target_id: 's-test1',
           feedback_type: 'comment',
         })
       )
@@ -229,9 +229,10 @@ describe('annotate tool', () => {
 
       expect(result.success).toBe(true)
       expect(mockStore.createEdge).toHaveBeenCalledWith({
-        fromId: 'i-test1',
+        from_id: 'i-test1',
         to_id: expect.stringMatching(/^f-/),
         type: 'discovered-from',
+        metadata: undefined,
       })
     })
 

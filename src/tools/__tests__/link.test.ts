@@ -38,8 +38,8 @@ describe('link tool', () => {
       createEdge: vi.fn().mockImplementation(async (input) => {
         const edge = {
           id: `x-edge${++edgeCounter}`,
-          fromId: input.fromId,
-          toId: input.toId,
+          from_id: input.from_id,
+          to_id: input.to_id,
           type: input.type,
           metadata: input.metadata,
           created_at: new Date().toISOString(),
@@ -51,9 +51,9 @@ describe('link tool', () => {
         edges.delete(id)
       }),
       query: {
-        edges: vi.fn().mockImplementation(async ({ fromId, type }) => {
+        edges: vi.fn().mockImplementation(async ({ from_id, type }) => {
           return Array.from(edges.values()).filter(
-            (e: any) => e.fromId === fromId && (!type || e.type === type)
+            (e: any) => e.from_id === from_id && (!type || e.type === type)
           )
         }),
       },
@@ -73,8 +73,8 @@ describe('link tool', () => {
       expect(result.success).toBe(true)
       expect(result.edgeId).toBeDefined()
       expect(mockStore.createEdge).toHaveBeenCalledWith({
-        fromId: 'i-test1',
-        toId: 's-test1',
+        from_id: 'i-test1',
+        to_id: 's-test1',
         type: 'implements',
         metadata: undefined,
       })
@@ -105,8 +105,8 @@ describe('link tool', () => {
 
       expect(result.success).toBe(true)
       expect(mockStore.createEdge).toHaveBeenCalledWith({
-        fromId: 'i-test1',
-        toId: 's-test1',
+        from_id: 'i-test1',
+        to_id: 's-test1',
         type: 'references',
         metadata: { reason: 'related work' },
       })
