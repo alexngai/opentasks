@@ -93,6 +93,14 @@ export interface FeedbackQueryParams {
 }
 
 /**
+ * Parameters for querying unresolved feedback globally
+ */
+export interface UnresolvedFeedbackQueryParams {
+  /** Optional target node ID to filter by */
+  targetId?: string
+}
+
+/**
  * Parameters for querying implementers of a spec
  */
 export interface ImplementersQueryParams {
@@ -131,6 +139,9 @@ export interface QueryParams {
 
   /** Get feedback on a specific node */
   feedback?: FeedbackQueryParams
+
+  /** Get all unresolved feedback (optionally filtered by target) */
+  unresolvedFeedback?: UnresolvedFeedbackQueryParams
 
   /** Get issues that implement a spec */
   implementers?: ImplementersQueryParams

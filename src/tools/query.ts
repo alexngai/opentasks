@@ -88,6 +88,7 @@ function countQueryTypes(params: QueryParams): number {
   if (params.blockers !== undefined) count++
   if (params.blocking !== undefined) count++
   if (params.feedback !== undefined) count++
+  if (params.unresolvedFeedback !== undefined) count++
   if (params.implementers !== undefined) count++
   if (params.specs !== undefined) count++
   return count
@@ -103,6 +104,7 @@ function getQueryTypeName(params: QueryParams): string {
   if (params.blockers !== undefined) return 'blockers'
   if (params.blocking !== undefined) return 'blocking'
   if (params.feedback !== undefined) return 'feedback'
+  if (params.unresolvedFeedback !== undefined) return 'unresolvedFeedback'
   if (params.implementers !== undefined) return 'implementers'
   if (params.specs !== undefined) return 'specs'
   return 'unknown'
@@ -145,11 +147,11 @@ export async function query(
   const queryTypeCount = countQueryTypes(params)
 
   if (queryTypeCount === 0) {
-    throw new Error('No query type specified. Provide one of: nodes, edges, ready, blockers, blocking, feedback, implementers, specs')
+    throw new Error('No query type specified. Provide one of: nodes, edges, ready, blockers, blocking, feedback, unresolvedFeedback, implementers, specs')
   }
 
   if (queryTypeCount > 1) {
-    throw new Error('Multiple query types specified. Provide exactly one of: nodes, edges, ready, blockers, blocking, feedback, implementers, specs')
+    throw new Error('Multiple query types specified. Provide exactly one of: nodes, edges, ready, blockers, blocking, feedback, unresolvedFeedback, implementers, specs')
   }
 
   const limit = params.limit ?? DEFAULT_LIMIT
@@ -179,6 +181,10 @@ export async function query(
 
   if (params.feedback !== undefined) {
     return queryFeedback(store, params.feedback, limit, offset, verbose)
+  }
+
+  if (params.unresolvedFeedback !== undefined) {
+    return queryUnresolvedFeedback(store, params.unresolvedFeedback, limit, offset, verbose)
   }
 
   if (params.implementers !== undefined) {
@@ -368,6 +374,35 @@ async function queryFeedback(
   return {
     items: paginatedFeedback.map(toFeedbackSummary),
     total: allFeedback.length,
+    hasMore,
+  }
+}
+
+async function queryUnresolvedFeedback(
+  store: GraphStore,
+  params: NonNullable<QueryParams['unresolvedFeedback']>,
+  limit: number,
+  offset: number,
+  verbose: boolean
+): Promise<QueryResult> {
+  const { targetId } = params
+
+  // Get all unresolved feedback (optionally filtered by target)
+  const allUnresolved = await store.query.unresolvedFeedback(targetId)
+
+  const { items: paginatedFeedback, hasMore } = paginate(allUnresolved, limit, offset)
+
+  if (verbose) {
+    return {
+      items: paginatedFeedback,
+      total: allUnresolved.length,
+      hasMore,
+    }
+  }
+
+  return {
+    items: paginatedFeedback.map(toFeedbackSummary),
+    total: allUnresolved.length,
     hasMore,
   }
 }

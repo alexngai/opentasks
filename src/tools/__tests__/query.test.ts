@@ -68,6 +68,7 @@ describe('query tool', () => {
         blockers: vi.fn().mockResolvedValue([sampleSpec]),
         blocking: vi.fn().mockResolvedValue([sampleIssue]),
         feedback: vi.fn().mockResolvedValue([sampleFeedback]),
+        unresolvedFeedback: vi.fn().mockResolvedValue([sampleFeedback]),
       },
     } as unknown as GraphStore
   })
@@ -244,6 +245,39 @@ describe('query tool', () => {
       expect(item.resolved).toBe(false)
       expect(item.dismissed).toBe(false)
       expect(item.contentPreview).toBeDefined()
+      // Should NOT have full feedback properties
+      expect(item.uuid).toBeUndefined()
+    })
+  })
+
+  describe('unresolvedFeedback query', () => {
+    it('should return all unresolved feedback', async () => {
+      const result = await query(mockStore, {
+        unresolvedFeedback: {},
+      })
+
+      expect(mockStore.query.unresolvedFeedback).toHaveBeenCalledWith(undefined)
+      expect(result.items).toHaveLength(1)
+    })
+
+    it('should filter by targetId when provided', async () => {
+      await query(mockStore, {
+        unresolvedFeedback: { targetId: 's-test1' },
+      })
+
+      expect(mockStore.query.unresolvedFeedback).toHaveBeenCalledWith('s-test1')
+    })
+
+    it('should return reduced feedback output', async () => {
+      const result = await query(mockStore, {
+        unresolvedFeedback: {},
+      })
+
+      const item = result.items[0] as any
+      expect(item.id).toBe('f-test1')
+      expect(item.targetId).toBe('s-test1')
+      expect(item.feedbackType).toBe('comment')
+      expect(item.resolved).toBe(false)
       // Should NOT have full feedback properties
       expect(item.uuid).toBeUndefined()
     })
