@@ -280,22 +280,22 @@ describe('query tool', () => {
       expect((result.items[0] as any).id).toBe('s-test5')
     })
 
-    it('should calculate has_more correctly when more items exist', async () => {
+    it('should calculate hasMore correctly when more items exist', async () => {
       const result = await query(mockStore, {
         nodes: {},
         limit: 10,
       })
 
-      expect(result.has_more).toBe(true)
+      expect(result.hasMore).toBe(true)
     })
 
-    it('should calculate has_more correctly when no more items', async () => {
+    it('should calculate hasMore correctly when no more items', async () => {
       const result = await query(mockStore, {
         nodes: {},
         limit: 100,
       })
 
-      expect(result.has_more).toBe(false)
+      expect(result.hasMore).toBe(false)
     })
 
     it('should include total count', async () => {

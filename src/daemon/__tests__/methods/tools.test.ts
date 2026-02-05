@@ -57,7 +57,7 @@ describe('Tools Methods', () => {
     uuid: 'uuid-3',
     type: 'feedback' as const,
     title: 'Test Feedback',
-    target_id: 's-test1',
+    targetId: 's-test1',
     feedback_type: 'comment' as const,
     resolved: false,
     dismissed: false,
@@ -71,8 +71,8 @@ describe('Tools Methods', () => {
   const sampleEdge = {
     id: 'x-test1',
     uuid: 'uuid-4',
-    from_id: 'i-test1',
-    to_id: 's-test1',
+    fromId: 'i-test1',
+    toId: 's-test1',
     type: 'implements' as const,
     created_at: '2024-01-01T00:00:00Z',
   }
@@ -183,20 +183,20 @@ describe('Tools Methods', () => {
   describe('tools.link', () => {
     it('should create an edge between nodes', async () => {
       const result = await client.request<LinkResult>('tools.link', {
-        from_id: 'i-test1',
-        to_id: 's-test1',
+        fromId: 'i-test1',
+        toId: 's-test1',
         type: 'implements',
       })
 
       expect(result.success).toBe(true)
-      expect(result.edge_id).toBeDefined()
+      expect(result.edgeId).toBeDefined()
       expect(mockStore.createEdge).toHaveBeenCalled()
     })
 
     it('should mark both nodes dirty on success', async () => {
       await client.request<LinkResult>('tools.link', {
-        from_id: 'i-test1',
-        to_id: 's-test1',
+        fromId: 'i-test1',
+        toId: 's-test1',
         type: 'implements',
       })
 
@@ -207,8 +207,8 @@ describe('Tools Methods', () => {
 
     it('should remove an edge when remove=true', async () => {
       const result = await client.request<LinkResult>('tools.link', {
-        from_id: 'i-test1',
-        to_id: 's-test1',
+        fromId: 'i-test1',
+        toId: 's-test1',
         type: 'implements',
         remove: true,
       })
@@ -218,20 +218,20 @@ describe('Tools Methods', () => {
 
     it('should return error when from_id is missing', async () => {
       const result = await client.request<LinkResult>('tools.link', {
-        from_id: '',
-        to_id: 's-test1',
+        fromId: '',
+        toId: 's-test1',
         type: 'implements',
       })
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain('from_id')
+      expect(result.error).toContain('fromId')
     })
 
     it('should not mark provider URIs dirty', async () => {
       // Use a provider URI format
       await client.request<LinkResult>('tools.link', {
-        from_id: 'github://owner/repo/issues/123',
-        to_id: 's-test1',
+        fromId: 'github://owner/repo/issues/123',
+        toId: 's-test1',
         type: 'references',
       })
 
@@ -253,7 +253,7 @@ describe('Tools Methods', () => {
 
     it('should query edges', async () => {
       const result = await client.request<QueryResult>('tools.query', {
-        edges: { from_id: 'i-test1' },
+        edges: { fromId: 'i-test1' },
       })
 
       expect(result.items).toBeDefined()
@@ -271,7 +271,7 @@ describe('Tools Methods', () => {
 
     it('should query blockers', async () => {
       const result = await client.request<QueryResult>('tools.query', {
-        blockers: { node_id: 'i-test1' },
+        blockers: { nodeId: 'i-test1' },
       })
 
       expect(result.items).toBeDefined()
@@ -280,7 +280,7 @@ describe('Tools Methods', () => {
 
     it('should query feedback', async () => {
       const result = await client.request<QueryResult>('tools.query', {
-        feedback: { node_id: 's-test1' },
+        feedback: { nodeId: 's-test1' },
       })
 
       expect(result.items).toBeDefined()
@@ -317,7 +317,7 @@ describe('Tools Methods', () => {
       })
 
       expect(result.items).toHaveLength(1)
-      expect(result.has_more).toBe(true)
+      expect(result.hasMore).toBe(true)
     })
 
     it('should throw when no query type specified', async () => {
@@ -338,12 +338,12 @@ describe('Tools Methods', () => {
   describe('tools.annotate', () => {
     it('should create feedback', async () => {
       const result = await client.request<AnnotateResult>('tools.annotate', {
-        target_id: 's-test1',
+        targetId: 's-test1',
         create: { content: 'New feedback content' },
       })
 
       expect(result.success).toBe(true)
-      expect(result.feedback_id).toBeDefined()
+      expect(result.feedbackId).toBeDefined()
       expect(mockStore.createNode).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'feedback',
@@ -355,29 +355,29 @@ describe('Tools Methods', () => {
 
     it('should mark target and feedback nodes dirty', async () => {
       const result = await client.request<AnnotateResult>('tools.annotate', {
-        target_id: 's-test1',
+        targetId: 's-test1',
         create: { content: 'New feedback' },
       })
 
       const dirty = flushManager.getDirtyNodes()
       expect(dirty).toContain('s-test1')
-      expect(dirty).toContain(result.feedback_id)
+      expect(dirty).toContain(result.feedbackId)
     })
 
     it('should resolve feedback', async () => {
       const result = await client.request<AnnotateResult>('tools.annotate', {
-        target_id: 's-test1',
+        targetId: 's-test1',
         resolve: 'f-test1',
       })
 
       expect(result.success).toBe(true)
-      expect(result.feedback_id).toBe('f-test1')
+      expect(result.feedbackId).toBe('f-test1')
       expect(mockStore.updateNode).toHaveBeenCalledWith('f-test1', { resolved: true })
     })
 
     it('should dismiss feedback', async () => {
       const result = await client.request<AnnotateResult>('tools.annotate', {
-        target_id: 's-test1',
+        targetId: 's-test1',
         dismiss: 'f-test1',
       })
 
@@ -387,7 +387,7 @@ describe('Tools Methods', () => {
 
     it('should return error when target not found', async () => {
       const result = await client.request<AnnotateResult>('tools.annotate', {
-        target_id: 's-nonexistent',
+        targetId: 's-nonexistent',
         create: { content: 'Test' },
       })
 
@@ -397,17 +397,17 @@ describe('Tools Methods', () => {
 
     it('should return error when no operation specified', async () => {
       const result = await client.request<AnnotateResult>('tools.annotate', {
-        target_id: 's-test1',
+        targetId: 's-test1',
       })
 
       expect(result.success).toBe(false)
       expect(result.error).toContain('No operation specified')
     })
 
-    it('should create edge when from_id provided', async () => {
+    it('should create edge when fromId provided', async () => {
       await client.request<AnnotateResult>('tools.annotate', {
-        target_id: 's-test1',
-        from_id: 'i-test1',
+        targetId: 's-test1',
+        fromId: 'i-test1',
         create: { content: 'Feedback from issue' },
       })
 
@@ -419,10 +419,10 @@ describe('Tools Methods', () => {
       )
     })
 
-    it('should mark from_id dirty when provided', async () => {
+    it('should mark fromId dirty when provided', async () => {
       await client.request<AnnotateResult>('tools.annotate', {
-        target_id: 's-test1',
-        from_id: 'i-test1',
+        targetId: 's-test1',
+        fromId: 'i-test1',
         create: { content: 'Feedback from issue' },
       })
 
