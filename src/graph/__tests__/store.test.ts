@@ -143,6 +143,12 @@ function createMockStorage(): Storage & { _nodes: Map<string, StoredNode>; _edge
     async runInTransaction<T>(fn: (tx: Transaction) => Promise<T>): Promise<T> {
       // Simple mock - no actual transaction
       const tx: Transaction = {
+        // Read operations
+        getNode: this.getNode.bind(this),
+        getEdge: this.getEdge.bind(this),
+        getTags: this.getTags.bind(this),
+        getEdgesFrom: this.getEdgesFrom.bind(this),
+        // Write operations
         createNode: this.createNode.bind(this),
         updateNode: this.updateNode.bind(this),
         createEdge: this.createEdge.bind(this),

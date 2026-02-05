@@ -314,7 +314,7 @@ export function createDaemon(config: DaemonConfig): Daemon {
     getStatus(): DaemonStatus {
       return {
         state,
-        startedAt: startedAt || '',
+        startedAt,
         pid: process.pid,
         socketPath,
         pendingFlush: false, // Will be updated when flush manager is integrated

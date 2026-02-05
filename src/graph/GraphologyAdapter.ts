@@ -5,6 +5,7 @@
  * All traversal operations query this graph, while SQLite remains authoritative.
  */
 
+import { randomUUID } from 'node:crypto'
 import { MultiDirectedGraph } from 'graphology'
 import type { Attributes } from 'graphology-types'
 import type { StoredNode, StoredEdge } from '../schema/storage.js'
@@ -336,17 +337,18 @@ export class GraphologyAdapterImpl implements GraphologyAdapter {
   }
 
   private placeholderAttributes(id: string): GraphNodeAttributes {
+    const now = new Date().toISOString()
     return {
       id,
       type: 'external',
       title: `Unresolved: ${id}`,
       data: {
         id,
-        uuid: '',
+        uuid: randomUUID(),
         type: 'external',
         title: `Unresolved: ${id}`,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: now,
+        updated_at: now,
       },
     }
   }

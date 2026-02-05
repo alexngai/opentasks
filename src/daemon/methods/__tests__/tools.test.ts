@@ -1,0 +1,332 @@
+/**
+ * Tests for Tools Method Handlers
+ */
+
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { registerToolsMethods } from '../tools.js'
+import type { IPCServer } from '../../ipc.js'
+import type { DaemonFlushManager } from '../../flush.js'
+import type { GraphStore } from '../../../graph/store.js'
+
+// ============================================================================
+// Mocks
+// ============================================================================
+
+function createMockServer() {
+  const handlers = new Map<string, (params: unknown) => Promise<unknown>>()
+
+  return {
+    handle: vi.fn((method: string, handler: (params: unknown) => Promise<unknown>) => {
+      handlers.set(method, handler)
+    }),
+    call: async (method: string, params?: unknown) => {
+      const handler = handlers.get(method)
+      if (!handler) {
+        throw new Error(`Method not found: ${method}`)
+      }
+      return handler(params)
+    },
+    handlers,
+  } as unknown as IPCServer & { call: (method: string, params?: unknown) => Promise<unknown> }
+}
+
+function createMockFlushManager() {
+  return {
+    markDirty: vi.fn(),
+    schedule: vi.fn(),
+    flush: vi.fn().mockResolvedValue(undefined),
+  } as unknown as DaemonFlushManager
+}
+
+function createMockStore() {
+  const nodes = new Map<string, { id: string; type: string; title: string; content?: string }>()
+  const edges = new Map<string, { id: string; from_id: string; to_id: string; type: string }>()
+
+  return {
+    query: {
+      nodes: vi.fn().mockResolvedValue([]),
+      edges: vi.fn().mockResolvedValue([]),
+      ready: vi.fn().mockResolvedValue([]),
+      blockers: vi.fn().mockResolvedValue([]),
+      blocking: vi.fn().mockResolvedValue([]),
+      feedback: vi.fn().mockResolvedValue([]),
+      implementers: vi.fn().mockResolvedValue([]),
+      specs: vi.fn().mockResolvedValue([]),
+    },
+    getNode: vi.fn((id: string) => Promise.resolve(nodes.get(id) ?? null)),
+    getEdge: vi.fn((id: string) => Promise.resolve(edges.get(id) ?? null)),
+    createNode: vi.fn((input: { type: string; title: string }) => {
+      const prefix = input.type === 'feedback' ? 'f' : input.type.charAt(0)
+      const node = { id: `${prefix}-1`, ...input }
+      nodes.set(node.id, node)
+      return Promise.resolve(node)
+    }),
+    updateNode: vi.fn((id: string, updates: Record<string, unknown>) => {
+      const node = nodes.get(id)
+      if (!node) {
+        throw new Error(`Node not found: ${id}`)
+      }
+      const updated = { ...node, ...updates }
+      nodes.set(id, updated)
+      return Promise.resolve(updated)
+    }),
+    deleteNode: vi.fn((id: string) => {
+      if (!nodes.has(id)) {
+        throw new Error(`Node not found: ${id}`)
+      }
+      nodes.delete(id)
+      return Promise.resolve()
+    }),
+    createEdge: vi.fn((input: { from_id: string; to_id: string; type: string }) => {
+      const edge = { id: `e-1`, ...input }
+      edges.set(edge.id, edge)
+      return Promise.resolve(edge)
+    }),
+    deleteEdge: vi.fn((id: string) => {
+      if (!edges.has(id)) {
+        throw new Error(`Edge not found: ${id}`)
+      }
+      edges.delete(id)
+      return Promise.resolve()
+    }),
+    _nodes: nodes,
+    _edges: edges,
+  } as unknown as GraphStore & {
+    _nodes: Map<string, unknown>
+    _edges: Map<string, unknown>
+  }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+describe('registerToolsMethods', () => {
+  let server: ReturnType<typeof createMockServer>
+  let store: ReturnType<typeof createMockStore>
+  let flushManager: ReturnType<typeof createMockFlushManager>
+
+  beforeEach(() => {
+    server = createMockServer()
+    store = createMockStore()
+    flushManager = createMockFlushManager()
+
+    registerToolsMethods({ server, store, flushManager })
+  })
+
+  describe('tools.link', () => {
+    it('should register handler', () => {
+      expect(server.handlers.has('tools.link')).toBe(true)
+    })
+
+    it('should create edge between local nodes', async () => {
+      // Set up nodes
+      store._nodes.set('i-1', { id: 'i-1', type: 'issue', title: 'Issue 1' })
+      store._nodes.set('i-2', { id: 'i-2', type: 'issue', title: 'Issue 2' })
+      store.getNode = vi.fn((id) => Promise.resolve(store._nodes.get(id) ?? null))
+
+      const result = await server.call('tools.link', {
+        fromId: 'i-1',
+        toId: 'i-2',
+        type: 'blocks',
+      })
+
+      expect(result).toHaveProperty('success', true)
+      expect(result).toHaveProperty('edgeId')
+      expect(flushManager.markDirty).toHaveBeenCalledWith('i-1')
+      expect(flushManager.markDirty).toHaveBeenCalledWith('i-2')
+      expect(flushManager.schedule).toHaveBeenCalled()
+    })
+
+    it('should return error if params is undefined', async () => {
+      const result = await server.call('tools.link', undefined)
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Missing required parameters',
+      })
+    })
+
+    it('should return error for missing fromId', async () => {
+      const result = await server.call('tools.link', {
+        toId: 'i-2',
+        type: 'blocks',
+      })
+
+      expect(result).toHaveProperty('success', false)
+      expect(result).toHaveProperty('error')
+    })
+
+    it('should not mark dirty for provider URIs', async () => {
+      // Provider URI doesn't match local ID pattern
+      const result = await server.call('tools.link', {
+        fromId: 'beads://./test',
+        toId: 'jira://PROJ-123',
+        type: 'blocks',
+      })
+
+      // Should succeed but not mark dirty (URIs don't match local pattern)
+      expect(result).toHaveProperty('success', true)
+      expect(flushManager.markDirty).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('tools.query', () => {
+    it('should register handler', () => {
+      expect(server.handlers.has('tools.query')).toBe(true)
+    })
+
+    it('should query nodes', async () => {
+      store.query.nodes.mockResolvedValue([
+        { id: 'i-1', type: 'issue', title: 'Test', archived: false },
+      ])
+
+      const result = await server.call('tools.query', {
+        nodes: { type: 'issue' },
+      })
+
+      expect(result).toHaveProperty('items')
+      expect(result).toHaveProperty('hasMore')
+      expect(store.query.nodes).toHaveBeenCalled()
+    })
+
+    it('should query ready items', async () => {
+      store.query.ready.mockResolvedValue([
+        { id: 'i-1', type: 'issue', title: 'Ready Issue', archived: false },
+      ])
+
+      const result = await server.call('tools.query', {
+        ready: {},
+      })
+
+      expect(result).toHaveProperty('items')
+      expect(store.query.ready).toHaveBeenCalled()
+    })
+
+    it('should throw error if params is undefined', async () => {
+      await expect(server.call('tools.query', undefined)).rejects.toThrow(
+        'Missing required parameters'
+      )
+    })
+
+    it('should throw error if no query type specified', async () => {
+      await expect(server.call('tools.query', {})).rejects.toThrow(
+        'No query type specified'
+      )
+    })
+  })
+
+  describe('tools.annotate', () => {
+    it('should register handler', () => {
+      expect(server.handlers.has('tools.annotate')).toBe(true)
+    })
+
+    it('should create feedback on target node', async () => {
+      // Set up target node
+      store._nodes.set('s-1', { id: 's-1', type: 'spec', title: 'Test Spec' })
+      store.getNode = vi.fn((id) => Promise.resolve(store._nodes.get(id) ?? null))
+
+      const result = await server.call('tools.annotate', {
+        targetId: 's-1',
+        create: {
+          content: 'This is feedback',
+          type: 'comment',
+        },
+      })
+
+      expect(result).toHaveProperty('success', true)
+      expect(result).toHaveProperty('feedbackId')
+      expect(store.createNode).toHaveBeenCalled()
+      expect(flushManager.markDirty).toHaveBeenCalledWith('s-1')
+      expect(flushManager.schedule).toHaveBeenCalled()
+    })
+
+    it('should return error if params is undefined', async () => {
+      const result = await server.call('tools.annotate', undefined)
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Missing required parameters',
+      })
+    })
+
+    it('should return error if targetId is missing', async () => {
+      const result = await server.call('tools.annotate', {
+        create: { content: 'Test' },
+      })
+
+      expect(result).toHaveProperty('success', false)
+      expect(result).toHaveProperty('error', 'Missing required parameter: targetId')
+    })
+
+    it('should return error if target node not found', async () => {
+      store.getNode = vi.fn().mockResolvedValue(null)
+
+      const result = await server.call('tools.annotate', {
+        targetId: 'nonexistent',
+        create: { content: 'Test' },
+      })
+
+      expect(result).toHaveProperty('success', false)
+      expect(result).toHaveProperty('error')
+    })
+
+    it('should resolve feedback', async () => {
+      // Set up feedback node
+      store._nodes.set('f-1', {
+        id: 'f-1',
+        type: 'feedback',
+        title: 'Feedback',
+        resolved: false,
+      })
+      store.getNode = vi.fn((id) => Promise.resolve(store._nodes.get(id) ?? null))
+
+      const result = await server.call('tools.annotate', {
+        targetId: 'f-1',
+        resolve: 'f-1',
+      })
+
+      expect(result).toHaveProperty('success', true)
+      expect(store.updateNode).toHaveBeenCalledWith('f-1', { resolved: true })
+    })
+
+    it('should dismiss feedback', async () => {
+      // Set up feedback node
+      store._nodes.set('f-1', {
+        id: 'f-1',
+        type: 'feedback',
+        title: 'Feedback',
+        dismissed: false,
+      })
+      store.getNode = vi.fn((id) => Promise.resolve(store._nodes.get(id) ?? null))
+
+      const result = await server.call('tools.annotate', {
+        targetId: 'f-1',
+        dismiss: 'f-1',
+      })
+
+      expect(result).toHaveProperty('success', true)
+      expect(store.updateNode).toHaveBeenCalledWith('f-1', { dismissed: true })
+    })
+
+    it('should mark fromId dirty when provided', async () => {
+      // Set up nodes
+      store._nodes.set('s-1', { id: 's-1', type: 'spec', title: 'Test Spec' })
+      store._nodes.set('i-1', { id: 'i-1', type: 'issue', title: 'Test Issue' })
+      store.getNode = vi.fn((id) => Promise.resolve(store._nodes.get(id) ?? null))
+
+      const result = await server.call('tools.annotate', {
+        targetId: 's-1',
+        fromId: 'i-1',
+        create: {
+          content: 'Feedback from issue',
+          type: 'suggestion',
+        },
+      })
+
+      expect(result).toHaveProperty('success', true)
+      expect(flushManager.markDirty).toHaveBeenCalledWith('s-1')
+      expect(flushManager.markDirty).toHaveBeenCalledWith('i-1')
+    })
+  })
+})

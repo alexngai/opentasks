@@ -468,11 +468,31 @@ export class SQLitePersister implements Storage {
 
   async runInTransaction<T>(fn: (tx: Transaction) => Promise<T>): Promise<T> {
     // better-sqlite3 transactions are synchronous, so we wrap the sync operations
-    // in a transaction block and execute async operations sequentially
+    // in a transaction block and execute async operations sequentially.
+    //
+    // Note: Reads within the transaction see committed state. Writes are deferred
+    // until the end and executed atomically. This means reads won't see pending
+    // writes from the same transaction, but this is acceptable for validation
+    // use cases where we check existence of committed nodes.
     const operations: Array<() => void> = []
     let result: T
 
     const tx: Transaction = {
+      // Read operations - execute immediately against committed state
+      getNode: (id) => {
+        return Promise.resolve(this.getNodeSync(id))
+      },
+      getEdge: (id) => {
+        return Promise.resolve(this.getEdgeSync(id))
+      },
+      getTags: (nodeId) => {
+        return Promise.resolve(this.getTagsSync(nodeId))
+      },
+      getEdgesFrom: (nodeId, type) => {
+        return Promise.resolve(this.getEdgesFromSync(nodeId, type))
+      },
+
+      // Write operations - deferred until transaction commit
       createNode: (node) => {
         operations.push(() => this.createNodeSync(node))
         return Promise.resolve()
@@ -644,6 +664,47 @@ export class SQLitePersister implements Storage {
       VALUES (?, datetime('now'))
     `)
     stmt.run(nodeId)
+  }
+
+  // === Sync Read Methods for Transactions ===
+
+  private getNodeSync(id: string): StoredNode | null {
+    const stmt = this.db.prepare('SELECT * FROM nodes WHERE id = ?')
+    const row = stmt.get(id) as Record<string, unknown> | undefined
+    if (!row) return null
+
+    const node = rowToNode(row)
+    const tags = this.getTagsSync(id)
+    if (tags.length > 0) {
+      node.tags = tags
+    }
+    return node
+  }
+
+  private getEdgeSync(id: string): StoredEdge | null {
+    const stmt = this.db.prepare('SELECT * FROM edges WHERE id = ?')
+    const row = stmt.get(id) as Record<string, unknown> | undefined
+    return row ? rowToEdge(row) : null
+  }
+
+  private getTagsSync(nodeId: string): string[] {
+    const stmt = this.db.prepare('SELECT tag FROM node_tags WHERE node_id = ? ORDER BY tag')
+    const rows = stmt.all(nodeId) as Array<{ tag: string }>
+    return rows.map((r) => r.tag)
+  }
+
+  private getEdgesFromSync(nodeId: string, type?: EdgeType): StoredEdge[] {
+    let sql = 'SELECT * FROM edges WHERE from_id = ?'
+    const params: unknown[] = [nodeId]
+
+    if (type) {
+      sql += ' AND type = ?'
+      params.push(type)
+    }
+
+    const stmt = this.db.prepare(sql)
+    const rows = stmt.all(...params) as Record<string, unknown>[]
+    return rows.map(rowToEdge)
   }
 
   // === Dirty Tracking ===

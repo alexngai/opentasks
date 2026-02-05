@@ -90,8 +90,8 @@ export interface DaemonStatus {
   /** Current state */
   state: DaemonState
 
-  /** When daemon started (ISO timestamp) */
-  startedAt: string
+  /** When daemon started (ISO timestamp), null if not started */
+  startedAt: string | null
 
   /** Process ID */
   pid: number

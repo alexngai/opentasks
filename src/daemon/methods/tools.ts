@@ -71,11 +71,11 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
     // Mark nodes dirty and schedule flush on success
     if (result.success) {
       // Only mark local IDs as dirty (not provider URIs)
-      if (isLocalId(params.from_id)) {
-        flushManager.markDirty(params.from_id)
+      if (isLocalId(params.fromId)) {
+        flushManager.markDirty(params.fromId)
       }
-      if (isLocalId(params.to_id)) {
-        flushManager.markDirty(params.to_id)
+      if (isLocalId(params.toId)) {
+        flushManager.markDirty(params.toId)
       }
       flushManager.schedule()
     }
@@ -104,15 +104,15 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
     // Mark nodes dirty and schedule flush on success
     if (result.success) {
       // Mark target and feedback nodes dirty
-      if (isLocalId(params.target_id)) {
-        flushManager.markDirty(params.target_id)
+      if (isLocalId(params.targetId)) {
+        flushManager.markDirty(params.targetId)
       }
-      if (result.feedback_id && isLocalId(result.feedback_id)) {
-        flushManager.markDirty(result.feedback_id)
+      if (result.feedbackId && isLocalId(result.feedbackId)) {
+        flushManager.markDirty(result.feedbackId)
       }
-      // Mark from_id dirty if provided (for edge creation)
-      if (params.from_id && isLocalId(params.from_id)) {
-        flushManager.markDirty(params.from_id)
+      // Mark fromId dirty if provided (for edge creation)
+      if (params.fromId && isLocalId(params.fromId)) {
+        flushManager.markDirty(params.fromId)
       }
       flushManager.schedule()
     }

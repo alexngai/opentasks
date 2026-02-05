@@ -231,13 +231,13 @@ describe('OpenTasksClient', () => {
       const client = new OpenTasksClient({ socketPath })
 
       const result = await client.link({
-        from_id: 'i-test1',
-        to_id: 's-test1',
+        fromId: 'i-test1',
+        toId: 's-test1',
         type: 'implements',
       })
 
       expect(result.success).toBe(true)
-      expect(result.edge_id).toBeDefined()
+      expect(result.edgeId).toBeDefined()
 
       client.disconnect()
     })
@@ -246,8 +246,8 @@ describe('OpenTasksClient', () => {
       const client = new OpenTasksClient({ socketPath })
 
       const result = await client.link({
-        from_id: 'i-test1',
-        to_id: 's-test1',
+        fromId: 'i-test1',
+        toId: 's-test1',
         type: 'implements',
         remove: true,
       })
@@ -297,7 +297,7 @@ describe('OpenTasksClient', () => {
       const result = await client.query({ nodes: {}, limit: 1 })
 
       expect(result.items).toHaveLength(1)
-      expect(result.has_more).toBe(true)
+      expect(result.hasMore).toBe(true)
 
       client.disconnect()
     })
@@ -308,12 +308,12 @@ describe('OpenTasksClient', () => {
       const client = new OpenTasksClient({ socketPath })
 
       const result = await client.annotate({
-        target_id: 's-test1',
+        targetId: 's-test1',
         create: { content: 'New feedback' },
       })
 
       expect(result.success).toBe(true)
-      expect(result.feedback_id).toBeDefined()
+      expect(result.feedbackId).toBeDefined()
 
       client.disconnect()
     })
@@ -322,7 +322,7 @@ describe('OpenTasksClient', () => {
       const client = new OpenTasksClient({ socketPath })
 
       const result = await client.annotate({
-        target_id: 's-test1',
+        targetId: 's-test1',
         resolve: 'f-test1',
       })
 

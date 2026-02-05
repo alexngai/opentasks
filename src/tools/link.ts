@@ -5,7 +5,7 @@
  */
 
 import type { GraphStore } from '../graph/store.js'
-import type { LinkParams, LinkResult } from './types.js'
+import type { LinkParams, LinkResult, OperationContext } from './types.js'
 import { ToolError } from './types.js'
 
 // ============================================================================
@@ -44,17 +44,22 @@ function isProviderUri(id: string): boolean {
  *
  * @param store - Graph store for data operations
  * @param params - Link parameters
+ * @param context - Optional operation context for tracking agent activity
  * @returns Link result with success status
  */
-export async function link(store: GraphStore, params: LinkParams): Promise<LinkResult> {
-  const { from_id, to_id, type, remove = false, metadata } = params
+export async function link(
+  store: GraphStore,
+  params: LinkParams,
+  context?: OperationContext
+): Promise<LinkResult> {
+  const { fromId, toId, type, remove = false, metadata } = params
 
   // Validate parameters
-  if (!from_id) {
-    return { success: false, error: 'Missing required parameter: from_id' }
+  if (!fromId) {
+    return { success: false, error: 'Missing required parameter: fromId' }
   }
-  if (!to_id) {
-    return { success: false, error: 'Missing required parameter: to_id' }
+  if (!toId) {
+    return { success: false, error: 'Missing required parameter: toId' }
   }
   if (!type) {
     return { success: false, error: 'Missing required parameter: type' }
@@ -62,9 +67,9 @@ export async function link(store: GraphStore, params: LinkParams): Promise<LinkR
 
   try {
     if (remove) {
-      return await removeEdge(store, from_id, to_id, type)
+      return await removeEdge(store, fromId, toId, type, context)
     } else {
-      return await createEdge(store, from_id, to_id, type, metadata)
+      return await createEdge(store, fromId, toId, type, metadata, context)
     }
   } catch (error) {
     if (error instanceof ToolError) {
@@ -86,35 +91,49 @@ export async function link(store: GraphStore, params: LinkParams): Promise<LinkR
  */
 async function createEdge(
   store: GraphStore,
-  from_id: string,
-  to_id: string,
+  fromId: string,
+  toId: string,
   type: LinkParams['type'],
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  context?: OperationContext
 ): Promise<LinkResult> {
   // Validate local nodes exist (skip for provider URIs)
-  if (isLocalId(from_id) && !isProviderUri(from_id)) {
-    const fromNode = await store.getNode(from_id)
+  if (isLocalId(fromId) && !isProviderUri(fromId)) {
+    const fromNode = await store.getNode(fromId)
     if (!fromNode) {
-      return { success: false, error: `Node not found: ${from_id}` }
+      return { success: false, error: `Node not found: ${fromId}` }
     }
   }
 
-  if (isLocalId(to_id) && !isProviderUri(to_id)) {
-    const toNode = await store.getNode(to_id)
+  if (isLocalId(toId) && !isProviderUri(toId)) {
+    const toNode = await store.getNode(toId)
     if (!toNode) {
-      return { success: false, error: `Node not found: ${to_id}` }
+      return { success: false, error: `Node not found: ${toId}` }
     }
   }
 
-  // Create the edge
+  // Merge context into metadata for tracking
+  const edgeMetadata = context
+    ? {
+        ...metadata,
+        _context: {
+          agentId: context.agentId,
+          agentName: context.agentName,
+          sessionId: context.sessionId,
+          timestamp: context.timestamp ?? new Date().toISOString(),
+        },
+      }
+    : metadata
+
+  // Create the edge (underlying storage uses snake_case)
   const edge = await store.createEdge({
-    from_id,
-    to_id,
+    from_id: fromId,
+    to_id: toId,
     type,
-    metadata,
+    metadata: edgeMetadata,
   })
 
-  return { success: true, edge_id: edge.id }
+  return { success: true, edgeId: edge.id }
 }
 
 /**
@@ -122,14 +141,15 @@ async function createEdge(
  */
 async function removeEdge(
   store: GraphStore,
-  from_id: string,
-  to_id: string,
-  type: LinkParams['type']
+  fromId: string,
+  toId: string,
+  type: LinkParams['type'],
+  _context?: OperationContext // Unused but kept for API consistency
 ): Promise<LinkResult> {
-  // Find the edge by from_id, to_id, and type
-  const edges = await store.query.edges({ from_id, type })
+  // Find the edge (underlying storage uses snake_case)
+  const edges = await store.query.edges({ from_id: fromId, type })
 
-  const targetEdge = edges.find((e) => e.to_id === to_id)
+  const targetEdge = edges.find((e) => e.to_id === toId)
 
   if (!targetEdge) {
     // Idempotent: removing non-existent edge succeeds

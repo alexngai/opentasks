@@ -5,6 +5,7 @@
  * Fetches missing data on-demand from providers and caches it to SQLite.
  */
 
+import { randomUUID } from 'node:crypto'
 import type { StoredNode, StoredEdge } from '../schema/storage.js'
 import type { Storage } from '../storage/interface.js'
 import type { ProviderRegistry, Provider, ProviderNode } from '../providers/types.js'
@@ -272,15 +273,16 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
     const outgoing: StoredEdge[] = []
 
     const graph = this.adapter.graph
+    const now = new Date().toISOString()
     for (const edgeKey of graph.inEdges(uri)) {
       const attrs = graph.getEdgeAttributes(edgeKey)
       incoming.push({
         id: attrs.id,
-        uuid: '', // Not stored in graph attributes
+        uuid: randomUUID(), // Generate UUID for edge representation
         from_id: graph.source(edgeKey),
         to_id: uri,
         type: attrs.type,
-        created_at: '', // Not stored in graph attributes
+        created_at: attrs.cached_at ?? now, // Use cached_at or current time
         source: attrs.source,
         cached_at: attrs.cached_at,
         metadata: attrs.metadata,
@@ -291,11 +293,11 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
       const attrs = graph.getEdgeAttributes(edgeKey)
       outgoing.push({
         id: attrs.id,
-        uuid: '', // Not stored in graph attributes
+        uuid: randomUUID(), // Generate UUID for edge representation
         from_id: uri,
         to_id: graph.target(edgeKey),
         type: attrs.type,
-        created_at: '', // Not stored in graph attributes
+        created_at: attrs.cached_at ?? now, // Use cached_at or current time
         source: attrs.source,
         cached_at: attrs.cached_at,
         metadata: attrs.metadata,
@@ -467,7 +469,7 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
     providerName: string,
     cachedAt: string
   ): StoredNode {
-    const uuid = crypto.randomUUID()
+    const uuid = randomUUID()
     return {
       id: generateIdFromUuid('external', uuid).id,
       uuid,
@@ -494,7 +496,7 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
     // Convert local IDs to URIs
     const fromUri = provider.buildUri(edge.from)
     const toUri = provider.buildUri(edge.to)
-    const uuid = crypto.randomUUID()
+    const uuid = randomUUID()
 
     return {
       id: generateIdFromUuid('edge', uuid).id,

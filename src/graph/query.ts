@@ -568,6 +568,14 @@ export function createQueryEngine(options: QueryEngineOptions | Storage): QueryE
         }
       }
 
+      // Sort by priority (lower priority number = higher priority)
+      // Items without priority come after items with priority
+      readyIssues.sort((a, b) => {
+        const aPriority = a.priority ?? Infinity
+        const bPriority = b.priority ?? Infinity
+        return aPriority - bPriority
+      })
+
       // Apply limit
       if (options?.limit !== undefined) {
         return readyIssues.slice(0, options.limit)

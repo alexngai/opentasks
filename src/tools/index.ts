@@ -35,6 +35,8 @@ export type {
   ReadyOptions,
   BlockerOptions,
   FeedbackOptions,
+  // Context
+  OperationContext,
   // Errors
   ToolErrorCode,
 } from './types.js'

@@ -118,3 +118,33 @@ export {
   HydratingFederatedGraphImpl,
   createHydratingFederatedGraph,
 } from './HydratingFederatedGraph.js'
+
+// Coordination (Agent Context and Claims)
+export type {
+  OperationContext,
+  StandardNodeMetadata,
+  ExecutionMetadata,
+  TrackingMetadata,
+  ExternalSyncMetadata,
+  ClaimInfo,
+  ClaimOptions,
+  ClaimResult,
+  ClaimManager,
+} from './coordination.js'
+export { createClaimManager } from './coordination.js'
+
+// History (Audit Trail)
+export type {
+  OperationType,
+  FieldChange,
+  OperationLogEntry,
+  OperationLogQueryOptions,
+  AgentActivitySummary,
+  OperationLogger,
+} from './history.js'
+export {
+  createInMemoryOperationLogger,
+  createNodeLogEntry,
+  createEdgeLogEntry,
+  createClaimLogEntry,
+} from './history.js'

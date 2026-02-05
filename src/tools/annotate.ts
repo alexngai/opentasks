@@ -6,7 +6,7 @@
 
 import type { Anchor } from '../schema/index.js'
 import type { GraphStore } from '../graph/store.js'
-import type { AnnotateParams, AnnotateResult, FeedbackAnchor } from './types.js'
+import type { AnnotateParams, AnnotateResult, FeedbackAnchor, OperationContext } from './types.js'
 
 // ============================================================================
 // Constants
@@ -70,12 +70,17 @@ function countOperations(params: AnnotateParams): number {
  *
  * @param store - Graph store for data operations
  * @param params - Annotate parameters
+ * @param context - Optional operation context for tracking agent activity
  * @returns Annotate result with success status
  */
-export async function annotate(store: GraphStore, params: AnnotateParams): Promise<AnnotateResult> {
-  // Validate target_id is provided
-  if (!params.target_id) {
-    return { success: false, error: 'Missing required parameter: target_id' }
+export async function annotate(
+  store: GraphStore,
+  params: AnnotateParams,
+  context?: OperationContext
+): Promise<AnnotateResult> {
+  // Validate targetId is provided
+  if (!params.targetId) {
+    return { success: false, error: 'Missing required parameter: targetId' }
   }
 
   // Validate exactly one operation
@@ -98,19 +103,19 @@ export async function annotate(store: GraphStore, params: AnnotateParams): Promi
   try {
     // Dispatch to appropriate operation handler
     if (params.create !== undefined) {
-      return await createFeedback(store, params.target_id, params.create, params.from_id)
+      return await createFeedback(store, params.targetId, params.create, params.fromId, context)
     }
 
     if (params.resolve !== undefined) {
-      return await resolveFeedback(store, params.resolve)
+      return await resolveFeedback(store, params.resolve, context)
     }
 
     if (params.dismiss !== undefined) {
-      return await dismissFeedback(store, params.dismiss)
+      return await dismissFeedback(store, params.dismiss, context)
     }
 
     if (params.reopen !== undefined) {
-      return await reopenFeedback(store, params.reopen)
+      return await reopenFeedback(store, params.reopen, context)
     }
 
     // Should never reach here
@@ -132,14 +137,15 @@ export async function annotate(store: GraphStore, params: AnnotateParams): Promi
  */
 async function createFeedback(
   store: GraphStore,
-  target_id: string,
+  targetId: string,
   params: NonNullable<AnnotateParams['create']>,
-  from_id?: string
+  fromId?: string,
+  context?: OperationContext
 ): Promise<AnnotateResult> {
   // Validate target exists
-  const targetNode = await store.getNode(target_id)
+  const targetNode = await store.getNode(targetId)
   if (!targetNode) {
-    return { success: false, error: `Target node not found: ${target_id}` }
+    return { success: false, error: `Target node not found: ${targetId}` }
   }
 
   // Validate content is provided
@@ -150,84 +156,121 @@ async function createFeedback(
   // Build anchor
   const anchor = buildAnchor(params.anchor)
 
-  // Create feedback node
+  // Build metadata with context if provided
+  const metadata = context
+    ? {
+        _context: {
+          agentId: context.agentId,
+          agentName: context.agentName,
+          sessionId: context.sessionId,
+          timestamp: context.timestamp ?? new Date().toISOString(),
+        },
+      }
+    : undefined
+
+  // Create feedback node (underlying storage uses snake_case)
   const feedbackNode = await store.createNode({
     type: 'feedback',
     title: truncate(params.content.replace(/\n/g, ' '), TITLE_MAX_LENGTH),
     content: params.content,
-    target_id,
+    target_id: targetId,
     target_anchor: anchor,
     feedback_type: params.type || 'comment',
+    metadata,
   })
 
-  // If from_id provided, create edge linking issue to feedback
-  if (from_id) {
+  // If fromId provided, create edge linking issue to feedback
+  if (fromId) {
+    const edgeMetadata = context
+      ? {
+          _context: {
+            agentId: context.agentId,
+            agentName: context.agentName,
+            sessionId: context.sessionId,
+            timestamp: context.timestamp ?? new Date().toISOString(),
+          },
+        }
+      : undefined
+
     await store.createEdge({
-      from_id,
+      from_id: fromId,
       to_id: feedbackNode.id,
       type: 'discovered-from',
+      metadata: edgeMetadata,
     })
   }
 
-  return { success: true, feedback_id: feedbackNode.id }
+  return { success: true, feedbackId: feedbackNode.id }
 }
 
 /**
  * Mark feedback as resolved
  */
-async function resolveFeedback(store: GraphStore, feedback_id: string): Promise<AnnotateResult> {
+async function resolveFeedback(
+  store: GraphStore,
+  feedbackId: string,
+  _context?: OperationContext // Unused but kept for API consistency
+): Promise<AnnotateResult> {
   // Validate feedback exists
-  const feedbackNode = await store.getNode(feedback_id)
+  const feedbackNode = await store.getNode(feedbackId)
   if (!feedbackNode) {
-    return { success: false, error: `Feedback not found: ${feedback_id}` }
+    return { success: false, error: `Feedback not found: ${feedbackId}` }
   }
 
   if (feedbackNode.type !== 'feedback') {
-    return { success: false, error: `Node is not feedback: ${feedback_id}` }
+    return { success: false, error: `Node is not feedback: ${feedbackId}` }
   }
 
   // Update to resolved
-  await store.updateNode(feedback_id, { resolved: true })
+  await store.updateNode(feedbackId, { resolved: true })
 
-  return { success: true, feedback_id }
+  return { success: true, feedbackId }
 }
 
 /**
  * Mark feedback as dismissed
  */
-async function dismissFeedback(store: GraphStore, feedback_id: string): Promise<AnnotateResult> {
+async function dismissFeedback(
+  store: GraphStore,
+  feedbackId: string,
+  _context?: OperationContext // Unused but kept for API consistency
+): Promise<AnnotateResult> {
   // Validate feedback exists
-  const feedbackNode = await store.getNode(feedback_id)
+  const feedbackNode = await store.getNode(feedbackId)
   if (!feedbackNode) {
-    return { success: false, error: `Feedback not found: ${feedback_id}` }
+    return { success: false, error: `Feedback not found: ${feedbackId}` }
   }
 
   if (feedbackNode.type !== 'feedback') {
-    return { success: false, error: `Node is not feedback: ${feedback_id}` }
+    return { success: false, error: `Node is not feedback: ${feedbackId}` }
   }
 
   // Update to dismissed
-  await store.updateNode(feedback_id, { dismissed: true })
+  await store.updateNode(feedbackId, { dismissed: true })
 
-  return { success: true, feedback_id }
+  return { success: true, feedbackId }
 }
 
 /**
  * Reopen resolved or dismissed feedback
  */
-async function reopenFeedback(store: GraphStore, feedback_id: string): Promise<AnnotateResult> {
+async function reopenFeedback(
+  store: GraphStore,
+  feedbackId: string,
+  _context?: OperationContext // Unused but kept for API consistency
+): Promise<AnnotateResult> {
   // Validate feedback exists
-  const feedbackNode = await store.getNode(feedback_id)
+  const feedbackNode = await store.getNode(feedbackId)
   if (!feedbackNode) {
-    return { success: false, error: `Feedback not found: ${feedback_id}` }
+    return { success: false, error: `Feedback not found: ${feedbackId}` }
   }
 
   if (feedbackNode.type !== 'feedback') {
-    return { success: false, error: `Node is not feedback: ${feedback_id}` }
+    return { success: false, error: `Node is not feedback: ${feedbackId}` }
   }
 
   // Update to reopen (clear resolved and dismissed)
-  await store.updateNode(feedback_id, { resolved: false, dismissed: false })
+  await store.updateNode(feedbackId, { resolved: false, dismissed: false })
 
-  return { success: true, feedback_id }
+  return { success: true, feedbackId }
 }
