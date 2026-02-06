@@ -91,16 +91,21 @@ Existing tools are good at what they do:
 
 ```
 .opentasks/
-├── graph.jsonl           # Local nodes + edges + external refs (source of truth)
+├── graph.jsonl           # Local nodes + edges + external refs (append-only, source of truth)
 ├── tombstones.jsonl      # Soft deletes (configurable gitignore)
-├── cache.db              # SQLite (queries, external cache, snapshots)
-├── config.json           # Configuration
+├── cache.db              # SQLite in WAL mode (queries, external cache) — gitignored
+├── config.json           # Configuration, connections, role, redirects
+├── write.lock            # Advisory lock for JSONL writes — gitignored
 ├── specs/                # Optional: markdown expansion
-├── issues/               # Optional: markdown expansion
-└── daemon.sock           # Daemon socket (when running)
+└── issues/               # Optional: markdown expansion
+
+.git/opentasks/           # Shared across all worktrees (Phase 3)
+├── daemon.sock           # Single daemon socket
+├── daemon.lock           # PID lock
+└── worktrees.json        # Registered worktrees
 ```
 
-See [PERSISTENCE.md](./PERSISTENCE.md) for storage details and [ARCHITECTURE.md](./ARCHITECTURE.md) for location hierarchy.
+See [PERSISTENCE.md](./PERSISTENCE.md) for storage details and [plans/CORE-ARCHITECTURE.md](./plans/CORE-ARCHITECTURE.md) for cross-location architecture.
 
 ---
 
@@ -455,108 +460,98 @@ When no git repository is present:
 
 ## Git Topology
 
-OpenTasks is designed to handle complex git topologies including branches, worktrees, and distributed agent coordination.
+OpenTasks is designed to handle complex git topologies including branches, worktrees, and distributed agent coordination. The revised design uses a **single daemon per git repo**, **explicit worktree registration**, **append-only JSONL writes**, and a **custom merge driver** to solve concurrency and merge challenges.
+
+See [plans/CORE-ARCHITECTURE.md](./plans/CORE-ARCHITECTURE.md) for the full cross-location architecture.
 
 ### The Challenge
 
 ```
 repo/
-├── .git/                         ← shared git database
+├── .git/
+│   └── opentasks/                ← shared state (daemon, worktree registry)
+│       ├── daemon.sock
+│       └── worktrees.json
 ├── main-worktree/
 │   ├── .opentasks/
-│   │   └── graph.jsonl           ← branch: main
+│   │   └── graph.jsonl           ← branch: main (manager)
 │   └── src/
 ├── feature-a-worktree/
 │   ├── .opentasks/
-│   │   └── graph.jsonl           ← branch: feature-a (diverged)
+│   │   └── config.json           ← role: worker, redirect → manager
 │   └── src/
 └── feature-b-worktree/
     ├── .opentasks/
-    │   └── graph.jsonl           ← branch: feature-b (diverged)
+    │   └── config.json           ← role: worker, redirect → manager
     └── src/
 ```
 
-**Problems:**
-- Each worktree has its own view of the graph (from its branch)
-- Parallel agents creating issues → potential ID collisions
-- Status updates in parallel → merge conflicts
-- Orchestrator needs visibility across all worktrees
+**Problems solved:**
+- Each worktree has its own view of the graph (from its branch) → **redirect rules route to manager**
+- Parallel agents creating issues → **hash-based IDs prevent collisions**
+- Status updates in parallel → **append-only writes + custom merge driver**
+- Orchestrator needs visibility across all worktrees → **single daemon manages all locations**
 
-### Branch-Aware Nodes
+### How Worktrees Work
 
-Nodes can optionally track their branch context:
+1. **Explicit registration** — `opentasks worktree setup` creates and configures worker worktrees
+2. **Role-based routing** — workers redirect reads/writes to manager via config (not agent identity)
+3. **Single daemon** — one process at `.git/opentasks/daemon.sock` serves all worktrees
+4. **Provider-based queries** — connected locations register as providers; `ready()` resolves cross-location blockers
 
-```typescript
-interface Node {
-  id: string
-  // ... other fields
-
-  // Branch awareness (optional)
-  branch?: string              // which branch created this node
-  merged_from?: string[]       // branches this was merged from
-  superseded_by?: string       // if replaced during merge
-}
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              Single Daemon (.git/opentasks/daemon.sock)          │
+│  - Manages all registered worktrees                              │
+│  - Serializes writes                                             │
+│  - Cross-location queries are in-process                         │
+└─────────────────────────────────────────────────────────────────┘
+       ↑                    ↑                    ↑
+  main-worktree        feature-a            feature-b
+  (role: manager)      (role: worker)       (role: worker)
 ```
 
-**Branch switching behavior:**
-- Switching from `feature-a` to `main` changes which nodes are visible
-- Nodes created on `feature-a` only appear when on that branch (or after merge)
-- Edges can reference nodes on other branches (resolved when both visible)
+### Redirect Rules (Role-Based)
 
-### Redirect Rules
+Redirects are configured by the orchestrator at worktree setup time. Rules match on **role** and **branch**, not agent identity:
 
-Inspired by beads' redirect concept, opentasks supports configurable read/write routing:
-
-```typescript
-interface RedirectRule {
-  // What operations this rule applies to
-  operations: ('read' | 'write' | 'both')[]
-
-  // Pattern matching for which refs to redirect
-  pattern: string              // glob or regex
-
-  // Where to redirect
-  target: LocationRef          // path, URI, or special value
-
-  // Conditions
-  when?: {
-    branch?: string            // only on specific branch
-    worktree?: string          // only in specific worktree
-    agent?: string             // only for specific agent
-  }
-}
-
-// Configuration example
+```json
 {
+  "role": "worker",
   "redirects": [
     {
-      // Sub-agents write to their worktree, read from main
-      "operations": ["read"],
-      "pattern": "i-*",
-      "target": "opentasks://../main-worktree/",
-      "when": { "worktree": "feature-*" }
-    },
-    {
-      // All writes go to central orchestrator location
-      "operations": ["write"],
+      "operations": ["read", "write"],
       "pattern": "*",
-      "target": "opentasks://.git/opentasks/",
-      "when": { "agent": "sub-agent-*" }
+      "target": "opentasks://k7m2x9p4/",
+      "priority": 100,
+      "fallback": "error",
+      "when": { "role": "worker" }
     }
   ]
 }
 ```
 
+Rule evaluation: sorted by priority (ascending), first match wins. Max redirect depth: 3 hops.
+
+### Merge Safety
+
+Concurrent work across branches is handled by two complementary mechanisms:
+
+1. **Append-only JSONL writes** — updates append new lines with the same ID and newer `updated_at`. Git merges appends trivially (no line conflicts).
+
+2. **Custom merge driver** — registered via `.gitattributes`, deduplicates by ID (keeps latest `updated_at`), performs field-level three-way merge for concurrent edits.
+
+```gitattributes
+.opentasks/graph.jsonl merge=opentasks
+```
+
+See [plans/PHASE-3.md](./plans/PHASE-3.md) for the full merge driver specification.
+
 ### Coordination Patterns
 
 #### Pattern 1: Optimistic Merge (Simple)
 
-```
-Each worktree works independently
-Merge happens via git when branches merge
-Hash-based IDs prevent collisions
-Content hashing deduplicates on merge
-```
+Each worktree works independently. Append-only writes + merge driver handle merging:
 
 ```
 ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
@@ -565,154 +560,67 @@ Content hashing deduplicates on merge
 └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
        │                 │                 │
        │   create i-x1   │   create i-y2   │
+       │   update i-z3   │   update i-z3   │
        │                 │                 │
        └────────────────┬┴─────────────────┘
-                        │ git merge
+                        │ git merge + merge driver
                         ▼
-              ┌─────────────────┐
-              │  Merged graph   │
-              │  i-x1, i-y2     │
-              │  (no collision) │
-              └─────────────────┘
+              ┌──────────────────┐
+              │  Merged graph    │
+              │  i-x1, i-y2     │  ← new nodes: union
+              │  i-z3           │  ← conflict: field-level merge
+              └──────────────────┘
 ```
 
-**Best for:** Independent work streams, async collaboration
+**Best for:** Independent work streams, async collaboration.
 
-#### Pattern 2: Shared State via .git/
+#### Pattern 2: Redirect Hierarchy (Recommended for Agent Swarms)
 
-```
-repo/
-├── .git/
-│   └── opentasks/              ← shared across all worktrees
-│       ├── graph.jsonl
-│       └── cache.db
-├── main-worktree/
-└── feature-worktree/
-```
-
-```
-┌──────────────┐     ┌──────────────┐
-│  Worktree A  │     │  Worktree B  │
-└──────┬───────┘     └──────┬───────┘
-       │                    │
-       └──────────┬─────────┘
-                  │
-                  ▼
-        ┌─────────────────┐
-        │ .git/opentasks/ │
-        │  (shared state) │
-        └─────────────────┘
-```
-
-**Trade-offs:**
-- Single source of truth across worktrees
-- Requires locking or atomic operations
-- Not versioned with branches
-- Good for orchestrator coordination
-
-#### Pattern 3: Daemon Coordination
-
-```
-┌─────────────────────────────────────────────┐
-│           Opentasks Daemon                   │
-│  - Runs per-repo (or per-workspace)         │
-│  - Serializes writes                         │
-│  - Broadcasts updates                        │
-│  - Manages locks and claims                  │
-└─────────────────────────────────────────────┘
-       ↑              ↑              ↑
-  Worktree A    Worktree B    Worktree C
-```
-
-**Trade-offs:**
-- Real-time coordination
-- No merge conflicts
-- More complex infrastructure
-- Single point of failure (recoverable)
-
-#### Pattern 4: Redirect Hierarchy (Recommended for Agent Swarms)
-
-Combines the above patterns using redirect rules:
+Workers redirect to manager. Single daemon coordinates. Setup via `opentasks worktree setup`:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Orchestrator Agent                           │
-│                    (main-worktree)                               │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │  .opentasks/ (authoritative)                             │    │
-│  │  - All specs live here                                   │    │
-│  │  - Orchestrator issues live here                         │    │
-│  │  - Receives writes from sub-agents (via redirect)        │    │
-│  └─────────────────────────────────────────────────────────┘    │
+│                     Manager Agent (main-worktree)                │
+│  .opentasks/ (authoritative) — role: manager                     │
+│  - All specs live here                                           │
+│  - All issues centrally managed                                  │
+│  - Single daemon handles all requests                            │
 └─────────────────────────────────────────────────────────────────┘
                               ↑
               ┌───────────────┼───────────────┐
               │               │               │
 ┌─────────────┴───┐ ┌────────┴────────┐ ┌────┴──────────────┐
-│  Sub-Agent A    │ │  Sub-Agent B    │ │  Sub-Agent C      │
+│  Worker A       │ │  Worker B       │ │  Worker C         │
 │  (feature-a)    │ │  (feature-b)    │ │  (feature-c)      │
-│                 │ │                 │ │                   │
-│  Redirects:     │ │  Redirects:     │ │  Redirects:       │
-│  read: main     │ │  read: main     │ │  read: main       │
-│  write: main    │ │  write: main    │ │  write: main      │
+│  role: worker   │ │  role: worker   │ │  role: worker     │
+│  redirect: mgr  │ │  redirect: mgr  │ │  redirect: mgr   │
 └─────────────────┘ └─────────────────┘ └───────────────────┘
 ```
 
-Sub-agents:
-- Read specs and orchestrator issues from main
-- Write status updates redirected to main
-- Can have local scratch state if needed
-
-### P2P / Central Source of Truth
-
-The redirect model also supports centralized coordination:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│              Central Repository (source of truth)                │
-│              github.com/org/tasks.opentasks                      │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │  .opentasks/ (authoritative)                             │    │
-│  └─────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
-                              ↑
-              ┌───────────────┼───────────────┐
-              │               │               │
-┌─────────────┴───┐ ┌────────┴────────┐ ┌────┴──────────────┐
-│  Dev Machine A  │ │  Dev Machine B  │ │  CI/CD Agent      │
-│                 │ │                 │ │                   │
-│  Redirects:     │ │  Redirects:     │ │  Redirects:       │
-│  read: central  │ │  read: central  │ │  read: central    │
-│  write: central │ │  write: central │ │  write: central   │
-│  (via git sync) │ │  (via git sync) │ │  (via git sync)   │
-└─────────────────┘ └─────────────────┘ └───────────────────┘
+**Setup:**
+```bash
+opentasks worktree setup ./feature-a --branch feature-a --role worker --redirect-to .
+opentasks worktree setup ./feature-b --branch feature-b --role worker --redirect-to .
 ```
 
 ### Agent Coordination Primitives
 
-While detailed agent coordination is left to higher layers, opentasks provides basic primitives:
+OpenTasks provides basic advisory primitives for coordination:
 
 ```typescript
 interface Node {
   // ... other fields
 
-  // Coordination hints (optional)
+  // Coordination hints (optional, advisory)
   claimed_by?: string          // agent ID that claimed this work
   claimed_at?: string          // when claimed
-  lock_until?: string          // soft lock expiry
+  lock_until?: string          // soft lock expiry (default: 30 min)
 }
 ```
 
-**Claim semantics:**
-- Advisory, not enforced at storage layer
-- Agents check claims before starting work
-- Expired claims can be re-claimed
-- Conflict resolution is application-level
+With the single-daemon model, claims are atomic (in-process check-and-set). Expired claims auto-release.
 
-**Why not more?**
-- Beads has sophisticated async gates, waiters, etc.
-- Those belong in beads integration or application layer
-- OpenTasks provides the graph; coordination built on top
+**Why not more?** Beads has sophisticated gates, waiters, and dependency types. Those belong in the beads integration or application layer. OpenTasks provides the graph; coordination is built on top.
 
 ---
 
@@ -735,24 +643,23 @@ interface Node {
 
 ### Resolved
 - [x] **Core identity**: Graph connector, not task replacement
-- [x] **Daemon**: Required for multi-agent, but defer implementation to v2
+- [x] **Daemon model**: Single daemon per git repo (Phase 3); no daemon for Phase 2 (WAL + file locks)
 - [x] **3-tool interface**: Sufficient because providers have their own CRUD tools
 - [x] **Feedback**: Native first, design for cross-system routing
+- [x] **URI canonicalization**: Use deterministic location hashes (8-char base36) as primary URI identifier
+- [x] **Global daemon registry**: Eliminated — socket at `.git/opentasks/daemon.sock` + explicit connections
+- [x] **Location discovery**: One-time setup aid only, not runtime; explicit connections for queries
+- [x] **Redirect conditions**: Role-based (set by orchestrator in config), not agent-identity-based
+- [x] **Worktree detection**: Replaced with explicit registration via `opentasks worktree setup`
+- [x] **JSONL merge conflicts**: Append-only writes + custom merge driver with field-level resolution
 
-### Active — Cross-Location Design (Priority)
-- [ ] **v1 scope**: Single-location + provider URIs, or include opentasks:// URIs?
-- [ ] **URI canonicalization**: How to store/resolve relative vs absolute URIs?
-- [ ] **Schema preparation**: What fields needed now to support cross-location later?
-
-### Deferred to v2
-- [ ] Location discovery and expansion modes
-- [ ] Redirect rules for worktrees
-- [ ] Global daemon registry
-- [ ] Multi-location queries (ancestors, descendants, siblings)
+### Active
+- [ ] **Location hash fallback**: What to use when repo has no git remote? (absolute path hash?)
+- [ ] **Merge driver edge deletions**: If one side deletes and other modifies, keep or delete?
+- [ ] **Compaction frequency**: Triggers and scheduling for append-only JSONL growth
 
 ### Implementation Details (Address During Build)
-- [ ] Hash-based ID generation (adopt from beads?)
-- [ ] Compaction strategy for JSONL
+- [ ] Compaction strategy for append-only JSONL
 - [ ] Cache TTL defaults per provider
 - [ ] Provider authentication handling
 
