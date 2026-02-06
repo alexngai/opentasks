@@ -19,3 +19,15 @@ export {
   filterEdgesByDirection,
   getNeighborFromEdge,
 } from './RelationshipQueryable.js'
+
+export type {
+  Watchable,
+  WatchGranularity,
+  WatchMechanism,
+  WatchChangeCallback,
+  ProviderChangeEvent,
+  ProviderNodeChangeEvent,
+  ProviderEdgeChangeEvent,
+} from './Watchable.js'
+
+export { isWatchable } from './Watchable.js'

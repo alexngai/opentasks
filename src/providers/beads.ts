@@ -7,6 +7,7 @@
 
 import { exec as execCallback } from 'child_process'
 import { promisify } from 'util'
+import chokidar, { type FSWatcher } from 'chokidar'
 import type {
   Provider,
   ProviderCapabilities,
@@ -30,6 +31,13 @@ import {
   filterEdgesByDirection,
 } from './traits/RelationshipQueryable.js'
 import type { EdgeTypeSupport } from '../graph/EdgeTypeRegistry.js'
+import type {
+  Watchable,
+  WatchGranularity,
+  WatchChangeCallback,
+  ProviderNodeChangeEvent,
+  ProviderEdgeChangeEvent,
+} from './traits/Watchable.js'
 
 const execAsync = promisify(execCallback)
 
@@ -49,6 +57,20 @@ export interface BeadsConfig {
 
   /** Timeout for CLI commands in ms (default: 30000) */
   timeout?: number
+
+  /**
+   * Path to Beads data directory to watch for changes.
+   * When set, enables the Watchable trait. The provider will
+   * use chokidar to monitor this directory for file changes
+   * and emit ProviderChangeEvents by diffing against cached state.
+   *
+   * Typically points to a `.beads/` directory.
+   * If not set, watching is not available for this provider.
+   */
+  watchPath?: string
+
+  /** Debounce delay for file watching in ms (default: 200) */
+  watchDebounceMs?: number
 }
 
 /**
@@ -145,18 +167,240 @@ function beadsIssueToProviderNode(issue: BeadsIssue, workspace: string = '.'): P
 // ============================================================================
 
 /**
- * Create a Beads provider with relationship querying support
+ * Create a Beads provider with relationship querying and optional watching support
  */
-export function createBeadsProvider(config: BeadsConfig = {}): Provider & RelationshipQueryable {
+export function createBeadsProvider(config: BeadsConfig = {}): Provider & RelationshipQueryable & Partial<Watchable> {
   const executable = config.executable ?? 'bd'
   const cwd = config.cwd
   const timeout = config.timeout ?? 30000
+  const watchPath = config.watchPath
+  const watchDebounceMs = config.watchDebounceMs ?? 200
 
   const capabilities: ProviderCapabilities = {
     read: true,
     write: true,
     search: true,
-    watch: false,
+    watch: !!watchPath,
+  }
+
+  // =========================================================================
+  // Watch State (only active when watchPath is configured)
+  // =========================================================================
+
+  /** Cached content hashes for change diffing: beads issue id → hash of serialized data */
+  const cachedHashes = new Map<string, string>()
+
+  /** Cached edge signatures for edge change detection: "from:to:type" → true */
+  const cachedEdgeKeys = new Set<string>()
+
+  /** chokidar watcher instance */
+  let fileWatcher: FSWatcher | null = null
+
+  /** Current watch callback */
+  let watchCallback: WatchChangeCallback | null = null
+
+  /** Debounce timer for coalescing rapid file changes */
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
+  /**
+   * Simple hash for diffing (not cryptographic — just for detecting changes).
+   * Uses the same approach as sync.ts calculateContentHash.
+   */
+  function quickHash(input: string): string {
+    let hash = 0
+    for (let i = 0; i < input.length; i++) {
+      const char = input.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash
+    }
+    return hash.toString(16)
+  }
+
+  /**
+   * Build a stable hash key for a Beads issue (substantive fields only)
+   */
+  function issueHashKey(issue: BeadsIssue): string {
+    const substantive = {
+      title: issue.title,
+      description: issue.description,
+      status: issue.status,
+      priority: issue.priority,
+      tags: issue.tags ? [...issue.tags].sort() : undefined,
+      blocks: issue.blocks ? [...issue.blocks].sort() : undefined,
+      blockedBy: issue.blockedBy ? [...issue.blockedBy].sort() : undefined,
+      parent: issue.parent,
+      children: issue.children ? [...issue.children].sort() : undefined,
+    }
+    return quickHash(JSON.stringify(substantive))
+  }
+
+  /**
+   * Compute the set of edge keys from an issue's relationship fields
+   */
+  function issueEdgeKeys(issue: BeadsIssue): Set<string> {
+    const keys = new Set<string>()
+    if (issue.blocks) {
+      for (const id of issue.blocks) keys.add(`${issue.id}:${id}:blocks`)
+    }
+    if (issue.blockedBy) {
+      for (const id of issue.blockedBy) keys.add(`${id}:${issue.id}:blocks`)
+    }
+    if (issue.parent) {
+      keys.add(`${issue.parent}:${issue.id}:parent-child`)
+    }
+    if (issue.children) {
+      for (const id of issue.children) keys.add(`${issue.id}:${id}:parent-child`)
+    }
+    return keys
+  }
+
+  /**
+   * Diff current Beads state against cached hashes and emit change events.
+   * Called when file watcher detects a change.
+   */
+  async function diffAndEmit(): Promise<void> {
+    if (!watchCallback) return
+
+    try {
+      const output = await execBd(['list', '--json'])
+      const issues = parseJson<BeadsIssue[]>(output)
+
+      const currentIds = new Set<string>()
+      const currentEdgeKeys = new Set<string>()
+
+      for (const issue of issues) {
+        currentIds.add(issue.id)
+        const hash = issueHashKey(issue)
+        const prevHash = cachedHashes.get(issue.id)
+        const providerNode = beadsIssueToProviderNode(issue)
+
+        if (!prevHash) {
+          // New issue
+          watchCallback({
+            kind: 'node',
+            event: {
+              type: 'created',
+              nodeId: issue.id,
+              uri: providerNode.uri,
+              node: providerNode,
+              timestamp: new Date().toISOString(),
+            },
+          })
+        } else if (prevHash !== hash) {
+          // Changed issue — compute changed fields if possible
+          const event: ProviderNodeChangeEvent = {
+            type: 'updated',
+            nodeId: issue.id,
+            uri: providerNode.uri,
+            node: providerNode,
+            timestamp: new Date().toISOString(),
+          }
+
+          // We can report changed fields by comparing against cached data
+          // but we only store hashes, not full data. For field-level we'd
+          // need to cache full issue objects. For now, we report the node
+          // change without field detail — consumers can diff themselves.
+          watchCallback({ kind: 'node', event })
+        }
+
+        cachedHashes.set(issue.id, hash)
+
+        // Collect current edges
+        for (const key of issueEdgeKeys(issue)) {
+          currentEdgeKeys.add(key)
+        }
+      }
+
+      // Detect deleted issues
+      for (const [id] of cachedHashes) {
+        if (!currentIds.has(id)) {
+          watchCallback({
+            kind: 'node',
+            event: {
+              type: 'deleted',
+              nodeId: id,
+              uri: `beads://./${id}`,
+              timestamp: new Date().toISOString(),
+            },
+          })
+          cachedHashes.delete(id)
+        }
+      }
+
+      // Detect edge changes
+      // New edges
+      for (const key of currentEdgeKeys) {
+        if (!cachedEdgeKeys.has(key)) {
+          const [from, to, type] = key.split(':')
+          const event: ProviderEdgeChangeEvent = {
+            type: 'created',
+            edge: { from, to, type },
+            sourceUri: `beads://./${from}`,
+            targetUri: `beads://./${to}`,
+            timestamp: new Date().toISOString(),
+          }
+          watchCallback({ kind: 'edge', event })
+        }
+      }
+      // Deleted edges
+      for (const key of cachedEdgeKeys) {
+        if (!currentEdgeKeys.has(key)) {
+          const [from, to, type] = key.split(':')
+          const event: ProviderEdgeChangeEvent = {
+            type: 'deleted',
+            edge: { from, to, type },
+            sourceUri: `beads://./${from}`,
+            targetUri: `beads://./${to}`,
+            timestamp: new Date().toISOString(),
+          }
+          watchCallback({ kind: 'edge', event })
+        }
+      }
+
+      // Update cached edge state
+      cachedEdgeKeys.clear()
+      for (const key of currentEdgeKeys) {
+        cachedEdgeKeys.add(key)
+      }
+    } catch {
+      // Resilient — log internally but don't crash the watcher
+    }
+  }
+
+  /**
+   * Handle a raw file change event with debouncing
+   */
+  function onFileChange(): void {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer)
+    }
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null
+      void diffAndEmit()
+    }, watchDebounceMs)
+  }
+
+  /**
+   * Seed the cached hashes from current Beads state (so the first
+   * diff only emits genuine changes, not the entire existing dataset)
+   */
+  async function seedCache(): Promise<void> {
+    try {
+      const output = await execBd(['list', '--json'])
+      const issues = parseJson<BeadsIssue[]>(output)
+
+      cachedHashes.clear()
+      cachedEdgeKeys.clear()
+
+      for (const issue of issues) {
+        cachedHashes.set(issue.id, issueHashKey(issue))
+        for (const key of issueEdgeKeys(issue)) {
+          cachedEdgeKeys.add(key)
+        }
+      }
+    } catch {
+      // If we can't seed, first diff will treat everything as 'created'
+    }
   }
 
   /**
@@ -517,6 +761,77 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
         { type: 'blocks', canQuery: true, canCreate: true, canDelete: true },
         { type: 'parent-child', canQuery: true, canCreate: true, canDelete: true },
       ]
+    },
+
+    // =========================================================================
+    // Watchable Implementation (only functional when watchPath is configured)
+    // =========================================================================
+
+    watchGranularity: {
+      // Beads diffs at the node level. We can detect which nodes changed
+      // but don't track individual field changes (would require caching
+      // full issue objects rather than just hashes).
+      reportsChangedFields: false,
+      reportsPreviousValues: false,
+
+      // Beads embeds relationships in the node (blocks/blockedBy/parent/children).
+      // We extract and diff these separately, so we can emit edge events.
+      reportsEdgeChanges: true,
+
+      mechanism: 'file-watch' as const,
+    } satisfies WatchGranularity,
+
+    startWatching(callback: WatchChangeCallback): void {
+      if (!watchPath) {
+        return // Watching not configured — silently no-op
+      }
+
+      // Replace callback if already watching
+      watchCallback = callback
+
+      if (fileWatcher) {
+        return // Already watching, just updated callback
+      }
+
+      // Seed cache before starting watcher so we only emit real changes
+      void seedCache().then(() => {
+        if (!watchCallback) return // Stopped before seed completed
+
+        fileWatcher = chokidar.watch(watchPath, {
+          ignoreInitial: true,
+          persistent: true,
+          awaitWriteFinish: {
+            stabilityThreshold: 100,
+            pollInterval: 20,
+          },
+        })
+
+        fileWatcher.on('add', onFileChange)
+        fileWatcher.on('change', onFileChange)
+        fileWatcher.on('unlink', onFileChange)
+
+        fileWatcher.on('error', () => {
+          // Resilient — continue watching despite transient errors
+        })
+      })
+    },
+
+    stopWatching(): void {
+      watchCallback = null
+
+      if (debounceTimer) {
+        clearTimeout(debounceTimer)
+        debounceTimer = null
+      }
+
+      if (fileWatcher) {
+        void fileWatcher.close()
+        fileWatcher = null
+      }
+    },
+
+    get isWatching(): boolean {
+      return fileWatcher !== null && watchCallback !== null
     },
   }
 }

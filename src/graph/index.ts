@@ -56,6 +56,7 @@ export type {
   ProviderAwareStore,
   ProviderStoreConfig,
   ResolveOptions,
+  ProviderChangeHandler,
 } from './provider-store.js'
 export { createProviderAwareStore } from './provider-store.js'
 

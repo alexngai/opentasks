@@ -211,9 +211,18 @@ export type {
   MaterializationManager,
   MaterializationContext,
   BeadsConfig,
+  NativeProviderConfig,
   ClaudeTasksConfig,
   ClaudeTask,
   ClaudeTaskStore,
+  // Watchable trait
+  Watchable,
+  WatchGranularity,
+  WatchMechanism,
+  WatchChangeCallback,
+  ProviderChangeEvent,
+  ProviderNodeChangeEvent,
+  ProviderEdgeChangeEvent,
 } from './providers/index.js'
 
 export {
@@ -225,6 +234,7 @@ export {
   createClaudeTasksProvider,
   createInMemoryTaskStore,
   createMaterializationManager,
+  isWatchable,
 } from './providers/index.js'
 
 // Provider-Aware Store
