@@ -268,6 +268,8 @@ export async function setupE2ESystem(options: E2ESystemOptions = {}): Promise<E2
         executable: getBdExecutable(),
         cwd: beadsDir,
         timeout: 30000,
+        watchPath: join(beadsDir, '.beads'),
+        watchDebounceMs: 100, // Faster debounce for tests
       }
       beadsProvider = createBeadsProvider(beadsConfig)
       providerRegistry.register(beadsProvider)
