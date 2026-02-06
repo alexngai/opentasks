@@ -94,16 +94,27 @@ interface BeadsIssue {
   tags?: string[]
   created_at?: string
   updated_at?: string
-  /** IDs of issues this issue blocks (legacy format) */
+
+  // --- Legacy relationship fields (older bd versions) ---
+  /** IDs of issues this issue blocks */
   blocks?: string[]
-  /** IDs of issues that block this issue (legacy format) */
+  /** IDs of issues that block this issue */
   blockedBy?: string[]
-  /** Dependencies in structured format (bd v0.49+ list output) */
-  dependencies?: Array<{ issue_id: string; depends_on_id: string; type: string }>
-  /** Number of dependencies (bd v0.49+) */
+
+  // --- bd v0.49+ relationship fields ---
+  /**
+   * Dependencies. Format varies by command:
+   * - `bd list --json`: compact refs `[{issue_id, depends_on_id, type}]`
+   * - `bd show --json`: full issue objects `[{id, title, ...}]` (issues this depends on)
+   */
+  dependencies?: Array<{ issue_id?: string; depends_on_id?: string; type?: string; id?: string; dependency_type?: string; [k: string]: unknown }>
+  /** Issues that depend on this issue (bd show --json) — full issue objects */
+  dependents?: Array<{ id: string; dependency_type?: string; [k: string]: unknown }>
+  /** Number of dependencies (bd v0.49+ list output) */
   dependency_count?: number
-  /** Number of dependents (bd v0.49+) */
+  /** Number of dependents (bd v0.49+ list output) */
   dependent_count?: number
+
   /** Parent issue ID */
   parent?: string
   /** Child issue IDs */
@@ -608,6 +619,10 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
         if (!issues || issues.length === 0) {
           return null
         }
+        // Treat tombstoned (soft-deleted) issues as not found
+        if (issues[0].status === 'tombstone') {
+          return null
+        }
         return beadsIssueToProviderNode(issues[0], workspace)
       } catch (error) {
         // Return null for not found, re-throw other errors
@@ -639,7 +654,9 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
       const output = await execBd(args)
       const issues = parseJson<BeadsIssue[]>(output)
 
-      return issues.map((issue) => beadsIssueToProviderNode(issue))
+      return issues
+        .filter((issue) => issue.status !== 'tombstone')
+        .map((issue) => beadsIssueToProviderNode(issue))
     },
 
     async create(input: ProviderCreateInput): Promise<ProviderNode> {
@@ -717,7 +734,9 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
       const output = await execBd(args)
       const issues = parseJson<BeadsIssue[]>(output)
 
-      return issues.map((issue) => beadsIssueToProviderNode(issue))
+      return issues
+        .filter((issue) => issue.status !== 'tombstone')
+        .map((issue) => beadsIssueToProviderNode(issue))
     },
 
     // =========================================================================
@@ -737,49 +756,66 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
         }
 
         const issue = issues[0]
+        // Tombstoned issues have no meaningful edges
+        if (issue.status === 'tombstone') {
+          return []
+        }
         let edges: ProviderEdge[] = []
 
-        // Parse blocks relationships (this issue blocks others)
+        // --- Legacy format: blocks/blockedBy string arrays ---
         if (issue.blocks && Array.isArray(issue.blocks)) {
           for (const blockedId of issue.blocks) {
-            edges.push({
-              from: issueId,
-              to: blockedId,
-              type: 'blocks',
-            })
+            edges.push({ from: issueId, to: blockedId, type: 'blocks' })
           }
         }
-
-        // Parse blockedBy relationships (others block this issue)
         if (issue.blockedBy && Array.isArray(issue.blockedBy)) {
           for (const blockerId of issue.blockedBy) {
-            edges.push({
-              from: blockerId,
-              to: issueId,
-              type: 'blocks',
-            })
+            edges.push({ from: blockerId, to: issueId, type: 'blocks' })
           }
         }
 
-        // Parse parent relationship
-        if (issue.parent) {
-          edges.push({
-            from: issue.parent,
-            to: issueId,
-            type: 'parent-child',
-          })
+        // --- bd v0.49+ format from `bd show --json` ---
+        // `dependencies` = issues THIS issue depends on (they block this)
+        // Each element is a full issue object with an `id` field
+        if (issue.dependencies && Array.isArray(issue.dependencies)) {
+          for (const dep of issue.dependencies) {
+            if (dep.id) {
+              // Full object format from `bd show` — dep.id is the blocker
+              edges.push({ from: dep.id, to: issueId, type: 'blocks' })
+            } else if (dep.depends_on_id && dep.issue_id) {
+              // Compact format from `bd list` — depends_on_id blocks issue_id
+              edges.push({ from: dep.depends_on_id, to: dep.issue_id, type: 'blocks' })
+            }
+          }
         }
 
-        // Parse children relationships
+        // `dependents` = issues that depend on THIS issue (this blocks them)
+        if (issue.dependents && Array.isArray(issue.dependents)) {
+          for (const dep of issue.dependents) {
+            if (dep.id) {
+              edges.push({ from: issueId, to: dep.id, type: 'blocks' })
+            }
+          }
+        }
+
+        // --- Parent/children ---
+        if (issue.parent) {
+          edges.push({ from: issue.parent, to: issueId, type: 'parent-child' })
+        }
         if (issue.children && Array.isArray(issue.children)) {
           for (const childId of issue.children) {
-            edges.push({
-              from: issueId,
-              to: childId,
-              type: 'parent-child',
-            })
+            edges.push({ from: issueId, to: childId, type: 'parent-child' })
           }
         }
+
+        // Deduplicate edges (multiple formats may report the same relationship)
+        const seen = new Set<string>()
+        edges = edges.filter((edge) => {
+          const key = `${edge.from}:${edge.to}:${edge.type}`
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
 
         // Apply filters if specified
         if (options?.edgeType) {
