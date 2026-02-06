@@ -1,7 +1,73 @@
 /**
  * Configuration schema with Zod validation
+ *
+ * Phase 2 additions: location identity, connections, role, redirects
  */
 import { z } from 'zod'
+
+// ============================================================================
+// Location Identity (Phase 2)
+// ============================================================================
+
+const LocationConfigSchemaInner = z.object({
+  /** 8-char base36 deterministic hash */
+  hash: z.string(),
+  /** UUID v4 uniqueness guarantee */
+  uuid: z.string().uuid(),
+  /** Human-readable name */
+  name: z.string(),
+})
+
+export const LocationConfigSchema = z
+  .object({
+    hash: z.string().optional(),
+    uuid: z.string().uuid().optional(),
+    name: z.string().optional(),
+  })
+  .optional()
+  .transform((val) => val ? LocationConfigSchemaInner.parse(val) : undefined)
+
+export type LocationConfig = z.infer<typeof LocationConfigSchemaInner>
+
+// ============================================================================
+// Connection Configuration (Phase 2)
+// ============================================================================
+
+export const ConnectionRoleSchema = z.enum(['peer', 'parent', 'child'])
+
+export const ConnectionSchema = z.object({
+  /** Location hash of the target */
+  hash: z.string(),
+  /** Path to target .opentasks directory */
+  path: z.string(),
+  /** Relationship role */
+  role: ConnectionRoleSchema.default('peer'),
+  /** Human-readable name */
+  name: z.string().default(''),
+})
+
+export type ConnectionConfig = z.infer<typeof ConnectionSchema>
+
+// ============================================================================
+// Redirect Rules (Phase 2)
+// ============================================================================
+
+export const RedirectOperationSchema = z.enum(['read', 'write'])
+
+export const RedirectRuleSchema = z.object({
+  /** Operations this rule applies to */
+  operations: z.array(RedirectOperationSchema),
+  /** Glob pattern for node IDs */
+  pattern: z.string().default('*'),
+  /** Target location URI or hash */
+  target: z.string(),
+  /** Priority (lower = higher priority) */
+  priority: z.number().default(100),
+  /** Fallback behavior */
+  fallback: z.enum(['local', 'error']).default('error'),
+})
+
+export type RedirectRuleConfig = z.infer<typeof RedirectRuleSchema>
 
 // ============================================================================
 // Storage Configuration
@@ -151,14 +217,24 @@ export type LoggingConfig = z.infer<typeof LoggingConfigSchema>
 // ============================================================================
 
 const OpenTasksConfigSchemaInner = z.object({
+  version: z.string().default('1.0'),
   storage: StorageConfigSchema,
   daemon: DaemonConfigSchema,
   providers: ProvidersConfigSchema,
   logging: LoggingConfigSchema,
+  /** Location identity (Phase 2) */
+  location: LocationConfigSchema,
+  /** Explicit connections to other locations (Phase 2) */
+  connections: z.array(ConnectionSchema).default([]),
+  /** Location role (Phase 2) */
+  role: z.enum(['manager', 'worker', 'standalone']).default('standalone'),
+  /** Redirect rules (Phase 2) */
+  redirects: z.array(RedirectRuleSchema).default([]),
 })
 
 export const OpenTasksConfigSchema = z
   .object({
+    version: z.string().optional(),
     storage: z
       .object({
         jsonlPath: z.string().optional(),
@@ -195,6 +271,31 @@ export const OpenTasksConfigSchema = z
         file: z.string().nullable().optional(),
       })
       .optional(),
+    location: z
+      .object({
+        hash: z.string().optional(),
+        uuid: z.string().uuid().optional(),
+        name: z.string().optional(),
+      })
+      .optional(),
+    connections: z.array(
+      z.object({
+        hash: z.string(),
+        path: z.string(),
+        role: ConnectionRoleSchema.optional(),
+        name: z.string().optional(),
+      })
+    ).optional(),
+    role: z.enum(['manager', 'worker', 'standalone']).optional(),
+    redirects: z.array(
+      z.object({
+        operations: z.array(RedirectOperationSchema),
+        pattern: z.string().optional(),
+        target: z.string(),
+        priority: z.number().optional(),
+        fallback: z.enum(['local', 'error']).optional(),
+      })
+    ).optional(),
   })
   .default({})
   .transform((val) => OpenTasksConfigSchemaInner.parse(val))
