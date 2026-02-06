@@ -6,6 +6,7 @@
  */
 
 import * as fs from 'node:fs'
+import { execSync } from 'node:child_process'
 
 /**
  * A parsed JSONL line as a record
@@ -282,7 +283,6 @@ export function installMergeDriver(worktreePath: string): void {
 
   // 2. Configure merge driver in git config
   try {
-    const { execSync } = require('node:child_process')
     execSync(
       'git config merge.opentasks.name "OpenTasks JSONL merge driver"',
       { cwd: worktreePath, stdio: ['pipe', 'pipe', 'pipe'] }

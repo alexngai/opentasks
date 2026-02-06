@@ -213,7 +213,7 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
         'write', 's-spec1', rules, connections, currentLocation, workerDir
       )
       expect(result1.redirected).toBe(true)
-      expect(result1.resolved?.hash).toBe(managerHash)
+      expect(result1.targetLocation?.hash).toBe(managerHash)
 
       // Read anything → redirected to manager
       const result2 = resolveOperationRedirect(
@@ -583,7 +583,7 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
         'write', 'i-task1', workerRedirects, workerConnections, workerLocation, workerOpentasks
       )
       expect(redirectResult.redirected).toBe(true)
-      expect(redirectResult.resolved?.hash).toBe(managerHash)
+      expect(redirectResult.targetLocation?.hash).toBe(managerHash)
 
       // 8. Build cross-location URI from manager context
       const crossUri = buildOpentasksUri(workerHash, 'i-worker-issue')

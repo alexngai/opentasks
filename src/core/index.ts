@@ -34,11 +34,13 @@ export {
 // URI scheme (Phase 2)
 export {
   parseOpentasksUri,
+  resolveLocationTarget,
   resolveOpentasksUri,
   isOpentasksUri,
   buildOpentasksUri,
   buildLocalUri,
   type ParsedOpentasksUri,
+  type ResolvedLocationTarget,
   type ResolvedLocation,
 } from './uri.js'
 

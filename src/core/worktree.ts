@@ -10,6 +10,7 @@ import * as path from 'node:path'
 import { execSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { generateLocationHash, generateLocationHashFallback, getGitRemoteUrl, getGitRoot } from './location.js'
+import { installMergeDriver } from './merge-driver.js'
 import type { Connection } from './connections.js'
 
 /**
@@ -316,7 +317,14 @@ export function worktreeSetup(
     )
   }
 
-  // 7. Register worktree
+  // 7. Install merge driver
+  try {
+    installMergeDriver(resolvedTarget)
+  } catch {
+    // Non-fatal: merge driver installation might fail
+  }
+
+  // 8. Register worktree
   const branch = options.branch ?? getCurrentBranch(resolvedTarget) ?? undefined
   const entry: WorktreeEntry = {
     path: resolvedTarget,
@@ -328,7 +336,7 @@ export function worktreeSetup(
   }
   registerWorktree(gitCommonDir, entry)
 
-  // 8. Add connection in manager's config
+  // 9. Add connection in manager's config
   const managerConfigPath = path.join(managerOpentasksPath, 'config.json')
   try {
     const managerConfig = JSON.parse(fs.readFileSync(managerConfigPath, 'utf-8'))

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseOpentasksUri,
+  resolveLocationTarget,
   resolveOpentasksUri,
   isOpentasksUri,
   buildOpentasksUri,
@@ -157,5 +158,68 @@ describe('resolveOpentasksUri', () => {
         currentPath
       )
     ).toThrow('Invalid opentasks URI')
+  })
+})
+
+describe('resolveLocationTarget', () => {
+  const currentLocation: LocationIdentity = {
+    hash: 'abcd1234',
+    uuid: '550e8400-e29b-41d4-a716-446655440000',
+    name: 'current',
+  }
+  const currentPath = '/home/user/project/.opentasks'
+
+  const connections: Connection[] = [
+    {
+      hash: 'k7m2x9p4',
+      path: '/home/user/other-repo/.opentasks',
+      role: 'peer',
+      name: 'other-repo',
+    },
+  ]
+
+  it('resolves bare hash to connected location', () => {
+    const result = resolveLocationTarget('k7m2x9p4', connections, currentLocation, currentPath)
+    expect(result.hash).toBe('k7m2x9p4')
+    expect(result.opentasksPath).toBe('/home/user/other-repo/.opentasks')
+    expect(result.isLocal).toBe(false)
+  })
+
+  it('resolves bare hash matching current location as local', () => {
+    const result = resolveLocationTarget('abcd1234', connections, currentLocation, currentPath)
+    expect(result.hash).toBe('abcd1234')
+    expect(result.isLocal).toBe(true)
+  })
+
+  it('resolves "." as current location', () => {
+    const result = resolveLocationTarget('.', connections, currentLocation, currentPath)
+    expect(result.hash).toBe('abcd1234')
+    expect(result.opentasksPath).toBe(currentPath)
+    expect(result.isLocal).toBe(true)
+  })
+
+  it('resolves hash-based URI (with trailing slash)', () => {
+    const result = resolveLocationTarget('opentasks://k7m2x9p4/', connections, currentLocation, currentPath)
+    expect(result.hash).toBe('k7m2x9p4')
+    expect(result.isLocal).toBe(false)
+  })
+
+  it('resolves hash-based URI (with node ID) to location only', () => {
+    const result = resolveLocationTarget('opentasks://k7m2x9p4/i-node1', connections, currentLocation, currentPath)
+    expect(result.hash).toBe('k7m2x9p4')
+    expect(result.isLocal).toBe(false)
+    expect('nodeId' in result).toBe(false)
+  })
+
+  it('resolves current-location URI', () => {
+    const result = resolveLocationTarget('opentasks://./', connections, currentLocation, currentPath)
+    expect(result.hash).toBe('abcd1234')
+    expect(result.isLocal).toBe(true)
+  })
+
+  it('throws for unknown hash', () => {
+    expect(() =>
+      resolveLocationTarget('unknown1', connections, currentLocation, currentPath)
+    ).toThrow('Unknown location hash: unknown1')
   })
 })

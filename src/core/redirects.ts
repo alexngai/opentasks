@@ -7,7 +7,7 @@
 
 import type { Connection } from './connections.js'
 import type { LocationIdentity } from './location.js'
-import { resolveOpentasksUri, type ResolvedLocation } from './uri.js'
+import { resolveLocationTarget, type ResolvedLocationTarget } from './uri.js'
 
 /**
  * Operations that can be redirected
@@ -39,7 +39,7 @@ export interface RedirectResult {
   /** The matching rule (if redirected) */
   rule?: RedirectRule
   /** Resolved target location (if redirected) */
-  resolved?: ResolvedLocation
+  targetLocation?: ResolvedLocationTarget
 }
 
 /**
@@ -103,7 +103,7 @@ export function findRedirectRule(
  * @param currentLocation - Current location identity
  * @param currentOpentasksPath - Path to current .opentasks directory
  * @param depth - Current redirect depth (for loop prevention)
- * @returns Resolved location or null on failure
+ * @returns Resolved location target or null on failure
  */
 export function resolveRedirect(
   rule: RedirectRule,
@@ -111,30 +111,20 @@ export function resolveRedirect(
   currentLocation: LocationIdentity,
   currentOpentasksPath: string,
   depth: number = 0
-): ResolvedLocation | null {
+): ResolvedLocationTarget | null {
   if (depth >= MAX_REDIRECT_DEPTH) {
     throw new Error(
       `Redirect depth exceeded maximum of ${MAX_REDIRECT_DEPTH} hops`
     )
   }
 
-  const target = rule.target
-
-  // If target is just a hash, build a URI
-  const uri = target.startsWith('opentasks://')
-    ? target
-    : `opentasks://${target}/`
-
   try {
-    // For hash-only targets (e.g., "opentasks://k7m2x9p4/"), extract just the location
-    const resolved = resolveOpentasksUri(
-      uri.endsWith('/') ? uri + '__placeholder__' : uri,
+    return resolveLocationTarget(
+      rule.target,
       connections,
       currentLocation,
       currentOpentasksPath
     )
-
-    return resolved
   } catch {
     return null
   }
@@ -165,14 +155,14 @@ export function resolveOperationRedirect(
     return { redirected: false }
   }
 
-  const resolved = resolveRedirect(
+  const targetLocation = resolveRedirect(
     rule,
     connections,
     currentLocation,
     currentOpentasksPath
   )
 
-  if (!resolved) {
+  if (!targetLocation) {
     // Target unreachable — apply fallback
     if (rule.fallback === 'error') {
       throw new Error(
@@ -186,6 +176,6 @@ export function resolveOperationRedirect(
   return {
     redirected: true,
     rule,
-    resolved,
+    targetLocation,
   }
 }

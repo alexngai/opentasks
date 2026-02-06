@@ -126,7 +126,7 @@ describe('resolveOperationRedirect', () => {
       currentPath
     )
     expect(result.redirected).toBe(true)
-    expect(result.resolved?.hash).toBe('k7m2x9p4')
+    expect(result.targetLocation?.hash).toBe('k7m2x9p4')
   })
 
   it('falls back to local when target is unreachable with fallback=local', () => {

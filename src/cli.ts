@@ -358,8 +358,13 @@ function cmdMergeDriver(args: string[]): void {
     process.exit(1)
   }
 
-  const exitCode = mergeJsonl(basePath, oursPath, theirsPath)
-  process.exit(exitCode)
+  try {
+    const exitCode = mergeJsonl(basePath, oursPath, theirsPath)
+    process.exit(exitCode)
+  } catch (error) {
+    console.error(`Merge failed: ${(error as Error).message}`)
+    process.exit(1)
+  }
 }
 
 function padRight(str: string, len: number): string {
