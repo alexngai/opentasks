@@ -7,6 +7,7 @@
 
 import { exec as execCallback } from 'child_process'
 import { promisify } from 'util'
+import chokidar, { type FSWatcher } from 'chokidar'
 import type {
   Provider,
   ProviderCapabilities,
@@ -30,6 +31,13 @@ import {
   filterEdgesByDirection,
 } from './traits/RelationshipQueryable.js'
 import type { EdgeTypeSupport } from '../graph/EdgeTypeRegistry.js'
+import type {
+  Watchable,
+  WatchGranularity,
+  WatchChangeCallback,
+  ProviderNodeChangeEvent,
+  ProviderEdgeChangeEvent,
+} from './traits/Watchable.js'
 
 const execAsync = promisify(execCallback)
 
@@ -49,6 +57,29 @@ export interface BeadsConfig {
 
   /** Timeout for CLI commands in ms (default: 30000) */
   timeout?: number
+
+  /**
+   * Extra global flags passed to every bd command invocation.
+   * Useful for environments that need `--no-db` (JSONL-only mode)
+   * when the filesystem doesn't support SQLite WAL.
+   *
+   * @example ['--no-db'] or ['--no-daemon', '--sandbox']
+   */
+  extraArgs?: string[]
+
+  /**
+   * Path to Beads data directory to watch for changes.
+   * When set, enables the Watchable trait. The provider will
+   * use chokidar to monitor this directory for file changes
+   * and emit ProviderChangeEvents by diffing against cached state.
+   *
+   * Typically points to a `.beads/` directory.
+   * If not set, watching is not available for this provider.
+   */
+  watchPath?: string
+
+  /** Debounce delay for file watching in ms (default: 200) */
+  watchDebounceMs?: number
 }
 
 /**
@@ -63,10 +94,27 @@ interface BeadsIssue {
   tags?: string[]
   created_at?: string
   updated_at?: string
+
+  // --- Legacy relationship fields (older bd versions) ---
   /** IDs of issues this issue blocks */
   blocks?: string[]
   /** IDs of issues that block this issue */
   blockedBy?: string[]
+
+  // --- bd v0.49+ relationship fields ---
+  /**
+   * Dependencies. Format varies by command:
+   * - `bd list --json`: compact refs `[{issue_id, depends_on_id, type}]`
+   * - `bd show --json`: full issue objects `[{id, title, ...}]` (issues this depends on)
+   */
+  dependencies?: Array<{ issue_id?: string; depends_on_id?: string; type?: string; id?: string; dependency_type?: string; [k: string]: unknown }>
+  /** Issues that depend on this issue (bd show --json) — full issue objects */
+  dependents?: Array<{ id: string; dependency_type?: string; [k: string]: unknown }>
+  /** Number of dependencies (bd v0.49+ list output) */
+  dependency_count?: number
+  /** Number of dependents (bd v0.49+ list output) */
+  dependent_count?: number
+
   /** Parent issue ID */
   parent?: string
   /** Child issue IDs */
@@ -145,18 +193,278 @@ function beadsIssueToProviderNode(issue: BeadsIssue, workspace: string = '.'): P
 // ============================================================================
 
 /**
- * Create a Beads provider with relationship querying support
+ * Create a Beads provider with relationship querying and optional watching support
  */
-export function createBeadsProvider(config: BeadsConfig = {}): Provider & RelationshipQueryable {
+export function createBeadsProvider(config: BeadsConfig = {}): Provider & RelationshipQueryable & Partial<Watchable> {
   const executable = config.executable ?? 'bd'
   const cwd = config.cwd
   const timeout = config.timeout ?? 30000
+  const extraArgs = config.extraArgs ?? []
+  const watchPath = config.watchPath
+  const watchDebounceMs = config.watchDebounceMs ?? 200
 
   const capabilities: ProviderCapabilities = {
     read: true,
     write: true,
     search: true,
-    watch: false,
+    watch: !!watchPath,
+  }
+
+  // =========================================================================
+  // Watch State (only active when watchPath is configured)
+  // =========================================================================
+
+  /** Cached content hashes for change diffing: beads issue id → hash of serialized data */
+  const cachedHashes = new Map<string, string>()
+
+  /** Cached edge signatures for edge change detection: "from:to:type" → true */
+  const cachedEdgeKeys = new Set<string>()
+
+  /** chokidar watcher instance */
+  let fileWatcher: FSWatcher | null = null
+
+  /** Current watch callback */
+  let watchCallback: WatchChangeCallback | null = null
+
+  /** Debounce timer for coalescing rapid file changes */
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
+  /**
+   * Simple hash for diffing (not cryptographic — just for detecting changes).
+   * Uses the same approach as sync.ts calculateContentHash.
+   */
+  function quickHash(input: string): string {
+    let hash = 0
+    for (let i = 0; i < input.length; i++) {
+      const char = input.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash
+    }
+    return hash.toString(16)
+  }
+
+  /**
+   * Build a stable hash key for a Beads issue (substantive fields only)
+   */
+  function issueHashKey(issue: BeadsIssue): string {
+    const substantive = {
+      title: issue.title,
+      description: issue.description,
+      status: issue.status,
+      priority: issue.priority,
+      tags: issue.tags ? [...issue.tags].sort() : undefined,
+      blocks: issue.blocks ? [...issue.blocks].sort() : undefined,
+      blockedBy: issue.blockedBy ? [...issue.blockedBy].sort() : undefined,
+      // Structured format (bd v0.49+)
+      dependency_count: issue.dependency_count,
+      dependent_count: issue.dependent_count,
+      parent: issue.parent,
+      children: issue.children ? [...issue.children].sort() : undefined,
+    }
+    return quickHash(JSON.stringify(substantive))
+  }
+
+  /**
+   * Compute the set of edge keys from an issue's relationship fields
+   */
+  function issueEdgeKeys(issue: BeadsIssue): Set<string> {
+    const keys = new Set<string>()
+
+    // Legacy format: blocks/blockedBy string arrays
+    if (issue.blocks) {
+      for (const id of issue.blocks) keys.add(`${issue.id}:${id}:blocks`)
+    }
+    if (issue.blockedBy) {
+      for (const id of issue.blockedBy) keys.add(`${id}:${issue.id}:blocks`)
+    }
+
+    // Structured format (bd v0.49+): dependencies array with {issue_id, depends_on_id, type}
+    if (issue.dependencies) {
+      for (const dep of issue.dependencies) {
+        // dep.depends_on_id blocks dep.issue_id
+        keys.add(`${dep.depends_on_id}:${dep.issue_id}:blocks`)
+      }
+    }
+
+    if (issue.parent) {
+      keys.add(`${issue.parent}:${issue.id}:parent-child`)
+    }
+    if (issue.children) {
+      for (const id of issue.children) keys.add(`${issue.id}:${id}:parent-child`)
+    }
+    return keys
+  }
+
+  /**
+   * Diff current Beads state against cached hashes and emit change events.
+   * Called when file watcher detects a change.
+   */
+  async function diffAndEmit(): Promise<void> {
+    if (!watchCallback) return
+
+    try {
+      const output = await execBd(['list', '--json'])
+      const issues = parseJson<BeadsIssue[]>(output)
+
+      const currentIds = new Set<string>()
+      const currentEdgeKeys = new Set<string>()
+
+      for (const issue of issues) {
+        // Beads uses "tombstone" status for soft-deleted issues — treat as deleted
+        const isTombstone = issue.status === 'tombstone'
+
+        if (isTombstone) {
+          // Only emit 'deleted' if we previously knew about this issue
+          if (cachedHashes.has(issue.id)) {
+            watchCallback({
+              kind: 'node',
+              event: {
+                type: 'deleted',
+                nodeId: issue.id,
+                uri: `beads://./${issue.id}`,
+                timestamp: new Date().toISOString(),
+              },
+            })
+            cachedHashes.delete(issue.id)
+          }
+          continue
+        }
+
+        currentIds.add(issue.id)
+        const hash = issueHashKey(issue)
+        const prevHash = cachedHashes.get(issue.id)
+        const providerNode = beadsIssueToProviderNode(issue)
+
+        if (!prevHash) {
+          // New issue
+          watchCallback({
+            kind: 'node',
+            event: {
+              type: 'created',
+              nodeId: issue.id,
+              uri: providerNode.uri,
+              node: providerNode,
+              timestamp: new Date().toISOString(),
+            },
+          })
+        } else if (prevHash !== hash) {
+          // Changed issue — compute changed fields if possible
+          const event: ProviderNodeChangeEvent = {
+            type: 'updated',
+            nodeId: issue.id,
+            uri: providerNode.uri,
+            node: providerNode,
+            timestamp: new Date().toISOString(),
+          }
+
+          // We can report changed fields by comparing against cached data
+          // but we only store hashes, not full data. For field-level we'd
+          // need to cache full issue objects. For now, we report the node
+          // change without field detail — consumers can diff themselves.
+          watchCallback({ kind: 'node', event })
+        }
+
+        cachedHashes.set(issue.id, hash)
+
+        // Collect current edges
+        for (const key of issueEdgeKeys(issue)) {
+          currentEdgeKeys.add(key)
+        }
+      }
+
+      // Detect deleted issues
+      for (const [id] of cachedHashes) {
+        if (!currentIds.has(id)) {
+          watchCallback({
+            kind: 'node',
+            event: {
+              type: 'deleted',
+              nodeId: id,
+              uri: `beads://./${id}`,
+              timestamp: new Date().toISOString(),
+            },
+          })
+          cachedHashes.delete(id)
+        }
+      }
+
+      // Detect edge changes
+      // New edges
+      for (const key of currentEdgeKeys) {
+        if (!cachedEdgeKeys.has(key)) {
+          const [from, to, type] = key.split(':')
+          const event: ProviderEdgeChangeEvent = {
+            type: 'created',
+            edge: { from, to, type },
+            sourceUri: `beads://./${from}`,
+            targetUri: `beads://./${to}`,
+            timestamp: new Date().toISOString(),
+          }
+          watchCallback({ kind: 'edge', event })
+        }
+      }
+      // Deleted edges
+      for (const key of cachedEdgeKeys) {
+        if (!currentEdgeKeys.has(key)) {
+          const [from, to, type] = key.split(':')
+          const event: ProviderEdgeChangeEvent = {
+            type: 'deleted',
+            edge: { from, to, type },
+            sourceUri: `beads://./${from}`,
+            targetUri: `beads://./${to}`,
+            timestamp: new Date().toISOString(),
+          }
+          watchCallback({ kind: 'edge', event })
+        }
+      }
+
+      // Update cached edge state
+      cachedEdgeKeys.clear()
+      for (const key of currentEdgeKeys) {
+        cachedEdgeKeys.add(key)
+      }
+    } catch {
+      // Resilient — log internally but don't crash the watcher
+    }
+  }
+
+  /**
+   * Handle a raw file change event with debouncing
+   */
+  function onFileChange(): void {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer)
+    }
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null
+      void diffAndEmit()
+    }, watchDebounceMs)
+  }
+
+  /**
+   * Seed the cached hashes from current Beads state (so the first
+   * diff only emits genuine changes, not the entire existing dataset)
+   */
+  async function seedCache(): Promise<void> {
+    try {
+      const output = await execBd(['list', '--json'])
+      const issues = parseJson<BeadsIssue[]>(output)
+
+      cachedHashes.clear()
+      cachedEdgeKeys.clear()
+
+      for (const issue of issues) {
+        // Skip tombstoned (deleted) issues when seeding cache
+        if (issue.status === 'tombstone') continue
+
+        cachedHashes.set(issue.id, issueHashKey(issue))
+        for (const key of issueEdgeKeys(issue)) {
+          cachedEdgeKeys.add(key)
+        }
+      }
+    } catch {
+      // If we can't seed, first diff will treat everything as 'created'
+    }
   }
 
   /**
@@ -175,7 +483,7 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
    * Execute a bd CLI command
    */
   async function execBd(args: string[]): Promise<string> {
-    const command = [executable, ...args.map(shellEscape)].join(' ')
+    const command = [executable, ...extraArgs, ...args.map(shellEscape)].join(' ')
 
     try {
       const { stdout } = await execAsync(command, {
@@ -311,6 +619,10 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
         if (!issues || issues.length === 0) {
           return null
         }
+        // Treat tombstoned (soft-deleted) issues as not found
+        if (issues[0].status === 'tombstone') {
+          return null
+        }
         return beadsIssueToProviderNode(issues[0], workspace)
       } catch (error) {
         // Return null for not found, re-throw other errors
@@ -342,7 +654,9 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
       const output = await execBd(args)
       const issues = parseJson<BeadsIssue[]>(output)
 
-      return issues.map((issue) => beadsIssueToProviderNode(issue))
+      return issues
+        .filter((issue) => issue.status !== 'tombstone')
+        .map((issue) => beadsIssueToProviderNode(issue))
     },
 
     async create(input: ProviderCreateInput): Promise<ProviderNode> {
@@ -420,7 +734,9 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
       const output = await execBd(args)
       const issues = parseJson<BeadsIssue[]>(output)
 
-      return issues.map((issue) => beadsIssueToProviderNode(issue))
+      return issues
+        .filter((issue) => issue.status !== 'tombstone')
+        .map((issue) => beadsIssueToProviderNode(issue))
     },
 
     // =========================================================================
@@ -440,49 +756,66 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
         }
 
         const issue = issues[0]
+        // Tombstoned issues have no meaningful edges
+        if (issue.status === 'tombstone') {
+          return []
+        }
         let edges: ProviderEdge[] = []
 
-        // Parse blocks relationships (this issue blocks others)
+        // --- Legacy format: blocks/blockedBy string arrays ---
         if (issue.blocks && Array.isArray(issue.blocks)) {
           for (const blockedId of issue.blocks) {
-            edges.push({
-              from: issueId,
-              to: blockedId,
-              type: 'blocks',
-            })
+            edges.push({ from: issueId, to: blockedId, type: 'blocks' })
           }
         }
-
-        // Parse blockedBy relationships (others block this issue)
         if (issue.blockedBy && Array.isArray(issue.blockedBy)) {
           for (const blockerId of issue.blockedBy) {
-            edges.push({
-              from: blockerId,
-              to: issueId,
-              type: 'blocks',
-            })
+            edges.push({ from: blockerId, to: issueId, type: 'blocks' })
           }
         }
 
-        // Parse parent relationship
-        if (issue.parent) {
-          edges.push({
-            from: issue.parent,
-            to: issueId,
-            type: 'parent-child',
-          })
+        // --- bd v0.49+ format from `bd show --json` ---
+        // `dependencies` = issues THIS issue depends on (they block this)
+        // Each element is a full issue object with an `id` field
+        if (issue.dependencies && Array.isArray(issue.dependencies)) {
+          for (const dep of issue.dependencies) {
+            if (dep.id) {
+              // Full object format from `bd show` — dep.id is the blocker
+              edges.push({ from: dep.id, to: issueId, type: 'blocks' })
+            } else if (dep.depends_on_id && dep.issue_id) {
+              // Compact format from `bd list` — depends_on_id blocks issue_id
+              edges.push({ from: dep.depends_on_id, to: dep.issue_id, type: 'blocks' })
+            }
+          }
         }
 
-        // Parse children relationships
+        // `dependents` = issues that depend on THIS issue (this blocks them)
+        if (issue.dependents && Array.isArray(issue.dependents)) {
+          for (const dep of issue.dependents) {
+            if (dep.id) {
+              edges.push({ from: issueId, to: dep.id, type: 'blocks' })
+            }
+          }
+        }
+
+        // --- Parent/children ---
+        if (issue.parent) {
+          edges.push({ from: issue.parent, to: issueId, type: 'parent-child' })
+        }
         if (issue.children && Array.isArray(issue.children)) {
           for (const childId of issue.children) {
-            edges.push({
-              from: issueId,
-              to: childId,
-              type: 'parent-child',
-            })
+            edges.push({ from: issueId, to: childId, type: 'parent-child' })
           }
         }
+
+        // Deduplicate edges (multiple formats may report the same relationship)
+        const seen = new Set<string>()
+        edges = edges.filter((edge) => {
+          const key = `${edge.from}:${edge.to}:${edge.type}`
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
 
         // Apply filters if specified
         if (options?.edgeType) {
@@ -517,6 +850,77 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
         { type: 'blocks', canQuery: true, canCreate: true, canDelete: true },
         { type: 'parent-child', canQuery: true, canCreate: true, canDelete: true },
       ]
+    },
+
+    // =========================================================================
+    // Watchable Implementation (only functional when watchPath is configured)
+    // =========================================================================
+
+    watchGranularity: {
+      // Beads diffs at the node level. We can detect which nodes changed
+      // but don't track individual field changes (would require caching
+      // full issue objects rather than just hashes).
+      reportsChangedFields: false,
+      reportsPreviousValues: false,
+
+      // Beads embeds relationships in the node (blocks/blockedBy/parent/children).
+      // We extract and diff these separately, so we can emit edge events.
+      reportsEdgeChanges: true,
+
+      mechanism: 'file-watch' as const,
+    } satisfies WatchGranularity,
+
+    startWatching(callback: WatchChangeCallback): void {
+      if (!watchPath) {
+        return // Watching not configured — silently no-op
+      }
+
+      // Replace callback if already watching
+      watchCallback = callback
+
+      if (fileWatcher) {
+        return // Already watching, just updated callback
+      }
+
+      // Seed cache before starting watcher so we only emit real changes
+      void seedCache().then(() => {
+        if (!watchCallback) return // Stopped before seed completed
+
+        fileWatcher = chokidar.watch(watchPath, {
+          ignoreInitial: true,
+          persistent: true,
+          awaitWriteFinish: {
+            stabilityThreshold: 100,
+            pollInterval: 20,
+          },
+        })
+
+        fileWatcher.on('add', onFileChange)
+        fileWatcher.on('change', onFileChange)
+        fileWatcher.on('unlink', onFileChange)
+
+        fileWatcher.on('error', () => {
+          // Resilient — continue watching despite transient errors
+        })
+      })
+    },
+
+    stopWatching(): void {
+      watchCallback = null
+
+      if (debounceTimer) {
+        clearTimeout(debounceTimer)
+        debounceTimer = null
+      }
+
+      if (fileWatcher) {
+        void fileWatcher.close()
+        fileWatcher = null
+      }
+    },
+
+    get isWatching(): boolean {
+      return fileWatcher !== null && watchCallback !== null
     },
   }
 }

@@ -33,7 +33,7 @@ export { ProviderError, DEFAULT_MATERIALIZATION_CONFIG } from './types.js'
 export { createProviderRegistry } from './registry.js'
 
 // Native Provider
-export { createNativeProvider } from './native.js'
+export { createNativeProvider, type NativeProviderConfig } from './native.js'
 
 // Beads Provider
 export { createBeadsProvider, type BeadsConfig } from './beads.js'
@@ -54,7 +54,7 @@ export {
   type MaterializationContext,
 } from './materialization.js'
 
-// Traits
+// Traits - RelationshipQueryable
 export type {
   RelationshipQueryable,
   ProviderEdge,
@@ -68,6 +68,19 @@ export {
   filterEdgesByDirection,
   getNeighborFromEdge,
 } from './traits/index.js'
+
+// Traits - Watchable
+export type {
+  Watchable,
+  WatchGranularity,
+  WatchMechanism,
+  WatchChangeCallback,
+  ProviderChangeEvent,
+  ProviderNodeChangeEvent,
+  ProviderEdgeChangeEvent,
+} from './traits/index.js'
+
+export { isWatchable } from './traits/index.js'
 
 // Config-based Provider Factory
 export {

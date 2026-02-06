@@ -5,6 +5,7 @@
  * Handles native:// and opentasks:// URI schemes.
  */
 
+import * as fs from 'node:fs'
 import type { GraphStore, NodeFilter as GraphNodeFilter } from '../graph/index.js'
 import type { Node, EdgeType } from '../schema/index.js'
 import type {
@@ -29,6 +30,11 @@ import {
   filterEdgesByDirection,
 } from './traits/RelationshipQueryable.js'
 import type { EdgeTypeSupport } from '../graph/EdgeTypeRegistry.js'
+import type {
+  Watchable,
+  WatchGranularity,
+  WatchChangeCallback,
+} from './traits/Watchable.js'
 
 // ============================================================================
 // Constants
@@ -130,18 +136,168 @@ function convertFilter(filter?: ProviderFilter): GraphNodeFilter | undefined {
 }
 
 // ============================================================================
+// Native Provider Configuration
+// ============================================================================
+
+/**
+ * Configuration for the native provider
+ */
+export interface NativeProviderConfig {
+  /**
+   * Path to the JSONL file to watch for external changes.
+   * When set, enables the Watchable trait. The provider will
+   * use fs.watch to detect modifications and diff node hashes.
+   *
+   * Typically set to the `graph.jsonl` path inside `.opentasks/`.
+   */
+  watchPath?: string
+
+  /** Debounce delay for file watching in ms (default: 150) */
+  watchDebounceMs?: number
+}
+
+// ============================================================================
 // Native Provider Implementation
 // ============================================================================
 
 /**
  * Create a native provider wrapping a GraphStore with relationship querying support
+ * and optional file-watching via the Watchable trait.
  */
-export function createNativeProvider(store: GraphStore): Provider & RelationshipQueryable {
+export function createNativeProvider(
+  store: GraphStore,
+  config?: NativeProviderConfig
+): Provider & RelationshipQueryable & Partial<Watchable> {
+  const watchPath = config?.watchPath
+  const watchDebounceMs = config?.watchDebounceMs ?? 150
+
   const capabilities: ProviderCapabilities = {
     read: true,
     write: true,
     search: true,
-    watch: false,
+    watch: !!watchPath,
+  }
+
+  // =========================================================================
+  // Watch State
+  // =========================================================================
+
+  /** Cached content hashes: node id → hash of title+content+status+priority */
+  const cachedHashes = new Map<string, string>()
+
+  /** fs.watch instance */
+  let fsWatcher: fs.FSWatcher | null = null
+
+  /** Current watch callback */
+  let watchCallback: WatchChangeCallback | null = null
+
+  /** Debounce timer */
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** Simple hash for diffing */
+  function quickHash(input: string): string {
+    let hash = 0
+    for (let i = 0; i < input.length; i++) {
+      const char = input.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash
+    }
+    return hash.toString(16)
+  }
+
+  function nodeHash(node: Node): string {
+    const substantive = {
+      type: node.type,
+      title: node.title,
+      content: node.content,
+      status: 'status' in node ? node.status : undefined,
+      priority: node.priority,
+      tags: node.tags ? [...node.tags].sort() : undefined,
+    }
+    return quickHash(JSON.stringify(substantive))
+  }
+
+  /**
+   * Diff current GraphStore state against cached hashes and emit events.
+   */
+  async function diffAndEmit(): Promise<void> {
+    if (!watchCallback) return
+
+    try {
+      const nodes = await store.query.nodes({})
+      const currentIds = new Set<string>()
+
+      for (const node of nodes) {
+        currentIds.add(node.id)
+        const hash = nodeHash(node)
+        const prevHash = cachedHashes.get(node.id)
+        const providerNode = nodeToProviderNode(node)
+
+        if (!prevHash) {
+          watchCallback({
+            kind: 'node',
+            event: {
+              type: 'created',
+              nodeId: node.id,
+              uri: `native://${node.id}`,
+              node: providerNode,
+              timestamp: new Date().toISOString(),
+            },
+          })
+        } else if (prevHash !== hash) {
+          watchCallback({
+            kind: 'node',
+            event: {
+              type: 'updated',
+              nodeId: node.id,
+              uri: `native://${node.id}`,
+              node: providerNode,
+              timestamp: new Date().toISOString(),
+            },
+          })
+        }
+
+        cachedHashes.set(node.id, hash)
+      }
+
+      // Detect deletes
+      for (const [id] of cachedHashes) {
+        if (!currentIds.has(id)) {
+          watchCallback({
+            kind: 'node',
+            event: {
+              type: 'deleted',
+              nodeId: id,
+              uri: `native://${id}`,
+              timestamp: new Date().toISOString(),
+            },
+          })
+          cachedHashes.delete(id)
+        }
+      }
+    } catch {
+      // Resilient — continue watching
+    }
+  }
+
+  function onFileChange(): void {
+    if (debounceTimer) clearTimeout(debounceTimer)
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null
+      void diffAndEmit()
+    }, watchDebounceMs)
+  }
+
+  async function seedCache(): Promise<void> {
+    try {
+      const nodes = await store.query.nodes({})
+      cachedHashes.clear()
+      for (const node of nodes) {
+        cachedHashes.set(node.id, nodeHash(node))
+      }
+    } catch {
+      // If we can't seed, first diff emits everything as 'created'
+    }
   }
 
   return {
@@ -352,6 +508,63 @@ export function createNativeProvider(store: GraphStore): Provider & Relationship
         { type: 'duplicates', canQuery: true, canCreate: true, canDelete: true },
         { type: 'supersedes', canQuery: true, canCreate: true, canDelete: true },
       ]
+    },
+
+    // =========================================================================
+    // Watchable Implementation (only functional when watchPath is configured)
+    // =========================================================================
+
+    watchGranularity: {
+      // Native provider diffs node hashes — knows which nodes changed
+      // but doesn't track individual fields or edge changes separately.
+      reportsChangedFields: false,
+      reportsPreviousValues: false,
+      reportsEdgeChanges: false,
+      mechanism: 'file-watch' as const,
+    } satisfies WatchGranularity,
+
+    startWatching(callback: WatchChangeCallback): void {
+      if (!watchPath) return
+
+      watchCallback = callback
+
+      if (fsWatcher) return // Already watching
+
+      void seedCache().then(() => {
+        if (!watchCallback) return
+
+        try {
+          fsWatcher = fs.watch(watchPath, (eventType: string) => {
+            if (eventType === 'change') {
+              onFileChange()
+            }
+          })
+
+          fsWatcher.on('error', () => {
+            // Resilient — continue
+          })
+        } catch {
+          // File might not exist yet
+        }
+      })
+    },
+
+    stopWatching(): void {
+      watchCallback = null
+
+      if (debounceTimer) {
+        clearTimeout(debounceTimer)
+        debounceTimer = null
+      }
+
+      if (fsWatcher) {
+        fsWatcher.close()
+        fsWatcher = null
+      }
+    },
+
+    get isWatching(): boolean {
+      return fsWatcher !== null && watchCallback !== null
     },
   }
 }

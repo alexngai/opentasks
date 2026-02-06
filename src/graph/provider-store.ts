@@ -17,6 +17,11 @@ import type { MaterializationManager } from '../providers/materialization.js'
 import { createProviderRegistry } from '../providers/registry.js'
 import { createNativeProvider } from '../providers/native.js'
 import { createMaterializationManager } from '../providers/materialization.js'
+import {
+  isWatchable,
+  type ProviderChangeEvent,
+  type ProviderNodeChangeEvent,
+} from '../providers/traits/Watchable.js'
 import type { GraphStore } from './store.js'
 
 // ============================================================================
@@ -50,6 +55,15 @@ export interface ProviderStoreConfig {
   /** Whether to auto-register native provider (default: true) */
   autoRegisterNative?: boolean
 }
+
+/**
+ * Callback for provider change events received by the store.
+ * Allows external consumers to react to provider-driven changes.
+ */
+export type ProviderChangeHandler = (
+  providerName: string,
+  event: ProviderChangeEvent
+) => void
 
 /**
  * Provider-aware graph store interface
@@ -95,6 +109,28 @@ export interface ProviderAwareStore extends GraphStore {
    * Check if background sync is running
    */
   isBackgroundSyncRunning(): boolean
+
+  /**
+   * Start watching all watchable providers for changes.
+   *
+   * For each provider that implements the Watchable trait, subscribes
+   * to change events and auto-refreshes materialized nodes.
+   * Non-watchable providers are skipped (use startBackgroundSync for those).
+   */
+  startProviderWatching(): void
+
+  /**
+   * Stop watching all providers for changes.
+   */
+  stopProviderWatching(): void
+
+  /**
+   * Register an external handler for provider change events.
+   * Called after the store has processed each event internally.
+   *
+   * @returns Unsubscribe function
+   */
+  onProviderChange(handler: ProviderChangeHandler): () => void
 }
 
 // ============================================================================
@@ -158,6 +194,84 @@ export function createProviderAwareStore(
   if (config.autoRegisterNative !== false) {
     const nativeProvider = createNativeProvider(baseStore)
     registry.register(nativeProvider)
+  }
+
+  // =========================================================================
+  // Provider Watch State
+  // =========================================================================
+
+  /** External handlers for provider change events */
+  const changeHandlers: ProviderChangeHandler[] = []
+
+  /** Track which providers are currently being watched */
+  const watchedProviders = new Set<string>()
+
+  /**
+   * Handle an inbound provider change event.
+   * Auto-refreshes materialized nodes, then notifies external handlers.
+   */
+  async function handleProviderChange(
+    providerName: string,
+    event: ProviderChangeEvent
+  ): Promise<void> {
+    if (event.kind === 'node') {
+      await handleNodeChange(providerName, event.event)
+    }
+    // Edge events: no auto-action needed for now — consumers can
+    // react via onProviderChange handlers. In the future, the
+    // federated graph could invalidate cached edge data here.
+
+    // Notify external handlers
+    for (const handler of changeHandlers) {
+      try {
+        handler(providerName, event)
+      } catch {
+        // Don't let handler errors break the watch loop
+      }
+    }
+  }
+
+  /**
+   * Handle a node change from a provider.
+   * If the node is already materialized locally, refresh it.
+   */
+  async function handleNodeChange(
+    _providerName: string,
+    event: ProviderNodeChangeEvent
+  ): Promise<void> {
+    // Check if we have a materialized copy of this node
+    const existing = await findExternalNodeByUri(event.uri, baseStore)
+
+    if (!existing) {
+      // Node not materialized locally — nothing to refresh.
+      // The event is still forwarded to external handlers above.
+      return
+    }
+
+    if (event.type === 'deleted') {
+      // Mark the local materialized node as stale
+      await baseStore.updateNode(existing.id, {
+        metadata: {
+          ...existing.metadata,
+          stale: true,
+          last_refresh_at: new Date().toISOString(),
+          last_refresh_error: 'Node deleted in provider',
+        },
+      })
+      return
+    }
+
+    // For 'created' (re-appeared) or 'updated': refresh materialized copy
+    if (event.node) {
+      // Provider included the full node data — materialize directly
+      await materialization.materialize(event.uri, event.node, baseStore)
+    } else {
+      // No node data in event — fetch fresh from provider
+      const provider = registry.resolveProvider(event.uri)
+      if (provider) {
+        await materialization.refresh(existing, provider, baseStore)
+      }
+    }
   }
 
   // Create the provider-aware store by extending the base store
@@ -286,6 +400,43 @@ export function createProviderAwareStore(
      */
     isBackgroundSyncRunning(): boolean {
       return materialization.isBackgroundSyncRunning()
+    },
+
+    /**
+     * Start watching all watchable providers for changes.
+     */
+    startProviderWatching(): void {
+      for (const provider of registry.list()) {
+        if (isWatchable(provider) && !watchedProviders.has(provider.name)) {
+          provider.startWatching((event) => {
+            void handleProviderChange(provider.name, event)
+          })
+          watchedProviders.add(provider.name)
+        }
+      }
+    },
+
+    /**
+     * Stop watching all providers for changes.
+     */
+    stopProviderWatching(): void {
+      for (const provider of registry.list()) {
+        if (isWatchable(provider) && watchedProviders.has(provider.name)) {
+          provider.stopWatching()
+          watchedProviders.delete(provider.name)
+        }
+      }
+    },
+
+    /**
+     * Register an external handler for provider change events.
+     */
+    onProviderChange(handler: ProviderChangeHandler): () => void {
+      changeHandlers.push(handler)
+      return () => {
+        const idx = changeHandlers.indexOf(handler)
+        if (idx >= 0) changeHandlers.splice(idx, 1)
+      }
     },
   }
 

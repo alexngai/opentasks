@@ -188,14 +188,16 @@ export async function createBeadsWorkspace(
   await execAsync('git init', { cwd: dir })
   await execAsync('git config user.email "test@test.com"', { cwd: dir })
   await execAsync('git config user.name "Test User"', { cwd: dir })
+  await execAsync('git config commit.gpgSign false', { cwd: dir })
 
   // Create initial commit (bd may need this)
-  await execAsync('touch .gitkeep && git add . && git commit -m "init"', { cwd: dir })
+  await execAsync('touch .gitkeep && git add . && git commit --no-gpg-sign -m "init"', { cwd: dir })
 
   // Initialize bd with sandbox mode (no daemon, no auto-sync)
+  // Use --no-db for JSONL-only mode (avoids SQLite WAL issues on v9fs/overlay filesystems)
   const bdExec = getBdExecutable()
   await execAsync(
-    `${bdExec} init --prefix ${prefix} --sandbox --skip-hooks --skip-merge-driver`,
+    `${bdExec} init --prefix ${prefix} --sandbox --skip-hooks --skip-merge-driver --no-db`,
     { cwd: dir, timeout: 30000 }
   )
 
@@ -233,7 +235,7 @@ async function execBd(
   timeout: number = 30000
 ): Promise<string> {
   const bdExec = getBdExecutable()
-  const command = [bdExec, ...args.map(shellEscape)].join(' ')
+  const command = [bdExec, '--no-db', ...args.map(shellEscape)].join(' ')
 
   try {
     const { stdout } = await execAsync(command, {
@@ -312,13 +314,13 @@ export async function createBeadsTask(
   // Handle blocking relationships after creation
   if (options.blocks && options.blocks.length > 0) {
     for (const blockedId of options.blocks) {
-      await execBd(workspace, ['link', task.id, '--blocks', blockedId])
+      await execBd(workspace, ['dep', task.id, '--blocks', blockedId])
     }
   }
 
   if (options.blockedBy && options.blockedBy.length > 0) {
     for (const blockerId of options.blockedBy) {
-      await execBd(workspace, ['link', blockerId, '--blocks', task.id])
+      await execBd(workspace, ['dep', blockerId, '--blocks', task.id])
     }
   }
 
@@ -459,7 +461,7 @@ export async function linkBeadsTasks(
   blockerId: string,
   blockedId: string
 ): Promise<void> {
-  await execBd(workspace, ['link', blockerId, '--blocks', blockedId])
+  await execBd(workspace, ['dep', blockerId, '--blocks', blockedId])
 }
 
 /**
