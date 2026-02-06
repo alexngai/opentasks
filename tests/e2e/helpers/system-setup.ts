@@ -264,10 +264,12 @@ export async function setupE2ESystem(options: E2ESystemOptions = {}): Promise<E2
       }
 
       // Create and register BeadsProvider
+      // Use --no-db for JSONL-only mode (avoids SQLite WAL issues on some filesystems)
       const beadsConfig: BeadsConfig = {
         executable: getBdExecutable(),
         cwd: beadsDir,
         timeout: 30000,
+        extraArgs: ['--no-db'],
         watchPath: join(beadsDir, '.beads'),
         watchDebounceMs: 100, // Faster debounce for tests
       }

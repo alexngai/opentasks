@@ -63,6 +63,7 @@ describe.skipIf(!AGENT_TESTS)('Beads Watchable Trait', () => {
       const provider = createBeadsProvider({
         executable: getBdExecutable(),
         cwd: sharedWorkspace!.path,
+        extraArgs: ['--no-db'],
         watchPath: join(sharedWorkspace!.path, '.beads'),
       })
 
@@ -80,6 +81,7 @@ describe.skipIf(!AGENT_TESTS)('Beads Watchable Trait', () => {
       const provider = createBeadsProvider({
         executable: getBdExecutable(),
         cwd: sharedWorkspace!.path,
+        extraArgs: ['--no-db'],
       })
 
       expect(isWatchable(provider)).toBe(true)
@@ -94,6 +96,7 @@ describe.skipIf(!AGENT_TESTS)('Beads Watchable Trait', () => {
       const provider = createBeadsProvider({
         executable: getBdExecutable(),
         cwd: sharedWorkspace!.path,
+        extraArgs: ['--no-db'],
         watchPath: join(sharedWorkspace!.path, '.beads'),
       })
 
@@ -125,6 +128,7 @@ describe.skipIf(!AGENT_TESTS)('Beads Watchable Trait', () => {
         executable: getBdExecutable(),
         cwd: sharedWorkspace!.path,
         timeout: 30000,
+        extraArgs: ['--no-db'],
         watchPath: join(sharedWorkspace!.path, '.beads'),
         watchDebounceMs: 100,
       })
@@ -294,6 +298,7 @@ describe.skipIf(!AGENT_TESTS)('Beads Watchable Trait', () => {
         executable: getBdExecutable(),
         cwd: sharedWorkspace!.path,
         timeout: 30000,
+        extraArgs: ['--no-db'],
         watchPath: join(sharedWorkspace!.path, '.beads'),
         watchDebounceMs: 100,
       })
@@ -370,6 +375,7 @@ describe.skipIf(!AGENT_TESTS)('Beads Watchable Trait', () => {
         executable: getBdExecutable(),
         cwd: sharedWorkspace!.path,
         timeout: 30000,
+        extraArgs: ['--no-db'],
         watchPath: join(sharedWorkspace!.path, '.beads'),
         watchDebounceMs: 100,
       })
@@ -413,6 +419,7 @@ describe.skipIf(!AGENT_TESTS)('Beads Watchable Trait', () => {
         executable: getBdExecutable(),
         cwd: sharedWorkspace!.path,
         timeout: 30000,
+        extraArgs: ['--no-db'],
         watchPath: join(sharedWorkspace!.path, '.beads'),
         watchDebounceMs: 100,
       })
@@ -464,6 +471,7 @@ describe.skipIf(!AGENT_TESTS)('Beads Watchable Trait', () => {
       const provider = createBeadsProvider({
         executable: getBdExecutable(),
         cwd: sharedWorkspace!.path,
+        extraArgs: ['--no-db'],
         watchPath: join(sharedWorkspace!.path, '.beads'),
       })
 
@@ -486,6 +494,7 @@ describe.skipIf(!AGENT_TESTS)('Beads Watchable Trait', () => {
       const provider = createBeadsProvider({
         executable: getBdExecutable(),
         cwd: sharedWorkspace!.path,
+        extraArgs: ['--no-db'],
         // No watchPath
       })
 
@@ -511,6 +520,7 @@ describe.skipIf(!AGENT_TESTS)('Beads Watchable Trait', () => {
         executable: getBdExecutable(),
         cwd: sharedWorkspace!.path,
         timeout: 30000,
+        extraArgs: ['--no-db'],
         watchPath: join(sharedWorkspace!.path, '.beads'),
         watchDebounceMs: 100,
       })

@@ -59,6 +59,15 @@ export interface BeadsConfig {
   timeout?: number
 
   /**
+   * Extra global flags passed to every bd command invocation.
+   * Useful for environments that need `--no-db` (JSONL-only mode)
+   * when the filesystem doesn't support SQLite WAL.
+   *
+   * @example ['--no-db'] or ['--no-daemon', '--sandbox']
+   */
+  extraArgs?: string[]
+
+  /**
    * Path to Beads data directory to watch for changes.
    * When set, enables the Watchable trait. The provider will
    * use chokidar to monitor this directory for file changes
@@ -85,10 +94,16 @@ interface BeadsIssue {
   tags?: string[]
   created_at?: string
   updated_at?: string
-  /** IDs of issues this issue blocks */
+  /** IDs of issues this issue blocks (legacy format) */
   blocks?: string[]
-  /** IDs of issues that block this issue */
+  /** IDs of issues that block this issue (legacy format) */
   blockedBy?: string[]
+  /** Dependencies in structured format (bd v0.49+ list output) */
+  dependencies?: Array<{ issue_id: string; depends_on_id: string; type: string }>
+  /** Number of dependencies (bd v0.49+) */
+  dependency_count?: number
+  /** Number of dependents (bd v0.49+) */
+  dependent_count?: number
   /** Parent issue ID */
   parent?: string
   /** Child issue IDs */
@@ -173,6 +188,7 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
   const executable = config.executable ?? 'bd'
   const cwd = config.cwd
   const timeout = config.timeout ?? 30000
+  const extraArgs = config.extraArgs ?? []
   const watchPath = config.watchPath
   const watchDebounceMs = config.watchDebounceMs ?? 200
 
@@ -228,6 +244,9 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
       tags: issue.tags ? [...issue.tags].sort() : undefined,
       blocks: issue.blocks ? [...issue.blocks].sort() : undefined,
       blockedBy: issue.blockedBy ? [...issue.blockedBy].sort() : undefined,
+      // Structured format (bd v0.49+)
+      dependency_count: issue.dependency_count,
+      dependent_count: issue.dependent_count,
       parent: issue.parent,
       children: issue.children ? [...issue.children].sort() : undefined,
     }
@@ -239,12 +258,23 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
    */
   function issueEdgeKeys(issue: BeadsIssue): Set<string> {
     const keys = new Set<string>()
+
+    // Legacy format: blocks/blockedBy string arrays
     if (issue.blocks) {
       for (const id of issue.blocks) keys.add(`${issue.id}:${id}:blocks`)
     }
     if (issue.blockedBy) {
       for (const id of issue.blockedBy) keys.add(`${id}:${issue.id}:blocks`)
     }
+
+    // Structured format (bd v0.49+): dependencies array with {issue_id, depends_on_id, type}
+    if (issue.dependencies) {
+      for (const dep of issue.dependencies) {
+        // dep.depends_on_id blocks dep.issue_id
+        keys.add(`${dep.depends_on_id}:${dep.issue_id}:blocks`)
+      }
+    }
+
     if (issue.parent) {
       keys.add(`${issue.parent}:${issue.id}:parent-child`)
     }
@@ -269,6 +299,26 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
       const currentEdgeKeys = new Set<string>()
 
       for (const issue of issues) {
+        // Beads uses "tombstone" status for soft-deleted issues — treat as deleted
+        const isTombstone = issue.status === 'tombstone'
+
+        if (isTombstone) {
+          // Only emit 'deleted' if we previously knew about this issue
+          if (cachedHashes.has(issue.id)) {
+            watchCallback({
+              kind: 'node',
+              event: {
+                type: 'deleted',
+                nodeId: issue.id,
+                uri: `beads://./${issue.id}`,
+                timestamp: new Date().toISOString(),
+              },
+            })
+            cachedHashes.delete(issue.id)
+          }
+          continue
+        }
+
         currentIds.add(issue.id)
         const hash = issueHashKey(issue)
         const prevHash = cachedHashes.get(issue.id)
@@ -393,6 +443,9 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
       cachedEdgeKeys.clear()
 
       for (const issue of issues) {
+        // Skip tombstoned (deleted) issues when seeding cache
+        if (issue.status === 'tombstone') continue
+
         cachedHashes.set(issue.id, issueHashKey(issue))
         for (const key of issueEdgeKeys(issue)) {
           cachedEdgeKeys.add(key)
@@ -419,7 +472,7 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
    * Execute a bd CLI command
    */
   async function execBd(args: string[]): Promise<string> {
-    const command = [executable, ...args.map(shellEscape)].join(' ')
+    const command = [executable, ...extraArgs, ...args.map(shellEscape)].join(' ')
 
     try {
       const { stdout } = await execAsync(command, {
