@@ -11,6 +11,8 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { generateLocationIdentity } from './core/location.js'
 import { createConnection, checkAllConnectionHealth, type Connection } from './core/connections.js'
+import { worktreeSetup, worktreeTeardown, listWorktrees, getGitCommonDir } from './core/worktree.js'
+import { mergeJsonl, installMergeDriver } from './core/merge-driver.js'
 
 const OPENTASKS_DIR = '.opentasks'
 const CONFIG_FILE = 'config.json'
@@ -28,6 +30,10 @@ Commands:
   connect <path> [--role <role>] Connect to another location
   disconnect <hash>             Disconnect from a location
   connections                   List connections with health status
+  worktree setup <path> [opts]  Setup a new worker worktree
+  worktree list                 List registered worktrees
+  worktree teardown <path|hash> Teardown a worktree
+  merge-driver <O> <A> <B>     JSONL merge driver (for git)
 
 For programmatic usage, import from the opentasks package:
   import { OpenTasksClient, createClient } from 'opentasks'
@@ -236,6 +242,126 @@ function cmdConnections(): void {
   }
 }
 
+/**
+ * Setup a new worktree
+ */
+function cmdWorktreeSetup(args: string[]): void {
+  const targetPath = args[0]
+  if (!targetPath) {
+    console.error('Usage: opentasks worktree setup <path> [--branch <name>] [--role <role>] [--redirect-to <target>] [--no-git-worktree]')
+    process.exit(1)
+  }
+
+  const opentasksDir = path.resolve(OPENTASKS_DIR)
+  if (!fs.existsSync(path.join(opentasksDir, CONFIG_FILE))) {
+    console.error('Not initialized. Run `opentasks init` first.')
+    process.exit(1)
+  }
+
+  const branchIndex = args.indexOf('--branch')
+  const roleIndex = args.indexOf('--role')
+  const redirectIndex = args.indexOf('--redirect-to')
+  const noGitWorktree = args.includes('--no-git-worktree')
+
+  try {
+    const entry = worktreeSetup(targetPath, opentasksDir, {
+      branch: branchIndex !== -1 ? args[branchIndex + 1] : undefined,
+      role: roleIndex !== -1 ? args[roleIndex + 1] as 'manager' | 'worker' : undefined,
+      redirectTo: redirectIndex !== -1 ? args[redirectIndex + 1] : undefined,
+      noGitWorktree,
+    })
+
+    console.log(`Worktree setup complete:`)
+    console.log(`  path:   ${entry.path}`)
+    console.log(`  hash:   ${entry.hash}`)
+    console.log(`  role:   ${entry.role}`)
+    console.log(`  branch: ${entry.branch || '(none)'}`)
+    if (entry.redirectTarget) {
+      console.log(`  redirect: → ${entry.redirectTarget}`)
+    }
+  } catch (error) {
+    console.error(`Failed: ${(error as Error).message}`)
+    process.exit(1)
+  }
+}
+
+/**
+ * List registered worktrees
+ */
+function cmdWorktreeList(): void {
+  const gitCommonDir = getGitCommonDir(process.cwd())
+  if (!gitCommonDir) {
+    console.error('Not in a git repository.')
+    process.exit(1)
+  }
+
+  const worktrees = listWorktrees(gitCommonDir)
+
+  if (worktrees.length === 0) {
+    console.log('No registered worktrees.')
+    return
+  }
+
+  console.log(
+    padRight('HASH', 12) +
+    padRight('PATH', 40) +
+    padRight('BRANCH', 20) +
+    padRight('ROLE', 12) +
+    'STATUS'
+  )
+
+  for (const wt of worktrees) {
+    console.log(
+      padRight(wt.hash, 12) +
+      padRight(wt.path, 40) +
+      padRight(wt.branch || '(none)', 20) +
+      padRight(wt.role, 12) +
+      wt.status
+    )
+  }
+}
+
+/**
+ * Teardown a worktree
+ */
+function cmdWorktreeTeardown(args: string[]): void {
+  const pathOrHash = args[0]
+  if (!pathOrHash) {
+    console.error('Usage: opentasks worktree teardown <path-or-hash> [--remove-git-worktree] [--keep-data]')
+    process.exit(1)
+  }
+
+  const opentasksDir = path.resolve(OPENTASKS_DIR)
+
+  try {
+    const entry = worktreeTeardown(pathOrHash, opentasksDir, {
+      removeGitWorktree: args.includes('--remove-git-worktree'),
+      keepData: args.includes('--keep-data'),
+    })
+
+    if (entry) {
+      console.log(`Worktree torn down: ${entry.hash} (${entry.path})`)
+    }
+  } catch (error) {
+    console.error(`Failed: ${(error as Error).message}`)
+    process.exit(1)
+  }
+}
+
+/**
+ * JSONL merge driver (called by git)
+ */
+function cmdMergeDriver(args: string[]): void {
+  const [basePath, oursPath, theirsPath] = args
+  if (!basePath || !oursPath || !theirsPath) {
+    console.error('Usage: opentasks merge-driver <base> <ours> <theirs>')
+    process.exit(1)
+  }
+
+  const exitCode = mergeJsonl(basePath, oursPath, theirsPath)
+  process.exit(exitCode)
+}
+
 function padRight(str: string, len: number): string {
   return str.length >= len ? str + '  ' : str + ' '.repeat(len - str.length)
 }
@@ -252,6 +378,12 @@ function main() {
   switch (command) {
     case 'init':
       cmdInit(args.slice(1));
+      // Install merge driver on init
+      try {
+        installMergeDriver(process.cwd())
+      } catch {
+        // Non-fatal
+      }
       break;
     case 'connect':
       cmdConnect(args.slice(1));
@@ -261,6 +393,29 @@ function main() {
       break;
     case 'connections':
       cmdConnections();
+      break;
+    case 'worktree':
+      {
+        const subCmd = args[1]
+        switch (subCmd) {
+          case 'setup':
+            cmdWorktreeSetup(args.slice(2));
+            break;
+          case 'list':
+            cmdWorktreeList();
+            break;
+          case 'teardown':
+            cmdWorktreeTeardown(args.slice(2));
+            break;
+          default:
+            console.error(`Unknown worktree command: ${subCmd}`)
+            console.error('Available: setup, list, teardown')
+            process.exit(1)
+        }
+      }
+      break;
+    case 'merge-driver':
+      cmdMergeDriver(args.slice(1));
       break;
     default:
       console.error(`Unknown command: ${command}`);

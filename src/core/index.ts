@@ -66,3 +66,41 @@ export {
   type RedirectRule,
   type RedirectResult,
 } from './redirects.js'
+
+// Conditional Redirects (Phase 3)
+export {
+  evaluateConditions,
+  findConditionalRedirectRule,
+  type RedirectCondition,
+  type ConditionalRedirectRule,
+  type RedirectContext,
+} from './conditional-redirects.js'
+
+// Worktree Management (Phase 3)
+export {
+  worktreeSetup,
+  worktreeTeardown,
+  registerWorktree,
+  unregisterWorktree,
+  findWorktree,
+  listWorktrees,
+  readWorktreeRegistry,
+  writeWorktreeRegistry,
+  getGitCommonDir,
+  getCurrentBranch,
+  getRegistryPath,
+  type WorktreeEntry,
+  type WorktreeRegistry,
+  type WorktreeSetupOptions,
+  type WorktreeTeardownOptions,
+} from './worktree.js'
+
+// Merge Driver (Phase 3)
+export {
+  mergeJsonl,
+  parseJsonlToMap,
+  writeJsonlFromMap,
+  fieldLevelMerge,
+  deepEqual,
+  installMergeDriver,
+} from './merge-driver.js'
