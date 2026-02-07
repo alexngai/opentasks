@@ -2,11 +2,12 @@
  * Tools Method Handlers
  *
  * JSON-RPC method handlers for the 3-tool agent interface via IPC.
+ * Location-aware: extracts optional `location` from params to route
+ * to the correct store via LocationResolver.
  */
 
 import type { IPCServer } from '../ipc.js'
-import type { DaemonFlushManager } from '../flush.js'
-import type { GraphStore } from '../../graph/store.js'
+import type { LocationResolver } from '../location-state.js'
 import type {
   LinkParams,
   LinkResult,
@@ -30,11 +31,8 @@ export interface ToolsMethodsOptions {
   /** IPC server to register handlers on */
   server: IPCServer
 
-  /** Graph store for data operations */
-  store: GraphStore
-
-  /** Flush manager for dirty tracking */
-  flushManager: DaemonFlushManager
+  /** Location resolver for routing to correct store */
+  locationResolver: LocationResolver
 }
 
 // ============================================================================
@@ -58,63 +56,72 @@ function isLocalId(id: string): boolean {
  * Register tools method handlers on an IPC server
  */
 export function registerToolsMethods(options: ToolsMethodsOptions): void {
-  const { server, store, flushManager } = options
+  const { server, locationResolver } = options
 
   // tools.link - Create/remove edges between nodes
-  server.handle<LinkParams, LinkResult>('tools.link', async (params) => {
+  server.handle<LinkParams & { location?: string }, LinkResult>('tools.link', async (params) => {
     if (!params) {
       return { success: false, error: 'Missing required parameters' }
     }
 
-    const result = await link(store, params)
+    const { location, ...linkParams } = params
+    const state = locationResolver.resolve(location)
+
+    const result = await link(state.store, linkParams)
 
     // Mark nodes dirty and schedule flush on success
     if (result.success) {
       // Only mark local IDs as dirty (not provider URIs)
-      if (isLocalId(params.fromId)) {
-        flushManager.markDirty(params.fromId)
+      if (isLocalId(linkParams.fromId)) {
+        state.flushManager.markDirty(linkParams.fromId)
       }
-      if (isLocalId(params.toId)) {
-        flushManager.markDirty(params.toId)
+      if (isLocalId(linkParams.toId)) {
+        state.flushManager.markDirty(linkParams.toId)
       }
-      flushManager.schedule()
+      state.flushManager.schedule()
     }
 
     return result
   })
 
   // tools.query - Query the graph with unified interface
-  server.handle<QueryParams, QueryResult>('tools.query', async (params) => {
+  server.handle<QueryParams & { location?: string }, QueryResult>('tools.query', async (params) => {
     if (!params) {
       throw new Error('Missing required parameters')
     }
 
+    const { location, ...queryParams } = params
+    const state = locationResolver.resolve(location)
+
     // Query is read-only, no flush needed
-    return query(store, params)
+    return query(state.store, queryParams)
   })
 
   // tools.annotate - Manage feedback lifecycle
-  server.handle<AnnotateParams, AnnotateResult>('tools.annotate', async (params) => {
+  server.handle<AnnotateParams & { location?: string }, AnnotateResult>('tools.annotate', async (params) => {
     if (!params) {
       return { success: false, error: 'Missing required parameters' }
     }
 
-    const result = await annotate(store, params)
+    const { location, ...annotateParams } = params
+    const state = locationResolver.resolve(location)
+
+    const result = await annotate(state.store, annotateParams)
 
     // Mark nodes dirty and schedule flush on success
     if (result.success) {
       // Mark target and feedback nodes dirty
-      if (isLocalId(params.targetId)) {
-        flushManager.markDirty(params.targetId)
+      if (isLocalId(annotateParams.targetId)) {
+        state.flushManager.markDirty(annotateParams.targetId)
       }
       if (result.feedbackId && isLocalId(result.feedbackId)) {
-        flushManager.markDirty(result.feedbackId)
+        state.flushManager.markDirty(result.feedbackId)
       }
       // Mark fromId dirty if provided (for edge creation)
-      if (params.fromId && isLocalId(params.fromId)) {
-        flushManager.markDirty(params.fromId)
+      if (annotateParams.fromId && isLocalId(annotateParams.fromId)) {
+        state.flushManager.markDirty(annotateParams.fromId)
       }
-      flushManager.schedule()
+      state.flushManager.schedule()
     }
 
     return result

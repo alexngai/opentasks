@@ -8,6 +8,7 @@
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import { createIPCClient, type IPCClient } from '../daemon/ipc.js'
+import { getGitCommonDir } from '../core/worktree.js'
 import type {
   LinkParams,
   LinkResult,
@@ -58,6 +59,20 @@ export class ClientError extends Error {
 // ============================================================================
 
 /**
+ * Find the multi-location daemon socket at .git/opentasks/daemon.sock
+ */
+function findGitDaemonSocket(startDir: string = process.cwd()): string | null {
+  const gitCommonDir = getGitCommonDir(startDir)
+  if (!gitCommonDir) return null
+
+  const socketPath = path.join(gitCommonDir, 'opentasks', 'daemon.sock')
+  if (fs.existsSync(socketPath)) {
+    return socketPath
+  }
+  return null
+}
+
+/**
  * Find the .opentasks directory starting from cwd and walking up
  */
 function findOpenTasksDir(startDir: string = process.cwd()): string | null {
@@ -79,13 +94,22 @@ function findOpenTasksDir(startDir: string = process.cwd()): string | null {
 }
 
 /**
- * Get the default socket path by looking for .opentasks directory
+ * Get the default socket path.
+ * Prefers .git/opentasks/daemon.sock (multi-location) then falls back
+ * to walking up for .opentasks/daemon.sock (single-location).
  */
 function getDefaultSocketPath(): string {
+  // 1. Check for multi-location daemon socket first
+  const gitSocket = findGitDaemonSocket()
+  if (gitSocket) {
+    return gitSocket
+  }
+
+  // 2. Fallback to single-location .opentasks/daemon.sock
   const openTasksDir = findOpenTasksDir()
   if (!openTasksDir) {
     throw new ClientError(
-      'Could not find .opentasks directory. Is the daemon running?',
+      'Could not find daemon socket. Is the daemon running?',
       'SOCKET_NOT_FOUND'
     )
   }

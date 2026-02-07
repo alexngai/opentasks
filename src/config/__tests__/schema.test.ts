@@ -191,6 +191,7 @@ describe('Config Schema', () => {
     it('returns full defaults for empty object', () => {
       const result = OpenTasksConfigSchema.parse({})
       expect(result).toEqual({
+        version: '1.0',
         storage: {
           jsonlPath: 'graph.jsonl',
           sqlitePath: 'cache.db',
@@ -215,6 +216,10 @@ describe('Config Schema', () => {
           level: 'info',
           file: null,
         },
+        location: undefined,
+        connections: [],
+        role: 'standalone',
+        redirects: [],
       })
     })
 
@@ -232,6 +237,7 @@ describe('Config Schema', () => {
 
     it('preserves all provided values', () => {
       const config: OpenTasksConfig = {
+        version: '1.0',
         storage: {
           jsonlPath: 'data.jsonl',
           sqlitePath: 'data.db',
@@ -256,6 +262,10 @@ describe('Config Schema', () => {
           level: 'error',
           file: 'logs/error.log',
         },
+        location: undefined,
+        connections: [],
+        role: 'standalone',
+        redirects: [],
       }
 
       const result = OpenTasksConfigSchema.parse(config)

@@ -171,10 +171,11 @@ const jsonlPersister = createJSONLPersister({
 ```
 
 **Features:**
-- Atomic writes via temp file + rename
+- **Append-only writes** — updates append a new line with the same ID and newer `updated_at` (never overwrite in-place)
 - Content hashing to detect actual changes
-- Git conflict detection (merge markers)
-- Append-optimized with periodic compaction
+- On load, deduplicate by keeping latest `updated_at` per ID
+- Custom merge driver for conflict-free git merges (see [plans/PHASE-3.md](./plans/PHASE-3.md))
+- Periodic compaction to remove duplicate entries
 
 **File Format:**
 ```jsonl
@@ -560,89 +561,103 @@ SELECT content_hash FROM export_hashes WHERE node_id = ?;
 
 ## Multi-Location Support
 
-### Location Resolution
+### Location Identity
+
+Each `.opentasks/` directory has a deterministic identity. See [plans/PHASE-2.md](./plans/PHASE-2.md) for full specification.
 
 ```typescript
-interface LocationResolver {
-  /** Resolve location for a node reference */
-  resolve(ref: string): ResolvedLocation
+interface Location {
+  /** Deterministic hash: SHA256(git_remote_url + ":" + repo_relative_path) → 8-char base36 */
+  hash: string
 
-  /** Get current location context */
-  getCurrentLocation(): Location
+  /** Random UUID v4 for uniqueness guarantee */
+  uuid: string
 
-  /** Check if location is local or remote */
-  isLocal(location: Location): boolean
-}
-
-interface ResolvedLocation {
-  type: 'local' | 'workspace' | 'global' | 'remote'
-  path: string
-  persister?: Persister
+  /** Human-readable name */
+  name: string
 }
 ```
 
-### Redirect Support
+### Explicit Connections (Not Discovery)
 
-For worktree and multi-location scenarios (inspired by beads' redirect files).
+Locations declare connections explicitly in `config.json`. No filesystem discovery at runtime.
 
 ```typescript
-interface RedirectConfig {
-  /** Redirect file path (e.g., ".opentasks/redirect") */
-  redirectFile?: string
+interface Connection {
+  /** Location hash of the target */
+  hash: string
 
-  /** Redirect rules */
-  rules?: RedirectRule[]
+  /** Relative or absolute path to target's .opentasks/ */
+  path: string
+
+  /** Relationship: peer, parent, worker, manager */
+  role: string
+
+  /** Human-readable name */
+  name?: string
 }
+```
 
+### Redirect Support (Role-Based)
+
+For worktree and multi-location scenarios. Redirects use **roles** (set by orchestrator in config), not agent identity.
+
+```typescript
 interface RedirectRule {
-  /** Pattern to match (glob) */
-  pattern: string
-
-  /** Target location */
-  target: string
-
   /** Operations to redirect */
   operations: ('read' | 'write')[]
 
-  /** Conditions */
+  /** Pattern for node IDs (glob): "*", "i-*", "s-*" */
+  pattern: string
+
+  /** Target location (hash URI or relative path) */
+  target: string
+
+  /** Lower = higher priority, default 100 */
+  priority: number
+
+  /** What to do if target unreachable */
+  fallback: 'local' | 'error'
+
+  /** Conditions (optional) */
   when?: {
-    branch?: string
-    worktree?: string
+    role?: string           // from config.json role field (trusted)
+    branch?: string         // git branch glob pattern
   }
 }
-
-// Example: worktree redirects writes to main
-{
-  pattern: '*',
-  target: '../main-worktree/.opentasks/',
-  operations: ['write'],
-  when: { worktree: 'feature-*' }
-}
 ```
 
-### Worktree Detection
+Rule evaluation: sorted by priority (ascending), first match wins. Max redirect depth: 3 hops.
+
+### Worktree Registration (Explicit, Not Passive)
+
+Worktrees are registered explicitly via `opentasks worktree setup`, not auto-detected from `.git` files. This stores actual paths and avoids assumptions about directory layout.
 
 ```typescript
-interface WorktreeContext {
-  /** Whether we're in a worktree */
-  isWorktree: boolean
+interface RegisteredWorktree {
+  /** Worktree root path */
+  path: string
 
-  /** Path to main worktree (if in worktree) */
-  mainWorktreePath?: string
+  /** Path to .opentasks/ directory */
+  opentasksPath: string
 
-  /** Current worktree name */
-  worktreeName?: string
+  /** Location hash */
+  hash: string
 
-  /** Current git branch */
-  branch?: string
-}
+  /** Git branch */
+  branch: string
 
-function detectWorktreeContext(): WorktreeContext {
-  // Check for .git file (worktrees have file, not directory)
-  // Parse .git file to find gitdir
-  // Determine main worktree from commondir
+  /** Role: manager or worker */
+  role: 'manager' | 'worker'
+
+  /** Location hash of redirect target (if worker) */
+  redirectTarget?: string
 }
 ```
+
+Registry stored at `.git/opentasks/worktrees.json` (shared across worktrees, daemon is sole writer).
+
+See [plans/PHASE-3.md](./plans/PHASE-3.md) for worktree CLI specification.
 
 ---
 
@@ -874,21 +889,25 @@ const withBeadsConfig: PersistenceManagerConfig = {
 
 ```
 .opentasks/
-├── graph.jsonl           # Source of truth: nodes + edges (git-tracked)
+├── graph.jsonl           # Source of truth: nodes + edges, append-only (git-tracked)
 ├── tombstones.jsonl      # Soft-deleted nodes (configurable gitignore)
-├── cache.db              # SQLite cache (gitignored, can be rebuilt)
-├── config.json           # Configuration and persistence settings
-├── redirect              # Optional: worktree redirect file
+├── cache.db              # SQLite cache in WAL mode (gitignored, can be rebuilt)
+├── config.json           # Configuration, connections, role, redirects
+├── write.lock            # Advisory lock for JSONL writes (gitignored)
 ├── specs/                # Optional: markdown expansion
 │   ├── s-a2b3-auth-requirements.md
 │   └── s-c4d5-api-design.md
-├── issues/               # Optional: markdown expansion
-│   ├── i-x7k9-implement-login.md
-│   └── i-y8z0-add-tests.md
-└── daemon.sock           # Daemon socket (when running)
+└── issues/               # Optional: markdown expansion
+    ├── i-x7k9-implement-login.md
+    └── i-y8z0-add-tests.md
+
+.git/opentasks/           # Shared across all worktrees (Phase 3)
+├── daemon.sock           # Single daemon socket
+├── daemon.lock           # Daemon PID lock
+└── worktrees.json        # Registered worktrees
 ```
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for location hierarchy and daemon details.
+See [plans/CORE-ARCHITECTURE.md](./plans/CORE-ARCHITECTURE.md) for cross-location architecture and daemon details.
 
 **.gitignore:**
 ```gitignore
@@ -896,15 +915,20 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for location hierarchy and daemon detai
 .opentasks/cache.db
 .opentasks/cache.db-*
 
-# Daemon socket
-.opentasks/daemon.sock
-.opentasks/daemon.lock
+# Write lock
+.opentasks/write.lock
 
 # Temp files
 .opentasks/*.tmp
 
 # Optional: tombstones (user choice)
 # .opentasks/tombstones.jsonl
+```
+
+**.gitattributes:**
+```gitattributes
+# Custom merge driver for conflict-free JSONL merges
+.opentasks/graph.jsonl merge=opentasks
 ```
 
 ---
@@ -1498,110 +1522,36 @@ function isCompactionEligible(node: Node): boolean {
 
 ## Daemon Architecture
 
-Background process for sync, watching, and coordination.
+### Phased Approach
 
-### Why a Daemon?
+- **Phase 2**: No daemon. SQLite WAL mode handles concurrent reads. Advisory file lock (`write.lock`) serializes JSONL writes. Direct file access only.
+- **Phase 3**: Single daemon per git repository at `.git/opentasks/daemon.sock`. Manages all registered worktrees.
 
-1. **File watching** — Monitor JSONL and markdown for changes
+### Why a Single Daemon per Git Repo? (Phase 3)
+
+1. **File watching** — Monitor JSONL and markdown for changes across all worktrees
 2. **Debounced writes** — Batch rapid changes before persisting
-3. **Cross-process coordination** — Multiple agents/editors sharing state
+3. **Cross-location coordination** — Multiple agents sharing state via in-process function calls (not IPC hops)
 4. **Background sync** — Provider sync, remote fetch
 5. **Compaction** — Periodic cleanup without blocking operations
-6. **Git integration** — Respond to git operations
+6. **Branch caching** — Watch `.git/HEAD` for branch changes
 
-### Daemon Design
+**Why NOT one daemon per location (previous design):**
+- N+1 processes for agent swarms is wasteful
+- Cross-location queries require IPC between daemons (latency)
+- Claim atomicity requires distributed coordination
+- Process lifecycle management is complex (orphaned daemons)
 
-```typescript
-interface DaemonConfig {
-  /** Socket path for IPC */
-  socketPath: string          // e.g., ".opentasks/daemon.sock"
+### Daemon Location
 
-  /** PID file for single-instance */
-  pidFile: string             // e.g., ".opentasks/daemon.pid"
-
-  /** Flush configuration */
-  flush: FlushConfig
-
-  /** File watching */
-  watch: WatchConfig
-
-  /** Background tasks */
-  tasks: {
-    /** Compaction schedule */
-    compaction?: CronSchedule
-
-    /** Provider sync interval */
-    providerSync?: number     // ms
-
-    /** Health check interval */
-    healthCheck?: number      // ms
-  }
-}
-
-class OpenTasksDaemon {
-  private server: net.Server
-  private persistenceManager: PersistenceManager
-  private fileWatcher: FileWatcher
-  private flushManager: FlushManager
-  private running: boolean = false
-
-  async start(): Promise<void> {
-    // 1. Check for existing daemon
-    if (await this.isAlreadyRunning()) {
-      throw new Error('Daemon already running')
-    }
-
-    // 2. Write PID file
-    await this.writePidFile()
-
-    // 3. Initialize persistence
-    await this.persistenceManager.load()
-
-    // 4. Start file watchers
-    this.fileWatcher.start()
-
-    // 5. Start IPC server
-    this.server = net.createServer(this.handleConnection.bind(this))
-    this.server.listen(this.config.socketPath)
-
-    // 6. Start background tasks
-    this.startBackgroundTasks()
-
-    // 7. Register signal handlers
-    this.registerSignalHandlers()
-
-    this.running = true
-  }
-
-  async stop(): Promise<void> {
-    this.running = false
-
-    // 1. Stop accepting connections
-    this.server.close()
-
-    // 2. Final flush
-    await this.flushManager.flush()
-
-    // 3. Stop file watchers
-    this.fileWatcher.stop()
-
-    // 4. Cleanup
-    await this.cleanup()
-  }
-
-  private registerSignalHandlers(): void {
-    process.on('SIGTERM', () => this.gracefulShutdown())
-    process.on('SIGINT', () => this.gracefulShutdown())
-    process.on('SIGHUP', () => this.reload())
-  }
-
-  private async gracefulShutdown(): Promise<void> {
-    console.log('Shutting down gracefully...')
-    await this.stop()
-    process.exit(0)
-  }
-}
 ```
+.git/opentasks/
+├── daemon.sock           # Unix socket (shared by all worktrees)
+├── daemon.lock           # PID lock
+└── worktrees.json        # Registered worktrees
+```
+
+Socket lives in `.git/opentasks/` because `.git/` is shared across all worktrees. No global registry needed — any worktree finds the daemon at the same path.
 
 ### IPC Protocol
 
@@ -1619,147 +1569,34 @@ interface DaemonResponse {
 }
 
 type DaemonMethod =
-  // Graph operations
+  // Graph operations (include location parameter)
   | 'graph.get'
   | 'graph.query'
-  | 'graph.mutate'
+  | 'graph.create'
+  | 'graph.update'
+  | 'graph.delete'
 
   // Sync operations
   | 'sync.flush'
   | 'sync.import'
-  | 'sync.status'
 
   // Lifecycle
   | 'daemon.ping'
+  | 'daemon.health'
   | 'daemon.status'
-  | 'daemon.reload'
   | 'daemon.shutdown'
 
-  // Compaction
-  | 'compact.analyze'
-  | 'compact.run'
-  | 'compact.prune'
+  // Worktree management
+  | 'worktree.register'
+  | 'worktree.unregister'
+  | 'worktree.list'
+  | 'worktree.find'
+
+  // Connections
+  | 'connection.health'
 ```
 
-### Client Library
-
-```typescript
-class OpenTasksClient {
-  private socket: net.Socket
-
-  constructor(socketPath: string) {
-    this.socket = net.connect(socketPath)
-  }
-
-  async query(filter: QueryFilter): Promise<Node[]> {
-    return this.request('graph.query', { filter })
-  }
-
-  async mutate(mutation: Mutation): Promise<MutationResult> {
-    return this.request('graph.mutate', { mutation })
-  }
-
-  async flush(): Promise<void> {
-    return this.request('sync.flush')
-  }
-
-  private async request<T>(method: DaemonMethod, params?: unknown): Promise<T> {
-    const id = crypto.randomUUID()
-    const request: DaemonRequest = { id, method, params }
-
-    return new Promise((resolve, reject) => {
-      this.socket.write(JSON.stringify(request) + '\n')
-
-      this.socket.once('data', (data) => {
-        const response: DaemonResponse = JSON.parse(data.toString())
-        if (response.error) {
-          reject(new Error(response.error.message))
-        } else {
-          resolve(response.result as T)
-        }
-      })
-    })
-  }
-}
-```
-
-### Auto-Start Behavior
-
-```typescript
-interface AutoStartConfig {
-  /** Start daemon automatically on first operation */
-  autoStart: boolean
-
-  /** Timeout for daemon startup */
-  startupTimeoutMs: number    // default: 5000
-
-  /** Retry attempts */
-  retryAttempts: number       // default: 3
-}
-
-async function ensureDaemon(config: DaemonConfig): Promise<OpenTasksClient> {
-  // 1. Try to connect to existing daemon
-  try {
-    const client = new OpenTasksClient(config.socketPath)
-    await client.request('daemon.ping')
-    return client
-  } catch {
-    // Daemon not running
-  }
-
-  // 2. Start daemon if autoStart enabled
-  if (config.autoStart) {
-    await startDaemonProcess(config)
-
-    // 3. Wait for daemon to be ready
-    for (let i = 0; i < config.retryAttempts; i++) {
-      await sleep(100)
-      try {
-        const client = new OpenTasksClient(config.socketPath)
-        await client.request('daemon.ping')
-        return client
-      } catch {
-        continue
-      }
-    }
-  }
-
-  throw new Error('Could not connect to daemon')
-}
-```
-
-### Daemon Modes
-
-```typescript
-type DaemonMode =
-  | 'full'          // All features: watching, sync, compaction
-  | 'minimal'       // Just IPC server, no background tasks
-  | 'readonly'      // No writes, useful for debugging
-
-interface DaemonStatus {
-  mode: DaemonMode
-  uptime: number
-  pid: number
-
-  /** Persister status */
-  persisters: PersisterStatus[]
-
-  /** Pending operations */
-  pending: {
-    dirtyNodes: number
-    flushScheduled: boolean
-    nextFlushMs?: number
-  }
-
-  /** Background tasks */
-  tasks: {
-    name: string
-    lastRun?: string
-    nextRun?: string
-    status: 'idle' | 'running' | 'error'
-  }[]
-}
-```
+See [plans/PHASE-3.md](./plans/PHASE-3.md) for full daemon specification, auto-start behavior, and lifecycle.
 
 ---
 
@@ -1770,7 +1607,13 @@ interface DaemonStatus {
 | Split vs single JSONL | **Single `graph.jsonl`** with compaction to manage size |
 | Markdown sync priority | **Merge strategy**: frontmatter from JSONL, body from markdown |
 | Compaction strategy | **Tiered**: 30 days → Tier 1, 90 days → Tier 2, with LLM summarization option |
-| Daemon mode | **Yes, required** for watching, sync, and coordination |
+| Daemon model | **Single daemon per git repo** (Phase 3 only); Phase 2 uses WAL + file locks |
+| JSONL write mode | **Append-only** — updates append new line, never overwrite in-place |
+| Git merge conflicts | **Custom merge driver** with field-level three-way merge |
+| Location discovery | **One-time setup aid** (`opentasks discover`), not runtime; explicit connections |
+| Worktree detection | **Explicit registration** via `opentasks worktree setup`, not passive detection |
+| Redirect conditions | **Role-based** (set in config by orchestrator), not agent-identity-based |
+| Global registry | **Eliminated** — socket at `.git/opentasks/daemon.sock` + explicit connections |
 
 ---
 

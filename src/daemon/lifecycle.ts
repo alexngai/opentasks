@@ -2,7 +2,9 @@
  * Daemon Lifecycle Manager
  *
  * Manages the start/stop lifecycle of an OpenTasks daemon.
- * Coordinates lock acquisition, registry, and graceful shutdown.
+ * Supports two modes via unified createDaemon():
+ *   - Single-location: one store, one location (backward compatible)
+ *   - Multi-location: multiple worktrees under one git repo
  */
 
 import * as fs from 'node:fs/promises'
@@ -10,19 +12,36 @@ import * as path from 'node:path'
 import { createLockManager, type LockManager } from './lock.js'
 import { createRegistryManager, type RegistryManager } from './registry.js'
 import { DaemonError, type DaemonState, type DaemonStatus, type DaemonEntry } from './types.js'
-import type { OpenTasksConfig, PartialOpenTasksConfig } from '../config/index.js'
+import { createIPCServer, type IPCServer } from './ipc.js'
+import { createFileWatcher, type FileWatcher } from './watcher.js'
+import { createDaemonFlushManager, type DaemonFlushManager } from './flush.js'
+import { registerLifecycleMethods } from './methods/lifecycle.js'
+import { registerGraphMethods } from './methods/graph.js'
+import { registerToolsMethods } from './methods/tools.js'
+import { registerLocationMethods } from './methods/location.js'
+import type { GraphStore } from '../graph/store.js'
+import type { PartialOpenTasksConfig } from '../config/index.js'
+import {
+  createLocationState,
+  destroyLocationState,
+  createSingleLocationResolver,
+  createMultiLocationResolver,
+  type LocationState,
+  type LocationResolver,
+} from './location-state.js'
+import {
+  readWorktreeRegistry,
+  type WorktreeEntry,
+} from '../core/worktree.js'
 
 // ============================================================================
 // Types
 // ============================================================================
 
 /**
- * Daemon configuration
+ * Base configuration shared by both daemon modes
  */
-export interface DaemonConfig {
-  /** Path to .opentasks/ directory */
-  locationPath: string
-
+interface DaemonConfigBase {
   /** OpenTasks version */
   version: string
 
@@ -31,10 +50,37 @@ export interface DaemonConfig {
 
   /** Custom registry path (for testing) */
   registryPath?: string
+}
+
+/**
+ * Single-location daemon configuration (backward compatible)
+ */
+export interface SingleLocationDaemonConfig extends DaemonConfigBase {
+  /** Path to .opentasks/ directory */
+  locationPath: string
+
+  /** Injected GraphStore instance (caller creates and initializes it) */
+  store: GraphStore
 
   /** OpenTasks config override (for custom paths) */
   openTasksConfig?: PartialOpenTasksConfig
 }
+
+/**
+ * Multi-location daemon configuration
+ */
+export interface MultiLocationDaemonConfig extends DaemonConfigBase {
+  /** Path to git common dir (e.g., /repo/.git) */
+  gitCommonDir: string
+
+  /** Override for primary location path (default: auto-detected from git root) */
+  primaryLocationPath?: string
+}
+
+/**
+ * Unified daemon configuration (discriminated by presence of gitCommonDir)
+ */
+export type DaemonConfig = SingleLocationDaemonConfig | MultiLocationDaemonConfig
 
 /**
  * Daemon interface
@@ -52,7 +98,7 @@ export interface Daemon {
   /** Socket path for IPC */
   readonly socketPath: string
 
-  /** Location path */
+  /** Location path (daemon home directory) */
   readonly locationPath: string
 }
 
@@ -77,7 +123,18 @@ export interface ExistingDaemonResult {
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2000
 
 // ============================================================================
-// Implementation
+// Type Guards
+// ============================================================================
+
+/**
+ * Check if config is for multi-location mode
+ */
+function isMultiLocationConfig(config: DaemonConfig): config is MultiLocationDaemonConfig {
+  return 'gitCommonDir' in config
+}
+
+// ============================================================================
+// Shared Helpers
 // ============================================================================
 
 /**
@@ -105,13 +162,32 @@ export async function checkExistingDaemon(
   }
 }
 
+// ============================================================================
+// Unified Factory
+// ============================================================================
+
 /**
- * Create a daemon for a .opentasks/ location
+ * Create a daemon, supporting both single-location and multi-location modes.
+ *
+ * - If config has `locationPath` + `store`: single-location mode (backward compatible)
+ * - If config has `gitCommonDir`: multi-location mode (manages all worktrees)
  */
 export function createDaemon(config: DaemonConfig): Daemon {
+  if (isMultiLocationConfig(config)) {
+    return createMultiLocationDaemon(config)
+  }
+  return createSingleLocationDaemon(config)
+}
+
+// ============================================================================
+// Single-Location Daemon
+// ============================================================================
+
+function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon {
   const {
     locationPath,
     version,
+    store,
     shutdownTimeoutMs = DEFAULT_SHUTDOWN_TIMEOUT_MS,
     registryPath,
     openTasksConfig,
@@ -127,23 +203,21 @@ export function createDaemon(config: DaemonConfig): Daemon {
   // State
   let state: DaemonState = 'stopped'
   let startedAt: string | null = null
-  let connectionCount = 0
 
   // Managers
   const lockManager: LockManager = createLockManager(locationPath)
   const registryManager: RegistryManager = createRegistryManager(registryPath)
 
+  // Components (initialized in start(), torn down in stop())
+  let ipcServer: IPCServer | null = null
+  let fileWatcher: FileWatcher | null = null
+  let flushManager: DaemonFlushManager | null = null
+
   // Signal handlers (stored for cleanup)
   let signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = []
 
-  /**
-   * Setup signal handlers for graceful shutdown
-   */
   function setupSignalHandlers(daemon: Daemon): void {
-    const handler = () => {
-      void daemon.stop()
-    }
-
+    const handler = () => { void daemon.stop() }
     const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGINT']
     for (const signal of signals) {
       process.on(signal, handler)
@@ -151,9 +225,6 @@ export function createDaemon(config: DaemonConfig): Daemon {
     }
   }
 
-  /**
-   * Remove signal handlers
-   */
   function removeSignalHandlers(): void {
     for (const { signal, handler } of signalHandlers) {
       process.off(signal, handler)
@@ -161,14 +232,10 @@ export function createDaemon(config: DaemonConfig): Daemon {
     signalHandlers = []
   }
 
-  /**
-   * Remove socket file if it exists
-   */
   async function removeSocketFile(): Promise<void> {
     try {
       await fs.unlink(socketPath)
     } catch (error) {
-      // Ignore if doesn't exist
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         throw error
       }
@@ -225,16 +292,87 @@ export function createDaemon(config: DaemonConfig): Daemon {
         // 5. Setup signal handlers
         setupSignalHandlers(daemon)
 
-        // Note: IPC server, file watcher, and flush manager
-        // will be initialized by subsequent issues
+        // 6. Create flush manager
+        flushManager = createDaemonFlushManager(
+          { debounceMs: 5000, maxDelayMs: 30000 },
+          async (_dirtyNodeIds) => {
+            fileWatcher?.pause()
+            try {
+              await store.flush()
+            } finally {
+              fileWatcher?.resume()
+            }
+          }
+        )
 
+        // 7. Create IPC server
+        ipcServer = createIPCServer(socketPath)
+
+        // 8. Create single-location resolver wrapping store + flushManager
+        const locationState: LocationState = {
+          hash: 'primary',
+          opentasksPath: locationPath,
+          store,
+          flushManager,
+          watcher: null as unknown as FileWatcher, // watcher managed separately
+          primary: true,
+          healthy: true,
+        }
+        const locationResolver = createSingleLocationResolver(locationState)
+
+        // 9. Register method handlers
+        registerLifecycleMethods({
+          server: ipcServer,
+          getStatus: () => daemon.getStatus(),
+          shutdown: () => daemon.stop(),
+          version,
+          startedAt: new Date(startedAt),
+        })
+
+        registerGraphMethods({
+          server: ipcServer,
+          locationResolver,
+        })
+
+        registerToolsMethods({
+          server: ipcServer,
+          locationResolver,
+        })
+
+        // 10. Start IPC server (begin listening)
+        await ipcServer.start()
+
+        // 11. Create and start file watcher
+        fileWatcher = createFileWatcher({ locationPath })
+
+        fileWatcher.onchange((_event) => {
+          // External changes detected. Full reload deferred.
+        })
+
+        await fileWatcher.start()
+
+        // Update the location state's watcher reference
+        locationState.watcher = fileWatcher
+
+        // 12. Mark as running
         state = 'running'
       } catch (error) {
         // Cleanup on failure
         state = 'stopped'
         startedAt = null
 
-        // Try to release lock if we acquired it
+        if (fileWatcher) {
+          try { await fileWatcher.stop() } catch { /* ignore */ }
+          fileWatcher = null
+        }
+
+        if (ipcServer) {
+          try { await ipcServer.stop() } catch { /* ignore */ }
+          ipcServer = null
+        }
+
+        flushManager = null
+
         try {
           await lockManager.release()
         } catch {
@@ -251,7 +389,6 @@ export function createDaemon(config: DaemonConfig): Daemon {
       }
 
       if (state === 'starting') {
-        // Wait a bit for start to complete or fail
         await new Promise((resolve) => setTimeout(resolve, 100))
         if (state === 'starting') {
           throw new DaemonError(
@@ -263,37 +400,36 @@ export function createDaemon(config: DaemonConfig): Daemon {
 
       state = 'stopping'
 
-      // Use timeout for graceful shutdown
       const shutdownPromise = (async () => {
         try {
-          // 1. Remove signal handlers first
           removeSignalHandlers()
 
-          // Note: IPC server stop will be added here
-          // - Stop accepting new connections
-          // - Wait for in-flight requests
+          if (ipcServer) {
+            await ipcServer.stop()
+            ipcServer = null
+          }
 
-          // Note: File watcher stop will be added here
+          if (fileWatcher) {
+            await fileWatcher.stop()
+            fileWatcher = null
+          }
 
-          // Note: Final flush will be added here
+          if (flushManager) {
+            await flushManager.finalFlush()
+            flushManager = null
+          }
 
-          // 2. Unregister from global registry
+          await store.close()
           await registryManager.unregister(locationPath)
-
-          // 3. Remove socket file
           await removeSocketFile()
-
-          // 4. Release lock
           await lockManager.release()
 
         } finally {
           state = 'stopped'
           startedAt = null
-          connectionCount = 0
         }
       })()
 
-      // Apply timeout
       const timeoutPromise = new Promise<void>((_, reject) => {
         setTimeout(() => {
           reject(new DaemonError('SHUTDOWN_TIMEOUT', 'Shutdown timed out'))
@@ -303,7 +439,6 @@ export function createDaemon(config: DaemonConfig): Daemon {
       try {
         await Promise.race([shutdownPromise, timeoutPromise])
       } catch (error) {
-        // Force cleanup on timeout
         state = 'stopped'
         startedAt = null
         removeSignalHandlers()
@@ -317,8 +452,362 @@ export function createDaemon(config: DaemonConfig): Daemon {
         startedAt,
         pid: process.pid,
         socketPath,
-        pendingFlush: false, // Will be updated when flush manager is integrated
-        connectionCount,
+        pendingFlush: flushManager?.hasPendingChanges() ?? false,
+        connectionCount: ipcServer?.getConnectionCount() ?? 0,
+      }
+    },
+  }
+
+  return daemon
+}
+
+// ============================================================================
+// Multi-Location Daemon
+// ============================================================================
+
+function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
+  const {
+    gitCommonDir,
+    version,
+    shutdownTimeoutMs = DEFAULT_SHUTDOWN_TIMEOUT_MS,
+    registryPath,
+    primaryLocationPath: primaryOverride,
+  } = config
+
+  // Daemon home is .git/opentasks/
+  const daemonHomePath = path.join(gitCommonDir, 'opentasks')
+  const socketPath = path.join(daemonHomePath, 'daemon.sock')
+  const databasePath = path.join(daemonHomePath, 'cache.db')
+
+  // Primary location: override or auto-detect (git root's .opentasks/)
+  const gitRoot = path.dirname(gitCommonDir) // /repo/.git → /repo
+  const defaultPrimaryPath = path.join(gitRoot, '.opentasks')
+  const primaryPath = primaryOverride ?? defaultPrimaryPath
+
+  // State
+  let state: DaemonState = 'stopped'
+  let startedAt: string | null = null
+
+  // Managers
+  const lockManager: LockManager = createLockManager(daemonHomePath)
+  const registryManager: RegistryManager = createRegistryManager(registryPath)
+
+  // Components
+  let ipcServer: IPCServer | null = null
+  let locationResolver: LocationResolver | null = null
+
+  // Signal handlers
+  let signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = []
+
+  function setupSignalHandlers(daemon: Daemon): void {
+    const handler = () => { void daemon.stop() }
+    const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGINT']
+    for (const signal of signals) {
+      process.on(signal, handler)
+      signalHandlers.push({ signal, handler })
+    }
+  }
+
+  function removeSignalHandlers(): void {
+    for (const { signal, handler } of signalHandlers) {
+      process.off(signal, handler)
+    }
+    signalHandlers = []
+  }
+
+  async function removeSocketFile(): Promise<void> {
+    try {
+      await fs.unlink(socketPath)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error
+      }
+    }
+  }
+
+  /**
+   * Initialize a location, returning its state. Returns null on failure (degraded mode).
+   */
+  async function initLocation(
+    opentasksPath: string,
+    hash: string,
+    isPrimary: boolean
+  ): Promise<LocationState | null> {
+    try {
+      const locState = await createLocationState(opentasksPath, hash, isPrimary)
+      await locState.watcher.start()
+      return locState
+    } catch {
+      // Graceful degradation: skip failed locations
+      return null
+    }
+  }
+
+  /**
+   * Read worktree entries from the registry. Returns empty array if no registry.
+   */
+  function getWorktreeEntries(): WorktreeEntry[] {
+    try {
+      const registry = readWorktreeRegistry(gitCommonDir)
+      return registry.worktrees
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Determine primary hash from config or worktree registry
+   */
+  function determinePrimaryHash(entries: WorktreeEntry[]): string {
+    // If primary path matches a registered worktree, use its hash
+    const primaryEntry = entries.find(
+      (e) => path.resolve(e.opentasksPath) === path.resolve(primaryPath)
+    )
+    if (primaryEntry) {
+      return primaryEntry.hash
+    }
+    // Fallback: use 'primary' as the hash
+    return 'primary'
+  }
+
+  const daemon: Daemon = {
+    socketPath,
+    locationPath: daemonHomePath,
+
+    async start(): Promise<void> {
+      if (state !== 'stopped') {
+        throw new DaemonError(
+          'DAEMON_ALREADY_RUNNING',
+          `Daemon is already ${state}`
+        )
+      }
+
+      state = 'starting'
+
+      try {
+        // 1. Ensure daemon home directory exists
+        await fs.mkdir(daemonHomePath, { recursive: true })
+
+        // 2. Check for existing daemon
+        const existing = await checkExistingDaemon(daemonHomePath)
+        if (existing.running) {
+          state = 'stopped'
+          throw new DaemonError(
+            'DAEMON_ALREADY_RUNNING',
+            `Daemon already running (PID ${existing.pid}) at ${existing.socketPath}`
+          )
+        }
+
+        // 3. Acquire lock
+        await lockManager.acquire({
+          version,
+          socketPath,
+          databasePath,
+        })
+
+        // 4. Remove stale socket file
+        await removeSocketFile()
+
+        // 5. Register in global registry
+        startedAt = new Date().toISOString()
+        const entry: DaemonEntry = {
+          locationPath: daemonHomePath,
+          socketPath,
+          pid: process.pid,
+          version,
+          startedAt,
+          lastActivity: startedAt,
+        }
+        await registryManager.register(entry)
+
+        // 6. Setup signal handlers
+        setupSignalHandlers(daemon)
+
+        // 7. Read worktree registry and determine primary hash
+        const worktreeEntries = getWorktreeEntries()
+        const primaryHash = determinePrimaryHash(worktreeEntries)
+
+        // 8. Create multi-location resolver
+        locationResolver = createMultiLocationResolver(primaryHash)
+
+        // 9. Initialize primary location
+        const primaryState = await initLocation(primaryPath, primaryHash, true)
+        if (primaryState) {
+          locationResolver.add(primaryState)
+        }
+
+        // 10. Initialize worktree locations (graceful degradation)
+        for (const wt of worktreeEntries) {
+          // Skip if already added as primary
+          if (locationResolver.has(wt.hash)) continue
+
+          const wtState = await initLocation(wt.opentasksPath, wt.hash, false)
+          if (wtState) {
+            locationResolver.add(wtState)
+          }
+        }
+
+        // 11. Verify at least one location initialized
+        if (locationResolver.list().length === 0) {
+          throw new DaemonError(
+            'LOCATION_INIT_FAILED',
+            'No locations could be initialized'
+          )
+        }
+
+        // 12. Create IPC server
+        ipcServer = createIPCServer(socketPath)
+
+        // 13. Register method handlers
+        registerLifecycleMethods({
+          server: ipcServer,
+          getStatus: () => daemon.getStatus(),
+          shutdown: () => daemon.stop(),
+          version,
+          startedAt: new Date(startedAt),
+          checkHealth: () => {
+            const locations = locationResolver!.list()
+            if (locations.length === 0) return 'unhealthy'
+            const unhealthy = locations.filter(l => !l.healthy)
+            if (unhealthy.length === locations.length) return 'unhealthy'
+            if (unhealthy.length > 0) return 'degraded'
+            return 'healthy'
+          },
+        })
+
+        registerGraphMethods({
+          server: ipcServer,
+          locationResolver,
+        })
+
+        registerToolsMethods({
+          server: ipcServer,
+          locationResolver,
+        })
+
+        registerLocationMethods({
+          server: ipcServer,
+          locationResolver,
+          gitCommonDir,
+        })
+
+        // 14. Start IPC server
+        await ipcServer.start()
+
+        // 15. Mark as running
+        state = 'running'
+      } catch (error) {
+        // Cleanup on failure
+        state = 'stopped'
+        startedAt = null
+
+        if (ipcServer) {
+          try { await ipcServer.stop() } catch { /* ignore */ }
+          ipcServer = null
+        }
+
+        // Tear down all initialized locations
+        if (locationResolver) {
+          for (const info of locationResolver.list()) {
+            try { await locationResolver.remove(info.hash) } catch { /* ignore */ }
+          }
+          locationResolver = null
+        }
+
+        try {
+          await lockManager.release()
+        } catch {
+          // Ignore release errors during cleanup
+        }
+
+        throw error
+      }
+    },
+
+    async stop(): Promise<void> {
+      if (state === 'stopped' || state === 'stopping') {
+        return
+      }
+
+      if (state === 'starting') {
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        if (state === 'starting') {
+          throw new DaemonError(
+            'SHUTDOWN_TIMEOUT',
+            'Cannot stop daemon while starting'
+          )
+        }
+      }
+
+      state = 'stopping'
+
+      const shutdownPromise = (async () => {
+        try {
+          removeSignalHandlers()
+
+          // Stop IPC server
+          if (ipcServer) {
+            await ipcServer.stop()
+            ipcServer = null
+          }
+
+          // Tear down all locations (stop watchers, flush, close stores)
+          if (locationResolver) {
+            const locations = locationResolver.list()
+            for (const info of locations) {
+              try {
+                await locationResolver.remove(info.hash)
+              } catch { /* ignore during shutdown */ }
+            }
+            locationResolver = null
+          }
+
+          // Unregister, remove socket, release lock
+          await registryManager.unregister(daemonHomePath)
+          await removeSocketFile()
+          await lockManager.release()
+
+        } finally {
+          state = 'stopped'
+          startedAt = null
+        }
+      })()
+
+      const timeoutPromise = new Promise<void>((_, reject) => {
+        setTimeout(() => {
+          reject(new DaemonError('SHUTDOWN_TIMEOUT', 'Shutdown timed out'))
+        }, shutdownTimeoutMs)
+      })
+
+      try {
+        await Promise.race([shutdownPromise, timeoutPromise])
+      } catch (error) {
+        state = 'stopped'
+        startedAt = null
+        removeSignalHandlers()
+        throw error
+      }
+    },
+
+    getStatus(): DaemonStatus {
+      const locations = locationResolver?.list() ?? []
+      const hasPendingFlush = locations.some((info) => {
+        try {
+          const locState = locationResolver?.resolve(info.hash)
+          return locState?.flushManager.hasPendingChanges() ?? false
+        } catch {
+          return false
+        }
+      })
+
+      return {
+        state,
+        startedAt,
+        pid: process.pid,
+        socketPath,
+        pendingFlush: hasPendingFlush,
+        connectionCount: ipcServer?.getConnectionCount() ?? 0,
+        locationCount: locations.length,
       }
     },
   }

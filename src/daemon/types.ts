@@ -104,6 +104,30 @@ export interface DaemonStatus {
 
   /** Number of active IPC connections */
   connectionCount: number
+
+  /** Number of managed locations (multi-location mode) */
+  locationCount?: number
+}
+
+// ============================================================================
+// Location Types (Multi-Location)
+// ============================================================================
+
+/**
+ * Information about a managed location
+ */
+export interface LocationInfo {
+  /** Location hash */
+  hash: string
+
+  /** Absolute path to .opentasks/ directory */
+  opentasksPath: string
+
+  /** Whether this is the primary (default) location */
+  primary: boolean
+
+  /** Whether the location is healthy */
+  healthy: boolean
 }
 
 // ============================================================================
@@ -121,6 +145,8 @@ export type DaemonErrorCode =
   | 'REGISTRY_ERROR'
   | 'IPC_ERROR'
   | 'SHUTDOWN_TIMEOUT'
+  | 'LOCATION_NOT_FOUND'
+  | 'LOCATION_INIT_FAILED'
 
 /**
  * Daemon-specific error

@@ -2,6 +2,7 @@
  * OpenTasks Daemon Module
  *
  * Background daemon for coordination, IPC, file watching, and flush management.
+ * Supports both single-location and multi-location (worktree) modes.
  *
  * @packageDocumentation
  */
@@ -15,6 +16,7 @@ export type {
   DaemonState,
   DaemonStatus,
   DaemonErrorCode,
+  LocationInfo,
 } from './types.js'
 
 export { DaemonError } from './types.js'
@@ -28,8 +30,28 @@ export type { RegistryManager } from './registry.js'
 export { createRegistryManager, getGlobalRegistryPath } from './registry.js'
 
 // Lifecycle
-export type { Daemon, DaemonConfig, ExistingDaemonResult } from './lifecycle.js'
+export type {
+  Daemon,
+  DaemonConfig,
+  SingleLocationDaemonConfig,
+  MultiLocationDaemonConfig,
+  ExistingDaemonResult,
+} from './lifecycle.js'
 export { createDaemon, checkExistingDaemon } from './lifecycle.js'
+
+// Factory
+export type { DaemonWithStoreConfig, MultiLocationDaemonFromGitConfig } from './factory.js'
+export { createDaemonWithStore, createMultiLocationDaemonFromGit } from './factory.js'
+
+// Location State
+export type { LocationState, LocationResolver } from './location-state.js'
+export {
+  createStoreForLocation,
+  createLocationState,
+  destroyLocationState,
+  createSingleLocationResolver,
+  createMultiLocationResolver,
+} from './location-state.js'
 
 // IPC
 export type {
@@ -43,7 +65,7 @@ export type {
 export { createIPCServer, createIPCClient, JSON_RPC_ERRORS } from './ipc.js'
 
 // Methods - Lifecycle
-export type { HealthResponse, LifecycleMethodsOptions } from './methods/lifecycle.js'
+export type { HealthResponse, HealthChecker, LifecycleMethodsOptions } from './methods/lifecycle.js'
 export { registerLifecycleMethods } from './methods/lifecycle.js'
 
 // Methods - Graph
@@ -53,6 +75,10 @@ export { registerGraphMethods } from './methods/graph.js'
 // Methods - Tools (3-tool agent interface)
 export type { ToolsMethodsOptions } from './methods/tools.js'
 export { registerToolsMethods } from './methods/tools.js'
+
+// Methods - Location (multi-location management)
+export type { LocationMethodsOptions } from './methods/location.js'
+export { registerLocationMethods } from './methods/location.js'
 
 // Watcher
 export type {

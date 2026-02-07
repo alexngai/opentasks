@@ -36,6 +36,11 @@ export type StatusGetter = () => DaemonStatus
 export type ShutdownHandler = () => Promise<void>
 
 /**
+ * Health checker function for multi-location awareness
+ */
+export type HealthChecker = () => 'healthy' | 'degraded' | 'unhealthy'
+
+/**
  * Options for registering lifecycle methods
  */
 export interface LifecycleMethodsOptions {
@@ -53,6 +58,9 @@ export interface LifecycleMethodsOptions {
 
   /** Timestamp when daemon started */
   startedAt: Date
+
+  /** Optional health checker for multi-location awareness */
+  checkHealth?: HealthChecker
 }
 
 // ============================================================================
@@ -63,7 +71,7 @@ export interface LifecycleMethodsOptions {
  * Register lifecycle method handlers on an IPC server
  */
 export function registerLifecycleMethods(options: LifecycleMethodsOptions): void {
-  const { server, getStatus, shutdown, version, startedAt } = options
+  const { server, getStatus, shutdown, version, startedAt, checkHealth } = options
 
   // ping - Simple health check
   server.handle('ping', async () => {
@@ -76,7 +84,7 @@ export function registerLifecycleMethods(options: LifecycleMethodsOptions): void
     const uptime = Date.now() - startedAt.getTime()
 
     return {
-      status: 'healthy',
+      status: checkHealth ? checkHealth() : 'healthy',
       uptime,
       memory: {
         heapUsed: memory.heapUsed,
