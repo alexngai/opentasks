@@ -2,7 +2,8 @@
  * Daemon Lifecycle Manager
  *
  * Manages the start/stop lifecycle of an OpenTasks daemon.
- * Coordinates lock acquisition, registry, and graceful shutdown.
+ * Coordinates lock acquisition, registry, IPC server, file watcher,
+ * and flush manager for a single location.
  */
 
 import * as fs from 'node:fs/promises'
@@ -10,7 +11,14 @@ import * as path from 'node:path'
 import { createLockManager, type LockManager } from './lock.js'
 import { createRegistryManager, type RegistryManager } from './registry.js'
 import { DaemonError, type DaemonState, type DaemonStatus, type DaemonEntry } from './types.js'
-import type { OpenTasksConfig, PartialOpenTasksConfig } from '../config/index.js'
+import { createIPCServer, type IPCServer } from './ipc.js'
+import { createFileWatcher, type FileWatcher } from './watcher.js'
+import { createDaemonFlushManager, type DaemonFlushManager } from './flush.js'
+import { registerLifecycleMethods } from './methods/lifecycle.js'
+import { registerGraphMethods } from './methods/graph.js'
+import { registerToolsMethods } from './methods/tools.js'
+import type { GraphStore } from '../graph/store.js'
+import type { PartialOpenTasksConfig } from '../config/index.js'
 
 // ============================================================================
 // Types
@@ -25,6 +33,9 @@ export interface DaemonConfig {
 
   /** OpenTasks version */
   version: string
+
+  /** Injected GraphStore instance (caller creates and initializes it) */
+  store: GraphStore
 
   /** Shutdown timeout in milliseconds (default: 2000) */
   shutdownTimeoutMs?: number
@@ -112,6 +123,7 @@ export function createDaemon(config: DaemonConfig): Daemon {
   const {
     locationPath,
     version,
+    store,
     shutdownTimeoutMs = DEFAULT_SHUTDOWN_TIMEOUT_MS,
     registryPath,
     openTasksConfig,
@@ -127,11 +139,15 @@ export function createDaemon(config: DaemonConfig): Daemon {
   // State
   let state: DaemonState = 'stopped'
   let startedAt: string | null = null
-  let connectionCount = 0
 
   // Managers
   const lockManager: LockManager = createLockManager(locationPath)
   const registryManager: RegistryManager = createRegistryManager(registryPath)
+
+  // Components (initialized in start(), torn down in stop())
+  let ipcServer: IPCServer | null = null
+  let fileWatcher: FileWatcher | null = null
+  let flushManager: DaemonFlushManager | null = null
 
   // Signal handlers (stored for cleanup)
   let signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = []
@@ -225,14 +241,74 @@ export function createDaemon(config: DaemonConfig): Daemon {
         // 5. Setup signal handlers
         setupSignalHandlers(daemon)
 
-        // Note: IPC server, file watcher, and flush manager
-        // will be initialized by subsequent issues
+        // 6. Create flush manager
+        //    onFlush: pause watcher to avoid self-triggered events, then flush store
+        flushManager = createDaemonFlushManager(
+          { debounceMs: 5000, maxDelayMs: 30000 },
+          async (_dirtyNodeIds) => {
+            fileWatcher?.pause()
+            try {
+              await store.flush()
+            } finally {
+              fileWatcher?.resume()
+            }
+          }
+        )
 
+        // 7. Create IPC server
+        ipcServer = createIPCServer(socketPath)
+
+        // 8. Register method handlers
+        registerLifecycleMethods({
+          server: ipcServer,
+          getStatus: () => daemon.getStatus(),
+          shutdown: () => daemon.stop(),
+          version,
+          startedAt: new Date(startedAt),
+        })
+
+        registerGraphMethods({
+          server: ipcServer,
+          store,
+          flushManager,
+        })
+
+        registerToolsMethods({
+          server: ipcServer,
+          store,
+          flushManager,
+        })
+
+        // 9. Start IPC server (begin listening)
+        await ipcServer.start()
+
+        // 10. Create and start file watcher
+        fileWatcher = createFileWatcher({ locationPath })
+
+        fileWatcher.onchange((_event) => {
+          // External changes detected. Full reload deferred to Phase B.
+        })
+
+        await fileWatcher.start()
+
+        // 11. Mark as running
         state = 'running'
       } catch (error) {
-        // Cleanup on failure
+        // Cleanup on failure — tear down anything that was partially initialized
         state = 'stopped'
         startedAt = null
+
+        if (fileWatcher) {
+          try { await fileWatcher.stop() } catch { /* ignore */ }
+          fileWatcher = null
+        }
+
+        if (ipcServer) {
+          try { await ipcServer.stop() } catch { /* ignore */ }
+          ipcServer = null
+        }
+
+        flushManager = null
 
         // Try to release lock if we acquired it
         try {
@@ -269,27 +345,39 @@ export function createDaemon(config: DaemonConfig): Daemon {
           // 1. Remove signal handlers first
           removeSignalHandlers()
 
-          // Note: IPC server stop will be added here
-          // - Stop accepting new connections
-          // - Wait for in-flight requests
+          // 2. Stop IPC server (stop accepting, close connections)
+          if (ipcServer) {
+            await ipcServer.stop()
+            ipcServer = null
+          }
 
-          // Note: File watcher stop will be added here
+          // 3. Stop file watcher
+          if (fileWatcher) {
+            await fileWatcher.stop()
+            fileWatcher = null
+          }
 
-          // Note: Final flush will be added here
+          // 4. Final flush
+          if (flushManager) {
+            await flushManager.finalFlush()
+            flushManager = null
+          }
 
-          // 2. Unregister from global registry
+          // 5. Close store
+          await store.close()
+
+          // 6. Unregister from global registry
           await registryManager.unregister(locationPath)
 
-          // 3. Remove socket file
+          // 7. Remove socket file
           await removeSocketFile()
 
-          // 4. Release lock
+          // 8. Release lock
           await lockManager.release()
 
         } finally {
           state = 'stopped'
           startedAt = null
-          connectionCount = 0
         }
       })()
 
@@ -317,8 +405,8 @@ export function createDaemon(config: DaemonConfig): Daemon {
         startedAt,
         pid: process.pid,
         socketPath,
-        pendingFlush: false, // Will be updated when flush manager is integrated
-        connectionCount,
+        pendingFlush: flushManager?.hasPendingChanges() ?? false,
+        connectionCount: ipcServer?.getConnectionCount() ?? 0,
       }
     },
   }

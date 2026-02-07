@@ -31,6 +31,10 @@ export { createRegistryManager, getGlobalRegistryPath } from './registry.js'
 export type { Daemon, DaemonConfig, ExistingDaemonResult } from './lifecycle.js'
 export { createDaemon, checkExistingDaemon } from './lifecycle.js'
 
+// Factory
+export type { DaemonWithStoreConfig } from './factory.js'
+export { createDaemonWithStore } from './factory.js'
+
 // IPC
 export type {
   IPCServer,

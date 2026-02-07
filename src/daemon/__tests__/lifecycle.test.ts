@@ -2,7 +2,7 @@
  * Tests for Daemon Lifecycle
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import * as os from 'node:os'
@@ -15,6 +15,46 @@ import {
 import { createLockManager } from '../lock.js'
 import { createRegistryManager } from '../registry.js'
 import { DaemonError } from '../types.js'
+import type { GraphStore } from '../../graph/store.js'
+
+function createMockStore(): GraphStore {
+  return {
+    initialize: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+    flush: vi.fn().mockResolvedValue(undefined),
+    createNode: vi.fn(),
+    getNode: vi.fn(),
+    updateNode: vi.fn(),
+    deleteNode: vi.fn(),
+    restoreNode: vi.fn(),
+    createEdge: vi.fn(),
+    getEdge: vi.fn(),
+    deleteEdge: vi.fn(),
+    addTags: vi.fn(),
+    removeTags: vi.fn(),
+    setTags: vi.fn(),
+    query: {
+      nodes: vi.fn().mockResolvedValue([]),
+      edges: vi.fn().mockResolvedValue([]),
+      edgesFrom: vi.fn().mockResolvedValue([]),
+      edgesTo: vi.fn().mockResolvedValue([]),
+      edgesFor: vi.fn().mockResolvedValue([]),
+      blockers: vi.fn().mockResolvedValue([]),
+      blocking: vi.fn().mockResolvedValue([]),
+      isBlocking: vi.fn().mockResolvedValue(false),
+      implementers: vi.fn().mockResolvedValue([]),
+      specs: vi.fn().mockResolvedValue([]),
+      children: vi.fn().mockResolvedValue([]),
+      parent: vi.fn().mockResolvedValue(null),
+      ancestors: vi.fn().mockResolvedValue([]),
+      descendants: vi.fn().mockResolvedValue([]),
+      ready: vi.fn().mockResolvedValue([]),
+      feedback: vi.fn().mockResolvedValue([]),
+      unresolvedFeedback: vi.fn().mockResolvedValue([]),
+    },
+    transaction: vi.fn(),
+  } as unknown as GraphStore
+}
 
 describe('Daemon Lifecycle', () => {
   let tempDir: string
@@ -25,8 +65,9 @@ describe('Daemon Lifecycle', () => {
   const createTestConfig = (overrides: Partial<DaemonConfig> = {}): DaemonConfig => ({
     locationPath,
     version: '1.0.0',
+    store: createMockStore(),
     registryPath,
-    shutdownTimeoutMs: 1000,
+    shutdownTimeoutMs: 2000,
     ...overrides,
   })
 
@@ -174,17 +215,17 @@ describe('Daemon Lifecycle', () => {
       })
     })
 
-    it('should clean up stale socket file', async () => {
-      // Create stale socket file
+    it('should clean up stale socket file and create fresh socket', async () => {
+      // Create stale socket file with text content
       const socketPath = path.join(locationPath, 'daemon.sock')
       await fs.writeFile(socketPath, 'stale', 'utf8')
 
       daemon = createDaemon(createTestConfig())
       await daemon.start()
 
-      // Socket file should be removed (it will be recreated by IPC server later)
-      const exists = await fs.access(socketPath).then(() => true).catch(() => false)
-      expect(exists).toBe(false)
+      // IPC server should have replaced the stale file with a real socket
+      const stat = await fs.stat(socketPath)
+      expect(stat.isSocket()).toBe(true)
     })
   })
 
