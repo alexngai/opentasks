@@ -65,7 +65,7 @@ export type {
 export { createIPCServer, createIPCClient, JSON_RPC_ERRORS } from './ipc.js'
 
 // Methods - Lifecycle
-export type { HealthResponse, LifecycleMethodsOptions } from './methods/lifecycle.js'
+export type { HealthResponse, HealthChecker, LifecycleMethodsOptions } from './methods/lifecycle.js'
 export { registerLifecycleMethods } from './methods/lifecycle.js'
 
 // Methods - Graph

@@ -1,6 +1,6 @@
 # Daemon Implementation Plan
 
-## Status: Phase A Complete, Phase B In Progress
+## Status: Phase A Complete, Phase B Complete (B1-B9). B10-B12 Deferred.
 
 ## Overview
 
@@ -300,8 +300,11 @@ New methods:
 location.register   { hash, opentasksPath }  → { success }
 location.unregister { hash }                 → { success }
 location.list       {}                       → LocationInfo[]
-location.resolve    { target, operation? }   → { hash, opentasksPath }
+location.resolve    { target, operation? }   → { hash, opentasksPath }  (deferred: B11)
 ```
+
+Both `location.register` and `location.unregister` persist changes to the
+worktree registry (`worktrees.json`) when `gitCommonDir` is available.
 
 ### Implementation Steps
 

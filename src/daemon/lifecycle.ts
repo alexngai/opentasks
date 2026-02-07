@@ -665,6 +665,14 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
           shutdown: () => daemon.stop(),
           version,
           startedAt: new Date(startedAt),
+          checkHealth: () => {
+            const locations = locationResolver!.list()
+            if (locations.length === 0) return 'unhealthy'
+            const unhealthy = locations.filter(l => !l.healthy)
+            if (unhealthy.length === locations.length) return 'unhealthy'
+            if (unhealthy.length > 0) return 'degraded'
+            return 'healthy'
+          },
         })
 
         registerGraphMethods({
@@ -680,6 +688,7 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
         registerLocationMethods({
           server: ipcServer,
           locationResolver,
+          gitCommonDir,
         })
 
         // 14. Start IPC server

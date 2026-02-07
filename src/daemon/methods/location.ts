@@ -9,6 +9,11 @@ import type { IPCServer } from '../ipc.js'
 import type { LocationResolver, LocationState } from '../location-state.js'
 import { createLocationState, destroyLocationState } from '../location-state.js'
 import type { LocationInfo } from '../types.js'
+import {
+  registerWorktree,
+  unregisterWorktree,
+  type WorktreeEntry,
+} from '../../core/worktree.js'
 
 // ============================================================================
 // Types
@@ -23,6 +28,9 @@ export interface LocationMethodsOptions {
 
   /** Location resolver for managing locations */
   locationResolver: LocationResolver
+
+  /** Git common dir for persisting to worktree registry (multi-location only) */
+  gitCommonDir?: string
 }
 
 interface RegisterParams {
@@ -42,7 +50,7 @@ interface UnregisterParams {
  * Register location management method handlers on an IPC server
  */
 export function registerLocationMethods(options: LocationMethodsOptions): void {
-  const { server, locationResolver } = options
+  const { server, locationResolver, gitCommonDir } = options
 
   // location.list - List all managed locations
   server.handle<Record<string, never>, LocationInfo[]>('location.list', async () => {
@@ -73,6 +81,21 @@ export function registerLocationMethods(options: LocationMethodsOptions): void {
     // Add to resolver
     locationResolver.add(state)
 
+    // Persist to worktree registry if available
+    if (gitCommonDir) {
+      try {
+        const entry: WorktreeEntry = {
+          path: params.opentasksPath.replace(/[/\\]\.opentasks$/, ''),
+          opentasksPath: params.opentasksPath,
+          hash: params.hash,
+          role: 'worker',
+        }
+        registerWorktree(gitCommonDir, entry)
+      } catch {
+        // Non-fatal: registry persistence failure doesn't affect in-memory state
+      }
+    }
+
     return { success: true }
   })
 
@@ -84,6 +107,15 @@ export function registerLocationMethods(options: LocationMethodsOptions): void {
 
     // Remove and tear down
     await locationResolver.remove(params.hash)
+
+    // Remove from worktree registry if available
+    if (gitCommonDir) {
+      try {
+        unregisterWorktree(gitCommonDir, params.hash)
+      } catch {
+        // Non-fatal: registry persistence failure doesn't affect in-memory state
+      }
+    }
 
     return { success: true }
   })

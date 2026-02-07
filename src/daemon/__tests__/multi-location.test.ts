@@ -467,6 +467,17 @@ describe('Multi-Location Daemon', () => {
       expect(status.locationCount).toBeGreaterThanOrEqual(1)
     })
 
+    it('should report healthy status when all locations are up', async () => {
+      daemon = createDaemon(createMultiConfig())
+      await daemon.start()
+
+      client = createIPCClient(daemon.socketPath)
+      await client.connect()
+
+      const health = await client.request<{ status: string }>('health')
+      expect(health.status).toBe('healthy')
+    })
+
     it('should handle graph.create on default location', async () => {
       daemon = createDaemon(createMultiConfig())
       await daemon.start()
@@ -612,6 +623,37 @@ describe('Multi-Location Daemon', () => {
       const locations = await client.request<LocationInfo[]>('location.list')
       const hashes = locations.map(l => l.hash)
       expect(hashes).toContain('n3wloc01')
+    })
+
+    it('should fail to register invalid location path', async () => {
+      daemon = createDaemon(createMultiConfig())
+      await daemon.start()
+
+      client = createIPCClient(daemon.socketPath)
+      await client.connect()
+
+      // Try to register a path that doesn't exist
+      await expect(
+        client.request('location.register', {
+          hash: 'bad1loc1',
+          opentasksPath: '/nonexistent/path/.opentasks',
+        })
+      ).rejects.toThrow()
+    })
+
+    it('should be idempotent for already-registered location', async () => {
+      daemon = createDaemon(createMultiConfig())
+      await daemon.start()
+
+      client = createIPCClient(daemon.socketPath)
+      await client.connect()
+
+      // Re-register an existing location
+      const result = await client.request<{ success: boolean }>('location.register', {
+        hash: 'pr1m4ry1',
+        opentasksPath: primaryPath,
+      })
+      expect(result.success).toBe(true)
     })
   })
 

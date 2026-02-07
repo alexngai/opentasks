@@ -7,8 +7,8 @@
 
 import * as path from 'node:path'
 import * as fs from 'node:fs'
-import { execSync } from 'node:child_process'
 import { createIPCClient, type IPCClient } from '../daemon/ipc.js'
+import { getGitCommonDir } from '../core/worktree.js'
 import type {
   LinkParams,
   LinkResult,
@@ -59,27 +59,10 @@ export class ClientError extends Error {
 // ============================================================================
 
 /**
- * Find the git common dir (shared by all worktrees).
- * Returns null if not in a git repo.
- */
-function findGitCommonDir(startDir: string = process.cwd()): string | null {
-  try {
-    const result = execSync('git rev-parse --git-common-dir', {
-      cwd: startDir,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim()
-    return path.resolve(startDir, result)
-  } catch {
-    return null
-  }
-}
-
-/**
  * Find the multi-location daemon socket at .git/opentasks/daemon.sock
  */
 function findGitDaemonSocket(startDir: string = process.cwd()): string | null {
-  const gitCommonDir = findGitCommonDir(startDir)
+  const gitCommonDir = getGitCommonDir(startDir)
   if (!gitCommonDir) return null
 
   const socketPath = path.join(gitCommonDir, 'opentasks', 'daemon.sock')
