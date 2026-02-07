@@ -1,0 +1,279 @@
+/**
+ * Location State Management
+ *
+ * Manages per-location state (store, flush manager, watcher) and provides
+ * a LocationResolver abstraction that works for both single-location and
+ * multi-location daemon modes.
+ */
+
+import * as path from 'node:path'
+import { existsSync } from 'node:fs'
+import { createGraphStore, type GraphStore } from '../graph/store.js'
+import { createSQLitePersister } from '../storage/sqlite.js'
+import { JSONLPersister } from '../storage/jsonl.js'
+import type { Storage } from '../storage/interface.js'
+import { createFileWatcher, type FileWatcher } from './watcher.js'
+import { createDaemonFlushManager, type DaemonFlushManager } from './flush.js'
+import { DaemonError, type LocationInfo } from './types.js'
+
+// ============================================================================
+// Types
+// ============================================================================
+
+/**
+ * Per-location runtime state
+ */
+export interface LocationState {
+  /** Location hash */
+  hash: string
+
+  /** Absolute path to .opentasks/ directory */
+  opentasksPath: string
+
+  /** Graph store for this location */
+  store: GraphStore
+
+  /** Flush manager for this location */
+  flushManager: DaemonFlushManager
+
+  /** File watcher for this location */
+  watcher: FileWatcher
+
+  /** Whether this is the primary (default) location */
+  primary: boolean
+
+  /** Whether the location is healthy */
+  healthy: boolean
+}
+
+/**
+ * Resolves location hashes to LocationState instances.
+ * Abstracts single-location vs multi-location routing.
+ */
+export interface LocationResolver {
+  /** Resolve a location hash to its state. If hash is omitted, returns the default. */
+  resolve(locationHash?: string): LocationState
+
+  /** Get the default (primary) location */
+  getDefault(): LocationState
+
+  /** List all managed locations */
+  list(): LocationInfo[]
+
+  /** Check if a location hash is managed */
+  has(hash: string): boolean
+
+  /** Add a new location (multi-location only) */
+  add(state: LocationState): void
+
+  /** Remove a location and tear down its state */
+  remove(hash: string): Promise<void>
+}
+
+// ============================================================================
+// Store Factory
+// ============================================================================
+
+/**
+ * Create a GraphStore for a location path.
+ * Handles SQLite + JSONL persister creation and initialization.
+ */
+export async function createStoreForLocation(opentasksPath: string): Promise<GraphStore> {
+  const jsonlPath = path.join(opentasksPath, 'graph.jsonl')
+
+  const sqlite = createSQLitePersister(opentasksPath)
+  const jsonl = new JSONLPersister({ path: jsonlPath })
+
+  const jsonlLoad = async () => {
+    if (!existsSync(jsonlPath)) {
+      return { nodes: [], edges: [] }
+    }
+    return await jsonl.load()
+  }
+
+  const jsonlSave = async (
+    nodes: Parameters<typeof jsonl.save>[0],
+    edges: Parameters<typeof jsonl.save>[1]
+  ) => {
+    await jsonl.save(nodes, edges)
+  }
+
+  const store = createGraphStore(
+    { basePath: opentasksPath, flush: { debounceMs: 5000, maxDelayMs: 30000 } },
+    sqlite as unknown as Storage,
+    jsonlLoad,
+    jsonlSave
+  )
+  await store.initialize()
+
+  return store
+}
+
+// ============================================================================
+// LocationState Factory
+// ============================================================================
+
+/**
+ * Create a full LocationState for a location.
+ * Creates store, flush manager, and watcher.
+ */
+export async function createLocationState(
+  opentasksPath: string,
+  hash: string,
+  primary: boolean = false
+): Promise<LocationState> {
+  const store = await createStoreForLocation(opentasksPath)
+
+  const watcher = createFileWatcher({ locationPath: opentasksPath })
+
+  const flushManager = createDaemonFlushManager(
+    { debounceMs: 5000, maxDelayMs: 30000 },
+    async (_dirtyNodeIds) => {
+      watcher.pause()
+      try {
+        await store.flush()
+      } finally {
+        watcher.resume()
+      }
+    }
+  )
+
+  watcher.onchange((_event) => {
+    // External changes detected. Full reload deferred.
+  })
+
+  return {
+    hash,
+    opentasksPath,
+    store,
+    flushManager,
+    watcher,
+    primary,
+    healthy: true,
+  }
+}
+
+/**
+ * Tear down a LocationState, releasing all resources.
+ */
+export async function destroyLocationState(state: LocationState): Promise<void> {
+  try { await state.watcher.stop() } catch { /* ignore */ }
+  try { await state.flushManager.finalFlush() } catch { /* ignore */ }
+  try { await state.store.close() } catch { /* ignore */ }
+}
+
+// ============================================================================
+// LocationResolver Implementations
+// ============================================================================
+
+/**
+ * Create a resolver for single-location mode.
+ * Always resolves to the single provided LocationState.
+ */
+export function createSingleLocationResolver(state: LocationState): LocationResolver {
+  return {
+    resolve(_locationHash?: string): LocationState {
+      // Single-location mode ignores the hash, always returns the one state
+      return state
+    },
+
+    getDefault(): LocationState {
+      return state
+    },
+
+    list(): LocationInfo[] {
+      return [{
+        hash: state.hash,
+        opentasksPath: state.opentasksPath,
+        primary: true,
+        healthy: state.healthy,
+      }]
+    },
+
+    has(_hash: string): boolean {
+      return _hash === state.hash
+    },
+
+    add(_state: LocationState): void {
+      throw new DaemonError(
+        'LOCATION_INIT_FAILED',
+        'Cannot add locations in single-location mode'
+      )
+    },
+
+    async remove(_hash: string): Promise<void> {
+      throw new DaemonError(
+        'LOCATION_INIT_FAILED',
+        'Cannot remove locations in single-location mode'
+      )
+    },
+  }
+}
+
+/**
+ * Create a resolver for multi-location mode.
+ * Routes requests to the appropriate LocationState by hash.
+ */
+export function createMultiLocationResolver(
+  primaryHash: string
+): LocationResolver {
+  const locations = new Map<string, LocationState>()
+
+  return {
+    resolve(locationHash?: string): LocationState {
+      if (!locationHash) {
+        return this.getDefault()
+      }
+
+      const state = locations.get(locationHash)
+      if (!state) {
+        throw new DaemonError(
+          'LOCATION_NOT_FOUND',
+          `Location not found: ${locationHash}`
+        )
+      }
+      return state
+    },
+
+    getDefault(): LocationState {
+      const primary = locations.get(primaryHash)
+      if (!primary) {
+        // Fallback to first available location
+        const first = locations.values().next()
+        if (first.done) {
+          throw new DaemonError(
+            'LOCATION_NOT_FOUND',
+            'No locations available'
+          )
+        }
+        return first.value
+      }
+      return primary
+    },
+
+    list(): LocationInfo[] {
+      return Array.from(locations.values()).map((state) => ({
+        hash: state.hash,
+        opentasksPath: state.opentasksPath,
+        primary: state.primary,
+        healthy: state.healthy,
+      }))
+    },
+
+    has(hash: string): boolean {
+      return locations.has(hash)
+    },
+
+    add(state: LocationState): void {
+      locations.set(state.hash, state)
+    },
+
+    async remove(hash: string): Promise<void> {
+      const state = locations.get(hash)
+      if (!state) return
+
+      locations.delete(hash)
+      await destroyLocationState(state)
+    },
+  }
+}

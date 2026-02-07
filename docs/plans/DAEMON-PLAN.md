@@ -1,6 +1,6 @@
 # Daemon Implementation Plan
 
-## Status: Phase A In Progress
+## Status: Phase A Complete, Phase B In Progress
 
 ## Overview
 
@@ -127,17 +127,34 @@ Export `createDaemonWithStore` alongside existing `createDaemon`.
   pending flush state
 - **Watcher test**: confirm watcher starts/stops with daemon lifecycle
 
-### Files Modified
+### Files Modified (Phase A — Complete)
 
 | File | Changes |
 |------|---------|
 | `src/daemon/lifecycle.ts` | Wire start/stop, add store param |
+| `src/daemon/factory.ts` | New: createDaemonWithStore convenience |
 | `src/daemon/index.ts` | Export createDaemonWithStore |
+| `src/daemon/__tests__/lifecycle.test.ts` | Updated with mock store |
 | `src/daemon/__tests__/integration.test.ts` | New integration tests |
 
 ### Effort
 
 ~300 lines production code, ~300 lines test code.
+
+### Phase B Files Modified
+
+| File | Changes |
+|------|---------|
+| `src/daemon/types.ts` | Add LOCATION_NOT_FOUND, LocationInfo |
+| `src/daemon/location-state.ts` | New: LocationState, LocationResolver |
+| `src/daemon/lifecycle.ts` | Unified createDaemon with branching |
+| `src/daemon/methods/graph.ts` | Use LocationResolver |
+| `src/daemon/methods/tools.ts` | Use LocationResolver |
+| `src/daemon/methods/location.ts` | New: location IPC methods |
+| `src/daemon/factory.ts` | Multi-location convenience factory |
+| `src/daemon/index.ts` | Updated exports |
+| `src/client/client.ts` | Discovery: git common dir first, fallback |
+| `src/daemon/__tests__/multi-location.test.ts` | New integration tests |
 
 ---
 
@@ -155,21 +172,42 @@ The daemon's "home" is the git common dir, not any single worktree.
 
 **D5: Per-request location field.** IPC requests include optional `location` hash
 in params. Default = primary location. Stateless — any client can target any
-location without rebinding.
+location without rebinding. Implemented via middleware that extracts
+`params.location` and resolves to the correct LocationState before delegating
+to the handler.
 
-**D6: Branch caching — single branch per Phase B scope.** For the primary
-worktree, watch `.git/HEAD`. Heterogeneous per-worktree branch tracking is
-deferred. Each worktree has its own HEAD file
-(`.git/worktrees/<name>/HEAD`), but implementing that is additive and can be
-layered on after the core multi-location routing works.
+**D6: Branch caching — deferred.** Heterogeneous per-worktree branch tracking is
+deferred. Each worktree has its own HEAD file but implementing that is additive
+and can be layered on after the core multi-location routing works.
 
-**D7: Eager initialization at startup.** On start, read worktree registry
-(`.git/opentasks/worktrees.json`), initialize `LocationState` for each
-registered worktree + the primary location. Dynamic add/remove via IPC methods.
+**D7: Eager initialization at startup, graceful degradation.** On start, read
+worktree registry, initialize `LocationState` for each registered worktree +
+the primary location. If a location fails to initialize, the daemon starts in
+a degraded state with the remaining locations — it does not fail entirely.
+Dynamic add/remove via IPC methods.
 
 **D8: LocationProvider registration per-location.** Each location gets its own
 ProviderRegistry with providers for all *other* connected locations. Avoids a
-global registry mixing concerns.
+global registry mixing concerns. (Deferred to follow-up — core routing first.)
+
+**D9: Unified API.** `createDaemon` accepts either a single-location config
+(with `store: GraphStore`, backward compatible) or a multi-location config
+(with `gitCommonDir: string`). The function branches internally based on which
+fields are present.
+
+**D10: Client discovery.** Client checks `.git/opentasks/daemon.sock` first
+(multi-location), then falls back to walking up for `.opentasks/daemon.sock`
+(single-location). This ensures backward compatibility while preferring the
+shared daemon.
+
+**D11: Primary location.** In multi-location mode, the git root's `.opentasks/`
+is the primary location (default when `params.location` is omitted). This can be
+overridden via `primaryLocationPath` in the config.
+
+**D12: Redirect transparency.** Within the daemon (same repo's worktrees),
+redirects are resolved transparently — the daemon routes to the target location's
+store directly. For external locations (different repos), the daemon returns a
+redirect response to the client.
 
 ### Architecture
 
@@ -215,21 +253,41 @@ worktree-2/.opentasks/
 ### New Types
 
 ```typescript
+// Per-worktree state
 interface LocationState {
   hash: string
   opentasksPath: string
   store: GraphStore
   flushManager: DaemonFlushManager
   watcher: FileWatcher
-  config: OpenTasksConfig
-  providerRegistry: ProviderRegistry
 }
 
-interface MultiLocationDaemonConfig {
-  gitCommonDir: string     // e.g., /repo/.git
+// Location resolver (abstracts single vs multi-location)
+interface LocationResolver {
+  resolve(locationHash?: string): LocationState
+  getDefault(): LocationState
+  list(): LocationInfo[]
+  has(hash: string): boolean
+  add(state: LocationState): void
+  remove(hash: string): Promise<void>
+}
+
+// Config is a discriminated union
+interface DaemonConfigBase {
   version: string
+  shutdownTimeoutMs?: number
   registryPath?: string
 }
+interface SingleLocationDaemonConfig extends DaemonConfigBase {
+  locationPath: string
+  store: GraphStore
+  openTasksConfig?: PartialOpenTasksConfig
+}
+interface MultiLocationDaemonConfig extends DaemonConfigBase {
+  gitCommonDir: string
+  primaryLocationPath?: string
+}
+type DaemonConfig = SingleLocationDaemonConfig | MultiLocationDaemonConfig
 ```
 
 ### IPC Protocol Changes
@@ -249,16 +307,18 @@ location.resolve    { target, operation? }   → { hash, opentasksPath }
 
 | Step | Description | Depends On |
 |------|-------------|------------|
-| B1 | `src/daemon/multi-location.ts`: LocationState type, factory | Phase A |
-| B2 | IPC protocol: add `location` to params, routing middleware | B1 |
-| B3 | Startup: read worktree registry, init all LocationStates | B1 |
-| B4 | `.git/HEAD` watcher, branch cache | B1 |
-| B5 | Gap #5: recursive redirect resolution via in-memory configs | B2, B3 |
-| B6 | Gap #10: LocationProvider auto-registration per location | B3 |
-| B7 | New IPC methods: location.register/unregister/list/resolve | B2 |
-| B8 | CLI updates: daemon start/stop/status → git common dir | B1 |
-| B9 | Client discovery: prefer `.git/opentasks/daemon.sock` | B1 |
-| B10 | Integration tests for multi-location scenarios | B1-B9 |
+| B1 | `src/daemon/types.ts`: Add LOCATION_NOT_FOUND, LocationInfo | Phase A |
+| B2 | `src/daemon/location-state.ts`: LocationState, LocationResolver | B1 |
+| B3 | Refactor graph/tools methods to use LocationResolver | B2 |
+| B4 | `src/daemon/methods/location.ts`: register/unregister/list | B2 |
+| B5 | Refactor lifecycle.ts: unified createDaemon with branching | B2, B3 |
+| B6 | Update factory.ts for multi-location convenience | B5 |
+| B7 | Client discovery: prefer `.git/opentasks/daemon.sock` | B1 |
+| B8 | Update daemon/index.ts exports | B1-B7 |
+| B9 | Integration tests for multi-location scenarios | B1-B8 |
+| B10 | (Deferred) `.git/HEAD` watcher, branch cache | B5 |
+| B11 | (Deferred) Gap #5: recursive redirect resolution | B3, B5 |
+| B12 | (Deferred) Gap #10: LocationProvider auto-registration | B5 |
 
 ### Gap Resolution
 

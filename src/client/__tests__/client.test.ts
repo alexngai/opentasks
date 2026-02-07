@@ -12,6 +12,7 @@ import { registerToolsMethods } from '../../daemon/methods/tools.js'
 import { createDaemonFlushManager, type DaemonFlushManager } from '../../daemon/flush.js'
 import type { GraphStore } from '../../graph/store.js'
 import type { LinkResult, QueryResult, AnnotateResult } from '../../tools/types.js'
+import type { LocationResolver, LocationState } from '../../daemon/location-state.js'
 
 describe('OpenTasksClient', () => {
   let tempDir: string
@@ -146,7 +147,24 @@ describe('OpenTasksClient', () => {
 
     // Create server and register methods
     server = createIPCServer(socketPath)
-    registerToolsMethods({ server, store: mockStore, flushManager })
+    const locationState = {
+      hash: 'primary',
+      opentasksPath: tempDir,
+      store: mockStore,
+      flushManager,
+      watcher: {} as any,
+      primary: true,
+      healthy: true,
+    } as LocationState
+    const locationResolver: LocationResolver = {
+      resolve: () => locationState,
+      getDefault: () => locationState,
+      list: () => [{ hash: 'primary', opentasksPath: tempDir, primary: true, healthy: true }],
+      has: () => true,
+      add: () => {},
+      remove: async () => {},
+    }
+    registerToolsMethods({ server, locationResolver })
 
     await server.start()
   })

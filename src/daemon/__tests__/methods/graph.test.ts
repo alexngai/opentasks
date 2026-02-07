@@ -16,6 +16,7 @@ import { registerGraphMethods } from '../../methods/graph.js'
 import { createDaemonFlushManager, type DaemonFlushManager } from '../../flush.js'
 import type { GraphStore } from '../../../graph/store.js'
 import type { CreateNodeInput } from '../../../graph/types.js'
+import type { LocationResolver, LocationState } from '../../location-state.js'
 
 describe('Graph Methods', () => {
   let tempDir: string
@@ -136,7 +137,24 @@ describe('Graph Methods', () => {
 
     // Create server and register methods
     server = createIPCServer(socketPath)
-    registerGraphMethods({ server, store: mockStore, flushManager })
+    const locationState = {
+      hash: 'primary',
+      opentasksPath: tempDir,
+      store: mockStore,
+      flushManager,
+      watcher: {} as any,
+      primary: true,
+      healthy: true,
+    } as LocationState
+    const locationResolver: LocationResolver = {
+      resolve: () => locationState,
+      getDefault: () => locationState,
+      list: () => [{ hash: 'primary', opentasksPath: tempDir, primary: true, healthy: true }],
+      has: () => true,
+      add: () => {},
+      remove: async () => {},
+    }
+    registerGraphMethods({ server, locationResolver })
 
     await server.start()
 

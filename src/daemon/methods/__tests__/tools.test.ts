@@ -7,6 +7,7 @@ import { registerToolsMethods } from '../tools.js'
 import type { IPCServer } from '../../ipc.js'
 import type { DaemonFlushManager } from '../../flush.js'
 import type { GraphStore } from '../../../graph/store.js'
+import type { LocationResolver, LocationState } from '../../location-state.js'
 
 // ============================================================================
 // Mocks
@@ -101,6 +102,26 @@ function createMockStore() {
 // Tests
 // ============================================================================
 
+function createMockLocationResolver(store: ReturnType<typeof createMockStore>, flushManager: ReturnType<typeof createMockFlushManager>): LocationResolver {
+  const state = {
+    hash: 'primary',
+    opentasksPath: '/tmp/.opentasks',
+    store: store as unknown as GraphStore,
+    flushManager: flushManager as unknown as DaemonFlushManager,
+    watcher: {} as any,
+    primary: true,
+    healthy: true,
+  } as LocationState
+  return {
+    resolve: () => state,
+    getDefault: () => state,
+    list: () => [{ hash: 'primary', opentasksPath: '/tmp/.opentasks', primary: true, healthy: true }],
+    has: () => true,
+    add: () => {},
+    remove: async () => {},
+  }
+}
+
 describe('registerToolsMethods', () => {
   let server: ReturnType<typeof createMockServer>
   let store: ReturnType<typeof createMockStore>
@@ -111,7 +132,8 @@ describe('registerToolsMethods', () => {
     store = createMockStore()
     flushManager = createMockFlushManager()
 
-    registerToolsMethods({ server, store, flushManager })
+    const locationResolver = createMockLocationResolver(store, flushManager)
+    registerToolsMethods({ server, locationResolver })
   })
 
   describe('tools.link', () => {
