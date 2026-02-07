@@ -377,9 +377,9 @@ export function createSudocodeProvider(
     if (!watchCallback) return
 
     try {
-      // Fetch all entities
-      const issues = await fetchEntities('issue')
-      const specs = await fetchEntities('spec')
+      // Fetch all entities with full relationship data via show
+      const issues = await fetchEntitiesWithRelationships('issue')
+      const specs = await fetchEntitiesWithRelationships('spec')
       const allEntities = [...issues, ...specs]
 
       const currentIds = new Set<string>()
@@ -509,8 +509,8 @@ export function createSudocodeProvider(
    */
   async function seedCache(): Promise<void> {
     try {
-      const issues = await fetchEntities('issue')
-      const specs = await fetchEntities('spec')
+      const issues = await fetchEntitiesWithRelationships('issue')
+      const specs = await fetchEntitiesWithRelationships('spec')
       const allEntities = [...issues, ...specs]
 
       cachedHashes.clear()
@@ -612,12 +612,42 @@ export function createSudocodeProvider(
   }
 
   /**
-   * Fetch entities of a given type from sudocode CLI
+   * Fetch entities of a given type from sudocode CLI (list — no relationships)
    */
   async function fetchEntities(type: 'spec' | 'issue'): Promise<SudocodeEntity[]> {
     const subcommand = type === 'spec' ? 'spec' : 'issue'
     const output = await execSudocode(['--json', subcommand, 'list'])
     return parseJson<SudocodeEntity[]>(output)
+  }
+
+  /**
+   * Fetch a single entity with full relationship data via `show`.
+   * Returns null if the entity is not found.
+   */
+  async function fetchEntityFull(id: string): Promise<SudocodeEntity | null> {
+    const entityType = entityTypeFromId(id)
+    const subcommand = entityType === 'spec' ? 'spec' : 'issue'
+    try {
+      const output = await execSudocode(['--json', subcommand, 'show', id])
+      return parseJson<SudocodeEntity>(output)
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Fetch all entities with full relationship data.
+   * Uses `list` to get IDs, then `show` for each to get relationships.
+   */
+  async function fetchEntitiesWithRelationships(type: 'spec' | 'issue'): Promise<SudocodeEntity[]> {
+    const entities = await fetchEntities(type)
+    const enriched = await Promise.all(
+      entities.map(async (entity) => {
+        const full = await fetchEntityFull(entity.id)
+        return full ?? entity
+      })
+    )
+    return enriched
   }
 
   return {
@@ -930,9 +960,7 @@ export function createSudocodeProvider(
     watchGranularity: {
       reportsChangedFields: false,
       reportsPreviousValues: false,
-      // Edge changes from relationships are not detectable via `list` output
-      // (only `show` returns relationships). Set to false for honesty.
-      reportsEdgeChanges: false,
+      reportsEdgeChanges: true,
       mechanism: 'file-watch' as const,
     } satisfies WatchGranularity,
 
