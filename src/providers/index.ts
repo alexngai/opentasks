@@ -47,6 +47,9 @@ export {
   type ClaudeTaskStore,
 } from './claude-tasks.js'
 
+// Sudocode Provider
+export { createSudocodeProvider, type SudocodeConfig } from './sudocode.js'
+
 // Materialization
 export {
   createMaterializationManager,

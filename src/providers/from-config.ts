@@ -7,6 +7,7 @@
 import { createBeadsProvider } from './beads.js'
 import { createClaudeTasksProvider } from './claude-tasks.js'
 import { createNativeProvider } from './native.js'
+import { createSudocodeProvider } from './sudocode.js'
 import { createProviderRegistry } from './registry.js'
 import type { Provider, ProviderRegistry } from './types.js'
 import type { GraphStore } from '../graph/store.js'
@@ -24,6 +25,9 @@ export interface CreateProvidersOptions {
 
   /** Working directory for Beads (default: process.cwd()) */
   beadsCwd?: string
+
+  /** Working directory for Sudocode (default: process.cwd()) */
+  sudocodeCwd?: string
 }
 
 /**
@@ -44,9 +48,9 @@ export interface CreateProvidersResult {
 }
 
 /**
- * Check if Beads CLI is available
+ * Check if a CLI executable is available
  */
-async function isBeadsAvailable(executable: string): Promise<boolean> {
+async function isCliAvailable(executable: string): Promise<boolean> {
   const { exec } = await import('child_process')
   const { promisify } = await import('util')
   const execAsync = promisify(exec)
@@ -65,11 +69,12 @@ async function isBeadsAvailable(executable: string): Promise<boolean> {
  * - Creates native provider (always)
  * - Creates beads provider if enabled and executable found
  * - Creates claude-tasks provider if enabled
+ * - Creates sudocode provider if enabled and executable found
  */
 export async function createProvidersFromConfig(
   options: CreateProvidersOptions
 ): Promise<CreateProvidersResult> {
-  const { config, graphStore, beadsCwd } = options
+  const { config, graphStore, beadsCwd, sudocodeCwd } = options
   const registry = createProviderRegistry()
   const providers: Provider[] = []
   const skipped: string[] = []
@@ -83,7 +88,7 @@ export async function createProvidersFromConfig(
   // 2. Beads provider (if enabled)
   if (config.providers.beads.enabled) {
     const beadsConfig = config.providers.beads
-    const isAvailable = await isBeadsAvailable(beadsConfig.executable)
+    const isAvailable = await isCliAvailable(beadsConfig.executable)
 
     if (isAvailable) {
       try {
@@ -122,6 +127,34 @@ export async function createProvidersFromConfig(
     }
   } else {
     skipped.push('claude')
+  }
+
+  // 4. Sudocode provider (if enabled)
+  if (config.providers.sudocode.enabled) {
+    const sudocodeConfig = config.providers.sudocode
+    const isAvailable = await isCliAvailable(sudocodeConfig.executable)
+
+    if (isAvailable) {
+      try {
+        const sudocodeProvider = createSudocodeProvider({
+          executable: sudocodeConfig.executable,
+          timeout: sudocodeConfig.timeout,
+          cwd: sudocodeCwd,
+        })
+        registry.register(sudocodeProvider)
+        providers.push(sudocodeProvider)
+      } catch (error) {
+        failed.push({
+          name: 'sudocode',
+          error: error instanceof Error ? error : new Error(String(error)),
+        })
+      }
+    } else {
+      // Enabled but not available - skip silently (per spec)
+      skipped.push('sudocode')
+    }
+  } else {
+    skipped.push('sudocode')
   }
 
   return { registry, providers, skipped, failed }

@@ -153,6 +153,7 @@ describe('createProvidersFromConfig', () => {
         providers: {
           beads: { ...defaultConfig.providers.beads, enabled: false },
           claudeTasks: { enabled: false },
+          sudocode: { ...defaultConfig.providers.sudocode, enabled: false },
         },
       }
 
@@ -163,6 +164,7 @@ describe('createProvidersFromConfig', () => {
 
       expect(result.skipped).toContain('beads')
       expect(result.skipped).toContain('claude')
+      expect(result.skipped).toContain('sudocode')
     })
 
     it('returns empty failed array on success', async () => {

@@ -138,6 +138,11 @@ describe('Config Schema', () => {
         claudeTasks: {
           enabled: true,
         },
+        sudocode: {
+          enabled: true,
+          executable: 'sudocode',
+          timeout: 30000,
+        },
       })
     })
 
@@ -211,6 +216,11 @@ describe('Config Schema', () => {
           claudeTasks: {
             enabled: true,
           },
+          sudocode: {
+            enabled: true,
+            executable: 'sudocode',
+            timeout: 30000,
+          },
         },
         logging: {
           level: 'info',
@@ -256,6 +266,11 @@ describe('Config Schema', () => {
           },
           claudeTasks: {
             enabled: false,
+          },
+          sudocode: {
+            enabled: false,
+            executable: '/opt/sudocode',
+            timeout: 45000,
           },
         },
         logging: {
