@@ -9,6 +9,7 @@ import type { Storage } from '../storage/interface.js'
 import type { Connection } from '../core/connections.js'
 import type { ProviderNode } from '../providers/types.js'
 import type { LocationProvider } from '../providers/location.js'
+import { isOpentasksUri, parseOpentasksUri } from '../core/uri.js'
 
 /**
  * Query expansion modes
@@ -27,6 +28,8 @@ export interface ExpandedResult {
   local: StoredNode[]
   /** Results from connected locations, keyed by hash */
   connected: Record<string, ProviderNode[]>
+  /** Edges that span across locations */
+  crossLocationEdges: StoredEdge[]
   /** All locations queried */
   queriedLocations: string[]
   /** Locations that were unreachable */
@@ -64,6 +67,91 @@ export interface QueryExpander {
 }
 
 /**
+ * Query multiple providers in parallel using Promise.allSettled
+ */
+async function queryProvidersParallel(
+  providers: Map<string, LocationProvider>,
+  queryFn: (provider: LocationProvider) => Promise<ProviderNode[]>,
+  maxLocations: number
+): Promise<{
+  connected: Record<string, ProviderNode[]>
+  queriedLocations: string[]
+  unreachableLocations: string[]
+}> {
+  const entries = [...providers.entries()].slice(0, maxLocations)
+
+  const results = await Promise.allSettled(
+    entries.map(async ([hash, provider]) => {
+      const nodes = await queryFn(provider)
+      return { hash, nodes }
+    })
+  )
+
+  const connected: Record<string, ProviderNode[]> = {}
+  const queriedLocations: string[] = []
+  const unreachableLocations: string[] = []
+
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      connected[result.value.hash] = result.value.nodes
+      queriedLocations.push(result.value.hash)
+    } else {
+      // Find the hash for this failed entry by index
+      const idx = results.indexOf(result)
+      unreachableLocations.push(entries[idx][0])
+    }
+  }
+
+  return { connected, queriedLocations, unreachableLocations }
+}
+
+/**
+ * Identify which provider hashes are referenced by local edges
+ * via opentasks:// URIs in from_id or to_id fields.
+ */
+function getReferencedLocationHashes(
+  edges: StoredEdge[],
+  localHash: string
+): Set<string> {
+  const hashes = new Set<string>()
+
+  for (const edge of edges) {
+    for (const field of [edge.from_id, edge.to_id]) {
+      if (isOpentasksUri(field)) {
+        const parsed = parseOpentasksUri(field)
+        if (parsed?.locationHash && parsed.locationHash !== localHash) {
+          hashes.add(parsed.locationHash)
+        }
+      }
+    }
+  }
+
+  return hashes
+}
+
+/**
+ * Find edges that reference nodes in other locations
+ */
+function findCrossLocationEdges(
+  edges: StoredEdge[],
+  localHash: string,
+  connectedHashes: Set<string>
+): StoredEdge[] {
+  return edges.filter((edge) => {
+    for (const field of [edge.from_id, edge.to_id]) {
+      if (isOpentasksUri(field)) {
+        const parsed = parseOpentasksUri(field)
+        if (parsed?.locationHash && parsed.locationHash !== localHash) {
+          return true
+        }
+      }
+    }
+    // Also check if from_id or to_id appears as a hash-prefixed reference
+    return false
+  })
+}
+
+/**
  * Create a query expander
  *
  * @param storage - Local storage
@@ -75,73 +163,42 @@ export function createQueryExpander(
   locationHash: string,
   locationProviders: Map<string, LocationProvider>
 ): QueryExpander {
-  async function queryLocal(filter?: { type?: string; status?: string }): Promise<StoredNode[]> {
-    if (filter) {
-      return storage.queryNodes({
-        type: filter.type,
-        status: filter.status,
-      })
+  /**
+   * Get all local edges for cross-location analysis
+   */
+  async function getLocalEdges(localNodeIds: string[]): Promise<StoredEdge[]> {
+    const allEdges: StoredEdge[] = []
+    for (const nodeId of localNodeIds) {
+      const edges = await storage.getEdgesFrom(nodeId)
+      allEdges.push(...edges)
     }
-    return storage.getReady()
+    return allEdges
   }
 
-  async function queryConnectedReady(
-    providers: Map<string, LocationProvider>,
-    maxLocations: number
-  ): Promise<{
-    connected: Record<string, ProviderNode[]>
-    queriedLocations: string[]
-    unreachableLocations: string[]
-  }> {
-    const connected: Record<string, ProviderNode[]> = {}
-    const queriedLocations: string[] = []
-    const unreachableLocations: string[] = []
-    let count = 0
-
-    for (const [hash, provider] of providers.entries()) {
-      if (count >= maxLocations) break
-      count++
-
-      try {
-        const results = await provider.ready()
-        connected[hash] = results
-        queriedLocations.push(hash)
-      } catch {
-        unreachableLocations.push(hash)
+  /**
+   * Select providers based on expansion mode
+   */
+  function selectProviders(
+    mode: ExpansionMode,
+    referencedHashes?: Set<string>
+  ): Map<string, LocationProvider> {
+    if (mode === 'follow-refs' && referencedHashes) {
+      // Only query locations referenced by local edges
+      const selected = new Map<string, LocationProvider>()
+      for (const hash of referencedHashes) {
+        const provider = locationProviders.get(hash)
+        if (provider) {
+          selected.set(hash, provider)
+        }
       }
+      return selected
     }
 
-    return { connected, queriedLocations, unreachableLocations }
-  }
-
-  async function queryConnectedList(
-    providers: Map<string, LocationProvider>,
-    filter: { type?: string; status?: string },
-    maxLocations: number
-  ): Promise<{
-    connected: Record<string, ProviderNode[]>
-    queriedLocations: string[]
-    unreachableLocations: string[]
-  }> {
-    const connected: Record<string, ProviderNode[]> = {}
-    const queriedLocations: string[] = []
-    const unreachableLocations: string[] = []
-    let count = 0
-
-    for (const [hash, provider] of providers.entries()) {
-      if (count >= maxLocations) break
-      count++
-
-      try {
-        const results = await provider.list(filter)
-        connected[hash] = results
-        queriedLocations.push(hash)
-      } catch {
-        unreachableLocations.push(hash)
-      }
+    if (mode === 'connections' || mode === 'all') {
+      return locationProviders
     }
 
-    return { connected, queriedLocations, unreachableLocations }
+    return new Map()
   }
 
   return {
@@ -156,19 +213,54 @@ export function createQueryExpander(
         return {
           local,
           connected: {},
+          crossLocationEdges: [],
           queriedLocations: [locationHash],
           unreachableLocations: [],
           completeness: 'full',
         }
       }
 
-      // For follow-refs, connections, and all — query connected locations
+      // For follow-refs, analyze local edges to find referenced locations
+      let referencedHashes: Set<string> | undefined
+      let localEdges: StoredEdge[] = []
+      if (mode === 'follow-refs' || mode === 'all') {
+        localEdges = await getLocalEdges(local.map((n) => n.id))
+        referencedHashes = getReferencedLocationHashes(localEdges, locationHash)
+      }
+
+      // Select providers based on mode
+      const providers = selectProviders(mode, referencedHashes)
+
+      // For 'all' mode, include all connected providers too
+      if (mode === 'all') {
+        for (const [hash, provider] of locationProviders.entries()) {
+          providers.set(hash, provider)
+        }
+      }
+
+      // Query providers in parallel
       const { connected, queriedLocations, unreachableLocations } =
-        await queryConnectedReady(locationProviders, maxLocations)
+        await queryProvidersParallel(
+          providers,
+          (provider) => provider.ready(),
+          maxLocations
+        )
+
+      // Identify cross-location edges
+      if (localEdges.length === 0 && mode === 'connections') {
+        localEdges = await getLocalEdges(local.map((n) => n.id))
+      }
+      const connectedHashes = new Set(queriedLocations)
+      const crossLocationEdges = findCrossLocationEdges(
+        localEdges,
+        locationHash,
+        connectedHashes
+      )
 
       return {
         local,
         connected,
+        crossLocationEdges,
         queriedLocations: [locationHash, ...queriedLocations],
         unreachableLocations,
         completeness: unreachableLocations.length === 0 ? 'full' : 'partial',
@@ -182,24 +274,63 @@ export function createQueryExpander(
       const mode = options?.expand ?? 'none'
       const maxLocations = options?.maxLocations ?? 10
 
-      const local = await queryLocal(filter)
+      const local = await storage.queryNodes({
+        type: filter.type,
+        status: filter.status,
+      })
 
       if (mode === 'none') {
         return {
           local,
           connected: {},
+          crossLocationEdges: [],
           queriedLocations: [locationHash],
           unreachableLocations: [],
           completeness: 'full',
         }
       }
 
+      // For follow-refs, analyze local edges to find referenced locations
+      let referencedHashes: Set<string> | undefined
+      let localEdges: StoredEdge[] = []
+      if (mode === 'follow-refs' || mode === 'all') {
+        localEdges = await getLocalEdges(local.map((n) => n.id))
+        referencedHashes = getReferencedLocationHashes(localEdges, locationHash)
+      }
+
+      // Select providers based on mode
+      const providers = selectProviders(mode, referencedHashes)
+
+      // For 'all' mode, include all connected providers too
+      if (mode === 'all') {
+        for (const [hash, provider] of locationProviders.entries()) {
+          providers.set(hash, provider)
+        }
+      }
+
+      // Query providers in parallel
       const { connected, queriedLocations, unreachableLocations } =
-        await queryConnectedList(locationProviders, filter, maxLocations)
+        await queryProvidersParallel(
+          providers,
+          (provider) => provider.list(filter),
+          maxLocations
+        )
+
+      // Identify cross-location edges
+      if (localEdges.length === 0 && mode === 'connections') {
+        localEdges = await getLocalEdges(local.map((n) => n.id))
+      }
+      const connectedHashes = new Set(queriedLocations)
+      const crossLocationEdges = findCrossLocationEdges(
+        localEdges,
+        locationHash,
+        connectedHashes
+      )
 
       return {
         local,
         connected,
+        crossLocationEdges,
         queriedLocations: [locationHash, ...queriedLocations],
         unreachableLocations,
         completeness: unreachableLocations.length === 0 ? 'full' : 'partial',

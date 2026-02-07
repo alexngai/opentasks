@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto'
 import { generateLocationHash, generateLocationHashFallback, getGitRemoteUrl, getGitRoot } from './location.js'
 import { installMergeDriver } from './merge-driver.js'
 import type { Connection } from './connections.js'
+import { FileLock } from '../storage/file-lock.js'
 
 /**
  * Registered worktree entry
@@ -128,19 +129,92 @@ export function writeWorktreeRegistry(
 }
 
 /**
+ * Get the path to the registry lock file
+ */
+function getRegistryLockPath(gitCommonDir: string): string {
+  return path.join(gitCommonDir, 'opentasks', 'worktrees.lock')
+}
+
+/**
+ * Execute a read-modify-write operation on the registry under a file lock
+ */
+function withRegistryLock<T>(gitCommonDir: string, fn: () => T): T {
+  const lockPath = getRegistryLockPath(gitCommonDir)
+  const lock = new FileLock({ lockPath, timeout: 5000 })
+
+  // Synchronously spin-acquire: create lock file exclusively
+  const dir = path.dirname(lockPath)
+  fs.mkdirSync(dir, { recursive: true })
+  const startTime = Date.now()
+  while (true) {
+    try {
+      const fd = fs.openSync(lockPath, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY)
+      fs.writeSync(fd, `${process.pid}\n${Date.now()}\n`)
+      fs.closeSync(fd)
+      break
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        // Check if lock is stale (> 30s old or dead PID)
+        try {
+          const content = fs.readFileSync(lockPath, 'utf-8')
+          const lines = content.trim().split('\n')
+          const pid = parseInt(lines[0], 10)
+          const timestamp = parseInt(lines[1], 10)
+          const isStale =
+            (timestamp && Date.now() - timestamp > 30000) ||
+            (pid && !isProcessAlive(pid))
+          if (isStale) {
+            try { fs.unlinkSync(lockPath) } catch {}
+            continue
+          }
+        } catch {
+          try { fs.unlinkSync(lockPath) } catch {}
+          continue
+        }
+        if (Date.now() - startTime >= 5000) {
+          throw new Error(`Failed to acquire registry lock within 5000ms`)
+        }
+        // Busy wait briefly (sync context)
+        const waitUntil = Date.now() + 50
+        while (Date.now() < waitUntil) { /* spin */ }
+      } else {
+        throw error
+      }
+    }
+  }
+
+  try {
+    return fn()
+  } finally {
+    try { fs.unlinkSync(lockPath) } catch {}
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * Register a worktree in the registry
  */
 export function registerWorktree(
   gitCommonDir: string,
   entry: WorktreeEntry
 ): void {
-  const registry = readWorktreeRegistry(gitCommonDir)
+  withRegistryLock(gitCommonDir, () => {
+    const registry = readWorktreeRegistry(gitCommonDir)
 
-  // Remove existing entry with same hash
-  registry.worktrees = registry.worktrees.filter((w) => w.hash !== entry.hash)
-  registry.worktrees.push(entry)
+    // Remove existing entry with same hash
+    registry.worktrees = registry.worktrees.filter((w) => w.hash !== entry.hash)
+    registry.worktrees.push(entry)
 
-  writeWorktreeRegistry(gitCommonDir, registry)
+    writeWorktreeRegistry(gitCommonDir, registry)
+  })
 }
 
 /**
@@ -150,15 +224,17 @@ export function unregisterWorktree(
   gitCommonDir: string,
   hash: string
 ): WorktreeEntry | null {
-  const registry = readWorktreeRegistry(gitCommonDir)
-  const entry = registry.worktrees.find((w) => w.hash === hash)
+  return withRegistryLock(gitCommonDir, () => {
+    const registry = readWorktreeRegistry(gitCommonDir)
+    const entry = registry.worktrees.find((w) => w.hash === hash)
 
-  if (!entry) return null
+    if (!entry) return null
 
-  registry.worktrees = registry.worktrees.filter((w) => w.hash !== hash)
-  writeWorktreeRegistry(gitCommonDir, registry)
+    registry.worktrees = registry.worktrees.filter((w) => w.hash !== hash)
+    writeWorktreeRegistry(gitCommonDir, registry)
 
-  return entry
+    return entry
+  })
 }
 
 /**

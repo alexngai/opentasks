@@ -103,6 +103,9 @@ export function parseOpentasksUri(uri: string): ParsedOpentasksUri | null {
 
   if (!hashPart || !nodeId) return null
 
+  // Validate hash format (8-char lowercase alphanumeric)
+  if (!isValidLocationHash(hashPart)) return null
+
   return {
     scheme: 'opentasks',
     locationHash: hashPart,

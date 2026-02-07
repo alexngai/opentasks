@@ -128,7 +128,10 @@ export function deduplicateEdges(edges: StoredEdge[]): StoredEdge[] {
 
   for (const edge of edges) {
     const existing = map.get(edge.id)
-    if (!existing || (edge.created_at && existing.created_at && edge.created_at > existing.created_at)) {
+    if (!existing) {
+      map.set(edge.id, edge)
+    } else if (edge.created_at > existing.created_at) {
+      // Both have created_at (required field) — keep the newer one
       map.set(edge.id, edge)
     }
   }

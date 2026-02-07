@@ -58,10 +58,27 @@ function toProviderNode(
  * @param db - Optional pre-opened database (for daemon in-process use)
  * @returns A LocationProvider instance
  */
+/**
+ * Options for creating a LocationProvider
+ */
+export interface LocationProviderOptions {
+  /** Pre-opened database (for daemon in-process use) */
+  db?: DatabaseType
+  /** Query result limit (default: 1000) */
+  queryLimit?: number
+}
+
 export function createLocationProvider(
   connection: Connection,
-  db?: DatabaseType
+  dbOrOptions?: DatabaseType | LocationProviderOptions
 ): LocationProvider {
+  // Support both legacy signature (db) and new options object
+  const options: LocationProviderOptions =
+    dbOrOptions != null && typeof dbOrOptions === 'object' && 'prepare' in dbOrOptions
+      ? { db: dbOrOptions as DatabaseType }
+      : (dbOrOptions as LocationProviderOptions) ?? {}
+  const db = options.db
+  const queryLimit = options.queryLimit ?? 1000
   let ownedDb: DatabaseType | null = null
 
   function getDb(): DatabaseType {
@@ -132,7 +149,8 @@ export function createLocationProvider(
           params.push(filter.type)
         }
 
-        const sql = `SELECT * FROM nodes WHERE ${conditions.join(' AND ')} ORDER BY updated_at DESC LIMIT 100`
+        const limit = filter?.limit ?? queryLimit
+        const sql = `SELECT * FROM nodes WHERE ${conditions.join(' AND ')} ORDER BY updated_at DESC LIMIT ${limit}`
         const rows = database.prepare(sql).all(...params) as Record<string, unknown>[]
         return rows.map((r) => toProviderNode(r, connection))
       } catch {

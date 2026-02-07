@@ -8,6 +8,11 @@
 import type { Connection } from './connections.js'
 import type { LocationIdentity } from './location.js'
 import { resolveLocationTarget, type ResolvedLocationTarget } from './uri.js'
+import {
+  type ConditionalRedirectRule,
+  type RedirectContext,
+  findConditionalRedirectRule,
+} from './conditional-redirects.js'
 
 /**
  * Operations that can be redirected
@@ -133,12 +138,17 @@ export function resolveRedirect(
 /**
  * Resolve a complete redirect for an operation
  *
+ * When a RedirectContext is provided, rules are evaluated as
+ * ConditionalRedirectRules (conditions on role/branch). Without
+ * context, only base pattern matching is used.
+ *
  * @param operation - The operation type
  * @param nodeId - The node ID
- * @param rules - Redirect rules
+ * @param rules - Redirect rules (may include `when` conditions)
  * @param connections - Available connections
  * @param currentLocation - Current location identity
  * @param currentOpentasksPath - Path to current .opentasks directory
+ * @param context - Optional redirect context for condition evaluation
  * @returns Redirect result
  */
 export function resolveOperationRedirect(
@@ -147,9 +157,17 @@ export function resolveOperationRedirect(
   rules: RedirectRule[],
   connections: Connection[],
   currentLocation: LocationIdentity,
-  currentOpentasksPath: string
+  currentOpentasksPath: string,
+  context?: RedirectContext
 ): RedirectResult {
-  const rule = findRedirectRule(operation, nodeId, rules)
+  const rule = context
+    ? findConditionalRedirectRule(
+        operation,
+        nodeId,
+        rules as ConditionalRedirectRule[],
+        context
+      )
+    : findRedirectRule(operation, nodeId, rules)
 
   if (!rule) {
     return { redirected: false }

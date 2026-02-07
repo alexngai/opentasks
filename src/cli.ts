@@ -13,6 +13,7 @@ import { generateLocationIdentity } from './core/location.js'
 import { createConnection, checkAllConnectionHealth, type Connection } from './core/connections.js'
 import { worktreeSetup, worktreeTeardown, listWorktrees, getGitCommonDir } from './core/worktree.js'
 import { mergeJsonl, installMergeDriver } from './core/merge-driver.js'
+import { discoverLocations } from './core/discover.js'
 
 const OPENTASKS_DIR = '.opentasks'
 const CONFIG_FILE = 'config.json'
@@ -33,7 +34,12 @@ Commands:
   worktree setup <path> [opts]  Setup a new worker worktree
   worktree list                 List registered worktrees
   worktree teardown <path|hash> Teardown a worktree
+  discover [options]            Find nearby opentasks locations
   merge-driver <O> <A> <B>     JSONL merge driver (for git)
+
+Discover options:
+  --direction up|down|both      Search direction (default: both)
+  --max-depth <n>               Maximum depth to traverse (default: 5)
 
 For programmatic usage, import from the opentasks package:
   import { OpenTasksClient, createClient } from 'opentasks'
@@ -367,6 +373,51 @@ function cmdMergeDriver(args: string[]): void {
   }
 }
 
+/**
+ * Discover nearby opentasks locations
+ */
+function cmdDiscover(args: string[]): void {
+  const dirIndex = args.indexOf('--direction')
+  const direction = dirIndex !== -1
+    ? args[dirIndex + 1] as 'up' | 'down' | 'both'
+    : 'both'
+
+  const depthIndex = args.indexOf('--max-depth')
+  const maxDepth = depthIndex !== -1
+    ? parseInt(args[depthIndex + 1], 10)
+    : 5
+
+  if (!['up', 'down', 'both'].includes(direction)) {
+    console.error(`Invalid direction: ${direction}. Use up, down, or both.`)
+    process.exit(1)
+  }
+
+  const locations = discoverLocations(process.cwd(), { direction, maxDepth })
+
+  if (locations.length === 0) {
+    console.log('No opentasks locations found.')
+    return
+  }
+
+  console.log(
+    padRight('HASH', 12) +
+    padRight('NAME', 20) +
+    padRight('PATH', 50) +
+    padRight('DIR', 8) +
+    'DEPTH'
+  )
+
+  for (const loc of locations) {
+    console.log(
+      padRight(loc.hash, 12) +
+      padRight(loc.name || '(unnamed)', 20) +
+      padRight(loc.opentasksPath, 50) +
+      padRight(loc.direction, 8) +
+      String(loc.depth)
+    )
+  }
+}
+
 function padRight(str: string, len: number): string {
   return str.length >= len ? str + '  ' : str + ' '.repeat(len - str.length)
 }
@@ -418,6 +469,9 @@ function main() {
             process.exit(1)
         }
       }
+      break;
+    case 'discover':
+      cmdDiscover(args.slice(1));
       break;
     case 'merge-driver':
       cmdMergeDriver(args.slice(1));

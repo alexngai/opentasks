@@ -4,6 +4,7 @@
  * Phase 2 additions: location identity, connections, role, redirects
  */
 import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
 
 // ============================================================================
 // Location Identity (Phase 2)
@@ -25,7 +26,14 @@ export const LocationConfigSchema = z
     name: z.string().optional(),
   })
   .optional()
-  .transform((val) => val ? LocationConfigSchemaInner.parse(val) : undefined)
+  .transform((val) => {
+    if (!val || !val.hash) return undefined
+    return LocationConfigSchemaInner.parse({
+      hash: val.hash,
+      uuid: val.uuid ?? randomUUID(),
+      name: val.name ?? '',
+    })
+  })
 
 export type LocationConfig = z.infer<typeof LocationConfigSchemaInner>
 
