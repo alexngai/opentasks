@@ -10,6 +10,8 @@
  */
 
 import { exec as execCallback } from 'child_process'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
 import { promisify } from 'util'
 import chokidar, { type FSWatcher } from 'chokidar'
 import type {
@@ -124,9 +126,16 @@ interface SudocodeIssue {
 }
 
 /**
- * Raw Sudocode relationship from CLI show output
+ * Raw Sudocode relationship.
+ *
+ * Two formats exist depending on the source:
+ * - `show --json`: uses `from_id`/`to_id`/`relationship_type` in nested `{ outgoing, incoming }`
+ * - JSONL files:   uses `from`/`to`/`type` in a flat array
+ *
+ * Both field sets are optional here so a single type handles either format.
  */
 interface SudocodeRelationship {
+  // show --json fields
   from_id?: string
   from_uuid?: string
   from_type?: string
@@ -134,19 +143,24 @@ interface SudocodeRelationship {
   to_uuid?: string
   to_type?: string
   relationship_type?: string
+  // JSONL fields
+  from?: string
+  to?: string
+  type?: string
+  // common
   created_at?: string
   metadata?: string
   [key: string]: unknown
 }
 
 /**
- * Relationships structure from `sudocode show --json` output.
- * The CLI returns outgoing and incoming arrays separately.
+ * Relationships may appear in two shapes:
+ * - Nested `{ outgoing, incoming }` from `show --json`
+ * - Flat `SudocodeRelationship[]` from JSONL files
  */
-interface SudocodeRelationships {
-  outgoing?: SudocodeRelationship[]
-  incoming?: SudocodeRelationship[]
-}
+type SudocodeRelationships =
+  | { outgoing?: SudocodeRelationship[]; incoming?: SudocodeRelationship[] }
+  | SudocodeRelationship[]
 
 /** Union type for spec or issue */
 type SudocodeEntity = SudocodeSpec | SudocodeIssue
@@ -218,6 +232,31 @@ function mapRelationshipType(relType: string): string {
     default:
       return relType
   }
+}
+
+/**
+ * Normalize relationships from either format into a flat array
+ * with consistent `from_id`, `to_id`, `relationship_type` fields.
+ */
+function normalizeRelationships(rels: SudocodeRelationships | undefined): SudocodeRelationship[] {
+  if (!rels) return []
+
+  let flat: SudocodeRelationship[]
+  if (Array.isArray(rels)) {
+    // JSONL format: flat array with from/to/type
+    flat = rels
+  } else {
+    // show --json format: { outgoing, incoming } with from_id/to_id/relationship_type
+    flat = [...(rels.outgoing ?? []), ...(rels.incoming ?? [])]
+  }
+
+  // Normalize field names so consumers can always use from_id/to_id/relationship_type
+  return flat.map((rel) => ({
+    ...rel,
+    from_id: rel.from_id ?? rel.from,
+    to_id: rel.to_id ?? rel.to,
+    relationship_type: rel.relationship_type ?? rel.type,
+  }))
 }
 
 /**
@@ -350,16 +389,10 @@ export function createSudocodeProvider(
   function entityEdgeKeys(entity: SudocodeEntity): Set<string> {
     const keys = new Set<string>()
 
-    if (entity.relationships) {
-      const allRels = [
-        ...(entity.relationships.outgoing ?? []),
-        ...(entity.relationships.incoming ?? []),
-      ]
-      for (const rel of allRels) {
-        if (rel.from_id && rel.to_id && rel.relationship_type) {
-          const edgeType = mapRelationshipType(rel.relationship_type)
-          keys.add(`${rel.from_id}\0${rel.to_id}\0${edgeType}`)
-        }
+    for (const rel of normalizeRelationships(entity.relationships)) {
+      if (rel.from_id && rel.to_id && rel.relationship_type) {
+        const edgeType = mapRelationshipType(rel.relationship_type)
+        keys.add(`${rel.from_id}\0${rel.to_id}\0${edgeType}`)
       }
     }
 
@@ -377,9 +410,9 @@ export function createSudocodeProvider(
     if (!watchCallback) return
 
     try {
-      // Fetch all entities with full relationship data via show
-      const issues = await fetchEntitiesWithRelationships('issue')
-      const specs = await fetchEntitiesWithRelationships('spec')
+      // Read entities directly from JSONL files (includes relationships)
+      const issues = await readEntitiesFromJsonl('issue')
+      const specs = await readEntitiesFromJsonl('spec')
       const allEntities = [...issues, ...specs]
 
       const currentIds = new Set<string>()
@@ -509,8 +542,8 @@ export function createSudocodeProvider(
    */
   async function seedCache(): Promise<void> {
     try {
-      const issues = await fetchEntitiesWithRelationships('issue')
-      const specs = await fetchEntitiesWithRelationships('spec')
+      const issues = await readEntitiesFromJsonl('issue')
+      const specs = await readEntitiesFromJsonl('spec')
       const allEntities = [...issues, ...specs]
 
       cachedHashes.clear()
@@ -621,33 +654,38 @@ export function createSudocodeProvider(
   }
 
   /**
-   * Fetch a single entity with full relationship data via `show`.
-   * Returns null if the entity is not found.
+   * Read entities directly from a JSONL file in .sudocode/.
+   * The JSONL files contain fully denormalized data with relationships
+   * and tags already embedded — no CLI calls needed.
+   *
+   * Requires `watchPath` to be set (points to the .sudocode/ directory).
+   * Falls back to CLI `list` if the file can't be read.
    */
-  async function fetchEntityFull(id: string): Promise<SudocodeEntity | null> {
-    const entityType = entityTypeFromId(id)
-    const subcommand = entityType === 'spec' ? 'spec' : 'issue'
-    try {
-      const output = await execSudocode(['--json', subcommand, 'show', id])
-      return parseJson<SudocodeEntity>(output)
-    } catch {
-      return null
+  async function readEntitiesFromJsonl(type: 'spec' | 'issue'): Promise<SudocodeEntity[]> {
+    const jsonlFile = type === 'spec' ? 'specs.jsonl' : 'issues.jsonl'
+    const dir = watchPath ?? (cwd ? join(cwd, '.sudocode') : null)
+    if (!dir) {
+      // No path to .sudocode dir — fall back to CLI
+      return fetchEntities(type)
     }
-  }
 
-  /**
-   * Fetch all entities with full relationship data.
-   * Uses `list` to get IDs, then `show` for each to get relationships.
-   */
-  async function fetchEntitiesWithRelationships(type: 'spec' | 'issue'): Promise<SudocodeEntity[]> {
-    const entities = await fetchEntities(type)
-    const enriched = await Promise.all(
-      entities.map(async (entity) => {
-        const full = await fetchEntityFull(entity.id)
-        return full ?? entity
-      })
-    )
-    return enriched
+    try {
+      const content = await readFile(join(dir, jsonlFile), 'utf-8')
+      const entities: SudocodeEntity[] = []
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        try {
+          entities.push(JSON.parse(trimmed) as SudocodeEntity)
+        } catch {
+          // Skip malformed lines
+        }
+      }
+      return entities
+    } catch {
+      // File doesn't exist or isn't readable — fall back to CLI
+      return fetchEntities(type)
+    }
   }
 
   return {
@@ -882,20 +920,14 @@ export function createSudocodeProvider(
 
         let edges: ProviderEdge[] = []
 
-        // Extract relationships from the entity (nested outgoing/incoming structure)
-        if (entity.relationships) {
-          const allRels = [
-            ...(entity.relationships.outgoing ?? []),
-            ...(entity.relationships.incoming ?? []),
-          ]
-          for (const rel of allRels) {
-            if (rel.from_id && rel.to_id && rel.relationship_type) {
-              edges.push({
-                from: rel.from_id,
-                to: rel.to_id,
-                type: mapRelationshipType(rel.relationship_type),
-              })
-            }
+        // Extract relationships (handles both show and JSONL formats)
+        for (const rel of normalizeRelationships(entity.relationships)) {
+          if (rel.from_id && rel.to_id && rel.relationship_type) {
+            edges.push({
+              from: rel.from_id,
+              to: rel.to_id,
+              type: mapRelationshipType(rel.relationship_type),
+            })
           }
         }
 
