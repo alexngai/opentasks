@@ -91,7 +91,7 @@ interface SudocodeSpec {
   created_at?: string
   updated_at?: string
   parent_id?: string
-  relationships?: SudocodeRelationship[]
+  relationships?: SudocodeRelationships
   [key: string]: unknown
 }
 
@@ -112,12 +112,12 @@ interface SudocodeIssue {
   updated_at?: string
   closed_at?: string
   parent_id?: string
-  relationships?: SudocodeRelationship[]
+  relationships?: SudocodeRelationships
   [key: string]: unknown
 }
 
 /**
- * Raw Sudocode relationship from JSONL
+ * Raw Sudocode relationship from CLI show output
  */
 interface SudocodeRelationship {
   from_id?: string
@@ -130,6 +130,15 @@ interface SudocodeRelationship {
   created_at?: string
   metadata?: string
   [key: string]: unknown
+}
+
+/**
+ * Relationships structure from `sudocode show --json` output.
+ * The CLI returns outgoing and incoming arrays separately.
+ */
+interface SudocodeRelationships {
+  outgoing?: SudocodeRelationship[]
+  incoming?: SudocodeRelationship[]
 }
 
 /** Union type for spec or issue */
@@ -340,8 +349,12 @@ export function createSudocodeProvider(
   function entityEdgeKeys(entity: SudocodeEntity): Set<string> {
     const keys = new Set<string>()
 
-    if (entity.relationships && Array.isArray(entity.relationships)) {
-      for (const rel of entity.relationships) {
+    if (entity.relationships) {
+      const allRels = [
+        ...(entity.relationships.outgoing ?? []),
+        ...(entity.relationships.incoming ?? []),
+      ]
+      for (const rel of allRels) {
         if (rel.from_id && rel.to_id && rel.relationship_type) {
           const edgeType = mapRelationshipType(rel.relationship_type)
           keys.add(`${rel.from_id}:${rel.to_id}:${edgeType}`)
@@ -602,7 +615,7 @@ export function createSudocodeProvider(
    */
   async function fetchEntities(type: 'spec' | 'issue'): Promise<SudocodeEntity[]> {
     const subcommand = type === 'spec' ? 'spec' : 'issue'
-    const output = await execSudocode([subcommand, 'list', '--json'])
+    const output = await execSudocode(['--json', subcommand, 'list'])
     return parseJson<SudocodeEntity[]>(output)
   }
 
@@ -667,7 +680,7 @@ export function createSudocodeProvider(
       const subcommand = entityType === 'spec' ? 'spec' : 'issue'
 
       try {
-        const output = await execSudocode([subcommand, 'show', entityId, '--json'])
+        const output = await execSudocode(['--json', subcommand, 'show', entityId])
         const entity = parseJson<SudocodeEntity>(output)
         if (!entity) {
           return null
@@ -698,10 +711,11 @@ export function createSudocodeProvider(
 
       for (const entityType of entityTypes) {
         const subcommand = entityType === 'spec' ? 'spec' : 'issue'
-        const args = [subcommand, 'list', '--json']
+        const args = ['--json', subcommand, 'list']
 
-        if (filter?.status) {
-          args.push('--status', filter.status)
+        // Issue list supports -s/--status; spec list does not
+        if (filter?.status && entityType === 'issue') {
+          args.push('-s', filter.status)
         }
 
         try {
@@ -729,19 +743,15 @@ export function createSudocodeProvider(
     async create(input: ProviderCreateInput): Promise<ProviderNode> {
       const entityType = input.type === 'spec' ? 'spec' : 'issue'
       const subcommand = entityType === 'spec' ? 'spec' : 'issue'
-      const args = [subcommand, 'create', '--title', input.title]
+      // --json is global (before subcommand), title is positional (after create)
+      const args = ['--json', subcommand, 'create', input.title]
 
       if (input.content) {
-        args.push('--content', input.content)
-      }
-      if (input.status && entityType === 'issue') {
-        args.push('--status', input.status)
+        args.push('-d', input.content)
       }
       if (input.priority !== undefined) {
-        args.push('--priority', String(input.priority))
+        args.push('-p', String(input.priority))
       }
-
-      args.push('--json')
 
       const output = await execSudocode(args)
       const entity = parseJson<SudocodeEntity>(output)
@@ -755,22 +765,21 @@ export function createSudocodeProvider(
       const entityType = entityTypeFromId(entityId)
       const subcommand = entityType === 'spec' ? 'spec' : 'issue'
 
-      const args = [subcommand, 'update', entityId]
+      // --json is global (before subcommand)
+      const args = ['--json', subcommand, 'update', entityId]
 
       if (updates.title) {
         args.push('--title', updates.title)
       }
       if (updates.content) {
-        args.push('--content', updates.content)
+        args.push('--description', updates.content)
       }
       if (updates.status && entityType === 'issue') {
-        args.push('--status', updates.status)
+        args.push('-s', updates.status)
       }
       if (updates.priority !== undefined) {
-        args.push('--priority', String(updates.priority))
+        args.push('-p', String(updates.priority))
       }
-
-      args.push('--json')
 
       const output = await execSudocode(args)
       const entity = parseJson<SudocodeEntity>(output)
@@ -784,7 +793,7 @@ export function createSudocodeProvider(
       const entityType = entityTypeFromId(entityId)
       const subcommand = entityType === 'spec' ? 'spec' : 'issue'
 
-      await execSudocode([subcommand, 'delete', entityId, '--force'])
+      await execSudocode([subcommand, 'delete', '--hard', entityId])
     },
 
     // =========================================================================
@@ -800,7 +809,7 @@ export function createSudocodeProvider(
 
       for (const entityType of entityTypes) {
         const subcommand = entityType === 'spec' ? 'spec' : 'issue'
-        const args = [subcommand, 'list', '--json', '--search', query]
+        const args = ['--json', subcommand, 'list', '-g', query]
 
         try {
           const output = await execSudocode(args)
@@ -834,7 +843,7 @@ export function createSudocodeProvider(
       const subcommand = entityType === 'spec' ? 'spec' : 'issue'
 
       try {
-        const output = await execSudocode([subcommand, 'show', entityId, '--json'])
+        const output = await execSudocode(['--json', subcommand, 'show', entityId])
         const entity = parseJson<SudocodeEntity>(output)
         if (!entity) {
           return []
@@ -842,9 +851,13 @@ export function createSudocodeProvider(
 
         let edges: ProviderEdge[] = []
 
-        // Extract relationships from the entity
-        if (entity.relationships && Array.isArray(entity.relationships)) {
-          for (const rel of entity.relationships) {
+        // Extract relationships from the entity (nested outgoing/incoming structure)
+        if (entity.relationships) {
+          const allRels = [
+            ...(entity.relationships.outgoing ?? []),
+            ...(entity.relationships.incoming ?? []),
+          ]
+          for (const rel of allRels) {
             if (rel.from_id && rel.to_id && rel.relationship_type) {
               edges.push({
                 from: rel.from_id,
