@@ -16,7 +16,6 @@ import type {
   Provider,
   ProviderCapabilities,
   ProviderNode,
-  ProviderNodeType,
   ProviderCreateInput,
   ProviderUpdateInput,
   ProviderFilter,
@@ -61,6 +60,14 @@ export interface SudocodeConfig {
 
   /** Timeout for CLI commands in ms (default: 30000) */
   timeout?: number
+
+  /**
+   * Extra global flags passed to every sudocode command invocation.
+   * Useful for environments that need specific flags.
+   *
+   * @example ['--no-daemon'] or ['--verbose']
+   */
+  extraArgs?: string[]
 
   /**
    * Path to Sudocode data directory to watch for changes.
@@ -184,13 +191,6 @@ function entityTypeFromId(id: string): 'spec' | 'issue' {
 }
 
 /**
- * Map Sudocode node type to ProviderNodeType
- */
-function mapNodeType(entityType: 'spec' | 'issue'): ProviderNodeType {
-  return entityType
-}
-
-/**
  * Map Sudocode priority to normalized 0-4 scale
  */
 function mapPriority(priority: number | undefined): number | undefined {
@@ -285,6 +285,7 @@ export function createSudocodeProvider(
   const executable = config.executable ?? 'sudocode'
   const cwd = config.cwd
   const timeout = config.timeout ?? 30000
+  const extraArgs = config.extraArgs ?? []
   const watchPath = config.watchPath
   const watchDebounceMs = config.watchDebounceMs ?? 200
 
@@ -302,7 +303,7 @@ export function createSudocodeProvider(
   /** Cached content hashes for change diffing: entity id → hash of serialized data */
   const cachedHashes = new Map<string, string>()
 
-  /** Cached edge signatures for edge change detection: "from:to:type" → true */
+  /** Cached edge signatures for edge change detection: "from\0to\0type" → true */
   const cachedEdgeKeys = new Set<string>()
 
   /** chokidar watcher instance */
@@ -357,13 +358,13 @@ export function createSudocodeProvider(
       for (const rel of allRels) {
         if (rel.from_id && rel.to_id && rel.relationship_type) {
           const edgeType = mapRelationshipType(rel.relationship_type)
-          keys.add(`${rel.from_id}:${rel.to_id}:${edgeType}`)
+          keys.add(`${rel.from_id}\0${rel.to_id}\0${edgeType}`)
         }
       }
     }
 
     if (entity.parent_id) {
-      keys.add(`${entity.parent_id}:${entity.id}:parent-of`)
+      keys.add(`${entity.parent_id}\0${entity.id}\0parent-of`)
     }
 
     return keys
@@ -454,7 +455,7 @@ export function createSudocodeProvider(
       // Detect edge changes — new edges
       for (const key of currentEdgeKeys) {
         if (!cachedEdgeKeys.has(key)) {
-          const [from, to, type] = key.split(':')
+          const [from, to, type] = key.split('\0')
           const event: ProviderEdgeChangeEvent = {
             type: 'created',
             edge: { from, to, type },
@@ -468,7 +469,7 @@ export function createSudocodeProvider(
       // Deleted edges
       for (const key of cachedEdgeKeys) {
         if (!currentEdgeKeys.has(key)) {
-          const [from, to, type] = key.split(':')
+          const [from, to, type] = key.split('\0')
           const event: ProviderEdgeChangeEvent = {
             type: 'deleted',
             edge: { from, to, type },
@@ -542,7 +543,7 @@ export function createSudocodeProvider(
    * Execute a sudocode CLI command
    */
   async function execSudocode(args: string[]): Promise<string> {
-    const command = [executable, ...args.map(shellEscape)].join(' ')
+    const command = [executable, ...extraArgs.map(shellEscape), ...args.map(shellEscape)].join(' ')
 
     try {
       const { stdout } = await execAsync(command, {
@@ -876,7 +877,7 @@ export function createSudocodeProvider(
         // Deduplicate edges
         const seen = new Set<string>()
         edges = edges.filter((edge) => {
-          const key = `${edge.from}:${edge.to}:${edge.type}`
+          const key = `${edge.from}\0${edge.to}\0${edge.type}`
           if (seen.has(key)) return false
           seen.add(key)
           return true
@@ -912,12 +913,12 @@ export function createSudocodeProvider(
 
     supportedEdgeTypes(): EdgeTypeSupport[] {
       return [
-        { type: 'blocks', canQuery: true, canCreate: true, canDelete: true },
-        { type: 'related', canQuery: true, canCreate: true, canDelete: true },
-        { type: 'discovered-from', canQuery: true, canCreate: true, canDelete: true },
-        { type: 'implements', canQuery: true, canCreate: true, canDelete: true },
-        { type: 'references', canQuery: true, canCreate: true, canDelete: true },
-        { type: 'depends-on', canQuery: true, canCreate: true, canDelete: true },
+        { type: 'blocks', canQuery: true, canCreate: false, canDelete: false },
+        { type: 'related', canQuery: true, canCreate: false, canDelete: false },
+        { type: 'discovered-from', canQuery: true, canCreate: false, canDelete: false },
+        { type: 'implements', canQuery: true, canCreate: false, canDelete: false },
+        { type: 'references', canQuery: true, canCreate: false, canDelete: false },
+        { type: 'depends-on', canQuery: true, canCreate: false, canDelete: false },
         { type: 'parent-of', canQuery: true, canCreate: false, canDelete: false },
       ]
     },
@@ -929,7 +930,9 @@ export function createSudocodeProvider(
     watchGranularity: {
       reportsChangedFields: false,
       reportsPreviousValues: false,
-      reportsEdgeChanges: true,
+      // Edge changes from relationships are not detectable via `list` output
+      // (only `show` returns relationships). Set to false for honesty.
+      reportsEdgeChanges: false,
       mechanism: 'file-watch' as const,
     } satisfies WatchGranularity,
 

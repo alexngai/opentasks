@@ -274,7 +274,7 @@ describe.skipIf(!SLOW_TESTS)('SudocodeProvider Integration', () => {
       expect(isRelationshipQueryable(provider)).toBe(true)
     })
 
-    it('should declare supported edge types', () => {
+    it('should declare supported edge types with query-only capabilities', () => {
       const provider = createSudocodeProvider()
       const types = provider.supportedEdgeTypes()
 
@@ -283,6 +283,13 @@ describe.skipIf(!SLOW_TESTS)('SudocodeProvider Integration', () => {
       expect(types.some(t => t.type === 'implements')).toBe(true)
       expect(types.some(t => t.type === 'depends-on')).toBe(true)
       expect(types.some(t => t.type === 'related')).toBe(true)
+
+      // All edge types should be query-only (no create/delete methods implemented)
+      for (const edgeType of types) {
+        expect(edgeType.canQuery).toBe(true)
+        expect(edgeType.canCreate).toBe(false)
+        expect(edgeType.canDelete).toBe(false)
+      }
     })
   })
 
