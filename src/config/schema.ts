@@ -169,9 +169,32 @@ export const ClaudeTasksProviderConfigSchema = z
 
 export type ClaudeTasksProviderConfig = z.infer<typeof ClaudeTasksProviderConfigSchema>
 
+const SudocodeProviderConfigSchemaInner = z.object({
+  /** Enable Sudocode provider (auto-detects executable) */
+  enabled: z.boolean().default(true),
+
+  /** Path to sudocode executable */
+  executable: z.string().default('sudocode'),
+
+  /** Command timeout (ms) */
+  timeout: z.number().min(1000, 'timeout must be >= 1000ms').default(30000),
+})
+
+export const SudocodeProviderConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    executable: z.string().optional(),
+    timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+  })
+  .default({})
+  .transform((val) => SudocodeProviderConfigSchemaInner.parse(val))
+
+export type SudocodeProviderConfig = z.infer<typeof SudocodeProviderConfigSchema>
+
 const ProvidersConfigSchemaInner = z.object({
   beads: BeadsProviderConfigSchema,
   claudeTasks: ClaudeTasksProviderConfigSchema,
+  sudocode: SudocodeProviderConfigSchema,
 })
 
 export const ProvidersConfigSchema = z
@@ -186,6 +209,13 @@ export const ProvidersConfigSchema = z
     claudeTasks: z
       .object({
         enabled: z.boolean().optional(),
+      })
+      .optional(),
+    sudocode: z
+      .object({
+        enabled: z.boolean().optional(),
+        executable: z.string().optional(),
+        timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
       })
       .optional(),
   })
@@ -269,6 +299,13 @@ export const OpenTasksConfigSchema = z
         claudeTasks: z
           .object({
             enabled: z.boolean().optional(),
+          })
+          .optional(),
+        sudocode: z
+          .object({
+            enabled: z.boolean().optional(),
+            executable: z.string().optional(),
+            timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
           })
           .optional(),
       })
