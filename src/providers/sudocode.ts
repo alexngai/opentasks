@@ -654,16 +654,23 @@ export function createSudocodeProvider(
   }
 
   /**
+   * Resolve the path to the .sudocode data directory.
+   * Prefers watchPath, then derives from cwd.
+   */
+  function sudocodeDataDir(): string | null {
+    return watchPath ?? (cwd ? join(cwd, '.sudocode') : null)
+  }
+
+  /**
    * Read entities directly from a JSONL file in .sudocode/.
    * The JSONL files contain fully denormalized data with relationships
    * and tags already embedded — no CLI calls needed.
    *
-   * Requires `watchPath` to be set (points to the .sudocode/ directory).
    * Falls back to CLI `list` if the file can't be read.
    */
   async function readEntitiesFromJsonl(type: 'spec' | 'issue'): Promise<SudocodeEntity[]> {
     const jsonlFile = type === 'spec' ? 'specs.jsonl' : 'issues.jsonl'
-    const dir = watchPath ?? (cwd ? join(cwd, '.sudocode') : null)
+    const dir = sudocodeDataDir()
     if (!dir) {
       // No path to .sudocode dir — fall back to CLI
       return fetchEntities(type)
@@ -685,6 +692,46 @@ export function createSudocodeProvider(
     } catch {
       // File doesn't exist or isn't readable — fall back to CLI
       return fetchEntities(type)
+    }
+  }
+
+  /**
+   * Find a single entity by ID from the JSONL files.
+   * Falls back to CLI `show` if JSONL is unavailable or entity not found.
+   */
+  async function findEntityById(id: string, workspace: string = '.'): Promise<SudocodeEntity | null> {
+    const entityType = entityTypeFromId(id)
+    const dir = sudocodeDataDir()
+
+    if (dir) {
+      try {
+        const entities = await readEntitiesFromJsonl(entityType)
+        const found = entities.find((e) => e.id === id)
+        if (found) return found
+        // Not in JSONL — might be a stale file; fall through to CLI
+      } catch {
+        // JSONL read failed — fall through to CLI
+      }
+    }
+
+    // Fall back to CLI show
+    const subcommand = entityType === 'spec' ? 'spec' : 'issue'
+    try {
+      const output = await execSudocode(['--json', subcommand, 'show', id])
+      return parseJson<SudocodeEntity>(output)
+    } catch (error) {
+      if (error instanceof ProviderErrorClass && error.code === 'OPERATION_FAILED') {
+        const message = error.message.toLowerCase()
+        if (
+          message.includes('not found') ||
+          message.includes('does not exist') ||
+          message.includes('no issue found') ||
+          message.includes('no spec found')
+        ) {
+          return null
+        }
+      }
+      throw error
     }
   }
 
@@ -745,30 +792,10 @@ export function createSudocodeProvider(
       const parsed = this.parseUri(id)
       const entityId = parsed?.id ?? id
       const workspace = parsed?.workspace ?? '.'
-      const entityType = entityTypeFromId(entityId)
-      const subcommand = entityType === 'spec' ? 'spec' : 'issue'
 
-      try {
-        const output = await execSudocode(['--json', subcommand, 'show', entityId])
-        const entity = parseJson<SudocodeEntity>(output)
-        if (!entity) {
-          return null
-        }
-        return entityToProviderNode(entity, workspace)
-      } catch (error) {
-        if (error instanceof ProviderErrorClass && error.code === 'OPERATION_FAILED') {
-          const message = error.message.toLowerCase()
-          if (
-            message.includes('not found') ||
-            message.includes('does not exist') ||
-            message.includes('no issue found') ||
-            message.includes('no spec found')
-          ) {
-            return null
-          }
-        }
-        throw error
-      }
+      const entity = await findEntityById(entityId, workspace)
+      if (!entity) return null
+      return entityToProviderNode(entity, workspace)
     },
 
     async list(filter?: ProviderFilter): Promise<ProviderNode[]> {
@@ -779,22 +806,19 @@ export function createSudocodeProvider(
             ['issue', 'spec']
 
       for (const entityType of entityTypes) {
-        const subcommand = entityType === 'spec' ? 'spec' : 'issue'
-        const args = ['--json', subcommand, 'list']
-
-        // Issue list supports -s/--status; spec list does not
-        if (filter?.status && entityType === 'issue') {
-          args.push('-s', filter.status)
-        }
-
         try {
-          const output = await execSudocode(args)
-          const entities = parseJson<SudocodeEntity[]>(output)
+          const entities = await readEntitiesFromJsonl(entityType)
 
           for (const entity of entities) {
-            if (!isArchived(entity)) {
-              results.push(entityToProviderNode(entity))
+            if (isArchived(entity)) continue
+
+            // Client-side status filter (applies to issues; specs don't have status)
+            if (filter?.status && entityType === 'issue') {
+              const issue = entity as SudocodeIssue
+              if (issue.status !== filter.status) continue
             }
+
+            results.push(entityToProviderNode(entity))
           }
         } catch {
           // If one type fails (e.g., no specs), continue with the other
@@ -876,18 +900,21 @@ export function createSudocodeProvider(
           options?.type === 'issue' ? ['issue'] :
             ['issue', 'spec']
 
-      for (const entityType of entityTypes) {
-        const subcommand = entityType === 'spec' ? 'spec' : 'issue'
-        const args = ['--json', subcommand, 'list', '-g', query]
+      const queryLower = query.toLowerCase()
 
+      for (const entityType of entityTypes) {
         try {
-          const output = await execSudocode(args)
-          const entities = parseJson<SudocodeEntity[]>(output)
+          const entities = await readEntitiesFromJsonl(entityType)
 
           for (const entity of entities) {
-            if (!isArchived(entity)) {
-              results.push(entityToProviderNode(entity))
-            }
+            if (isArchived(entity)) continue
+
+            // Client-side text search across title and content
+            const titleMatch = entity.title?.toLowerCase().includes(queryLower)
+            const contentMatch = entity.content?.toLowerCase().includes(queryLower)
+            if (!titleMatch && !contentMatch) continue
+
+            results.push(entityToProviderNode(entity))
           }
         } catch {
           // If search fails for one type, continue with the other
@@ -908,69 +935,49 @@ export function createSudocodeProvider(
     async queryEdges(nodeId: string, options?: QueryEdgesOptions): Promise<ProviderEdge[]> {
       const parsed = this.parseUri(nodeId)
       const entityId = parsed?.id ?? nodeId
-      const entityType = entityTypeFromId(entityId)
-      const subcommand = entityType === 'spec' ? 'spec' : 'issue'
 
-      try {
-        const output = await execSudocode(['--json', subcommand, 'show', entityId])
-        const entity = parseJson<SudocodeEntity>(output)
-        if (!entity) {
-          return []
-        }
+      const entity = await findEntityById(entityId)
+      if (!entity) return []
 
-        let edges: ProviderEdge[] = []
+      let edges: ProviderEdge[] = []
 
-        // Extract relationships (handles both show and JSONL formats)
-        for (const rel of normalizeRelationships(entity.relationships)) {
-          if (rel.from_id && rel.to_id && rel.relationship_type) {
-            edges.push({
-              from: rel.from_id,
-              to: rel.to_id,
-              type: mapRelationshipType(rel.relationship_type),
-            })
-          }
+      // Extract relationships (handles both show and JSONL formats)
+      for (const rel of normalizeRelationships(entity.relationships)) {
+        if (rel.from_id && rel.to_id && rel.relationship_type) {
+          edges.push({
+            from: rel.from_id,
+            to: rel.to_id,
+            type: mapRelationshipType(rel.relationship_type),
+          })
         }
-
-        // Parent-child relationship
-        if (entity.parent_id) {
-          edges.push({ from: entity.parent_id, to: entityId, type: 'parent-of' })
-        }
-
-        // Deduplicate edges
-        const seen = new Set<string>()
-        edges = edges.filter((edge) => {
-          const key = `${edge.from}\0${edge.to}\0${edge.type}`
-          if (seen.has(key)) return false
-          seen.add(key)
-          return true
-        })
-
-        // Apply filters
-        if (options?.edgeType) {
-          edges = filterEdgesByType(edges, options.edgeType)
-        }
-        if (options?.direction) {
-          edges = filterEdgesByDirection(edges, entityId, options.direction)
-        }
-        if (options?.limit && edges.length > options.limit) {
-          edges = edges.slice(0, options.limit)
-        }
-
-        return edges
-      } catch (error) {
-        if (error instanceof ProviderErrorClass && error.code === 'OPERATION_FAILED') {
-          const message = error.message.toLowerCase()
-          if (
-            message.includes('not found') ||
-            message.includes('does not exist') ||
-            message.includes('no issue found') ||
-            message.includes('no spec found')
-          ) {
-            return []
-          }
-        }
-        throw error
       }
+
+      // Parent-child relationship
+      if (entity.parent_id) {
+        edges.push({ from: entity.parent_id, to: entityId, type: 'parent-of' })
+      }
+
+      // Deduplicate edges
+      const seen = new Set<string>()
+      edges = edges.filter((edge) => {
+        const key = `${edge.from}\0${edge.to}\0${edge.type}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+
+      // Apply filters
+      if (options?.edgeType) {
+        edges = filterEdgesByType(edges, options.edgeType)
+      }
+      if (options?.direction) {
+        edges = filterEdgesByDirection(edges, entityId, options.direction)
+      }
+      if (options?.limit && edges.length > options.limit) {
+        edges = edges.slice(0, options.limit)
+      }
+
+      return edges
     },
 
     supportedEdgeTypes(): EdgeTypeSupport[] {
