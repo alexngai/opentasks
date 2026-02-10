@@ -445,12 +445,12 @@ function cmdDiscover(args: string[]): void {
 /**
  * Extract a flag value from args. Returns undefined if not present.
  */
-function getFlag(args: string[], flag: string): string | undefined {
+export function getFlag(args: string[], flag: string): string | undefined {
   const idx = args.indexOf(flag)
   return idx !== -1 ? args[idx + 1] : undefined
 }
 
-function hasFlag(args: string[], flag: string): boolean {
+export function hasFlag(args: string[], flag: string): boolean {
   return args.includes(flag)
 }
 
@@ -468,7 +468,7 @@ async function runToolCommand(fn: () => Promise<unknown>): Promise<void> {
   }
 }
 
-async function cmdLink(args: string[]): Promise<void> {
+export async function cmdLink(args: string[]): Promise<void> {
   const fromId = getFlag(args, '--from')
   const toId = getFlag(args, '--to')
   const type = getFlag(args, '--type')
@@ -491,7 +491,7 @@ async function cmdLink(args: string[]): Promise<void> {
   })
 }
 
-async function cmdQuery(args: string[]): Promise<void> {
+export async function cmdQuery(args: string[]): Promise<void> {
   const json = args[0]
   if (!json) {
     console.error('Usage: opentasks query \'<json>\'')
@@ -508,7 +508,7 @@ async function cmdQuery(args: string[]): Promise<void> {
   })
 }
 
-async function cmdAnnotate(args: string[]): Promise<void> {
+export async function cmdAnnotate(args: string[]): Promise<void> {
   const json = args[0]
   if (!json) {
     console.error('Usage: opentasks annotate \'<json>\'')
@@ -525,7 +525,7 @@ async function cmdAnnotate(args: string[]): Promise<void> {
   })
 }
 
-async function cmdCreate(args: string[]): Promise<void> {
+export async function cmdCreate(args: string[]): Promise<void> {
   const type = getFlag(args, '--type')
   const title = getFlag(args, '--title')
 
@@ -562,7 +562,7 @@ async function cmdCreate(args: string[]): Promise<void> {
   })
 }
 
-async function cmdGet(args: string[]): Promise<void> {
+export async function cmdGet(args: string[]): Promise<void> {
   const id = args[0]
   if (!id) {
     console.error('Usage: opentasks get <id>')
@@ -577,7 +577,7 @@ async function cmdGet(args: string[]): Promise<void> {
   })
 }
 
-async function cmdUpdate(args: string[]): Promise<void> {
+export async function cmdUpdate(args: string[]): Promise<void> {
   const id = args[0]
   if (!id) {
     console.error('Usage: opentasks update <id> [--title <t>] [--status <s>] [--archived] [--metadata <json>]')
@@ -609,7 +609,7 @@ async function cmdUpdate(args: string[]): Promise<void> {
   })
 }
 
-async function cmdDelete(args: string[]): Promise<void> {
+export async function cmdDelete(args: string[]): Promise<void> {
   const id = args[0]
   if (!id) {
     console.error('Usage: opentasks delete <id> [--hard]')
@@ -714,4 +714,7 @@ async function main() {
   }
 }
 
-main();
+// Only auto-run when executed directly (not when imported for testing)
+if (!process.env.VITEST) {
+  main();
+}
