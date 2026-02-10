@@ -1,6 +1,6 @@
 ---
 name: opentasks
-description: Use when managing work items, linking external data (Slack, docs, URLs) to tasks, querying task dependencies or blockers, leaving cross-system feedback on specs or issues, or coordinating work across multiple task systems. Use when the agent has access to an OpenTasks daemon via IPC.
+description: Use when managing work items, linking external data (Slack, docs, URLs) to tasks, querying task dependencies or blockers, leaving cross-system feedback on specs or issues, or coordinating work across multiple task systems. Use when the agent has access to the `opentasks` CLI.
 user-invocable: false
 ---
 
@@ -8,73 +8,81 @@ user-invocable: false
 
 OpenTasks is a graph connector that adds a relationship layer across task systems. It does not replace those systems — it provides cross-system edges, feedback, and dependency tracking.
 
-## Two API Layers
+## CLI Commands
 
-| Layer | Methods | Use For |
-|-------|---------|---------|
-| **Tools** (high-level) | `tools.link`, `tools.query`, `tools.annotate` | Relationships, queries, feedback |
-| **Graph** (low-level) | `graph.create`, `graph.get`, `graph.update`, `graph.delete`, `graph.createEdge`, `graph.deleteEdge` | Node CRUD, direct manipulation |
+All operations go through the `opentasks` CLI, which talks to the daemon over IPC.
 
-All calls are JSON-RPC over IPC (Unix socket). Pass optional `location` param to route to a specific store.
+### Link — create or remove edges
 
-## Quick Reference
-
-### tools.link
-
-Create or remove edges between any nodes.
-
-```json
-{ "fromId": "i-x7k9", "toId": "s-a2b3", "type": "implements", "metadata": {} }
+```bash
+opentasks link --from i-x7k9 --to s-a2b3 --type implements
+opentasks link --from i-x7k9 --to i-m4n5 --type blocks
+opentasks link --from i-x7k9 --to e-k7m2 --type references --metadata '{"context":"bug report"}'
+opentasks link --from i-aaa --to i-bbb --type blocks --remove
 ```
 
 Returns `{ success, edgeId? }`. Idempotent. `blocks` edges are cycle-checked.
 
-Set `"remove": true` to delete an edge.
+### Query — search nodes, edges, blockers, ready work
 
-### tools.query
-
-Query the graph. Exactly one query key per call.
-
-| Key | Purpose | Required Params |
-|-----|---------|-----------------|
-| `nodes` | Filter nodes | `NodeFilter` (type, status, tags, search, etc.) |
-| `edges` | Filter edges | `EdgeFilter` (from_id, to_id, type) |
-| `ready` | Unblocked open issues | `ReadyOptions` (tags?, priority?, assignee?) |
-| `blockers` | What blocks a node | `{ nodeId, transitive?, activeOnly? }` |
-| `blocking` | What a node blocks | `{ nodeId, transitive? }` |
-| `feedback` | Feedback on a node | `{ nodeId, type?, resolved? }` |
-| `unresolvedFeedback` | All unresolved feedback | `{ targetId? }` |
-| `implementers` | Issues implementing a spec | `{ specId }` |
-| `specs` | Specs an issue implements | `{ issueId }` |
-
-Returns `{ items, total?, hasMore }`. Set `verbose: true` for full objects.
-
-### tools.annotate
-
-Feedback lifecycle. Exactly one operation per call.
-
-```json
-{ "targetId": "s-a2b3", "create": { "content": "...", "type": "comment", "anchor": { "line": 15 } } }
-{ "targetId": "s-a2b3", "resolve": "f-t1u2" }
-{ "targetId": "s-a2b3", "dismiss": "f-t1u2" }
-{ "targetId": "s-a2b3", "reopen": "f-t1u2" }
+```bash
+opentasks query '{"ready": {}}'
+opentasks query '{"blockers": {"nodeId": "i-r8s9", "activeOnly": true}}'
+opentasks query '{"blocking": {"nodeId": "i-x7k9", "transitive": true}}'
+opentasks query '{"edges": {"from_id": "i-x7k9", "type": "references"}}'
+opentasks query '{"implementers": {"specId": "s-a2b3"}}'
+opentasks query '{"feedback": {"nodeId": "s-a2b3", "resolved": false}}'
+opentasks query '{"unresolvedFeedback": {}}'
 ```
 
-Set `fromId` to link feedback to its source issue.
+Exactly one query key per call. Returns `{ items, total?, hasMore }`.
 
-### graph.create
+| Key | Purpose |
+|-----|---------|
+| `nodes` | Filter nodes by type, status, tags, search |
+| `edges` | Filter edges by from_id, to_id, type |
+| `ready` | Unblocked open issues (tags?, priority?, assignee?) |
+| `blockers` | What blocks a node (transitive?, activeOnly?) |
+| `blocking` | What a node blocks (transitive?) |
+| `feedback` | Feedback on a node (type?, resolved?) |
+| `unresolvedFeedback` | All unresolved feedback (targetId?) |
+| `implementers` | Issues implementing a spec (specId) |
+| `specs` | Specs an issue implements (issueId) |
 
-Create nodes directly. Required fields depend on type.
+### Annotate — feedback lifecycle
 
-```json
-{ "type": "external", "title": "Slack: SSO bug report", "uri": "slack://C04ABCD/p123", "source": "slack", "metadata": {} }
+```bash
+# Create feedback
+opentasks annotate '{"targetId":"s-a2b3","create":{"content":"Implemented OAuth.","type":"comment"}}'
+
+# With source issue link
+opentasks annotate '{"targetId":"s-a2b3","fromId":"i-x7k9","create":{"content":"Done.","type":"comment"}}'
+
+# Anchored suggestion
+opentasks annotate '{"targetId":"s-a2b3","create":{"content":"Add rate limiting","type":"suggestion","anchor":{"line":15}}}'
+
+# Resolve / dismiss / reopen
+opentasks annotate '{"targetId":"s-a2b3","resolve":"f-t1u2"}'
+opentasks annotate '{"targetId":"s-a2b3","dismiss":"f-t1u2"}'
+opentasks annotate '{"targetId":"s-a2b3","reopen":"f-t1u2"}'
 ```
 
-### graph.update / graph.delete
+### Create — add nodes
 
-```json
-{ "id": "i-x7k9", "status": "closed" }
-{ "id": "i-x7k9", "options": { "hard": true } }
+```bash
+opentasks create --type issue --title "Fix SSO redirect" --status open --tags auth,bug --priority 1
+opentasks create --type spec --title "OAuth2 for API" --status active --content "## Requirements\n..."
+opentasks create --type external --title "Slack: SSO bug" --uri "slack://C04ABCD/p123" --source slack --metadata '{"author":"alex"}'
+```
+
+### Get / Update / Delete
+
+```bash
+opentasks get i-x7k9
+opentasks update i-x7k9 --status closed
+opentasks update i-x7k9 --title "New title" --metadata '{"key":"val"}'
+opentasks delete i-x7k9
+opentasks delete i-x7k9 --hard
 ```
 
 ## Node Types

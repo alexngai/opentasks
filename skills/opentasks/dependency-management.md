@@ -13,20 +13,19 @@ Set up dependency chains, query what's blocked and ready, manage work ordering.
 
 ### Linear chain: A → B → C → D
 
-```json
-// tools.link
-{ "fromId": "i-aaa", "toId": "i-bbb", "type": "blocks" }
-{ "fromId": "i-bbb", "toId": "i-ccc", "type": "blocks" }
-{ "fromId": "i-ccc", "toId": "i-ddd", "type": "blocks" }
+```bash
+opentasks link --from i-aaa --to i-bbb --type blocks
+opentasks link --from i-bbb --to i-ccc --type blocks
+opentasks link --from i-ccc --to i-ddd --type blocks
 ```
 
 ### Diamond: A blocks B+C, both block D
 
-```json
-{ "fromId": "i-aaa", "toId": "i-bbb", "type": "blocks" }
-{ "fromId": "i-aaa", "toId": "i-ccc", "type": "blocks" }
-{ "fromId": "i-bbb", "toId": "i-ddd", "type": "blocks" }
-{ "fromId": "i-ccc", "toId": "i-ddd", "type": "blocks" }
+```bash
+opentasks link --from i-aaa --to i-bbb --type blocks
+opentasks link --from i-aaa --to i-ccc --type blocks
+opentasks link --from i-bbb --to i-ddd --type blocks
+opentasks link --from i-ccc --to i-ddd --type blocks
 ```
 
 B and C can run in parallel once A closes. D waits for both.
@@ -35,61 +34,61 @@ B and C can run in parallel once A closes. D waits for both.
 
 Creating a `blocks` edge that would form a cycle returns an error:
 
-```json
-// Given: A blocks B, B blocks C
-{ "fromId": "i-ccc", "toId": "i-aaa", "type": "blocks" }
-// → { success: false, error: "Would create circular dependency" }
+```bash
+# Given: A blocks B, B blocks C
+opentasks link --from i-ccc --to i-aaa --type blocks
+# → { success: false, error: "Would create circular dependency" }
 ```
 
 ### Removing dependencies
 
-```json
-{ "fromId": "i-aaa", "toId": "i-bbb", "type": "blocks", "remove": true }
+```bash
+opentasks link --from i-aaa --to i-bbb --type blocks --remove
 ```
 
 ## Querying
 
 ### What blocks a node?
 
-```json
-// Direct blockers
-{ "blockers": { "nodeId": "i-ddd" } }
+```bash
+# Direct blockers
+opentasks query '{"blockers": {"nodeId": "i-ddd"}}'
 
-// Full chain (transitive)
-{ "blockers": { "nodeId": "i-ddd", "transitive": true } }
+# Full chain (transitive)
+opentasks query '{"blockers": {"nodeId": "i-ddd", "transitive": true}}'
 
-// Only active (non-closed, non-archived)
-{ "blockers": { "nodeId": "i-ddd", "activeOnly": true } }
+# Only active (non-closed, non-archived)
+opentasks query '{"blockers": {"nodeId": "i-ddd", "activeOnly": true}}'
 ```
 
 ### What does a node block?
 
-```json
-{ "blocking": { "nodeId": "i-aaa", "transitive": true } }
+```bash
+opentasks query '{"blocking": {"nodeId": "i-aaa", "transitive": true}}'
 ```
 
 ### What's ready to work on?
 
 Returns open issues with zero active blockers.
 
-```json
-// All ready work
-{ "ready": {} }
+```bash
+# All ready work
+opentasks query '{"ready": {}}'
 
-// Filtered
-{ "ready": { "tags": ["auth"], "priority": { "min": 0, "max": 2 }, "limit": 5 } }
+# Filtered
+opentasks query '{"ready": {"tags": ["auth"], "priority": {"min": 0, "max": 2}, "limit": 5}}'
 ```
 
 ## Agent Work Loop
 
 ```
 loop:
-  1. tools.query({ ready: { limit: 1 } })         → pick highest-priority unblocked issue
+  1. opentasks query '{"ready": {"limit": 1}}'       → pick highest-priority unblocked issue
   2. If empty, stop.
-  3. graph.update({ id: "i-x7k9", status: "in_progress" })
+  3. opentasks update i-x7k9 --status in_progress
   4. Do the work.
-  5. graph.update({ id: "i-x7k9", status: "closed" })
-  6. tools.query({ blocking: { nodeId: "i-x7k9" } })  → see what's now unblocked
+  5. opentasks update i-x7k9 --status closed
+  6. opentasks query '{"blocking": {"nodeId": "i-x7k9"}}'  → see what's now unblocked
   7. Repeat.
 ```
 
@@ -97,27 +96,24 @@ loop:
 
 `blocks` edges work across systems. The `ready` query evaluates them uniformly.
 
-```json
-{ "fromId": "beads://./bd-setup", "toId": "i-x7k9", "type": "blocks" }
-{ "fromId": "i-x7k9", "toId": "claude://current/t-abc", "type": "blocks" }
+```bash
+opentasks link --from "beads://./bd-setup" --to i-x7k9 --type blocks
+opentasks link --from i-x7k9 --to "claude://current/t-abc" --type blocks
 ```
 
 ## Discovering Work During Implementation
 
-```json
-// Create the discovered issue
-// graph.create
-{ "type": "issue", "title": "Token refresh fails for expired sessions", "status": "open", "tags": ["auth", "bug"], "priority": 1 }
-// → i-new1
+```bash
+# Create the discovered issue
+opentasks create --type issue --title "Token refresh fails for expired sessions" --status open --tags auth,bug --priority 1
+# → i-new1
 
-// Link to where it was discovered
-// tools.link
-{ "fromId": "i-new1", "toId": "i-x7k9", "type": "discovered-from" }
+# Link to where it was discovered
+opentasks link --from i-new1 --to i-x7k9 --type discovered-from
 
-// If it blocks current work:
-{ "fromId": "i-new1", "toId": "i-x7k9", "type": "blocks" }
+# If it blocks current work:
+opentasks link --from i-new1 --to i-x7k9 --type blocks
 
-// Update original to blocked
-// graph.update
-{ "id": "i-x7k9", "status": "blocked" }
+# Update original to blocked
+opentasks update i-x7k9 --status blocked
 ```

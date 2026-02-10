@@ -22,6 +22,11 @@ import type {
   BlockerOptions,
   FeedbackOptions,
 } from '../tools/types.js'
+import type {
+  CreateNodeInput,
+  UpdateNodeInput,
+  DeleteOptions,
+} from '../graph/types.js'
 
 // ============================================================================
 // Types
@@ -325,6 +330,54 @@ export class OpenTasksClient {
       feedback: { nodeId, ...options },
     })
     return result.items as FeedbackSummary[]
+  }
+
+  // ==========================================================================
+  // Graph CRUD
+  // ==========================================================================
+
+  /**
+   * Create a node
+   */
+  async createNode(params: CreateNodeInput): Promise<unknown> {
+    await this.ensureConnected()
+    return this.client!.request('graph.create', params)
+  }
+
+  /**
+   * Get a node by ID
+   */
+  async getNode(id: string): Promise<unknown> {
+    await this.ensureConnected()
+    return this.client!.request('graph.get', { id })
+  }
+
+  /**
+   * Update a node by ID
+   */
+  async updateNode(id: string, updates: UpdateNodeInput): Promise<unknown> {
+    await this.ensureConnected()
+    return this.client!.request('graph.update', { id, ...updates })
+  }
+
+  /**
+   * Delete a node by ID
+   */
+  async deleteNode(id: string, options?: DeleteOptions): Promise<void> {
+    await this.ensureConnected()
+    await this.client!.request('graph.delete', { id, options })
+  }
+
+  // ==========================================================================
+  // Generic RPC
+  // ==========================================================================
+
+  /**
+   * Call any daemon method by name
+   */
+  async call<R = unknown>(method: string, params?: unknown): Promise<R> {
+    await this.ensureConnected()
+    return this.client!.request<R>(method, params)
   }
 }
 
