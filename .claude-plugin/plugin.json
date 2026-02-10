@@ -1,0 +1,20 @@
+{
+  "name": "opentasks",
+  "version": "0.0.1",
+  "description": "Universal task graph — link, query, and annotate work items across task systems",
+  "author": {
+    "name": "Alex Ngai"
+  },
+  "repository": "https://github.com/alexngai/opentasks",
+  "license": "MIT",
+  "keywords": [
+    "task-management",
+    "graph",
+    "dependencies",
+    "specs",
+    "issues",
+    "feedback",
+    "cross-system",
+    "agent-tools"
+  ]
+}
