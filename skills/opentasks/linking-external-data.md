@@ -4,37 +4,24 @@ Bind non-task artifacts — Slack messages, Google Docs, Notion pages, emails, U
 
 ## Pattern
 
-Two steps: create an ExternalNode (`graph.create`), then link it (`tools.link`).
+Two steps: create an ExternalNode, then link it.
 
 ### 1. Create the ExternalNode
 
-```json
-// graph.create
-{
-  "type": "external",
-  "title": "Alex: SSO redirect loop after IdP response",
-  "uri": "slack://C04ABCD/p1234567890",
-  "source": "slack",
-  "metadata": {
-    "channel_name": "#engineering",
-    "permalink": "https://workspace.slack.com/archives/C04ABCD/p1234567890",
-    "author": "alex",
-    "text": "auth flow is broken for SSO users — getting redirect loop after IdP response"
-  }
-}
-// → { id: "e-k7m2", ... }
+```bash
+opentasks create --type external \
+  --title "Alex: SSO redirect loop after IdP response" \
+  --uri "slack://C04ABCD/p1234567890" \
+  --source slack \
+  --metadata '{"channel_name":"#engineering","permalink":"https://workspace.slack.com/archives/C04ABCD/p1234567890","author":"alex","text":"auth flow is broken for SSO users — getting redirect loop after IdP response"}'
+# → { id: "e-k7m2", ... }
 ```
 
 ### 2. Link to the relevant node
 
-```json
-// tools.link
-{
-  "fromId": "i-x7k9",
-  "toId": "e-k7m2",
-  "type": "references",
-  "metadata": { "context": "Original bug report from #engineering" }
-}
+```bash
+opentasks link --from i-x7k9 --to e-k7m2 --type references \
+  --metadata '{"context":"Original bug report from #engineering"}'
 ```
 
 ## URI Conventions
@@ -65,9 +52,8 @@ Direction: typically `issue → external` or `spec → external`.
 
 Check before creating:
 
-```json
-// graph.query
-{ "type": "external", "filter": { "search": "slack://C04ABCD/p1234567890" } }
+```bash
+opentasks query '{"nodes": {"type": "external", "search": "slack://C04ABCD/p1234567890"}}'
 ```
 
 If a node with that URI exists, skip creation and link to the existing node.
@@ -76,29 +62,24 @@ If a node with that URI exists, skip creation and link to the existing node.
 
 If the agent only has a URL and can't fetch content:
 
-```json
-// graph.create
-{
-  "type": "external",
-  "title": "Related Slack thread",
-  "uri": "slack://C04ABCD/t1234567880",
-  "source": "slack",
-  "metadata": { "permalink": "https://workspace.slack.com/archives/C04ABCD/p1234567880" }
-}
+```bash
+opentasks create --type external \
+  --title "Related Slack thread" \
+  --uri "slack://C04ABCD/t1234567880" \
+  --source slack \
+  --metadata '{"permalink":"https://workspace.slack.com/archives/C04ABCD/p1234567880"}'
 ```
 
-An agent with access to the external system can later enrich via `graph.update`.
+An agent with access to the external system can later enrich via `opentasks update`.
 
 ## Querying Linked Data
 
-```json
-// All references from an issue
-// tools.query
-{ "edges": { "from_id": "i-x7k9", "type": "references" } }
+```bash
+# All references from an issue
+opentasks query '{"edges": {"from_id": "i-x7k9", "type": "references"}}'
 
-// All external nodes from Slack
-// graph.query
-{ "type": "external", "filter": { "search": "slack" } }
+# All external nodes from Slack
+opentasks query '{"nodes": {"type": "external", "search": "slack"}}'
 ```
 
 ## Complete Example
@@ -109,14 +90,14 @@ Agent working on "Fix SSO redirect loop":
 1. Search Slack via MCP → find 3 relevant messages
 
 2. For each, create ExternalNode:
-   graph.create({ type: "external", title: "...", uri: "slack://...", source: "slack", metadata: { text, author, channel } })
+   opentasks create --type external --title "..." --uri "slack://..." --source slack --metadata '{...}'
 
 3. Link each to the issue:
-   tools.link({ fromId: "i-x7k9", toId: "e-k7m2", type: "references" })
-   tools.link({ fromId: "i-x7k9", toId: "e-k7m3", type: "references" })
-   tools.link({ fromId: "i-x7k9", toId: "e-k7m4", type: "discovered-from" })
+   opentasks link --from i-x7k9 --to e-k7m2 --type references
+   opentasks link --from i-x7k9 --to e-k7m3 --type references
+   opentasks link --from i-x7k9 --to e-k7m4 --type discovered-from
 
 4. Later, another agent queries context:
-   tools.query({ edges: { from_id: "i-x7k9", type: ["references", "discovered-from"] } })
+   opentasks query '{"edges": {"from_id": "i-x7k9", "type": ["references", "discovered-from"]}}'
    → Gets back ExternalNodes with Slack content in metadata
 ```

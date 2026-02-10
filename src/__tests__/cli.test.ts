@@ -17,8 +17,12 @@ const CLI_PATH = path.resolve(__dirname, '../cli.ts')
  */
 async function runCli(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve) => {
+    // Strip VITEST env var so the subprocess runs main() normally
+    const env = { ...process.env }
+    delete env.VITEST
     const proc = spawn('npx', ['tsx', CLI_PATH, ...args], {
       cwd: path.resolve(__dirname, '../..'),
+      env,
     })
 
     let stdout = ''
@@ -50,7 +54,7 @@ describe('CLI', () => {
       expect(exitCode).toBe(0)
       expect(stdout).toContain('opentasks')
       expect(stdout).toContain('Usage:')
-      expect(stdout).toContain('Commands:')
+      expect(stdout).toContain('Tool commands')
     })
 
     it('should show help when help command provided', async () => {

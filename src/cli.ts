@@ -14,6 +14,7 @@ import { createConnection, checkAllConnectionHealth, type Connection } from './c
 import { worktreeSetup, worktreeTeardown, listWorktrees, getGitCommonDir } from './core/worktree.js'
 import { mergeJsonl, installMergeDriver } from './core/merge-driver.js'
 import { discoverLocations } from './core/discover.js'
+import { OpenTasksClient } from './client/client.js'
 
 const OPENTASKS_DIR = '.opentasks'
 const CONFIG_FILE = 'config.json'
@@ -25,8 +26,32 @@ opentasks v0.1.0
 Usage:
   opentasks <command> [options]
 
-Commands:
-  help                          Show this help message
+Tool commands (require running daemon):
+  link    --from <id> --to <id> --type <type> [--remove] [--metadata <json>]
+  query   <json>                Query the graph (pass QueryParams as JSON)
+  annotate <json>               Manage feedback (pass AnnotateParams as JSON)
+  create  --type <type> --title <title> [options]
+  get     <id>                  Get a node by ID
+  update  <id> [options]        Update a node
+  delete  <id> [--hard]         Delete a node
+
+Create options:
+  --status <s>                  Status (required for issues)
+  --content <text>              Markdown content
+  --uri <uri>                   External URI (for external nodes)
+  --source <src>                Source system (for external nodes)
+  --tags <t1,t2>                Comma-separated tags
+  --priority <n>                Priority 0-4
+  --parent <id>                 Parent node ID
+  --metadata <json>             Additional metadata as JSON
+
+Update options:
+  --title <t>                   Update title
+  --status <s>                  Update status
+  --archived                    Archive the node
+  --metadata <json>             Update metadata (merged)
+
+Setup commands:
   init [--name <name>]          Initialize .opentasks in current directory
   connect <path> [--role <role>] Connect to another location
   disconnect <hash>             Disconnect from a location
@@ -37,12 +62,7 @@ Commands:
   discover [options]            Find nearby opentasks locations
   merge-driver <O> <A> <B>     JSONL merge driver (for git)
 
-Discover options:
-  --direction up|down|both      Search direction (default: both)
-  --max-depth <n>               Maximum depth to traverse (default: 5)
-
-For programmatic usage, import from the opentasks package:
-  import { OpenTasksClient, createClient } from 'opentasks'
+All tool commands output JSON to stdout.
 `);
 }
 
@@ -418,11 +438,199 @@ function cmdDiscover(args: string[]): void {
   }
 }
 
+// ============================================================================
+// Tool Commands (daemon-connected)
+// ============================================================================
+
+/**
+ * Extract a flag value from args. Returns undefined if not present.
+ */
+export function getFlag(args: string[], flag: string): string | undefined {
+  const idx = args.indexOf(flag)
+  return idx !== -1 ? args[idx + 1] : undefined
+}
+
+export function hasFlag(args: string[], flag: string): boolean {
+  return args.includes(flag)
+}
+
+/**
+ * Run an async command, print JSON result, handle errors.
+ */
+async function runToolCommand(fn: () => Promise<unknown>): Promise<void> {
+  try {
+    const result = await fn()
+    console.log(JSON.stringify(result, null, 2))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(JSON.stringify({ error: message }))
+    process.exit(1)
+  }
+}
+
+export async function cmdLink(args: string[]): Promise<void> {
+  const fromId = getFlag(args, '--from')
+  const toId = getFlag(args, '--to')
+  const type = getFlag(args, '--type')
+  const remove = hasFlag(args, '--remove')
+  const metadataStr = getFlag(args, '--metadata')
+
+  if (!fromId || !toId || !type) {
+    console.error('Usage: opentasks link --from <id> --to <id> --type <type> [--remove] [--metadata <json>]')
+    process.exit(1)
+  }
+
+  const client = new OpenTasksClient()
+  await runToolCommand(async () => {
+    const params: Record<string, unknown> = { fromId, toId, type }
+    if (remove) params.remove = true
+    if (metadataStr) params.metadata = JSON.parse(metadataStr)
+    const result = await client.link(params as never)
+    client.disconnect()
+    return result
+  })
+}
+
+export async function cmdQuery(args: string[]): Promise<void> {
+  const json = args[0]
+  if (!json) {
+    console.error('Usage: opentasks query \'<json>\'')
+    console.error('Example: opentasks query \'{"ready":{}}\'')
+    process.exit(1)
+  }
+
+  const client = new OpenTasksClient()
+  await runToolCommand(async () => {
+    const params = JSON.parse(json)
+    const result = await client.query(params)
+    client.disconnect()
+    return result
+  })
+}
+
+export async function cmdAnnotate(args: string[]): Promise<void> {
+  const json = args[0]
+  if (!json) {
+    console.error('Usage: opentasks annotate \'<json>\'')
+    console.error('Example: opentasks annotate \'{"targetId":"s-a2b3","create":{"content":"...","type":"comment"}}\'')
+    process.exit(1)
+  }
+
+  const client = new OpenTasksClient()
+  await runToolCommand(async () => {
+    const params = JSON.parse(json)
+    const result = await client.annotate(params)
+    client.disconnect()
+    return result
+  })
+}
+
+export async function cmdCreate(args: string[]): Promise<void> {
+  const type = getFlag(args, '--type')
+  const title = getFlag(args, '--title')
+
+  if (!type || !title) {
+    console.error('Usage: opentasks create --type <type> --title <title> [options]')
+    process.exit(1)
+  }
+
+  const params: Record<string, unknown> = { type, title }
+
+  const status = getFlag(args, '--status')
+  const content = getFlag(args, '--content')
+  const uri = getFlag(args, '--uri')
+  const source = getFlag(args, '--source')
+  const tagsStr = getFlag(args, '--tags')
+  const priorityStr = getFlag(args, '--priority')
+  const parentId = getFlag(args, '--parent')
+  const metadataStr = getFlag(args, '--metadata')
+
+  if (status) params.status = status
+  if (content) params.content = content
+  if (uri) params.uri = uri
+  if (source) params.source = source
+  if (tagsStr) params.tags = tagsStr.split(',').map(t => t.trim())
+  if (priorityStr) params.priority = parseInt(priorityStr, 10)
+  if (parentId) params.parent_id = parentId
+  if (metadataStr) params.metadata = JSON.parse(metadataStr)
+
+  const client = new OpenTasksClient()
+  await runToolCommand(async () => {
+    const result = await client.createNode(params as never)
+    client.disconnect()
+    return result
+  })
+}
+
+export async function cmdGet(args: string[]): Promise<void> {
+  const id = args[0]
+  if (!id) {
+    console.error('Usage: opentasks get <id>')
+    process.exit(1)
+  }
+
+  const client = new OpenTasksClient()
+  await runToolCommand(async () => {
+    const result = await client.getNode(id)
+    client.disconnect()
+    return result
+  })
+}
+
+export async function cmdUpdate(args: string[]): Promise<void> {
+  const id = args[0]
+  if (!id) {
+    console.error('Usage: opentasks update <id> [--title <t>] [--status <s>] [--archived] [--metadata <json>]')
+    process.exit(1)
+  }
+
+  const rest = args.slice(1)
+  const updates: Record<string, unknown> = {}
+
+  const title = getFlag(rest, '--title')
+  const status = getFlag(rest, '--status')
+  const metadataStr = getFlag(rest, '--metadata')
+
+  if (title) updates.title = title
+  if (status) updates.status = status
+  if (hasFlag(rest, '--archived')) updates.archived = true
+  if (metadataStr) updates.metadata = JSON.parse(metadataStr)
+
+  if (Object.keys(updates).length === 0) {
+    console.error('No updates specified. Use --title, --status, --archived, or --metadata.')
+    process.exit(1)
+  }
+
+  const client = new OpenTasksClient()
+  await runToolCommand(async () => {
+    const result = await client.updateNode(id, updates as never)
+    client.disconnect()
+    return result
+  })
+}
+
+export async function cmdDelete(args: string[]): Promise<void> {
+  const id = args[0]
+  if (!id) {
+    console.error('Usage: opentasks delete <id> [--hard]')
+    process.exit(1)
+  }
+
+  const hard = hasFlag(args, '--hard')
+
+  const client = new OpenTasksClient()
+  await runToolCommand(async () => {
+    await client.deleteNode(id, hard ? { hard: true } : undefined)
+    client.disconnect()
+    return { success: true, id, hard }
+  })
+}
+
 function padRight(str: string, len: number): string {
   return str.length >= len ? str + '  ' : str + ' '.repeat(len - str.length)
 }
 
-function main() {
+async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
 
@@ -432,9 +640,32 @@ function main() {
   }
 
   switch (command) {
+    // Tool commands (async, require daemon)
+    case 'link':
+      await cmdLink(args.slice(1));
+      break;
+    case 'query':
+      await cmdQuery(args.slice(1));
+      break;
+    case 'annotate':
+      await cmdAnnotate(args.slice(1));
+      break;
+    case 'create':
+      await cmdCreate(args.slice(1));
+      break;
+    case 'get':
+      await cmdGet(args.slice(1));
+      break;
+    case 'update':
+      await cmdUpdate(args.slice(1));
+      break;
+    case 'delete':
+      await cmdDelete(args.slice(1));
+      break;
+
+    // Setup commands (sync, no daemon needed)
     case 'init':
       cmdInit(args.slice(1));
-      // Install merge driver on init
       try {
         installMergeDriver(process.cwd())
       } catch {
@@ -483,4 +714,7 @@ function main() {
   }
 }
 
-main();
+// Only auto-run when executed directly (not when imported for testing)
+if (!process.env.VITEST) {
+  main();
+}
