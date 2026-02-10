@@ -1,6 +1,7 @@
 ---
 name: opentasks
 description: Use when managing work items, linking external data (Slack, docs, URLs) to tasks, querying task dependencies or blockers, leaving cross-system feedback on specs or issues, or coordinating work across multiple task systems. Use when the agent has access to an OpenTasks daemon via IPC.
+user-invocable: false
 ---
 
 # OpenTasks
