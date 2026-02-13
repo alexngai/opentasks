@@ -161,6 +161,11 @@ export async function createLocationState(
  * Tear down a LocationState, releasing all resources.
  */
 export async function destroyLocationState(state: LocationState): Promise<void> {
+  // Stop provider watching/sync before tearing down store
+  if (state.providerStore) {
+    try { state.providerStore.stopProviderWatching() } catch { /* ignore */ }
+    try { state.providerStore.stopBackgroundSync() } catch { /* ignore */ }
+  }
   try { await state.watcher.stop() } catch { /* ignore */ }
   try { await state.flushManager.finalFlush() } catch { /* ignore */ }
   try { await state.store.close() } catch { /* ignore */ }

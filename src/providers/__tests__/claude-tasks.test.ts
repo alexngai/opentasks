@@ -35,6 +35,8 @@ describe('ClaudeTasksProvider', () => {
         write: true,
         search: false,
         watch: false,
+        mount: true,
+        feedback: false,
       })
     })
   })

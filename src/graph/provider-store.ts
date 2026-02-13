@@ -217,16 +217,26 @@ function isLocalId(idOrUri: string): boolean {
 }
 
 /**
- * Convert CreateNodeInput to ProviderCreateInput
+ * Convert CreateNodeInput to ProviderCreateInput.
+ * Passes through tags and parent_id via metadata so providers can use them.
  */
 function toProviderCreateInput(input: CreateNodeInput): ProviderCreateInput {
+  // Merge tags and parent_id into metadata for providers that support them
+  const metadata: Record<string, unknown> = { ...input.metadata }
+  if (input.tags && input.tags.length > 0) {
+    metadata.tags = input.tags
+  }
+  if (input.parent_id) {
+    metadata.parent_id = input.parent_id
+  }
+
   return {
     type: input.type === 'issue' || input.type === 'spec' ? input.type : 'issue',
     title: input.title,
     content: input.content,
     status: input.status,
     priority: input.priority,
-    metadata: input.metadata,
+    metadata: Object.keys(metadata).length > 0 ? metadata : input.metadata,
   }
 }
 
@@ -383,48 +393,7 @@ export function createProviderAwareStore(
       idOrUri: string,
       options?: ResolveOptions
     ): Promise<Node | ProviderNode | null> {
-      // 1. Check if local ID - use existing getNode
-      if (isLocalId(idOrUri)) {
-        return baseStore.getNode(idOrUri)
-      }
-
-      // 2. Check for cached materialized node (unless refresh requested)
-      if (!options?.refresh) {
-        const existing = await findExternalNodeByUri(idOrUri, baseStore)
-        if (existing && !materialization.isStale(existing)) {
-          return existing
-        }
-      }
-
-      // 3. Find provider for this URI
-      const provider = registry.resolveProvider(idOrUri)
-      if (!provider) {
-        return null
-      }
-
-      // 4. Parse URI and fetch from provider
-      const parsed = provider.parseUri(idOrUri)
-      if (!parsed) {
-        return null
-      }
-
-      const providerNode = await provider.get(parsed.id)
-      if (!providerNode) {
-        return null
-      }
-
-      // 5. Materialize if requested or per strategy
-      const shouldMaterialize = materialization.shouldMaterialize(idOrUri, {
-        accessType: 'resolve',
-        explicit: options?.materialize,
-      })
-
-      if (shouldMaterialize) {
-        return materialization.materialize(idOrUri, providerNode, baseStore)
-      }
-
-      // Return provider node directly
-      return providerNode as unknown as Node
+      return resolveNodeInternal(idOrUri, options)
     },
 
     /**
@@ -599,7 +568,7 @@ export function createProviderAwareStore(
       }
 
       // 2. Provider URI — resolve through provider, always materialize
-      const result = await this.resolveNode(idOrUri, { materialize: true })
+      const result = await resolveNodeInternal(idOrUri, { materialize: true })
       return result as Node | null
     },
 
@@ -607,9 +576,18 @@ export function createProviderAwareStore(
       // Resolve the target node and provider
       const { node, provider: owningProvider, isExternal } = await resolveForWrite(idOrUri)
 
-      if (!isExternal || !owningProvider || owningProvider.name === 'native') {
+      if (!isExternal || owningProvider?.name === 'native') {
         // Local node — update directly
         return baseStore.updateNode(node.id, updates)
+      }
+
+      // External node but provider not registered — error rather than silent local-only update
+      if (!owningProvider) {
+        const extNode = node as ExternalNode
+        throw new ProviderError(
+          'NOT_FOUND',
+          `Provider not registered for external node URI: ${extNode.uri}. Cannot route update.`
+        )
       }
 
       if (!owningProvider.capabilities.write) {
@@ -633,10 +611,19 @@ export function createProviderAwareStore(
       // Resolve the target node and provider
       const { node, provider: owningProvider, isExternal } = await resolveForWrite(idOrUri)
 
-      if (!isExternal || !owningProvider || owningProvider.name === 'native') {
+      if (!isExternal || owningProvider?.name === 'native') {
         // Local node — delete directly
         await baseStore.deleteNode(node.id, options)
         return
+      }
+
+      // External node but provider not registered — error rather than silent local-only delete
+      if (!owningProvider) {
+        const extNode = node as ExternalNode
+        throw new ProviderError(
+          'NOT_FOUND',
+          `Provider not registered for external node URI: ${extNode.uri}. Cannot route delete.`
+        )
       }
 
       if (!owningProvider.capabilities.write) {
@@ -655,6 +642,58 @@ export function createProviderAwareStore(
       // Remove local materialized copy
       await baseStore.deleteNode(node.id, { hard: true })
     },
+  }
+
+  // ===========================================================================
+  // Internal Helper: Resolve any node by ID or URI (used by resolveNode and providerGet)
+  // ===========================================================================
+
+  async function resolveNodeInternal(
+    idOrUri: string,
+    options?: ResolveOptions
+  ): Promise<Node | ProviderNode | null> {
+    // 1. Check if local ID - use existing getNode
+    if (isLocalId(idOrUri)) {
+      return baseStore.getNode(idOrUri)
+    }
+
+    // 2. Check for cached materialized node (unless refresh requested)
+    if (!options?.refresh) {
+      const existing = await findExternalNodeByUri(idOrUri, baseStore)
+      if (existing && !materialization.isStale(existing)) {
+        return existing
+      }
+    }
+
+    // 3. Find provider for this URI
+    const provider = registry.resolveProvider(idOrUri)
+    if (!provider) {
+      return null
+    }
+
+    // 4. Parse URI and fetch from provider
+    const parsed = provider.parseUri(idOrUri)
+    if (!parsed) {
+      return null
+    }
+
+    const providerNode = await provider.get(parsed.id)
+    if (!providerNode) {
+      return null
+    }
+
+    // 5. Materialize if requested or per strategy
+    const shouldMaterialize = materialization.shouldMaterialize(idOrUri, {
+      accessType: 'resolve',
+      explicit: options?.materialize,
+    })
+
+    if (shouldMaterialize) {
+      return materialization.materialize(idOrUri, providerNode, baseStore)
+    }
+
+    // Return provider node directly
+    return providerNode as unknown as Node
   }
 
   // ===========================================================================

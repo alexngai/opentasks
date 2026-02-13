@@ -731,6 +731,15 @@ describe('ProviderAwareStore', () => {
         providerStore.providerUpdate('s-nonexist', { title: 'Test' })
       ).rejects.toThrow('not found')
     })
+
+    it('should throw when external node provider is not registered', async () => {
+      // External node exists but its provider (beads) is NOT registered
+      vi.mocked(baseStore.getNode).mockResolvedValue(mockExternalNode as unknown as Node)
+
+      await expect(
+        providerStore.providerUpdate('x-ext1', { title: 'Update' })
+      ).rejects.toThrow('Provider not registered')
+    })
   })
 
   describe('providerDelete', () => {
@@ -765,6 +774,15 @@ describe('ProviderAwareStore', () => {
       await expect(
         providerStore.providerDelete('s-nonexist')
       ).rejects.toThrow('not found')
+    })
+
+    it('should throw when external node provider is not registered', async () => {
+      // External node exists but its provider (beads) is NOT registered
+      vi.mocked(baseStore.getNode).mockResolvedValue(mockExternalNode as unknown as Node)
+
+      await expect(
+        providerStore.providerDelete('x-ext1')
+      ).rejects.toThrow('Provider not registered')
     })
   })
 

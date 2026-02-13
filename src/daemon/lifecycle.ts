@@ -20,9 +20,13 @@ import { registerGraphMethods } from './methods/graph.js'
 import { registerToolsMethods } from './methods/tools.js'
 import { registerLocationMethods } from './methods/location.js'
 import type { GraphStore } from '../graph/store.js'
-import { createProviderAwareStore } from '../graph/provider-store.js'
+import { createProviderAwareStore, type ProviderAwareStore } from '../graph/provider-store.js'
 import { registerProviderMethods } from './methods/provider.js'
 import type { PartialOpenTasksConfig } from '../config/index.js'
+import { loadConfigFile } from '../config/loader.js'
+import { createBeadsProvider } from '../providers/beads.js'
+import { createSudocodeProvider } from '../providers/sudocode.js'
+import { createClaudeTasksProvider } from '../providers/claude-tasks.js'
 import {
   createLocationState,
   destroyLocationState,
@@ -136,6 +140,64 @@ function isMultiLocationConfig(config: DaemonConfig): config is MultiLocationDae
 }
 
 // ============================================================================
+// Provider Registration
+// ============================================================================
+
+/**
+ * Register external providers on a ProviderAwareStore based on config.
+ * Reads the `providers` section of the OpenTasks config and instantiates
+ * enabled providers, registering them with the store's provider registry.
+ */
+function registerConfiguredProviders(
+  providerStore: ProviderAwareStore,
+  config?: PartialOpenTasksConfig
+): void {
+  const providersConfig = config?.providers as {
+    beads?: { enabled?: boolean; executable?: string; timeout?: number }
+    claudeTasks?: { enabled?: boolean }
+    sudocode?: { enabled?: boolean; executable?: string; timeout?: number }
+  } | undefined
+
+  if (!providersConfig) return
+
+  // Register Beads provider if enabled
+  if (providersConfig.beads?.enabled !== false) {
+    try {
+      const beads = createBeadsProvider({
+        executable: providersConfig.beads?.executable,
+        timeout: providersConfig.beads?.timeout,
+      })
+      providerStore.providers.register(beads)
+    } catch {
+      // Graceful degradation: skip provider if creation fails
+    }
+  }
+
+  // Register Sudocode provider if enabled
+  if (providersConfig.sudocode?.enabled !== false) {
+    try {
+      const sudocode = createSudocodeProvider({
+        executable: providersConfig.sudocode?.executable,
+        timeout: providersConfig.sudocode?.timeout,
+      })
+      providerStore.providers.register(sudocode)
+    } catch {
+      // Graceful degradation: skip provider if creation fails
+    }
+  }
+
+  // Register Claude Tasks provider if enabled
+  if (providersConfig.claudeTasks?.enabled !== false) {
+    try {
+      const claudeTasks = createClaudeTasksProvider()
+      providerStore.providers.register(claudeTasks)
+    } catch {
+      // Graceful degradation: skip provider if creation fails
+    }
+  }
+}
+
+// ============================================================================
 // Shared Helpers
 // ============================================================================
 
@@ -214,6 +276,7 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
   let ipcServer: IPCServer | null = null
   let fileWatcher: FileWatcher | null = null
   let flushManager: DaemonFlushManager | null = null
+  let activeProviderStore: ProviderAwareStore | null = null
 
   // Signal handlers (stored for cleanup)
   let signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = []
@@ -316,6 +379,10 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           defaultProvider,
         })
 
+        // Register external providers from config
+        registerConfiguredProviders(providerStore, openTasksConfig)
+        activeProviderStore = providerStore
+
         const locationState: LocationState = {
           hash: 'primary',
           opentasksPath: locationPath,
@@ -367,7 +434,10 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         // Update the location state's watcher reference
         locationState.watcher = fileWatcher
 
-        // 12. Mark as running
+        // 12. Start provider watching for watchable providers
+        providerStore.startProviderWatching()
+
+        // 13. Mark as running
         state = 'running'
       } catch (error) {
         // Cleanup on failure
@@ -420,6 +490,13 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           if (ipcServer) {
             await ipcServer.stop()
             ipcServer = null
+          }
+
+          // Stop provider watching before tearing down file watcher and store
+          if (activeProviderStore) {
+            activeProviderStore.stopProviderWatching()
+            activeProviderStore.stopBackgroundSync()
+            activeProviderStore = null
           }
 
           if (fileWatcher) {
@@ -544,15 +621,25 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
   async function initLocation(
     opentasksPath: string,
     hash: string,
-    isPrimary: boolean
+    isPrimary: boolean,
+    locationConfig?: PartialOpenTasksConfig
   ): Promise<LocationState | null> {
     try {
       const locState = await createLocationState(opentasksPath, hash, isPrimary)
       // Wrap store with provider-aware dispatch
+      const defaultProvider = locationConfig?.defaultProvider as string | undefined ?? 'native'
       locState.providerStore = createProviderAwareStore(locState.store, {
-        defaultProvider: 'native',
+        defaultProvider,
       })
+
+      // Register external providers from config
+      registerConfiguredProviders(locState.providerStore, locationConfig)
+
       await locState.watcher.start()
+
+      // Start provider watching for watchable providers
+      locState.providerStore.startProviderWatching()
+
       return locState
     } catch {
       // Graceful degradation: skip failed locations
@@ -647,8 +734,15 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
         // 8. Create multi-location resolver
         locationResolver = createMultiLocationResolver(primaryHash)
 
-        // 9. Initialize primary location
-        const primaryState = await initLocation(primaryPath, primaryHash, true)
+        // 9. Initialize primary location (load config from .opentasks/config.json)
+        let primaryConfig: PartialOpenTasksConfig | null = null
+        try {
+          primaryConfig = await loadConfigFile(path.dirname(primaryPath))
+        } catch {
+          // Config load failure is non-fatal; defaults will be used
+        }
+
+        const primaryState = await initLocation(primaryPath, primaryHash, true, primaryConfig ?? undefined)
         if (primaryState) {
           locationResolver.add(primaryState)
         }
@@ -658,7 +752,14 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
           // Skip if already added as primary
           if (locationResolver.has(wt.hash)) continue
 
-          const wtState = await initLocation(wt.opentasksPath, wt.hash, false)
+          let wtConfig: PartialOpenTasksConfig | null = null
+          try {
+            wtConfig = await loadConfigFile(path.dirname(wt.opentasksPath))
+          } catch {
+            // Config load failure is non-fatal
+          }
+
+          const wtState = await initLocation(wt.opentasksPath, wt.hash, false, wtConfig ?? undefined)
           if (wtState) {
             locationResolver.add(wtState)
           }
