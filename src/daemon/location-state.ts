@@ -14,6 +14,8 @@ import { JSONLPersister } from '../storage/jsonl.js'
 import type { Storage } from '../storage/interface.js'
 import { createFileWatcher, type FileWatcher } from './watcher.js'
 import { createDaemonFlushManager, type DaemonFlushManager } from './flush.js'
+import { createEntireWatcher, type EntireWatcher } from './entire-watcher.js'
+import { createEntireAutoLinker, type EntireAutoLinker } from './entire-linker.js'
 import { DaemonError, type LocationInfo } from './types.js'
 
 // ============================================================================
@@ -44,6 +46,12 @@ export interface LocationState {
 
   /** Whether the location is healthy */
   healthy: boolean
+
+  /** Entire session watcher (if enabled) */
+  entireWatcher?: EntireWatcher
+
+  /** Entire auto-linker (if enabled) */
+  entireLinker?: EntireAutoLinker
 }
 
 /**
@@ -142,6 +150,31 @@ export async function createLocationState(
     // External changes detected. Full reload deferred.
   })
 
+  // Initialize Entire integration (watcher + auto-linker)
+  let entireWatcher: EntireWatcher | undefined
+  let entireLinker: EntireAutoLinker | undefined
+
+  try {
+    entireWatcher = createEntireWatcher({
+      locationPath: opentasksPath,
+    })
+
+    entireLinker = createEntireAutoLinker({
+      store,
+      flushManager,
+    })
+
+    entireWatcher.onSessionEvent((event) => {
+      void entireLinker!.handleSessionEvent(event)
+    })
+
+    await entireWatcher.start()
+  } catch {
+    // Entire integration is optional — continue without it
+    entireWatcher = undefined
+    entireLinker = undefined
+  }
+
   return {
     hash,
     opentasksPath,
@@ -150,6 +183,8 @@ export async function createLocationState(
     watcher,
     primary,
     healthy: true,
+    entireWatcher,
+    entireLinker,
   }
 }
 
@@ -157,6 +192,10 @@ export async function createLocationState(
  * Tear down a LocationState, releasing all resources.
  */
 export async function destroyLocationState(state: LocationState): Promise<void> {
+  // Stop Entire watcher before main watcher
+  if (state.entireWatcher) {
+    try { await state.entireWatcher.stop() } catch { /* ignore */ }
+  }
   try { await state.watcher.stop() } catch { /* ignore */ }
   try { await state.flushManager.finalFlush() } catch { /* ignore */ }
   try { await state.store.close() } catch { /* ignore */ }

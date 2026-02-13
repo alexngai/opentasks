@@ -6,6 +6,7 @@
 
 import { createBeadsProvider } from './beads.js'
 import { createClaudeTasksProvider } from './claude-tasks.js'
+import { createEntireProvider } from './entire.js'
 import { createNativeProvider } from './native.js'
 import { createSudocodeProvider } from './sudocode.js'
 import { createProviderRegistry } from './registry.js'
@@ -155,6 +156,33 @@ export async function createProvidersFromConfig(
     }
   } else {
     skipped.push('sudocode')
+  }
+
+  // 5. Entire provider (if enabled)
+  if (config.providers.entire.enabled) {
+    const entireConfig = config.providers.entire
+    const isAvailable = await isCliAvailable(entireConfig.executable)
+
+    if (isAvailable) {
+      try {
+        const entireProvider = createEntireProvider({
+          executable: entireConfig.executable,
+          timeout: entireConfig.timeout,
+        })
+        registry.register(entireProvider)
+        providers.push(entireProvider)
+      } catch (error) {
+        failed.push({
+          name: 'entire',
+          error: error instanceof Error ? error : new Error(String(error)),
+        })
+      }
+    } else {
+      // Enabled but not available - skip silently (per spec)
+      skipped.push('entire')
+    }
+  } else {
+    skipped.push('entire')
   }
 
   return { registry, providers, skipped, failed }
