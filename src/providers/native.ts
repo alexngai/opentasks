@@ -176,6 +176,8 @@ export function createNativeProvider(
     write: true,
     search: true,
     watch: !!watchPath,
+    mount: true,
+    feedback: true,
   }
 
   // =========================================================================

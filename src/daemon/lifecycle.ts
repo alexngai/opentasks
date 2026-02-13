@@ -20,6 +20,8 @@ import { registerGraphMethods } from './methods/graph.js'
 import { registerToolsMethods } from './methods/tools.js'
 import { registerLocationMethods } from './methods/location.js'
 import type { GraphStore } from '../graph/store.js'
+import { createProviderAwareStore } from '../graph/provider-store.js'
+import { registerProviderMethods } from './methods/provider.js'
 import type { PartialOpenTasksConfig } from '../config/index.js'
 import {
   createLocationState,
@@ -309,10 +311,16 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         ipcServer = createIPCServer(socketPath)
 
         // 8. Create single-location resolver wrapping store + flushManager
+        const defaultProvider = openTasksConfig?.defaultProvider as string | undefined ?? 'native'
+        const providerStore = createProviderAwareStore(store, {
+          defaultProvider,
+        })
+
         const locationState: LocationState = {
           hash: 'primary',
           opentasksPath: locationPath,
           store,
+          providerStore,
           flushManager,
           watcher: null as unknown as FileWatcher, // watcher managed separately
           primary: true,
@@ -335,6 +343,11 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         })
 
         registerToolsMethods({
+          server: ipcServer,
+          locationResolver,
+        })
+
+        registerProviderMethods({
           server: ipcServer,
           locationResolver,
         })
@@ -535,6 +548,10 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
   ): Promise<LocationState | null> {
     try {
       const locState = await createLocationState(opentasksPath, hash, isPrimary)
+      // Wrap store with provider-aware dispatch
+      locState.providerStore = createProviderAwareStore(locState.store, {
+        defaultProvider: 'native',
+      })
       await locState.watcher.start()
       return locState
     } catch {
@@ -681,6 +698,11 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
         })
 
         registerToolsMethods({
+          server: ipcServer,
+          locationResolver,
+        })
+
+        registerProviderMethods({
           server: ipcServer,
           locationResolver,
         })

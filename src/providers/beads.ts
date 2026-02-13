@@ -208,6 +208,8 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
     write: true,
     search: true,
     watch: !!watchPath,
+    mount: true,
+    feedback: false,
   }
 
   // =========================================================================

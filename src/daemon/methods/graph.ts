@@ -4,6 +4,9 @@
  * JSON-RPC method handlers for graph operations via IPC.
  * Location-aware: extracts optional `location` from params to route
  * to the correct store via LocationResolver.
+ *
+ * When a ProviderAwareStore is available on the LocationState,
+ * CRUD operations are dispatched through the unified provider interface.
  */
 
 import type { IPCServer } from '../ipc.js'
@@ -48,6 +51,12 @@ interface QueryParams {
 interface GetParams {
   id: string
   location?: string
+}
+
+interface CreateParams extends CreateNodeInput {
+  location?: string
+  /** Target provider scheme (overrides defaultProvider config) */
+  scheme?: string
 }
 
 interface UpdateParams extends UpdateNodeInput {
@@ -103,7 +112,7 @@ export function registerGraphMethods(options: GraphMethodsOptions): void {
     return state.store.query.nodes(queryFilter)
   })
 
-  // graph.get - Get node by ID
+  // graph.get - Get node by ID or provider URI
   server.handle<GetParams, unknown>('graph.get', async (params) => {
     const { id, location } = params || {}
     if (!id) {
@@ -111,18 +120,36 @@ export function registerGraphMethods(options: GraphMethodsOptions): void {
     }
 
     const state = locationResolver.resolve(location)
+
+    // Use provider-aware get when available
+    if (state.providerStore) {
+      return state.providerStore.providerGet(id)
+    }
+
     return state.store.getNode(id)
   })
 
-  // graph.create - Create node
-  server.handle<CreateNodeInput & { location?: string }, unknown>('graph.create', async (params) => {
+  // graph.create - Create node (with optional provider routing)
+  server.handle<CreateParams, unknown>('graph.create', async (params) => {
     if (!params) {
       throw new Error('Missing required parameters')
     }
 
-    const { location, ...createParams } = params
+    const { location, scheme, ...createParams } = params
     const state = locationResolver.resolve(location)
 
+    // Use provider-aware create when available
+    if (state.providerStore) {
+      const result = await state.providerStore.providerCreate(createParams, { scheme })
+
+      // Mark dirty and schedule flush
+      state.flushManager.markDirty(result.node.id)
+      state.flushManager.schedule()
+
+      return result.node
+    }
+
+    // Fallback: direct store create
     const node = await state.store.createNode(createParams)
 
     // Mark dirty and schedule flush
@@ -132,7 +159,7 @@ export function registerGraphMethods(options: GraphMethodsOptions): void {
     return node
   })
 
-  // graph.update - Update node
+  // graph.update - Update node (with provider routing for external nodes)
   server.handle<UpdateParams, unknown>('graph.update', async (params) => {
     if (!params || !params.id) {
       throw new Error('Missing required parameter: id')
@@ -140,6 +167,19 @@ export function registerGraphMethods(options: GraphMethodsOptions): void {
 
     const { id, location, ...updates } = params
     const state = locationResolver.resolve(location)
+
+    // Use provider-aware update when available
+    if (state.providerStore) {
+      const node = await state.providerStore.providerUpdate(id, updates)
+
+      // Mark dirty and schedule flush
+      state.flushManager.markDirty(node.id)
+      state.flushManager.schedule()
+
+      return node
+    }
+
+    // Fallback: direct store update
     const node = await state.store.updateNode(id, updates)
 
     // Mark dirty and schedule flush
@@ -149,7 +189,7 @@ export function registerGraphMethods(options: GraphMethodsOptions): void {
     return node
   })
 
-  // graph.delete - Delete node
+  // graph.delete - Delete node (with provider routing for external nodes)
   server.handle<DeleteParams, void>('graph.delete', async (params) => {
     const { id, options, location } = params || {}
     if (!id) {
@@ -157,6 +197,18 @@ export function registerGraphMethods(options: GraphMethodsOptions): void {
     }
 
     const state = locationResolver.resolve(location)
+
+    // Use provider-aware delete when available
+    if (state.providerStore) {
+      await state.providerStore.providerDelete(id, options)
+
+      // Mark dirty and schedule flush
+      state.flushManager.markDirty(`__deleted__:${id}`)
+      state.flushManager.schedule()
+      return
+    }
+
+    // Fallback: direct store delete
     await state.store.deleteNode(id, options)
 
     // Mark dirty and schedule flush

@@ -333,39 +333,82 @@ export class OpenTasksClient {
   }
 
   // ==========================================================================
-  // Graph CRUD
+  // Graph CRUD (with unified provider dispatch)
   // ==========================================================================
 
   /**
-   * Create a node
+   * Create a node.
+   * When `scheme` is provided, routes creation to that provider.
+   * Otherwise uses the configured defaultProvider.
+   *
+   * @param params - Node creation parameters
+   * @param options - Optional provider routing options
+   * @returns The created node (materialized locally if via external provider)
    */
-  async createNode(params: CreateNodeInput): Promise<unknown> {
+  async createNode(
+    params: CreateNodeInput,
+    options?: { scheme?: string }
+  ): Promise<unknown> {
     await this.ensureConnected()
-    return this.client!.request('graph.create', params)
+    return this.client!.request('graph.create', { ...params, scheme: options?.scheme })
   }
 
   /**
-   * Get a node by ID
+   * Get a node by local ID or provider URI.
+   * For external/materialized nodes, refreshes if stale.
+   *
+   * @param idOrUri - Local node ID (e.g., 'i-abc1') or provider URI (e.g., 'sudocode://proj/i-456')
    */
-  async getNode(id: string): Promise<unknown> {
+  async getNode(idOrUri: string): Promise<unknown> {
     await this.ensureConnected()
-    return this.client!.request('graph.get', { id })
+    return this.client!.request('graph.get', { id: idOrUri })
   }
 
   /**
-   * Update a node by ID
+   * Update a node by local ID or provider URI.
+   * For external/materialized nodes, routes update to the owning provider.
+   *
+   * @param idOrUri - Local node ID or provider URI
+   * @param updates - Fields to update
    */
-  async updateNode(id: string, updates: UpdateNodeInput): Promise<unknown> {
+  async updateNode(idOrUri: string, updates: UpdateNodeInput): Promise<unknown> {
     await this.ensureConnected()
-    return this.client!.request('graph.update', { id, ...updates })
+    return this.client!.request('graph.update', { id: idOrUri, ...updates })
   }
 
   /**
-   * Delete a node by ID
+   * Delete a node by local ID or provider URI.
+   * For external/materialized nodes, deletes in the owning provider
+   * and removes the local materialized copy.
+   *
+   * @param idOrUri - Local node ID or provider URI
+   * @param options - Delete options (hard vs soft)
    */
-  async deleteNode(id: string, options?: DeleteOptions): Promise<void> {
+  async deleteNode(idOrUri: string, options?: DeleteOptions): Promise<void> {
     await this.ensureConnected()
-    await this.client!.request('graph.delete', { id, options })
+    await this.client!.request('graph.delete', { id: idOrUri, options })
+  }
+
+  // ==========================================================================
+  // Provider Introspection
+  // ==========================================================================
+
+  /**
+   * List all registered providers and their capabilities
+   */
+  async listProviders(): Promise<unknown> {
+    await this.ensureConnected()
+    return this.client!.request('provider.list', {})
+  }
+
+  /**
+   * Get info about a specific provider
+   *
+   * @param name - Provider name
+   */
+  async getProvider(name: string): Promise<unknown> {
+    await this.ensureConnected()
+    return this.client!.request('provider.info', { name })
   }
 
   // ==========================================================================

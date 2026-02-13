@@ -204,6 +204,8 @@ export function createClaudeTasksProvider(config: ClaudeTasksConfig = {}): Provi
     write: true,
     search: false,
     watch: false,
+    mount: true,
+    feedback: false,
   }
 
   return {

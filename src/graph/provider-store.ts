@@ -10,9 +10,12 @@ import type { Node, ExternalNode } from '../schema/index.js'
 import type {
   Provider,
   ProviderNode,
+  ProviderCreateInput,
+  ProviderUpdateInput,
   ProviderRegistry,
   MaterializationConfig,
 } from '../providers/types.js'
+import { ProviderError } from '../providers/types.js'
 import type { MaterializationManager } from '../providers/materialization.js'
 import { createProviderRegistry } from '../providers/registry.js'
 import { createNativeProvider } from '../providers/native.js'
@@ -23,6 +26,7 @@ import {
   type ProviderNodeChangeEvent,
 } from '../providers/traits/Watchable.js'
 import type { GraphStore } from './store.js'
+import type { CreateNodeInput, UpdateNodeInput, DeleteOptions } from './types.js'
 
 // ============================================================================
 // Types
@@ -43,6 +47,26 @@ export interface ResolveOptions {
 }
 
 /**
+ * Options for provider-routed create
+ */
+export interface ProviderCreateOptions {
+  /** Target provider scheme (overrides defaultProvider) */
+  scheme?: string
+}
+
+/**
+ * Result from a provider-routed create
+ */
+export interface ProviderCreateResult {
+  /** The created/materialized node */
+  node: Node
+  /** The provider URI (if created via external provider) */
+  uri?: string
+  /** Which provider handled the create */
+  provider: string
+}
+
+/**
  * Configuration for provider-aware store
  */
 export interface ProviderStoreConfig {
@@ -54,6 +78,9 @@ export interface ProviderStoreConfig {
 
   /** Whether to auto-register native provider (default: true) */
   autoRegisterNative?: boolean
+
+  /** Default provider for CRUD operations ('native' = local GraphStore) */
+  defaultProvider?: string
 }
 
 /**
@@ -131,6 +158,42 @@ export interface ProviderAwareStore extends GraphStore {
    * @returns Unsubscribe function
    */
   onProviderChange(handler: ProviderChangeHandler): () => void
+
+  // ===========================================================================
+  // Provider-Routed CRUD (Unified Interface)
+  // ===========================================================================
+
+  /**
+   * Create a node via provider dispatch.
+   * Routes to defaultProvider or explicit scheme. Always materializes.
+   */
+  providerCreate(
+    input: CreateNodeInput,
+    options?: ProviderCreateOptions
+  ): Promise<ProviderCreateResult>
+
+  /**
+   * Get a node by local ID or provider URI.
+   * For external nodes, refreshes if stale.
+   */
+  providerGet(idOrUri: string): Promise<Node | null>
+
+  /**
+   * Update a node by local ID or provider URI.
+   * For external/materialized nodes, routes update to the owning provider
+   * and refreshes the local materialized copy.
+   */
+  providerUpdate(idOrUri: string, updates: UpdateNodeInput): Promise<Node>
+
+  /**
+   * Delete a node by local ID or provider URI.
+   * For external/materialized nodes, deletes in the provider
+   * and removes the local materialized copy.
+   */
+  providerDelete(idOrUri: string, options?: DeleteOptions): Promise<void>
+
+  /** The configured default provider name */
+  readonly defaultProvider: string
 }
 
 // ============================================================================
@@ -151,6 +214,33 @@ const LOCAL_ID_PATTERN = /^[sifex]-[a-z0-9]+$/
  */
 function isLocalId(idOrUri: string): boolean {
   return LOCAL_ID_PATTERN.test(idOrUri)
+}
+
+/**
+ * Convert CreateNodeInput to ProviderCreateInput
+ */
+function toProviderCreateInput(input: CreateNodeInput): ProviderCreateInput {
+  return {
+    type: input.type === 'issue' || input.type === 'spec' ? input.type : 'issue',
+    title: input.title,
+    content: input.content,
+    status: input.status,
+    priority: input.priority,
+    metadata: input.metadata,
+  }
+}
+
+/**
+ * Convert UpdateNodeInput to ProviderUpdateInput
+ */
+function toProviderUpdateInput(updates: UpdateNodeInput): ProviderUpdateInput {
+  return {
+    title: updates.title,
+    content: updates.content,
+    status: updates.status,
+    priority: updates.priority,
+    metadata: updates.metadata,
+  }
 }
 
 /**
@@ -189,6 +279,9 @@ export function createProviderAwareStore(
 
   // Set up materialization manager
   const materialization = createMaterializationManager(config.materialization)
+
+  // Default provider configuration
+  const defaultProviderName = config.defaultProvider ?? 'native'
 
   // Auto-register native provider if not disabled
   if (config.autoRegisterNative !== false) {
@@ -438,6 +531,184 @@ export function createProviderAwareStore(
         if (idx >= 0) changeHandlers.splice(idx, 1)
       }
     },
+
+    // =========================================================================
+    // Provider-Routed CRUD (Unified Interface)
+    // =========================================================================
+
+    defaultProvider: defaultProviderName,
+
+    async providerCreate(
+      input: CreateNodeInput,
+      options?: ProviderCreateOptions
+    ): Promise<ProviderCreateResult> {
+      const targetScheme = options?.scheme ?? defaultProviderName
+
+      // Native/local path — no provider routing needed
+      if (targetScheme === 'native' || targetScheme === 'opentasks') {
+        const node = await baseStore.createNode(input)
+        return { node, provider: 'native' }
+      }
+
+      // Find the target provider by name or scheme
+      const provider = registry.get(targetScheme) ?? registry.resolveProvider(`${targetScheme}://`)
+      if (!provider) {
+        throw new ProviderError('NOT_FOUND', `Unknown provider: ${targetScheme}`, targetScheme)
+      }
+
+      if (!provider.capabilities.write) {
+        throw new ProviderError('NOT_SUPPORTED', `Provider ${provider.name} is read-only`, provider.name)
+      }
+
+      if (!provider.capabilities.mount) {
+        throw new ProviderError('NOT_SUPPORTED', `Provider ${provider.name} does not support mounting`, provider.name)
+      }
+
+      // Create via provider
+      const providerNode = await provider.create(toProviderCreateInput(input))
+
+      // Build canonical URI and always materialize on create
+      const uri = provider.buildUri(providerNode.id)
+      const materializedNode = await materialization.materialize(uri, providerNode, baseStore)
+
+      return {
+        node: materializedNode,
+        uri,
+        provider: provider.name,
+      }
+    },
+
+    async providerGet(idOrUri: string): Promise<Node | null> {
+      // 1. Local ID — direct store access
+      if (isLocalId(idOrUri)) {
+        const node = await baseStore.getNode(idOrUri)
+
+        // If it's a materialized external node, check staleness
+        if (node?.type === 'external') {
+          const extNode = node as ExternalNode
+          if (materialization.isStale(extNode)) {
+            const provider = registry.resolveProvider(extNode.uri)
+            if (provider) {
+              const refreshed = await materialization.refresh(extNode, provider, baseStore)
+              return refreshed ?? node
+            }
+          }
+        }
+
+        return node
+      }
+
+      // 2. Provider URI — resolve through provider, always materialize
+      const result = await this.resolveNode(idOrUri, { materialize: true })
+      return result as Node | null
+    },
+
+    async providerUpdate(idOrUri: string, updates: UpdateNodeInput): Promise<Node> {
+      // Resolve the target node and provider
+      const { node, provider: owningProvider, isExternal } = await resolveForWrite(idOrUri)
+
+      if (!isExternal || !owningProvider || owningProvider.name === 'native') {
+        // Local node — update directly
+        return baseStore.updateNode(node.id, updates)
+      }
+
+      if (!owningProvider.capabilities.write) {
+        throw new ProviderError('NOT_SUPPORTED', `Provider ${owningProvider.name} is read-only`, owningProvider.name)
+      }
+
+      // Route update to external provider
+      const extNode = node as ExternalNode
+      const parsed = owningProvider.parseUri(extNode.uri)
+      if (!parsed) {
+        throw new ProviderError('INVALID_URI', `Cannot parse URI: ${extNode.uri}`, owningProvider.name)
+      }
+
+      const updatedProviderNode = await owningProvider.update(parsed.id, toProviderUpdateInput(updates))
+
+      // Refresh local materialized copy with provider's response
+      return materialization.materialize(extNode.uri, updatedProviderNode, baseStore) as Promise<Node>
+    },
+
+    async providerDelete(idOrUri: string, options?: DeleteOptions): Promise<void> {
+      // Resolve the target node and provider
+      const { node, provider: owningProvider, isExternal } = await resolveForWrite(idOrUri)
+
+      if (!isExternal || !owningProvider || owningProvider.name === 'native') {
+        // Local node — delete directly
+        await baseStore.deleteNode(node.id, options)
+        return
+      }
+
+      if (!owningProvider.capabilities.write) {
+        throw new ProviderError('NOT_SUPPORTED', `Provider ${owningProvider.name} is read-only`, owningProvider.name)
+      }
+
+      // Delete in external provider
+      const extNode = node as ExternalNode
+      const parsed = owningProvider.parseUri(extNode.uri)
+      if (!parsed) {
+        throw new ProviderError('INVALID_URI', `Cannot parse URI: ${extNode.uri}`, owningProvider.name)
+      }
+
+      await owningProvider.delete(parsed.id)
+
+      // Remove local materialized copy
+      await baseStore.deleteNode(node.id, { hard: true })
+    },
+  }
+
+  // ===========================================================================
+  // Internal Helper: Resolve a node + its owning provider for write operations
+  // ===========================================================================
+
+  async function resolveForWrite(idOrUri: string): Promise<{
+    node: Node
+    provider: Provider | null
+    isExternal: boolean
+  }> {
+    // Case 1: Provider URI (e.g., sudocode://proj/i-456)
+    if (!isLocalId(idOrUri)) {
+      const provider = registry.resolveProvider(idOrUri)
+      if (!provider) {
+        throw new ProviderError('NOT_FOUND', `No provider found for: ${idOrUri}`)
+      }
+
+      // Check if we have a materialized copy
+      const existing = await findExternalNodeByUri(idOrUri, baseStore)
+      if (existing) {
+        return { node: existing, provider, isExternal: true }
+      }
+
+      // No local copy — materialize first so we have a node to return
+      const parsed = provider.parseUri(idOrUri)
+      if (!parsed) {
+        throw new ProviderError('INVALID_URI', `Cannot parse URI: ${idOrUri}`, provider.name)
+      }
+
+      const providerNode = await provider.get(parsed.id)
+      if (!providerNode) {
+        throw new ProviderError('NOT_FOUND', `Node not found: ${idOrUri}`, provider.name)
+      }
+
+      const materialized = await materialization.materialize(idOrUri, providerNode, baseStore)
+      return { node: materialized, provider, isExternal: true }
+    }
+
+    // Case 2: Local ID (s-abc1, i-def2, x-ghi3)
+    const node = await baseStore.getNode(idOrUri)
+    if (!node) {
+      throw new ProviderError('NOT_FOUND', `Node not found: ${idOrUri}`)
+    }
+
+    // Check if it's a materialized external node
+    if (node.type === 'external') {
+      const extNode = node as ExternalNode
+      const provider = registry.resolveProvider(extNode.uri)
+      return { node, provider, isExternal: true }
+    }
+
+    // Pure local node
+    return { node, provider: null, isExternal: false }
   }
 
   return providerStore

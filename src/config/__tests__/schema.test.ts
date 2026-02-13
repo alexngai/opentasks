@@ -230,6 +230,7 @@ describe('Config Schema', () => {
         connections: [],
         role: 'standalone',
         redirects: [],
+        defaultProvider: 'native',
       })
     })
 
@@ -281,6 +282,7 @@ describe('Config Schema', () => {
         connections: [],
         role: 'standalone',
         redirects: [],
+        defaultProvider: 'native',
       }
 
       const result = OpenTasksConfigSchema.parse(config)

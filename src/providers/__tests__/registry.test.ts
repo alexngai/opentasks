@@ -17,7 +17,7 @@ describe('ProviderRegistry', () => {
   ): Provider => ({
     name,
     schemes,
-    capabilities: { read: true, write: true, search: false, watch: false },
+    capabilities: { read: true, write: true, search: false, watch: false, mount: true, feedback: false },
     parseUri: (uri: string): ParsedUri | null => {
       for (const scheme of schemes) {
         if (uri.startsWith(`${scheme}://`)) {

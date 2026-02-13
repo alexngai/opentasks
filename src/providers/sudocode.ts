@@ -333,6 +333,8 @@ export function createSudocodeProvider(
     write: true,
     search: true,
     watch: !!watchPath,
+    mount: true,
+    feedback: false,
   }
 
   // =========================================================================

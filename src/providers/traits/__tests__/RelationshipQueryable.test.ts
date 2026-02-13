@@ -14,7 +14,7 @@ import type { Provider, ProviderCapabilities, ProviderNode, ParsedUri } from '..
 const mockBasicProvider: Provider = {
   name: 'basic',
   schemes: ['basic'],
-  capabilities: { read: true, write: false, search: false, watch: false },
+  capabilities: { read: true, write: false, search: false, watch: false, mount: false, feedback: false },
   parseUri: () => null,
   buildUri: (id) => `basic://${id}`,
   isValidUri: () => false,
@@ -29,7 +29,7 @@ const mockBasicProvider: Provider = {
 const mockRelationshipProvider: Provider & RelationshipQueryable = {
   name: 'relationship',
   schemes: ['rel'],
-  capabilities: { read: true, write: true, search: false, watch: false },
+  capabilities: { read: true, write: true, search: false, watch: false, mount: true, feedback: false },
   parseUri: (uri) => {
     if (uri.startsWith('rel://')) {
       return { scheme: 'rel', id: uri.slice(6), isRelative: false }

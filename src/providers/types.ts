@@ -24,6 +24,12 @@ export interface ProviderCapabilities {
 
   /** Can watch for changes */
   watch: boolean
+
+  /** Can be used as a CRUD backend through OpenTasks' unified interface */
+  mount: boolean
+
+  /** Supports feedback/annotation natively (else falls back to local graph) */
+  feedback: boolean
 }
 
 // ============================================================================

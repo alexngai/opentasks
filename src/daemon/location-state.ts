@@ -9,6 +9,7 @@
 import * as path from 'node:path'
 import { existsSync } from 'node:fs'
 import { createGraphStore, type GraphStore } from '../graph/store.js'
+import type { ProviderAwareStore } from '../graph/provider-store.js'
 import { createSQLitePersister } from '../storage/sqlite.js'
 import { JSONLPersister } from '../storage/jsonl.js'
 import type { Storage } from '../storage/interface.js'
@@ -32,6 +33,9 @@ export interface LocationState {
 
   /** Graph store for this location */
   store: GraphStore
+
+  /** Provider-aware store wrapping the base store (optional, set by daemon) */
+  providerStore?: ProviderAwareStore
 
   /** Flush manager for this location */
   flushManager: DaemonFlushManager
