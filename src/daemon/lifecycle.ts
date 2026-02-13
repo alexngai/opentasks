@@ -15,6 +15,8 @@ import { DaemonError, type DaemonState, type DaemonStatus, type DaemonEntry } fr
 import { createIPCServer, type IPCServer } from './ipc.js'
 import { createFileWatcher, type FileWatcher } from './watcher.js'
 import { createDaemonFlushManager, type DaemonFlushManager } from './flush.js'
+import { createEntireWatcher, type EntireWatcher } from './entire-watcher.js'
+import { createEntireAutoLinker, type EntireAutoLinker } from './entire-linker.js'
 import { registerLifecycleMethods } from './methods/lifecycle.js'
 import { registerGraphMethods } from './methods/graph.js'
 import { registerToolsMethods } from './methods/tools.js'
@@ -212,6 +214,8 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
   let ipcServer: IPCServer | null = null
   let fileWatcher: FileWatcher | null = null
   let flushManager: DaemonFlushManager | null = null
+  let entireWatcher: EntireWatcher | null = null
+  let entireLinker: EntireAutoLinker | null = null
 
   // Signal handlers (stored for cleanup)
   let signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = []
@@ -354,12 +358,37 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         // Update the location state's watcher reference
         locationState.watcher = fileWatcher
 
-        // 12. Mark as running
+        // 12. Initialize Entire watcher + auto-linker (optional)
+        try {
+          entireWatcher = createEntireWatcher({ locationPath })
+          entireLinker = createEntireAutoLinker({
+            store,
+            flushManager,
+          })
+
+          entireWatcher.onSessionEvent((event) => {
+            void entireLinker!.handleSessionEvent(event)
+          })
+
+          await entireWatcher.start()
+        } catch {
+          // Entire integration is optional — continue without it
+          entireWatcher = null
+          entireLinker = null
+        }
+
+        // 13. Mark as running
         state = 'running'
       } catch (error) {
         // Cleanup on failure
         state = 'stopped'
         startedAt = null
+
+        if (entireWatcher) {
+          try { await entireWatcher.stop() } catch { /* ignore */ }
+          entireWatcher = null
+          entireLinker = null
+        }
 
         if (fileWatcher) {
           try { await fileWatcher.stop() } catch { /* ignore */ }
@@ -407,6 +436,13 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           if (ipcServer) {
             await ipcServer.stop()
             ipcServer = null
+          }
+
+          // Stop Entire watcher before file watcher
+          if (entireWatcher) {
+            await entireWatcher.stop()
+            entireWatcher = null
+            entireLinker = null
           }
 
           if (fileWatcher) {
