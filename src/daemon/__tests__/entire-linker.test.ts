@@ -1,5 +1,15 @@
 /**
  * Tests for Entire Auto-Linker
+ *
+ * Verifies:
+ * - Correct session/checkpoint node creation in the graph store
+ * - Edges use actual node IDs (not URIs) for from_id/to_id
+ * - Three-tier correlation: claimed tasks, branch match, single in-progress
+ * - Confidence threshold filtering
+ * - Ambiguity guard for low-confidence matches
+ * - Idempotency of node and edge creation
+ * - Event handling for started, checkpoint, ended, updated, deleted
+ * - Flush manager integration
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
@@ -58,7 +68,7 @@ function createMockStore(): GraphStore & { _nodes: Map<string, Record<string, un
     } as unknown as GraphStore['query'],
 
     createNode: vi.fn(async (input: Record<string, unknown>) => {
-      const id = `e-mock${nextNodeId++}`
+      const id = `x-mock${nextNodeId++}`
       const node = {
         id,
         uuid: `uuid-${id}`,
@@ -71,7 +81,7 @@ function createMockStore(): GraphStore & { _nodes: Map<string, Record<string, un
     }) as unknown as GraphStore['createNode'],
 
     createEdge: vi.fn(async (input: Record<string, unknown>) => {
-      const id = `x-mock${nextEdgeId++}`
+      const id = `e-mock${nextEdgeId++}`
       const edge = {
         id,
         uuid: `uuid-${id}`,
@@ -170,7 +180,7 @@ describe('EntireAutoLinker', () => {
       )
     })
 
-    it('should create worked-on edge when claimed task exists', async () => {
+    it('should use actual node ID (not URI) for edge creation', async () => {
       // Add a claimed in-progress task
       store._nodes.set('i-task1', {
         id: 'i-task1',
@@ -183,18 +193,44 @@ describe('EntireAutoLinker', () => {
 
       await linker.handleSessionEvent(makeEvent({ type: 'started' }))
 
-      // Should create worked-on edge
+      // The session node should be created with a mock ID like 'x-mock1'
+      const createNodeCalls = (store.createNode as ReturnType<typeof vi.fn>).mock.calls
+      const sessionNodeCall = createNodeCalls.find(
+        (call: unknown[]) => String((call[0] as Record<string, unknown>).uri ?? '').includes('session')
+      )
+      expect(sessionNodeCall).toBeDefined()
+
+      // The edge should use the actual node ID, NOT the URI
       expect(store.createEdge).toHaveBeenCalledWith(
         expect.objectContaining({
           from_id: 'i-task1',
-          to_id: 'entire://session/2026-02-13-test',
+          to_id: expect.stringMatching(/^x-mock\d+$/), // Should be the graph ID, not a URI
+          type: 'worked-on',
+        })
+      )
+    })
+
+    it('should create worked-on edge when claimed task exists', async () => {
+      store._nodes.set('i-task1', {
+        id: 'i-task1',
+        type: 'issue',
+        status: 'in_progress',
+        archived: false,
+        claimed_by: 'claude-agent-1',
+        lock_until: new Date(Date.now() + 60000).toISOString(),
+      })
+
+      await linker.handleSessionEvent(makeEvent({ type: 'started' }))
+
+      expect(store.createEdge).toHaveBeenCalledWith(
+        expect.objectContaining({
+          from_id: 'i-task1',
           type: 'worked-on',
         })
       )
     })
 
     it('should create worked-on edge for in-progress tasks on same branch', async () => {
-      // Add an in-progress task with matching branch (no claim)
       store._nodes.set('i-branch', {
         id: 'i-branch',
         type: 'issue',
@@ -213,14 +249,12 @@ describe('EntireAutoLinker', () => {
       expect(store.createEdge).toHaveBeenCalledWith(
         expect.objectContaining({
           from_id: 'i-branch',
-          to_id: 'entire://session/2026-02-13-test',
           type: 'worked-on',
         })
       )
     })
 
     it('should create worked-on edge for single in-progress task (fallback)', async () => {
-      // Single in-progress task, no claim, no branch match
       store._nodes.set('i-only', {
         id: 'i-only',
         type: 'issue',
@@ -319,6 +353,102 @@ describe('EntireAutoLinker', () => {
       expect(workedOnEdges).toHaveLength(0)
     })
 
+    it('should allow medium confidence when threshold is medium', async () => {
+      // In-progress task on same branch = medium confidence
+      store._nodes.set('i-branch', {
+        id: 'i-branch',
+        type: 'issue',
+        status: 'in_progress',
+        archived: false,
+        branch: 'feature/auth',
+      })
+
+      // Default minConfidence is 'medium'
+      await linker.handleSessionEvent(
+        makeEvent({
+          type: 'started',
+          session: makeSession({ branch: 'feature/auth' }),
+        })
+      )
+
+      const edgeCalls = (store.createEdge as ReturnType<typeof vi.fn>).mock.calls
+      const workedOnEdges = edgeCalls.filter(
+        (call: unknown[]) => (call[0] as Record<string, unknown>).type === 'worked-on'
+      )
+      expect(workedOnEdges).toHaveLength(1)
+    })
+
+    it('should prefer claimed-task strategy over branch match', async () => {
+      // Both a claimed task AND a branch-matching task exist
+      store._nodes.set('i-claimed', {
+        id: 'i-claimed',
+        type: 'issue',
+        status: 'in_progress',
+        archived: false,
+        claimed_by: 'agent-1',
+        lock_until: new Date(Date.now() + 60000).toISOString(),
+        branch: 'other-branch',
+      })
+      store._nodes.set('i-branch', {
+        id: 'i-branch',
+        type: 'issue',
+        status: 'in_progress',
+        archived: false,
+        branch: 'feature/auth',
+      })
+
+      await linker.handleSessionEvent(
+        makeEvent({
+          type: 'started',
+          session: makeSession({ branch: 'feature/auth' }),
+        })
+      )
+
+      // Should only link to the claimed task (strategy 1 wins)
+      const edgeCalls = (store.createEdge as ReturnType<typeof vi.fn>).mock.calls
+      const workedOnEdges = edgeCalls.filter(
+        (call: unknown[]) => (call[0] as Record<string, unknown>).type === 'worked-on'
+      )
+      expect(workedOnEdges).toHaveLength(1)
+      expect((workedOnEdges[0][0] as Record<string, unknown>).from_id).toBe('i-claimed')
+    })
+
+    it('should ignore expired lock_until claims', async () => {
+      // Claimed task with expired lock
+      store._nodes.set('i-expired', {
+        id: 'i-expired',
+        type: 'issue',
+        status: 'in_progress',
+        archived: false,
+        claimed_by: 'agent-1',
+        lock_until: new Date(Date.now() - 60000).toISOString(), // Expired
+      })
+
+      // Also add a branch-matching task
+      store._nodes.set('i-branch', {
+        id: 'i-branch',
+        type: 'issue',
+        status: 'in_progress',
+        archived: false,
+        branch: 'feature/auth',
+      })
+
+      await linker.handleSessionEvent(
+        makeEvent({
+          type: 'started',
+          session: makeSession({ branch: 'feature/auth' }),
+        })
+      )
+
+      // Should NOT use the expired claim, should fall through to branch match
+      const edgeCalls = (store.createEdge as ReturnType<typeof vi.fn>).mock.calls
+      const workedOnEdges = edgeCalls.filter(
+        (call: unknown[]) => (call[0] as Record<string, unknown>).type === 'worked-on'
+      )
+      expect(workedOnEdges).toHaveLength(1)
+      expect((workedOnEdges[0][0] as Record<string, unknown>).from_id).toBe('i-branch')
+    })
+
     it('should store correlation results', async () => {
       store._nodes.set('i-task1', {
         id: 'i-task1',
@@ -338,6 +468,16 @@ describe('EntireAutoLinker', () => {
       expect(result.matchedTasks).toHaveLength(1)
       expect(result.matchedTasks[0].matchReason).toBe('claimed-task')
       expect(result.matchedTasks[0].confidence).toBe('high')
+      expect(result.strategy).toBe('claimed-task')
+    })
+
+    it('should store correlation with strategy none when no tasks matched', async () => {
+      await linker.handleSessionEvent(makeEvent({ type: 'started' }))
+
+      const correlations = linker.getCorrelations()
+      const result = correlations.get('2026-02-13-test')!
+      expect(result.matchedTasks).toHaveLength(0)
+      expect(result.strategy).toBe('none')
     })
   })
 
@@ -360,14 +500,39 @@ describe('EntireAutoLinker', () => {
         })
       )
 
-      // Should create contains edge (session → checkpoint)
+      // Should create contains edge (session node ID → checkpoint node ID)
       expect(store.createEdge).toHaveBeenCalledWith(
         expect.objectContaining({
-          from_id: 'entire://session/2026-02-13-test',
-          to_id: 'entire://checkpoint/cp-001',
+          from_id: expect.stringMatching(/^x-mock\d+$/),
+          to_id: expect.stringMatching(/^x-mock\d+$/),
           type: 'contains',
         })
       )
+    })
+
+    it('should use actual node IDs (not URIs) for contains edge', async () => {
+      await linker.handleSessionEvent(
+        makeEvent({
+          type: 'checkpoint',
+          checkpointId: 'cp-001',
+          session: makeSession({ checkpoints: ['cp-001'] }),
+        })
+      )
+
+      // Get the contains edge call
+      const edgeCalls = (store.createEdge as ReturnType<typeof vi.fn>).mock.calls
+      const containsEdge = edgeCalls.find(
+        (call: unknown[]) => (call[0] as Record<string, unknown>).type === 'contains'
+      )
+      expect(containsEdge).toBeDefined()
+
+      const edgeInput = containsEdge![0] as Record<string, unknown>
+      // Neither from_id nor to_id should be a URI
+      expect(edgeInput.from_id).not.toContain('entire://')
+      expect(edgeInput.to_id).not.toContain('entire://')
+      // Both should be valid mock node IDs
+      expect(edgeInput.from_id).toMatch(/^x-mock\d+$/)
+      expect(edgeInput.to_id).toMatch(/^x-mock\d+$/)
     })
 
     it('should create implemented-by edges for correlated tasks', async () => {
@@ -392,7 +557,7 @@ describe('EntireAutoLinker', () => {
       expect(store.createEdge).toHaveBeenCalledWith(
         expect.objectContaining({
           from_id: 'i-task1',
-          to_id: 'entire://checkpoint/cp-001',
+          to_id: expect.stringMatching(/^x-mock\d+$/), // checkpoint node ID
           type: 'implemented-by',
         })
       )
@@ -412,6 +577,26 @@ describe('EntireAutoLinker', () => {
         (call: unknown[]) => String((call[0] as Record<string, unknown>).uri ?? '').includes('checkpoint')
       )
       expect(checkpointNodes).toHaveLength(0)
+    })
+
+    it('should create both session and checkpoint nodes on checkpoint event', async () => {
+      await linker.handleSessionEvent(
+        makeEvent({
+          type: 'checkpoint',
+          checkpointId: 'cp-001',
+          session: makeSession({ checkpoints: ['cp-001'] }),
+        })
+      )
+
+      // Should create both a session node and a checkpoint node
+      const createCalls = (store.createNode as ReturnType<typeof vi.fn>).mock.calls
+      expect(createCalls).toHaveLength(2)
+
+      const uris = createCalls.map(
+        (call: unknown[]) => (call[0] as Record<string, unknown>).uri
+      )
+      expect(uris).toContain('entire://session/2026-02-13-test')
+      expect(uris).toContain('entire://checkpoint/cp-001')
     })
   })
 
@@ -435,6 +620,39 @@ describe('EntireAutoLinker', () => {
         })
       )
     })
+
+    it('should include endedAt in metadata update', async () => {
+      await linker.handleSessionEvent(makeEvent({ type: 'started' }))
+
+      await linker.handleSessionEvent(
+        makeEvent({
+          type: 'ended',
+          session: makeSession({ phase: 'ENDED', endedAt: '2026-02-13T16:00:00Z' }),
+        })
+      )
+
+      expect(store.updateNode).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            phase: 'ENDED',
+            endedAt: '2026-02-13T16:00:00Z',
+          }),
+        })
+      )
+    })
+
+    it('should be a no-op when session node does not exist', async () => {
+      // Don't create session first — just try to end it
+      await linker.handleSessionEvent(
+        makeEvent({
+          type: 'ended',
+          session: makeSession({ phase: 'ENDED' }),
+        })
+      )
+
+      expect(store.updateNode).not.toHaveBeenCalled()
+    })
   })
 
   describe('handleSessionEvent - updated', () => {
@@ -454,6 +672,26 @@ describe('EntireAutoLinker', () => {
         expect.any(String),
         expect.objectContaining({
           metadata: expect.objectContaining({ phase: 'IDLE' }),
+        })
+      )
+    })
+
+    it('should include lastPromptAt in metadata', async () => {
+      await linker.handleSessionEvent(makeEvent({ type: 'started' }))
+
+      await linker.handleSessionEvent(
+        makeEvent({
+          type: 'updated',
+          session: makeSession({ lastPromptAt: '2026-02-13T15:30:00Z' }),
+        })
+      )
+
+      expect(store.updateNode).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            lastPromptAt: '2026-02-13T15:30:00Z',
+          }),
         })
       )
     })
@@ -504,13 +742,30 @@ describe('EntireAutoLinker', () => {
       // Second event — edge already exists in store
       await linker.handleSessionEvent(makeEvent({ type: 'started' }))
 
-      // Should have created worked-on edge once
+      // Should have created worked-on edge only once
+      // (second call finds existing via query)
       const edgeCalls = (store.createEdge as ReturnType<typeof vi.fn>).mock.calls
       const workedOnEdges = edgeCalls.filter(
         (call: unknown[]) => (call[0] as Record<string, unknown>).type === 'worked-on'
       )
-      // First call creates it, second should find it exists via query
-      expect(workedOnEdges.length).toBeLessThanOrEqual(2)
+      expect(workedOnEdges).toHaveLength(1)
+    })
+
+    it('should not create duplicate checkpoint nodes', async () => {
+      const checkpointEvent = makeEvent({
+        type: 'checkpoint',
+        checkpointId: 'cp-001',
+        session: makeSession({ checkpoints: ['cp-001'] }),
+      })
+
+      await linker.handleSessionEvent(checkpointEvent)
+      await linker.handleSessionEvent(checkpointEvent)
+
+      const createCalls = (store.createNode as ReturnType<typeof vi.fn>).mock.calls
+      const checkpointNodes = createCalls.filter(
+        (call: unknown[]) => String((call[0] as Record<string, unknown>).uri ?? '').includes('checkpoint')
+      )
+      expect(checkpointNodes).toHaveLength(1)
     })
   })
 
@@ -520,6 +775,94 @@ describe('EntireAutoLinker', () => {
 
       expect(flushManager.markDirty).toHaveBeenCalled()
       expect(flushManager.schedule).toHaveBeenCalled()
+    })
+
+    it('should call markDirty with the actual node ID', async () => {
+      await linker.handleSessionEvent(makeEvent({ type: 'started' }))
+
+      // markDirty should be called with an actual node ID, not a URI
+      const markDirtyCalls = (flushManager.markDirty as ReturnType<typeof vi.fn>).mock.calls
+      const dirtyIds = markDirtyCalls.map((call: unknown[]) => call[0] as string)
+
+      for (const id of dirtyIds) {
+        expect(id).toMatch(/^x-mock\d+$/)
+        expect(id).not.toContain('entire://')
+      }
+    })
+
+    it('should call markDirty and schedule on edge creation', async () => {
+      store._nodes.set('i-task1', {
+        id: 'i-task1',
+        type: 'issue',
+        status: 'in_progress',
+        archived: false,
+        claimed_by: 'agent',
+        lock_until: new Date(Date.now() + 60000).toISOString(),
+      })
+
+      await linker.handleSessionEvent(makeEvent({ type: 'started' }))
+
+      // Should have been called for both the node and the edge endpoints
+      expect((flushManager.markDirty as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(1)
+      expect((flushManager.schedule as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(1)
+    })
+
+    it('should call markDirty and schedule on session update', async () => {
+      await linker.handleSessionEvent(makeEvent({ type: 'started' }))
+      ;(flushManager.markDirty as ReturnType<typeof vi.fn>).mockClear()
+      ;(flushManager.schedule as ReturnType<typeof vi.fn>).mockClear()
+
+      await linker.handleSessionEvent(
+        makeEvent({
+          type: 'updated',
+          session: makeSession({ phase: 'IDLE' }),
+        })
+      )
+
+      expect(flushManager.markDirty).toHaveBeenCalled()
+      expect(flushManager.schedule).toHaveBeenCalled()
+    })
+  })
+
+  describe('correlation results', () => {
+    it('should return a copy of correlations (not the internal map)', async () => {
+      await linker.handleSessionEvent(makeEvent({ type: 'started' }))
+
+      const correlations1 = linker.getCorrelations()
+      const correlations2 = linker.getCorrelations()
+
+      // Should be different Map instances
+      expect(correlations1).not.toBe(correlations2)
+      // But same content
+      expect(correlations1.size).toBe(correlations2.size)
+    })
+
+    it('should track nodes created across started and checkpoint events', async () => {
+      store._nodes.set('i-task1', {
+        id: 'i-task1',
+        type: 'issue',
+        status: 'in_progress',
+        archived: false,
+        claimed_by: 'agent',
+        lock_until: new Date(Date.now() + 60000).toISOString(),
+      })
+
+      // Started event creates session node
+      await linker.handleSessionEvent(makeEvent({ type: 'started' }))
+
+      // Checkpoint event creates checkpoint node and adds to existing correlation
+      await linker.handleSessionEvent(
+        makeEvent({
+          type: 'checkpoint',
+          checkpointId: 'cp-001',
+          session: makeSession({ checkpoints: ['cp-001'] }),
+        })
+      )
+
+      const correlations = linker.getCorrelations()
+      const result = correlations.get('2026-02-13-test')!
+      expect(result.nodesCreated.length).toBeGreaterThanOrEqual(2) // session + checkpoint
+      expect(result.edgesCreated.length).toBeGreaterThanOrEqual(2) // worked-on + contains + implemented-by
     })
   })
 })

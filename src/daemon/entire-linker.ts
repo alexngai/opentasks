@@ -101,8 +101,8 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
   // Track which sessions have been linked to avoid duplicates
   const correlations = new Map<string, CorrelationResult>()
 
-  // Track created external node URIs to avoid duplicates
-  const createdNodes = new Set<string>()
+  // Track created external nodes: URI → node ID mapping
+  const createdNodes = new Map<string, string>()
 
   /**
    * Find tasks correlated with a session
@@ -187,14 +187,16 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
   }
 
   /**
-   * Ensure an external node exists for an Entire session
+   * Ensure an external node exists for an Entire session.
+   * Returns the node's actual graph ID (not the URI).
    */
   async function ensureSessionNode(
     session: EntireSessionState
   ): Promise<string> {
     const uri = `entire://session/${session.id}`
 
-    if (createdNodes.has(uri)) return uri
+    const cachedId = createdNodes.get(uri)
+    if (cachedId) return cachedId
 
     // Check if node already exists
     const existing = await store.query.nodes({
@@ -204,8 +206,9 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
     })
 
     if (existing.length > 0) {
-      createdNodes.add(uri)
-      return uri
+      const nodeId = (existing[0] as Record<string, unknown>).id as string
+      createdNodes.set(uri, nodeId)
+      return nodeId
     }
 
     try {
@@ -224,20 +227,33 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
         },
       })
 
-      createdNodes.add(uri)
-      flushManager.markDirty(node.id)
+      const nodeId = (node as Record<string, unknown>).id as string
+      createdNodes.set(uri, nodeId)
+      flushManager.markDirty(nodeId)
       flushManager.schedule()
 
-      return uri
+      return nodeId
     } catch {
-      // Node may already exist from a concurrent operation
-      createdNodes.add(uri)
+      // Node may already exist from a concurrent operation — re-query
+      const retryExisting = await store.query.nodes({
+        type: 'external',
+        search: uri,
+        limit: 1,
+      })
+      if (retryExisting.length > 0) {
+        const nodeId = (retryExisting[0] as Record<string, unknown>).id as string
+        createdNodes.set(uri, nodeId)
+        return nodeId
+      }
+      // Fallback: use URI as ID (should not happen in practice)
+      createdNodes.set(uri, uri)
       return uri
     }
   }
 
   /**
-   * Ensure an external node exists for an Entire checkpoint
+   * Ensure an external node exists for an Entire checkpoint.
+   * Returns the node's actual graph ID (not the URI).
    */
   async function ensureCheckpointNode(
     checkpointId: string,
@@ -245,7 +261,8 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
   ): Promise<string> {
     const uri = `entire://checkpoint/${checkpointId}`
 
-    if (createdNodes.has(uri)) return uri
+    const cachedId = createdNodes.get(uri)
+    if (cachedId) return cachedId
 
     // Check if node already exists
     const existing = await store.query.nodes({
@@ -255,8 +272,9 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
     })
 
     if (existing.length > 0) {
-      createdNodes.add(uri)
-      return uri
+      const nodeId = (existing[0] as Record<string, unknown>).id as string
+      createdNodes.set(uri, nodeId)
+      return nodeId
     }
 
     try {
@@ -271,13 +289,25 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
         },
       })
 
-      createdNodes.add(uri)
-      flushManager.markDirty(node.id)
+      const nodeId = (node as Record<string, unknown>).id as string
+      createdNodes.set(uri, nodeId)
+      flushManager.markDirty(nodeId)
       flushManager.schedule()
 
-      return uri
+      return nodeId
     } catch {
-      createdNodes.add(uri)
+      // Re-query in case of concurrent creation
+      const retryExisting = await store.query.nodes({
+        type: 'external',
+        search: uri,
+        limit: 1,
+      })
+      if (retryExisting.length > 0) {
+        const nodeId = (retryExisting[0] as Record<string, unknown>).id as string
+        createdNodes.set(uri, nodeId)
+        return nodeId
+      }
+      createdNodes.set(uri, uri)
       return uri
     }
   }
@@ -337,8 +367,8 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
 
       switch (type) {
         case 'started': {
-          // Create session node
-          const sessionUri = await ensureSessionNode(session)
+          // Create session node — returns the node's graph ID
+          const sessionNodeId = await ensureSessionNode(session)
 
           // Correlate with tasks
           const tasks = await findCorrelatedTasks(session)
@@ -351,7 +381,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
             matchedForResult.push(task)
             const edgeId = await createEdgeIfNotExists(
               task.nodeId,
-              sessionUri,
+              sessionNodeId,
               'worked-on',
               {
                 _context: {
@@ -368,7 +398,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
             sessionId,
             matchedTasks: matchedForResult,
             edgesCreated,
-            nodesCreated: [sessionUri],
+            nodesCreated: [sessionNodeId],
             strategy: matchedForResult[0]?.matchReason ?? 'none',
             timestamp: new Date().toISOString(),
           })
@@ -378,16 +408,16 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
         case 'checkpoint': {
           if (!event.checkpointId) break
 
-          // Ensure session and checkpoint nodes exist
-          const sessionUri = await ensureSessionNode(session)
-          const checkpointUri = await ensureCheckpointNode(event.checkpointId, session)
+          // Ensure session and checkpoint nodes exist — returns graph IDs
+          const sessionNodeId = await ensureSessionNode(session)
+          const checkpointNodeId = await ensureCheckpointNode(event.checkpointId, session)
 
           const edgesCreated: string[] = []
 
           // Create contains edge (session → checkpoint)
           const containsId = await createEdgeIfNotExists(
-            sessionUri,
-            checkpointUri,
+            sessionNodeId,
+            checkpointNodeId,
             'contains',
           )
           if (containsId) edgesCreated.push(containsId)
@@ -402,7 +432,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
             matchedForResult.push(task)
             const edgeId = await createEdgeIfNotExists(
               task.nodeId,
-              checkpointUri,
+              checkpointNodeId,
               'implemented-by',
               {
                 _context: {
@@ -419,7 +449,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
           const existing = correlations.get(sessionId)
           if (existing) {
             existing.edgesCreated.push(...edgesCreated)
-            existing.nodesCreated.push(checkpointUri)
+            existing.nodesCreated.push(checkpointNodeId)
           }
           break
         }

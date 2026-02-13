@@ -306,7 +306,8 @@ export function createInMemoryEntireStore(): EntireStore & {
       for (const session of sessions.values()) {
         if (
           session.summary?.toLowerCase().includes(lowerQuery) ||
-          session.id.toLowerCase().includes(lowerQuery)
+          session.id.toLowerCase().includes(lowerQuery) ||
+          session.filesTouched?.some((f) => f.toLowerCase().includes(lowerQuery))
         ) {
           results.push(session)
         }
@@ -316,7 +317,9 @@ export function createInMemoryEntireStore(): EntireStore & {
         if (
           cp.commitMessage?.toLowerCase().includes(lowerQuery) ||
           cp.id.toLowerCase().includes(lowerQuery) ||
-          cp.context?.toLowerCase().includes(lowerQuery)
+          cp.context?.toLowerCase().includes(lowerQuery) ||
+          cp.filesModified?.some((f) => f.toLowerCase().includes(lowerQuery)) ||
+          cp.filesNew?.some((f) => f.toLowerCase().includes(lowerQuery))
         ) {
           results.push(cp)
         }
