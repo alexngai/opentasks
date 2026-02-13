@@ -865,4 +865,54 @@ describe('EntireAutoLinker', () => {
       expect(result.edgesCreated.length).toBeGreaterThanOrEqual(2) // worked-on + contains + implemented-by
     })
   })
+
+  describe('correlate (manual trigger)', () => {
+    it('should create session node and correlate with tasks', async () => {
+      store._nodes.set('i-task1', {
+        id: 'i-task1',
+        type: 'issue',
+        status: 'in_progress',
+        archived: false,
+        claimed_by: 'agent',
+        lock_until: new Date(Date.now() + 60000).toISOString(),
+      })
+
+      const session = makeSession()
+      const result = await linker.correlate('2026-02-13-test', session)
+
+      expect(result.sessionId).toBe('2026-02-13-test')
+      expect(result.matchedTasks).toHaveLength(1)
+      expect(result.matchedTasks[0].matchReason).toBe('claimed-task')
+      expect(result.nodesCreated).toHaveLength(1)
+      expect(result.edgesCreated.length).toBeGreaterThanOrEqual(1)
+      expect(result.strategy).toBe('claimed-task')
+    })
+
+    it('should return result with strategy none when no tasks matched', async () => {
+      const session = makeSession()
+      const result = await linker.correlate('2026-02-13-test', session)
+
+      expect(result.matchedTasks).toHaveLength(0)
+      expect(result.strategy).toBe('none')
+      expect(result.nodesCreated).toHaveLength(1) // session node still created
+    })
+
+    it('should store correlation result in history', async () => {
+      const session = makeSession()
+      await linker.correlate('2026-02-13-test', session)
+
+      const correlations = linker.getCorrelations()
+      expect(correlations.has('2026-02-13-test')).toBe(true)
+    })
+
+    it('should be idempotent (same as handleSessionEvent)', async () => {
+      const session = makeSession()
+      await linker.correlate('2026-02-13-test', session)
+      await linker.correlate('2026-02-13-test', session)
+
+      // Should only create one session node
+      const createCalls = (store.createNode as ReturnType<typeof vi.fn>).mock.calls
+      expect(createCalls).toHaveLength(1)
+    })
+  })
 })

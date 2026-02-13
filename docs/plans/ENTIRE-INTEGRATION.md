@@ -100,10 +100,13 @@ Three new edge types for Entire integration:
 ```
 
 **Auto-created edges:**
+
+> **Note:** `from_id` and `to_id` use the graph store's internal node IDs (e.g., `x-en01`), not URIs. The URI is stored on the node itself.
+
 ```jsonl
-{"id":"x-ew01","uuid":"...","from_id":"i-x7k9","to_id":"entire://session/2026-02-13-abc","type":"worked-on","created_at":"2026-02-13T15:00:00Z","metadata":{"_context":{"source":"entire-auto-linker","correlation":"claimed-task"}}}
-{"id":"x-ew02","uuid":"...","from_id":"i-x7k9","to_id":"entire://checkpoint/a3b2c4d5","type":"implemented-by","created_at":"2026-02-13T15:35:00Z","metadata":{"_context":{"source":"entire-auto-linker","correlation":"claimed-task","commitHash":"d7e8f9a"}}}
-{"id":"x-ew03","uuid":"...","from_id":"entire://session/2026-02-13-abc","to_id":"entire://checkpoint/a3b2c4d5","type":"contains","created_at":"2026-02-13T15:35:00Z","metadata":{"_context":{"source":"entire-auto-linker"}}}
+{"id":"x-ew01","uuid":"...","from_id":"i-x7k9","to_id":"x-en01","type":"worked-on","created_at":"2026-02-13T15:00:00Z","metadata":{"_context":{"source":"entire-auto-linker","correlation":"claimed-task","confidence":"high"}}}
+{"id":"x-ew02","uuid":"...","from_id":"i-x7k9","to_id":"x-en02","type":"implemented-by","created_at":"2026-02-13T15:35:00Z","metadata":{"_context":{"source":"entire-auto-linker","correlation":"claimed-task","confidence":"high","checkpointId":"a3b2c4d5"}}}
+{"id":"x-ew03","uuid":"...","from_id":"x-en01","to_id":"x-en02","type":"contains","created_at":"2026-02-13T15:35:00Z","metadata":{"_context":{"source":"entire-auto-linker"}}}
 ```
 
 ---

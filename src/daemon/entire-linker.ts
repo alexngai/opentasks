@@ -29,6 +29,7 @@ export type CorrelationStrategy = 'claimed-task' | 'in-progress-branch' | 'in-pr
  */
 export interface MatchedTask {
   nodeId: string
+  uri?: string
   matchReason: CorrelationStrategy
   confidence: CorrelationConfidence
 }
@@ -65,6 +66,9 @@ export interface EntireAutoLinkerConfig {
 export interface EntireAutoLinker {
   /** Handle a session event from the watcher */
   handleSessionEvent(event: EntireSessionEvent): Promise<void>
+
+  /** Manually trigger correlation for a session */
+  correlate(sessionId: string, session: EntireSessionState): Promise<CorrelationResult>
 
   /** Get correlation history */
   getCorrelations(): Map<string, CorrelationResult>
@@ -126,6 +130,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
         if (claimedBy && (!lockUntil || new Date(lockUntil) > new Date())) {
           matched.push({
             nodeId: issue.id,
+            uri: raw.uri as string | undefined,
             matchReason: 'claimed-task',
             confidence: 'high',
           })
@@ -151,6 +156,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
           if (raw.branch === session.branch) {
             matched.push({
               nodeId: issue.id,
+              uri: raw.uri as string | undefined,
               matchReason: 'in-progress-branch',
               confidence: 'medium',
             })
@@ -173,8 +179,10 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
       })
 
       if (allInProgress.length === 1) {
+        const raw = allInProgress[0] as Record<string, unknown>
         matched.push({
           nodeId: allInProgress[0].id,
+          uri: raw.uri as string | undefined,
           matchReason: 'in-progress-any',
           confidence: 'low',
         })
@@ -507,6 +515,47 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
           break
         }
       }
+    },
+
+    async correlate(sessionId: string, session: EntireSessionState): Promise<CorrelationResult> {
+      // Create session node
+      const sessionNodeId = await ensureSessionNode(session)
+
+      // Correlate with tasks
+      const tasks = await findCorrelatedTasks(session)
+      const edgesCreated: string[] = []
+      const matchedForResult: MatchedTask[] = []
+
+      for (const task of tasks) {
+        if (!meetsConfidenceThreshold(task.confidence, minConfidence)) continue
+
+        matchedForResult.push(task)
+        const edgeId = await createEdgeIfNotExists(
+          task.nodeId,
+          sessionNodeId,
+          'worked-on',
+          {
+            _context: {
+              correlation: task.matchReason,
+              confidence: task.confidence,
+              sessionAgent: session.agent,
+            },
+          }
+        )
+        if (edgeId) edgesCreated.push(edgeId)
+      }
+
+      const result: CorrelationResult = {
+        sessionId,
+        matchedTasks: matchedForResult,
+        edgesCreated,
+        nodesCreated: [sessionNodeId],
+        strategy: matchedForResult[0]?.matchReason ?? 'none',
+        timestamp: new Date().toISOString(),
+      }
+
+      correlations.set(sessionId, result)
+      return result
     },
 
     getCorrelations(): Map<string, CorrelationResult> {
