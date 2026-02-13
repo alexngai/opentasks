@@ -14,6 +14,7 @@ import type {
   ProviderUpdateInput,
   ProviderRegistry,
   MaterializationConfig,
+  ProviderOperationContext,
 } from '../providers/types.js'
 import { ProviderError } from '../providers/types.js'
 import type { MaterializationManager } from '../providers/materialization.js'
@@ -52,6 +53,25 @@ export interface ResolveOptions {
 export interface ProviderCreateOptions {
   /** Target provider scheme (overrides defaultProvider) */
   scheme?: string
+
+  /** Operational context forwarded to the provider */
+  context?: ProviderOperationContext
+}
+
+/**
+ * Options for provider-routed get
+ */
+export interface ProviderGetOptions {
+  /** Operational context forwarded to the provider */
+  context?: ProviderOperationContext
+}
+
+/**
+ * Options for provider-routed update
+ */
+export interface ProviderUpdateOptions {
+  /** Operational context forwarded to the provider */
+  context?: ProviderOperationContext
 }
 
 /**
@@ -176,21 +196,21 @@ export interface ProviderAwareStore extends GraphStore {
    * Get a node by local ID or provider URI.
    * For external nodes, refreshes if stale.
    */
-  providerGet(idOrUri: string): Promise<Node | null>
+  providerGet(idOrUri: string, options?: ProviderGetOptions): Promise<Node | null>
 
   /**
    * Update a node by local ID or provider URI.
    * For external/materialized nodes, routes update to the owning provider
    * and refreshes the local materialized copy.
    */
-  providerUpdate(idOrUri: string, updates: UpdateNodeInput): Promise<Node>
+  providerUpdate(idOrUri: string, updates: UpdateNodeInput, options?: ProviderUpdateOptions): Promise<Node>
 
   /**
    * Delete a node by local ID or provider URI.
    * For external/materialized nodes, deletes in the provider
    * and removes the local materialized copy.
    */
-  providerDelete(idOrUri: string, options?: DeleteOptions): Promise<void>
+  providerDelete(idOrUri: string, options?: DeleteOptions & { context?: ProviderOperationContext }): Promise<void>
 
   /** The configured default provider name */
   readonly defaultProvider: string
@@ -533,8 +553,8 @@ export function createProviderAwareStore(
         throw new ProviderError('NOT_SUPPORTED', `Provider ${provider.name} does not support mounting`, provider.name)
       }
 
-      // Create via provider
-      const providerNode = await provider.create(toProviderCreateInput(input))
+      // Create via provider, forwarding operational context
+      const providerNode = await provider.create(toProviderCreateInput(input), options?.context)
 
       // Build canonical URI and always materialize on create
       const uri = provider.buildUri(providerNode.id)
@@ -547,7 +567,7 @@ export function createProviderAwareStore(
       }
     },
 
-    async providerGet(idOrUri: string): Promise<Node | null> {
+    async providerGet(idOrUri: string, options?: ProviderGetOptions): Promise<Node | null> {
       // 1. Local ID — direct store access
       if (isLocalId(idOrUri)) {
         const node = await baseStore.getNode(idOrUri)
@@ -558,7 +578,7 @@ export function createProviderAwareStore(
           if (materialization.isStale(extNode)) {
             const provider = registry.resolveProvider(extNode.uri)
             if (provider) {
-              const refreshed = await materialization.refresh(extNode, provider, baseStore)
+              const refreshed = await materialization.refresh(extNode, provider, baseStore, options?.context)
               return refreshed ?? node
             }
           }
@@ -568,11 +588,11 @@ export function createProviderAwareStore(
       }
 
       // 2. Provider URI — resolve through provider, always materialize
-      const result = await resolveNodeInternal(idOrUri, { materialize: true })
+      const result = await resolveNodeInternal(idOrUri, { materialize: true }, options?.context)
       return result as Node | null
     },
 
-    async providerUpdate(idOrUri: string, updates: UpdateNodeInput): Promise<Node> {
+    async providerUpdate(idOrUri: string, updates: UpdateNodeInput, options?: ProviderUpdateOptions): Promise<Node> {
       // Resolve the target node and provider
       const { node, provider: owningProvider, isExternal } = await resolveForWrite(idOrUri)
 
@@ -601,13 +621,13 @@ export function createProviderAwareStore(
         throw new ProviderError('INVALID_URI', `Cannot parse URI: ${extNode.uri}`, owningProvider.name)
       }
 
-      const updatedProviderNode = await owningProvider.update(parsed.id, toProviderUpdateInput(updates))
+      const updatedProviderNode = await owningProvider.update(parsed.id, toProviderUpdateInput(updates), options?.context)
 
       // Refresh local materialized copy with provider's response
       return materialization.materialize(extNode.uri, updatedProviderNode, baseStore) as Promise<Node>
     },
 
-    async providerDelete(idOrUri: string, options?: DeleteOptions): Promise<void> {
+    async providerDelete(idOrUri: string, options?: DeleteOptions & { context?: ProviderOperationContext }): Promise<void> {
       // Resolve the target node and provider
       const { node, provider: owningProvider, isExternal } = await resolveForWrite(idOrUri)
 
@@ -637,7 +657,7 @@ export function createProviderAwareStore(
         throw new ProviderError('INVALID_URI', `Cannot parse URI: ${extNode.uri}`, owningProvider.name)
       }
 
-      await owningProvider.delete(parsed.id)
+      await owningProvider.delete(parsed.id, options?.context)
 
       // Remove local materialized copy
       await baseStore.deleteNode(node.id, { hard: true })
@@ -650,7 +670,8 @@ export function createProviderAwareStore(
 
   async function resolveNodeInternal(
     idOrUri: string,
-    options?: ResolveOptions
+    options?: ResolveOptions,
+    context?: ProviderOperationContext
   ): Promise<Node | ProviderNode | null> {
     // 1. Check if local ID - use existing getNode
     if (isLocalId(idOrUri)) {
@@ -677,7 +698,7 @@ export function createProviderAwareStore(
       return null
     }
 
-    const providerNode = await provider.get(parsed.id)
+    const providerNode = await provider.get(parsed.id, context)
     if (!providerNode) {
       return null
     }

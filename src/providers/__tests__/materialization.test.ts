@@ -388,7 +388,7 @@ describe('MaterializationManager', () => {
 
       await manager.refresh(node, mockProvider, mockStore)
 
-      expect(mockProvider.get).toHaveBeenCalledWith('beads://./bd-123')
+      expect(mockProvider.get).toHaveBeenCalledWith('beads://./bd-123', undefined)
       expect(mockStore.updateNode).toHaveBeenCalled()
     })
 

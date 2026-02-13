@@ -193,7 +193,7 @@ describe('ProviderAwareStore', () => {
 
         const result = await providerStore.resolveNode('beads://./bd-123')
 
-        expect(mockBeadsProvider.get).toHaveBeenCalledWith('bd-123')
+        expect(mockBeadsProvider.get).toHaveBeenCalledWith('bd-123', undefined)
         expect(result).toBeDefined()
       })
 
@@ -314,7 +314,7 @@ describe('ProviderAwareStore', () => {
 
       const result = await providerStore.refreshNode('x-ext1')
 
-      expect(mockBeadsProvider.get).toHaveBeenCalledWith('beads://./bd-123')
+      expect(mockBeadsProvider.get).toHaveBeenCalledWith('beads://./bd-123', undefined)
       expect(baseStore.updateNode).toHaveBeenCalled()
     })
 
@@ -522,7 +522,7 @@ describe('ProviderAwareStore', () => {
         status: undefined,
         priority: undefined,
         metadata: undefined,
-      })
+      }, undefined)
       // Should materialize the node locally
       expect(baseStore.createNode).toHaveBeenCalled()
     })
@@ -695,7 +695,7 @@ describe('ProviderAwareStore', () => {
         status: undefined,
         priority: undefined,
         metadata: undefined,
-      })
+      }, undefined)
     })
 
     it('should route update via provider URI', async () => {
@@ -762,7 +762,7 @@ describe('ProviderAwareStore', () => {
       await providerStore.providerDelete('x-ext1')
 
       // Should delete in provider
-      expect(mockBeadsProvider.delete).toHaveBeenCalledWith('bd-123')
+      expect(mockBeadsProvider.delete).toHaveBeenCalledWith('bd-123', undefined)
 
       // Should hard-delete local materialized copy
       expect(baseStore.deleteNode).toHaveBeenCalledWith('x-ext1', { hard: true })

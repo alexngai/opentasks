@@ -16,6 +16,7 @@ import type {
   ProviderCreateInput,
   ProviderUpdateInput,
   ProviderFilter,
+  ProviderOperationContext,
   ParsedUri,
   UriOptions,
   SearchOptions,
@@ -351,7 +352,7 @@ export function createNativeProvider(
     // CRUD Operations
     // =========================================================================
 
-    async get(id: string): Promise<ProviderNode | null> {
+    async get(id: string, _context?: ProviderOperationContext): Promise<ProviderNode | null> {
       // Parse URI if full URI is passed
       const parsed = this.parseUri(id)
       const nodeId = parsed?.id ?? id
@@ -362,13 +363,13 @@ export function createNativeProvider(
       return nodeToProviderNode(node)
     },
 
-    async list(filter?: ProviderFilter): Promise<ProviderNode[]> {
+    async list(filter?: ProviderFilter, _context?: ProviderOperationContext): Promise<ProviderNode[]> {
       const graphFilter = convertFilter(filter) ?? {}
       const nodes = await store.query.nodes(graphFilter)
       return nodes.map(nodeToProviderNode)
     },
 
-    async create(input: ProviderCreateInput): Promise<ProviderNode> {
+    async create(input: ProviderCreateInput, _context?: ProviderOperationContext): Promise<ProviderNode> {
       const nodeType = mapProviderType(input.type)
 
       const node = await store.createNode({
@@ -383,7 +384,7 @@ export function createNativeProvider(
       return nodeToProviderNode(node)
     },
 
-    async update(id: string, updates: ProviderUpdateInput): Promise<ProviderNode> {
+    async update(id: string, updates: ProviderUpdateInput, _context?: ProviderOperationContext): Promise<ProviderNode> {
       // Parse URI if full URI is passed
       const parsed = this.parseUri(id)
       const nodeId = parsed?.id ?? id
@@ -399,7 +400,7 @@ export function createNativeProvider(
       return nodeToProviderNode(node)
     },
 
-    async delete(id: string): Promise<void> {
+    async delete(id: string, _context?: ProviderOperationContext): Promise<void> {
       // Parse URI if full URI is passed
       const parsed = this.parseUri(id)
       const nodeId = parsed?.id ?? id

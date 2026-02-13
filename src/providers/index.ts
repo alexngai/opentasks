@@ -15,6 +15,7 @@ export type {
   ProviderCreateInput,
   ProviderUpdateInput,
   ProviderFilter,
+  ProviderOperationContext,
   ParsedUri,
   UriOptions,
   WatchCallback,
