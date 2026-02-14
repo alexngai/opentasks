@@ -26,6 +26,11 @@ import {
   type ProviderChangeEvent,
   type ProviderNodeChangeEvent,
 } from '../providers/traits/Watchable.js'
+import {
+  isTaskManageable,
+  type TaskAction,
+  type ReadyTaskOptions,
+} from '../providers/traits/TaskManageable.js'
 import type { GraphStore } from './store.js'
 import type { CreateNodeInput, UpdateNodeInput, DeleteOptions } from './types.js'
 
@@ -72,6 +77,37 @@ export interface ProviderGetOptions {
 export interface ProviderUpdateOptions {
   /** Operational context forwarded to the provider */
   context?: ProviderOperationContext
+}
+
+/**
+ * Options for task transition operations
+ */
+export interface TaskTransitionOptions {
+  /** Operational context forwarded to the provider */
+  context?: ProviderOperationContext
+}
+
+/**
+ * Options for querying ready tasks across providers
+ */
+export interface FederatedReadyTaskOptions extends ReadyTaskOptions {
+  /** Only query these providers (by name). If omitted, queries all task-capable providers. */
+  providers?: string[]
+
+  /** Operational context forwarded to providers */
+  context?: ProviderOperationContext
+}
+
+/**
+ * Result from a task transition
+ */
+export interface TaskTransitionResult {
+  /** The updated node (materialized if external) */
+  node: Node
+  /** The provider that handled the transition */
+  provider: string
+  /** The action that was applied */
+  action: TaskAction
 }
 
 /**
@@ -214,6 +250,44 @@ export interface ProviderAwareStore extends GraphStore {
 
   /** The configured default provider name */
   readonly defaultProvider: string
+
+  // ===========================================================================
+  // Task Lifecycle (TaskManageable Trait — Federated)
+  // ===========================================================================
+
+  /**
+   * Transition a task's status using a semantic action.
+   * Resolves the owning provider, checks that it supports TaskManageable,
+   * and delegates the transition.
+   */
+  taskTransition(
+    idOrUri: string,
+    action: TaskAction,
+    options?: TaskTransitionOptions
+  ): Promise<TaskTransitionResult>
+
+  /**
+   * Get tasks that are ready to work on, aggregated across all
+   * task-capable providers (Option B: federated aggregation).
+   */
+  taskReady(options?: FederatedReadyTaskOptions): Promise<Node[]>
+
+  /**
+   * Assign a task to an owner.
+   * Resolves the owning provider, checks TaskManageable + supportsAssignment.
+   */
+  taskAssign(
+    idOrUri: string,
+    assignee: string,
+    options?: TaskTransitionOptions
+  ): Promise<Node>
+
+  /**
+   * Get valid next actions for a task in its current state.
+   * Falls back to the provider's full `taskCapabilities.actions` if the
+   * provider doesn't implement `validActions`.
+   */
+  taskValidActions(idOrUri: string): Promise<TaskAction[]>
 }
 
 // ============================================================================
@@ -662,6 +736,147 @@ export function createProviderAwareStore(
       // Remove local materialized copy
       await baseStore.deleteNode(node.id, { hard: true })
     },
+
+    // =========================================================================
+    // Task Lifecycle (TaskManageable Trait — Federated)
+    // =========================================================================
+
+    async taskTransition(
+      idOrUri: string,
+      action: TaskAction,
+      options?: TaskTransitionOptions
+    ): Promise<TaskTransitionResult> {
+      const { provider, providerId } = await resolveTaskProvider(idOrUri)
+
+      const updatedNode = await provider.transitionTask(providerId, action, options?.context)
+
+      // Materialize the result if external
+      const uri = provider.buildUri(updatedNode.id)
+      const materialized = await materialization.materialize(uri, updatedNode, baseStore)
+
+      return {
+        node: materialized,
+        provider: provider.name,
+        action,
+      }
+    },
+
+    async taskReady(options?: FederatedReadyTaskOptions): Promise<Node[]> {
+      const results: Node[] = []
+
+      for (const provider of registry.list()) {
+        if (!isTaskManageable(provider)) continue
+        if (options?.providers && !options.providers.includes(provider.name)) continue
+
+        const readyNodes = await provider.readyTasks(
+          {
+            limit: options?.limit,
+            tags: options?.tags,
+            priority: options?.priority,
+            assignee: options?.assignee,
+          },
+          options?.context
+        )
+
+        // Materialize each ready task so callers get Node objects
+        for (const pNode of readyNodes) {
+          const uri = provider.buildUri(pNode.id)
+          const existing = await findExternalNodeByUri(uri, baseStore)
+          if (existing) {
+            results.push(existing)
+          } else {
+            const materialized = await materialization.materialize(uri, pNode, baseStore)
+            results.push(materialized)
+          }
+        }
+      }
+
+      return results
+    },
+
+    async taskAssign(
+      idOrUri: string,
+      assignee: string,
+      options?: TaskTransitionOptions
+    ): Promise<Node> {
+      const { provider, providerId } = await resolveTaskProvider(idOrUri)
+
+      if (!provider.taskCapabilities.supportsAssignment || !provider.assignTask) {
+        throw new ProviderError(
+          'NOT_SUPPORTED',
+          `Provider ${provider.name} does not support task assignment`,
+          provider.name
+        )
+      }
+
+      const updatedNode = await provider.assignTask(providerId, assignee, options?.context)
+
+      const uri = provider.buildUri(updatedNode.id)
+      return materialization.materialize(uri, updatedNode, baseStore) as Promise<Node>
+    },
+
+    async taskValidActions(idOrUri: string): Promise<TaskAction[]> {
+      const { provider, providerId } = await resolveTaskProvider(idOrUri)
+
+      if (provider.validActions) {
+        return provider.validActions(providerId)
+      }
+
+      // Fall back to the provider's declared capabilities
+      return provider.taskCapabilities.actions
+    },
+  }
+
+  // ===========================================================================
+  // Internal Helper: Resolve a task-capable provider for a given ID or URI
+  // ===========================================================================
+
+  async function resolveTaskProvider(idOrUri: string): Promise<{
+    provider: Provider & import('../providers/traits/TaskManageable.js').TaskManageable
+    providerId: string
+  }> {
+    // If it's a local ID, check if it's an external node with a provider URI
+    if (isLocalId(idOrUri)) {
+      const node = await baseStore.getNode(idOrUri)
+      if (!node) {
+        throw new ProviderError('NOT_FOUND', `Node not found: ${idOrUri}`)
+      }
+      if (node.type === 'external') {
+        const extNode = node as ExternalNode
+        const provider = registry.resolveProvider(extNode.uri)
+        if (!provider) {
+          throw new ProviderError('NOT_FOUND', `No provider found for URI: ${extNode.uri}`)
+        }
+        if (!isTaskManageable(provider)) {
+          throw new ProviderError('NOT_SUPPORTED', `Provider ${provider.name} does not support task operations`, provider.name)
+        }
+        const parsed = provider.parseUri(extNode.uri)
+        if (!parsed) {
+          throw new ProviderError('INVALID_URI', `Cannot parse URI: ${extNode.uri}`, provider.name)
+        }
+        return { provider, providerId: parsed.id }
+      }
+      // Local non-external node — check native provider
+      const nativeProvider = registry.get('native')
+      if (!nativeProvider || !isTaskManageable(nativeProvider)) {
+        throw new ProviderError('NOT_SUPPORTED', 'Native provider does not support task operations')
+      }
+      return { provider: nativeProvider as Provider & import('../providers/traits/TaskManageable.js').TaskManageable, providerId: idOrUri }
+    }
+
+    // Provider URI
+    const provider = registry.resolveProvider(idOrUri)
+    if (!provider) {
+      throw new ProviderError('NOT_FOUND', `No provider found for: ${idOrUri}`)
+    }
+    if (!isTaskManageable(provider)) {
+      throw new ProviderError('NOT_SUPPORTED', `Provider ${provider.name} does not support task operations`, provider.name)
+    }
+    const parsed = provider.parseUri(idOrUri)
+    if (!parsed) {
+      throw new ProviderError('INVALID_URI', `Cannot parse URI: ${idOrUri}`, provider.name)
+    }
+    return { provider, providerId: parsed.id }
   }
 
   // ===========================================================================

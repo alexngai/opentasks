@@ -10,7 +10,9 @@ import {
 import type { GraphStore } from '../store.js'
 import type { Node, ExternalNode, Spec, Issue } from '../../schema/index.js'
 import type { Provider, ProviderNode, ProviderRegistry } from '../../providers/types.js'
+import { ProviderError } from '../../providers/types.js'
 import { createProviderRegistry } from '../../providers/registry.js'
+import type { TaskManageable, TaskAction, TaskCapabilities } from '../../providers/traits/TaskManageable.js'
 
 describe('ProviderAwareStore', () => {
   let baseStore: GraphStore
@@ -797,6 +799,262 @@ describe('ProviderAwareStore', () => {
         defaultProvider: 'sudocode',
       })
       expect(store.defaultProvider).toBe('sudocode')
+    })
+  })
+
+  // =========================================================================
+  // Task Lifecycle (TaskManageable)
+  // =========================================================================
+
+  describe('task lifecycle', () => {
+    let mockTaskProvider: Provider & TaskManageable
+
+    const mockTaskProviderNode: ProviderNode = {
+      id: 'task-1',
+      uri: 'taskprov://task-1',
+      type: 'issue',
+      title: 'Task One',
+      status: 'in_progress',
+      fetchedAt: new Date().toISOString(),
+    }
+
+    const mockTaskExternalNode: ExternalNode = {
+      id: 'x-task1',
+      uuid: 'uuid-task-1',
+      type: 'external',
+      title: 'Task One',
+      uri: 'taskprov://task-1',
+      source: 'taskprov',
+      materialized: true,
+      cached_at: new Date().toISOString(),
+      created_at: '2024-01-01T00:00:00.000Z',
+      updated_at: '2024-01-01T00:00:00.000Z',
+    }
+
+    beforeEach(() => {
+      mockTaskProvider = {
+        name: 'taskprov',
+        schemes: ['taskprov'],
+        capabilities: { read: true, write: true, search: false, watch: false, mount: true, feedback: false },
+        parseUri: vi.fn((uri: string) => {
+          if (uri.startsWith('taskprov://')) {
+            const id = uri.slice('taskprov://'.length)
+            return { scheme: 'taskprov', id, isRelative: false }
+          }
+          return null
+        }),
+        buildUri: vi.fn((id: string) => `taskprov://${id}`),
+        isValidUri: vi.fn((uri: string) => uri.startsWith('taskprov://')),
+        get: vi.fn().mockResolvedValue(mockTaskProviderNode),
+        list: vi.fn().mockResolvedValue([]),
+        create: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn(),
+
+        taskCapabilities: {
+          actions: ['start', 'complete', 'block', 'reopen'] as TaskAction[],
+          supportsAssignment: true,
+          supportsReadyQuery: true,
+          statusModel: ['open', 'in_progress', 'blocked', 'done'],
+        },
+        transitionTask: vi.fn().mockResolvedValue(mockTaskProviderNode),
+        readyTasks: vi.fn().mockResolvedValue([mockTaskProviderNode]),
+        assignTask: vi.fn().mockResolvedValue(mockTaskProviderNode),
+        validActions: vi.fn().mockResolvedValue(['start', 'close'] as TaskAction[]),
+      }
+    })
+
+    describe('taskTransition', () => {
+      it('should transition a task via provider URI', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        // Mock materialization: no existing node, so create one
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+        vi.mocked(baseStore.createNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+
+        const result = await providerStore.taskTransition('taskprov://task-1', 'start')
+
+        expect(mockTaskProvider.transitionTask).toHaveBeenCalledWith('task-1', 'start', undefined)
+        expect(result.action).toBe('start')
+        expect(result.provider).toBe('taskprov')
+        expect(result.node).toBeDefined()
+      })
+
+      it('should transition a task via local external node ID', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        vi.mocked(baseStore.getNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([mockTaskExternalNode as unknown as Node])
+        vi.mocked(baseStore.updateNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+
+        const result = await providerStore.taskTransition('x-task1', 'complete')
+
+        expect(mockTaskProvider.transitionTask).toHaveBeenCalledWith('task-1', 'complete', undefined)
+        expect(result.action).toBe('complete')
+      })
+
+      it('should throw for provider that does not support tasks', async () => {
+        providerStore.providers.register(mockBeadsProvider)
+
+        await expect(
+          providerStore.taskTransition('beads://./bd-123', 'start')
+        ).rejects.toThrow('does not support task operations')
+      })
+
+      it('should throw for nonexistent node', async () => {
+        vi.mocked(baseStore.getNode).mockResolvedValue(null)
+
+        await expect(
+          providerStore.taskTransition('s-nonexist', 'start')
+        ).rejects.toThrow('not found')
+      })
+
+      it('should forward context to provider', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+        vi.mocked(baseStore.createNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+
+        const ctx = { cwd: '/other/dir', timeout: 5000 }
+        await providerStore.taskTransition('taskprov://task-1', 'start', { context: ctx })
+
+        expect(mockTaskProvider.transitionTask).toHaveBeenCalledWith('task-1', 'start', ctx)
+      })
+    })
+
+    describe('taskReady', () => {
+      it('should aggregate ready tasks across task-capable providers', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        // Mock materialization for each ready task
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+        vi.mocked(baseStore.createNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+
+        const ready = await providerStore.taskReady()
+
+        expect(mockTaskProvider.readyTasks).toHaveBeenCalled()
+        expect(ready.length).toBeGreaterThanOrEqual(1)
+      })
+
+      it('should skip non-task-capable providers', async () => {
+        providerStore.providers.register(mockBeadsProvider)
+        providerStore.providers.register(mockTaskProvider)
+
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+        vi.mocked(baseStore.createNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+
+        await providerStore.taskReady()
+
+        // Only taskprov should be queried
+        expect(mockTaskProvider.readyTasks).toHaveBeenCalled()
+      })
+
+      it('should filter by provider name', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        await providerStore.taskReady({ providers: ['other-provider'] })
+
+        // taskprov should NOT be queried because it wasn't in the filter
+        expect(mockTaskProvider.readyTasks).not.toHaveBeenCalled()
+      })
+
+      it('should return existing materialized nodes when available', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        // Mock: existing materialized node found
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([mockTaskExternalNode as unknown as Node])
+
+        const ready = await providerStore.taskReady()
+
+        expect(ready[0]).toEqual(mockTaskExternalNode)
+      })
+
+      it('should forward options to provider', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+        vi.mocked(baseStore.createNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+
+        await providerStore.taskReady({ limit: 5, tags: ['urgent'], assignee: 'alice' })
+
+        expect(mockTaskProvider.readyTasks).toHaveBeenCalledWith(
+          { limit: 5, tags: ['urgent'], priority: undefined, assignee: 'alice' },
+          undefined
+        )
+      })
+    })
+
+    describe('taskAssign', () => {
+      it('should assign a task via provider', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+        vi.mocked(baseStore.createNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+
+        const result = await providerStore.taskAssign('taskprov://task-1', 'alice')
+
+        expect(mockTaskProvider.assignTask).toHaveBeenCalledWith('task-1', 'alice', undefined)
+        expect(result).toBeDefined()
+      })
+
+      it('should throw for provider that does not support assignment', async () => {
+        const noAssignProvider: Provider & TaskManageable = {
+          ...mockTaskProvider,
+          name: 'noassign',
+          schemes: ['noassign'],
+          parseUri: vi.fn((uri: string) => {
+            if (uri.startsWith('noassign://')) {
+              return { scheme: 'noassign', id: uri.slice('noassign://'.length), isRelative: false }
+            }
+            return null
+          }),
+          buildUri: vi.fn((id: string) => `noassign://${id}`),
+          isValidUri: vi.fn((uri: string) => uri.startsWith('noassign://')),
+          taskCapabilities: {
+            ...mockTaskProvider.taskCapabilities,
+            supportsAssignment: false,
+          },
+          assignTask: undefined,
+        }
+        providerStore.providers.register(noAssignProvider)
+
+        await expect(
+          providerStore.taskAssign('noassign://task-1', 'alice')
+        ).rejects.toThrow('does not support task assignment')
+      })
+    })
+
+    describe('taskValidActions', () => {
+      it('should return valid actions from provider', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        const actions = await providerStore.taskValidActions('taskprov://task-1')
+
+        expect(mockTaskProvider.validActions).toHaveBeenCalledWith('task-1')
+        expect(actions).toEqual(['start', 'close'])
+      })
+
+      it('should fall back to taskCapabilities.actions when validActions not implemented', async () => {
+        const noValidActionsProvider: Provider & TaskManageable = {
+          ...mockTaskProvider,
+          name: 'novalid',
+          schemes: ['novalid'],
+          parseUri: vi.fn((uri: string) => {
+            if (uri.startsWith('novalid://')) {
+              return { scheme: 'novalid', id: uri.slice('novalid://'.length), isRelative: false }
+            }
+            return null
+          }),
+          buildUri: vi.fn((id: string) => `novalid://${id}`),
+          isValidUri: vi.fn((uri: string) => uri.startsWith('novalid://')),
+          validActions: undefined,
+        }
+        providerStore.providers.register(noValidActionsProvider)
+
+        const actions = await providerStore.taskValidActions('novalid://task-1')
+
+        expect(actions).toEqual(['start', 'complete', 'block', 'reopen'])
+      })
     })
   })
 })
