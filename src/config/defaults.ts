@@ -1,7 +1,7 @@
 /**
  * Default configuration values
  */
-import { OpenTasksConfigSchema, type OpenTasksConfig } from './schema'
+import { OpenTasksConfigSchema, type OpenTasksConfig } from './schema.js'
 
 /**
  * Default configuration - created by parsing an empty object through the schema

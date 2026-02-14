@@ -4,8 +4,8 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { z } from 'zod'
-import { LoggingLevelSchema, type PartialOpenTasksConfig } from './schema'
-import { ConfigParseError, ConfigValidationError } from './errors'
+import { LoggingLevelSchema, type PartialOpenTasksConfig } from './schema.js'
+import { ConfigParseError, ConfigValidationError } from './errors.js'
 
 /**
  * Partial schema for validating config files (all fields optional)

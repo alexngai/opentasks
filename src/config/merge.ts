@@ -1,7 +1,7 @@
 /**
  * Config merger - deep merges config layers
  */
-import { parseConfig, type OpenTasksConfig, type PartialOpenTasksConfig } from './schema'
+import { parseConfig, type OpenTasksConfig, type PartialOpenTasksConfig } from './schema.js'
 
 /**
  * Check if a value is a plain object (not null, not array)
