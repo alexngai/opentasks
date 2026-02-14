@@ -31,3 +31,12 @@ export type {
 } from './Watchable.js'
 
 export { isWatchable } from './Watchable.js'
+
+export type {
+  TaskManageable,
+  TaskAction,
+  TaskCapabilities,
+  ReadyTaskOptions,
+} from './TaskManageable.js'
+
+export { isTaskManageable } from './TaskManageable.js'

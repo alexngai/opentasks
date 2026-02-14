@@ -10,7 +10,9 @@ import {
 import type { GraphStore } from '../store.js'
 import type { Node, ExternalNode, Spec, Issue } from '../../schema/index.js'
 import type { Provider, ProviderNode, ProviderRegistry } from '../../providers/types.js'
+import { ProviderError } from '../../providers/types.js'
 import { createProviderRegistry } from '../../providers/registry.js'
+import type { TaskManageable, TaskAction, TaskCapabilities } from '../../providers/traits/TaskManageable.js'
 
 describe('ProviderAwareStore', () => {
   let baseStore: GraphStore
@@ -90,7 +92,7 @@ describe('ProviderAwareStore', () => {
     mockBeadsProvider = {
       name: 'beads',
       schemes: ['beads', 'bd'],
-      capabilities: { read: true, write: true, search: true, watch: false },
+      capabilities: { read: true, write: true, search: true, watch: false, mount: true, feedback: false },
       parseUri: vi.fn((uri: string) => {
         if (uri.startsWith('beads://') || uri.startsWith('bd://')) {
           const id = uri.split('/').pop() || ''
@@ -193,7 +195,7 @@ describe('ProviderAwareStore', () => {
 
         const result = await providerStore.resolveNode('beads://./bd-123')
 
-        expect(mockBeadsProvider.get).toHaveBeenCalledWith('bd-123')
+        expect(mockBeadsProvider.get).toHaveBeenCalledWith('bd-123', undefined)
         expect(result).toBeDefined()
       })
 
@@ -314,7 +316,7 @@ describe('ProviderAwareStore', () => {
 
       const result = await providerStore.refreshNode('x-ext1')
 
-      expect(mockBeadsProvider.get).toHaveBeenCalledWith('beads://./bd-123')
+      expect(mockBeadsProvider.get).toHaveBeenCalledWith('beads://./bd-123', undefined)
       expect(baseStore.updateNode).toHaveBeenCalled()
     })
 
@@ -457,6 +459,602 @@ describe('ProviderAwareStore', () => {
 
       // Even with explicit flag, 'none' should not materialize
       expect(baseStore.createNode).not.toHaveBeenCalled()
+    })
+  })
+
+  // ===========================================================================
+  // Provider-Routed CRUD (Unified Interface)
+  // ===========================================================================
+
+  describe('providerCreate', () => {
+    it('should create locally when defaultProvider is native', async () => {
+      const store = createProviderAwareStore(baseStore, {
+        defaultProvider: 'native',
+      })
+
+      const mockNode: Node = { ...mockSpec }
+      vi.mocked(baseStore.createNode).mockResolvedValue(mockNode)
+
+      const result = await store.providerCreate({
+        type: 'spec',
+        title: 'Test Spec',
+      })
+
+      expect(result.provider).toBe('native')
+      expect(result.uri).toBeUndefined()
+      expect(baseStore.createNode).toHaveBeenCalledWith({
+        type: 'spec',
+        title: 'Test Spec',
+      })
+    })
+
+    it('should route to external provider via scheme param', async () => {
+      const store = createProviderAwareStore(baseStore, {
+        defaultProvider: 'native',
+      })
+      store.providers.register(mockBeadsProvider)
+
+      const createdProviderNode: ProviderNode = {
+        id: 'bd-new1',
+        uri: 'beads://./bd-new1',
+        type: 'issue',
+        title: 'New Issue',
+        fetchedAt: new Date().toISOString(),
+      }
+      vi.mocked(mockBeadsProvider.create).mockResolvedValue(createdProviderNode)
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+      vi.mocked(baseStore.createNode).mockResolvedValue({
+        ...mockExternalNode,
+        id: 'x-new1',
+        title: 'New Issue',
+        uri: 'beads://./bd-new1',
+      } as unknown as Node)
+
+      const result = await store.providerCreate(
+        { type: 'issue', title: 'New Issue' },
+        { scheme: 'beads' }
+      )
+
+      expect(result.provider).toBe('beads')
+      expect(result.uri).toBe('beads://./bd-new1')
+      expect(mockBeadsProvider.create).toHaveBeenCalledWith({
+        type: 'issue',
+        title: 'New Issue',
+        content: undefined,
+        status: undefined,
+        priority: undefined,
+        metadata: undefined,
+      }, undefined)
+      // Should materialize the node locally
+      expect(baseStore.createNode).toHaveBeenCalled()
+    })
+
+    it('should use defaultProvider when no scheme specified', async () => {
+      const store = createProviderAwareStore(baseStore, {
+        defaultProvider: 'beads',
+      })
+      store.providers.register(mockBeadsProvider)
+
+      const createdProviderNode: ProviderNode = {
+        id: 'bd-new2',
+        uri: 'beads://./bd-new2',
+        type: 'issue',
+        title: 'Default Provider Issue',
+        fetchedAt: new Date().toISOString(),
+      }
+      vi.mocked(mockBeadsProvider.create).mockResolvedValue(createdProviderNode)
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+      vi.mocked(baseStore.createNode).mockResolvedValue({
+        ...mockExternalNode,
+        id: 'x-new2',
+      } as unknown as Node)
+
+      const result = await store.providerCreate({
+        type: 'issue',
+        title: 'Default Provider Issue',
+      })
+
+      // Should route to beads since it's the defaultProvider
+      expect(result.provider).toBe('beads')
+      expect(mockBeadsProvider.create).toHaveBeenCalled()
+    })
+
+    it('should throw for unknown provider', async () => {
+      const store = createProviderAwareStore(baseStore)
+
+      await expect(
+        store.providerCreate(
+          { type: 'issue', title: 'Test' },
+          { scheme: 'nonexistent' }
+        )
+      ).rejects.toThrow('Unknown provider: nonexistent')
+    })
+
+    it('should throw for read-only provider', async () => {
+      const readOnlyProvider: Provider = {
+        ...mockBeadsProvider,
+        name: 'readonly',
+        schemes: ['readonly'],
+        capabilities: { read: true, write: false, search: false, watch: false, mount: false, feedback: false },
+      }
+      const store = createProviderAwareStore(baseStore)
+      store.providers.register(readOnlyProvider)
+
+      await expect(
+        store.providerCreate(
+          { type: 'issue', title: 'Test' },
+          { scheme: 'readonly' }
+        )
+      ).rejects.toThrow('read-only')
+    })
+
+    it('should throw for non-mountable provider', async () => {
+      const nonMountable: Provider = {
+        ...mockBeadsProvider,
+        name: 'nomount',
+        schemes: ['nomount'],
+        capabilities: { read: true, write: true, search: false, watch: false, mount: false, feedback: false },
+      }
+      const store = createProviderAwareStore(baseStore)
+      store.providers.register(nonMountable)
+
+      await expect(
+        store.providerCreate(
+          { type: 'issue', title: 'Test' },
+          { scheme: 'nomount' }
+        )
+      ).rejects.toThrow('does not support mounting')
+    })
+  })
+
+  describe('providerGet', () => {
+    it('should get local node directly', async () => {
+      vi.mocked(baseStore.getNode).mockResolvedValue(mockSpec as unknown as Node)
+
+      const result = await providerStore.providerGet('s-abc1')
+
+      expect(baseStore.getNode).toHaveBeenCalledWith('s-abc1')
+      expect(result).toEqual(mockSpec)
+    })
+
+    it('should refresh stale external node', async () => {
+      const staleNode: ExternalNode = {
+        ...mockExternalNode,
+        cached_at: '2020-01-01T00:00:00.000Z', // very old
+      }
+      vi.mocked(baseStore.getNode).mockResolvedValue(staleNode as unknown as Node)
+
+      providerStore.providers.register(mockBeadsProvider)
+
+      // Mock the refresh path: query for existing, then update
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([staleNode as unknown as Node])
+      vi.mocked(baseStore.updateNode).mockResolvedValue({
+        ...staleNode,
+        title: 'Beads Issue',
+        cached_at: new Date().toISOString(),
+      } as unknown as Node)
+
+      const result = await providerStore.providerGet('x-ext1')
+
+      expect(mockBeadsProvider.get).toHaveBeenCalled()
+    })
+
+    it('should resolve provider URI and materialize', async () => {
+      providerStore.providers.register(mockBeadsProvider)
+
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+      vi.mocked(baseStore.createNode).mockResolvedValue(mockExternalNode as unknown as Node)
+
+      const result = await providerStore.providerGet('beads://./bd-123')
+
+      expect(mockBeadsProvider.get).toHaveBeenCalled()
+    })
+
+    it('should return null for nonexistent local node', async () => {
+      vi.mocked(baseStore.getNode).mockResolvedValue(null)
+
+      const result = await providerStore.providerGet('s-nonexist')
+
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('providerUpdate', () => {
+    it('should update local node directly', async () => {
+      const updatedNode = { ...mockSpec, title: 'Updated' } as unknown as Node
+      vi.mocked(baseStore.getNode).mockResolvedValue(mockSpec as unknown as Node)
+      vi.mocked(baseStore.updateNode).mockResolvedValue(updatedNode)
+
+      const result = await providerStore.providerUpdate('s-abc1', { title: 'Updated' })
+
+      expect(baseStore.updateNode).toHaveBeenCalledWith('s-abc1', { title: 'Updated' })
+      expect(result.title).toBe('Updated')
+    })
+
+    it('should route update to external provider for materialized node', async () => {
+      providerStore.providers.register(mockBeadsProvider)
+
+      vi.mocked(baseStore.getNode).mockResolvedValue(mockExternalNode as unknown as Node)
+
+      const updatedProviderNode: ProviderNode = {
+        ...mockProviderNode,
+        title: 'Updated in Beads',
+      }
+      vi.mocked(mockBeadsProvider.update).mockResolvedValue(updatedProviderNode)
+
+      // Mock materialization (find existing, then update)
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([mockExternalNode as unknown as Node])
+      vi.mocked(baseStore.updateNode).mockResolvedValue({
+        ...mockExternalNode,
+        title: 'Updated in Beads',
+      } as unknown as Node)
+
+      const result = await providerStore.providerUpdate('x-ext1', { title: 'Updated in Beads' })
+
+      expect(mockBeadsProvider.update).toHaveBeenCalledWith('bd-123', {
+        title: 'Updated in Beads',
+        content: undefined,
+        status: undefined,
+        priority: undefined,
+        metadata: undefined,
+      }, undefined)
+    })
+
+    it('should route update via provider URI', async () => {
+      providerStore.providers.register(mockBeadsProvider)
+
+      // No existing materialized copy
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+
+      // Mock fetching the node for materialization
+      vi.mocked(baseStore.createNode).mockResolvedValue(mockExternalNode as unknown as Node)
+
+      const updatedProviderNode: ProviderNode = {
+        ...mockProviderNode,
+        title: 'Updated via URI',
+      }
+      vi.mocked(mockBeadsProvider.update).mockResolvedValue(updatedProviderNode)
+
+      // After materialization, the update path will re-materialize
+      vi.mocked(baseStore.updateNode).mockResolvedValue({
+        ...mockExternalNode,
+        title: 'Updated via URI',
+      } as unknown as Node)
+
+      const result = await providerStore.providerUpdate('beads://./bd-123', { title: 'Updated via URI' })
+
+      expect(mockBeadsProvider.update).toHaveBeenCalled()
+    })
+
+    it('should throw for nonexistent node', async () => {
+      vi.mocked(baseStore.getNode).mockResolvedValue(null)
+
+      await expect(
+        providerStore.providerUpdate('s-nonexist', { title: 'Test' })
+      ).rejects.toThrow('not found')
+    })
+
+    it('should throw when external node provider is not registered', async () => {
+      // External node exists but its provider (beads) is NOT registered
+      vi.mocked(baseStore.getNode).mockResolvedValue(mockExternalNode as unknown as Node)
+
+      await expect(
+        providerStore.providerUpdate('x-ext1', { title: 'Update' })
+      ).rejects.toThrow('Provider not registered')
+    })
+  })
+
+  describe('providerDelete', () => {
+    it('should delete local node directly', async () => {
+      vi.mocked(baseStore.getNode).mockResolvedValue(mockSpec as unknown as Node)
+      vi.mocked(baseStore.deleteNode).mockResolvedValue(undefined)
+
+      await providerStore.providerDelete('s-abc1')
+
+      expect(baseStore.deleteNode).toHaveBeenCalledWith('s-abc1', undefined)
+    })
+
+    it('should route delete to external provider and remove local copy', async () => {
+      providerStore.providers.register(mockBeadsProvider)
+
+      vi.mocked(baseStore.getNode).mockResolvedValue(mockExternalNode as unknown as Node)
+      vi.mocked(mockBeadsProvider.delete).mockResolvedValue(undefined)
+      vi.mocked(baseStore.deleteNode).mockResolvedValue(undefined)
+
+      await providerStore.providerDelete('x-ext1')
+
+      // Should delete in provider
+      expect(mockBeadsProvider.delete).toHaveBeenCalledWith('bd-123', undefined)
+
+      // Should hard-delete local materialized copy
+      expect(baseStore.deleteNode).toHaveBeenCalledWith('x-ext1', { hard: true })
+    })
+
+    it('should throw for nonexistent node', async () => {
+      vi.mocked(baseStore.getNode).mockResolvedValue(null)
+
+      await expect(
+        providerStore.providerDelete('s-nonexist')
+      ).rejects.toThrow('not found')
+    })
+
+    it('should throw when external node provider is not registered', async () => {
+      // External node exists but its provider (beads) is NOT registered
+      vi.mocked(baseStore.getNode).mockResolvedValue(mockExternalNode as unknown as Node)
+
+      await expect(
+        providerStore.providerDelete('x-ext1')
+      ).rejects.toThrow('Provider not registered')
+    })
+  })
+
+  describe('defaultProvider', () => {
+    it('should default to native', () => {
+      const store = createProviderAwareStore(baseStore)
+      expect(store.defaultProvider).toBe('native')
+    })
+
+    it('should respect config', () => {
+      const store = createProviderAwareStore(baseStore, {
+        defaultProvider: 'sudocode',
+      })
+      expect(store.defaultProvider).toBe('sudocode')
+    })
+  })
+
+  // =========================================================================
+  // Task Lifecycle (TaskManageable)
+  // =========================================================================
+
+  describe('task lifecycle', () => {
+    let mockTaskProvider: Provider & TaskManageable
+
+    const mockTaskProviderNode: ProviderNode = {
+      id: 'task-1',
+      uri: 'taskprov://task-1',
+      type: 'issue',
+      title: 'Task One',
+      status: 'in_progress',
+      fetchedAt: new Date().toISOString(),
+    }
+
+    const mockTaskExternalNode: ExternalNode = {
+      id: 'x-task1',
+      uuid: 'uuid-task-1',
+      type: 'external',
+      title: 'Task One',
+      uri: 'taskprov://task-1',
+      source: 'taskprov',
+      materialized: true,
+      cached_at: new Date().toISOString(),
+      created_at: '2024-01-01T00:00:00.000Z',
+      updated_at: '2024-01-01T00:00:00.000Z',
+    }
+
+    beforeEach(() => {
+      mockTaskProvider = {
+        name: 'taskprov',
+        schemes: ['taskprov'],
+        capabilities: { read: true, write: true, search: false, watch: false, mount: true, feedback: false },
+        parseUri: vi.fn((uri: string) => {
+          if (uri.startsWith('taskprov://')) {
+            const id = uri.slice('taskprov://'.length)
+            return { scheme: 'taskprov', id, isRelative: false }
+          }
+          return null
+        }),
+        buildUri: vi.fn((id: string) => `taskprov://${id}`),
+        isValidUri: vi.fn((uri: string) => uri.startsWith('taskprov://')),
+        get: vi.fn().mockResolvedValue(mockTaskProviderNode),
+        list: vi.fn().mockResolvedValue([]),
+        create: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn(),
+
+        taskCapabilities: {
+          actions: ['start', 'complete', 'block', 'reopen'] as TaskAction[],
+          supportsAssignment: true,
+          supportsReadyQuery: true,
+          statusModel: ['open', 'in_progress', 'blocked', 'done'],
+        },
+        transitionTask: vi.fn().mockResolvedValue(mockTaskProviderNode),
+        readyTasks: vi.fn().mockResolvedValue([mockTaskProviderNode]),
+        assignTask: vi.fn().mockResolvedValue(mockTaskProviderNode),
+        validActions: vi.fn().mockResolvedValue(['start', 'close'] as TaskAction[]),
+      }
+    })
+
+    describe('taskTransition', () => {
+      it('should transition a task via provider URI', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        // Mock materialization: no existing node, so create one
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+        vi.mocked(baseStore.createNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+
+        const result = await providerStore.taskTransition('taskprov://task-1', 'start')
+
+        expect(mockTaskProvider.transitionTask).toHaveBeenCalledWith('task-1', 'start', undefined)
+        expect(result.action).toBe('start')
+        expect(result.provider).toBe('taskprov')
+        expect(result.node).toBeDefined()
+      })
+
+      it('should transition a task via local external node ID', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        vi.mocked(baseStore.getNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([mockTaskExternalNode as unknown as Node])
+        vi.mocked(baseStore.updateNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+
+        const result = await providerStore.taskTransition('x-task1', 'complete')
+
+        expect(mockTaskProvider.transitionTask).toHaveBeenCalledWith('task-1', 'complete', undefined)
+        expect(result.action).toBe('complete')
+      })
+
+      it('should throw for provider that does not support tasks', async () => {
+        providerStore.providers.register(mockBeadsProvider)
+
+        await expect(
+          providerStore.taskTransition('beads://./bd-123', 'start')
+        ).rejects.toThrow('does not support task operations')
+      })
+
+      it('should throw for nonexistent node', async () => {
+        vi.mocked(baseStore.getNode).mockResolvedValue(null)
+
+        await expect(
+          providerStore.taskTransition('s-nonexist', 'start')
+        ).rejects.toThrow('not found')
+      })
+
+      it('should forward context to provider', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+        vi.mocked(baseStore.createNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+
+        const ctx = { cwd: '/other/dir', timeout: 5000 }
+        await providerStore.taskTransition('taskprov://task-1', 'start', { context: ctx })
+
+        expect(mockTaskProvider.transitionTask).toHaveBeenCalledWith('task-1', 'start', ctx)
+      })
+    })
+
+    describe('taskReady', () => {
+      it('should aggregate ready tasks across task-capable providers', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        // Mock materialization for each ready task
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+        vi.mocked(baseStore.createNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+
+        const ready = await providerStore.taskReady()
+
+        expect(mockTaskProvider.readyTasks).toHaveBeenCalled()
+        expect(ready.length).toBeGreaterThanOrEqual(1)
+      })
+
+      it('should skip non-task-capable providers', async () => {
+        providerStore.providers.register(mockBeadsProvider)
+        providerStore.providers.register(mockTaskProvider)
+
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+        vi.mocked(baseStore.createNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+
+        await providerStore.taskReady()
+
+        // Only taskprov should be queried
+        expect(mockTaskProvider.readyTasks).toHaveBeenCalled()
+      })
+
+      it('should filter by provider name', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        await providerStore.taskReady({ providers: ['other-provider'] })
+
+        // taskprov should NOT be queried because it wasn't in the filter
+        expect(mockTaskProvider.readyTasks).not.toHaveBeenCalled()
+      })
+
+      it('should return existing materialized nodes when available', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        // Mock: existing materialized node found
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([mockTaskExternalNode as unknown as Node])
+
+        const ready = await providerStore.taskReady()
+
+        expect(ready[0]).toEqual(mockTaskExternalNode)
+      })
+
+      it('should forward options to provider', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+        vi.mocked(baseStore.createNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+
+        await providerStore.taskReady({ limit: 5, tags: ['urgent'], assignee: 'alice' })
+
+        expect(mockTaskProvider.readyTasks).toHaveBeenCalledWith(
+          { limit: 5, tags: ['urgent'], priority: undefined, assignee: 'alice' },
+          undefined
+        )
+      })
+    })
+
+    describe('taskAssign', () => {
+      it('should assign a task via provider', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        vi.mocked(baseStore.query.nodes).mockResolvedValue([])
+        vi.mocked(baseStore.createNode).mockResolvedValue(mockTaskExternalNode as unknown as Node)
+
+        const result = await providerStore.taskAssign('taskprov://task-1', 'alice')
+
+        expect(mockTaskProvider.assignTask).toHaveBeenCalledWith('task-1', 'alice', undefined)
+        expect(result).toBeDefined()
+      })
+
+      it('should throw for provider that does not support assignment', async () => {
+        const noAssignProvider: Provider & TaskManageable = {
+          ...mockTaskProvider,
+          name: 'noassign',
+          schemes: ['noassign'],
+          parseUri: vi.fn((uri: string) => {
+            if (uri.startsWith('noassign://')) {
+              return { scheme: 'noassign', id: uri.slice('noassign://'.length), isRelative: false }
+            }
+            return null
+          }),
+          buildUri: vi.fn((id: string) => `noassign://${id}`),
+          isValidUri: vi.fn((uri: string) => uri.startsWith('noassign://')),
+          taskCapabilities: {
+            ...mockTaskProvider.taskCapabilities,
+            supportsAssignment: false,
+          },
+          assignTask: undefined,
+        }
+        providerStore.providers.register(noAssignProvider)
+
+        await expect(
+          providerStore.taskAssign('noassign://task-1', 'alice')
+        ).rejects.toThrow('does not support task assignment')
+      })
+    })
+
+    describe('taskValidActions', () => {
+      it('should return valid actions from provider', async () => {
+        providerStore.providers.register(mockTaskProvider)
+
+        const actions = await providerStore.taskValidActions('taskprov://task-1')
+
+        expect(mockTaskProvider.validActions).toHaveBeenCalledWith('task-1')
+        expect(actions).toEqual(['start', 'close'])
+      })
+
+      it('should fall back to taskCapabilities.actions when validActions not implemented', async () => {
+        const noValidActionsProvider: Provider & TaskManageable = {
+          ...mockTaskProvider,
+          name: 'novalid',
+          schemes: ['novalid'],
+          parseUri: vi.fn((uri: string) => {
+            if (uri.startsWith('novalid://')) {
+              return { scheme: 'novalid', id: uri.slice('novalid://'.length), isRelative: false }
+            }
+            return null
+          }),
+          buildUri: vi.fn((id: string) => `novalid://${id}`),
+          isValidUri: vi.fn((uri: string) => uri.startsWith('novalid://')),
+          validActions: undefined,
+        }
+        providerStore.providers.register(noValidActionsProvider)
+
+        const actions = await providerStore.taskValidActions('novalid://task-1')
+
+        expect(actions).toEqual(['start', 'complete', 'block', 'reopen'])
+      })
     })
   })
 })

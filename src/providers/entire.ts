@@ -409,6 +409,8 @@ export function createEntireProvider(config: EntireConfig = {}, store?: EntireSt
     write: false,
     search: true,
     watch: false,
+    mount: false,
+    feedback: false,
   }
 
   return {

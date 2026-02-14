@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { loadConfig, getDefaults, parseEnvConfig, validateConfig, mergeConfigs } from '../index'
+import { loadConfig, getDefaults, parseEnvConfig, validateConfig, mergeConfigs } from '../index.js'
 
 describe('Config Public API', () => {
   let tempDir: string

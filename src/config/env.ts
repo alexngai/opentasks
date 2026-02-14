@@ -1,7 +1,7 @@
 /**
  * Environment variable parser for config
  */
-import type { PartialOpenTasksConfig, LoggingLevel } from './schema'
+import type { PartialOpenTasksConfig, LoggingLevel } from './schema.js'
 
 /**
  * Mapping of environment variable names to config paths and types

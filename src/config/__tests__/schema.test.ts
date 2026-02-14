@@ -10,7 +10,7 @@ import {
   validateConfig,
   parseConfig,
   type OpenTasksConfig,
-} from '../schema'
+} from '../schema.js'
 
 describe('Config Schema', () => {
   describe('StorageConfigSchema', () => {
@@ -244,6 +244,7 @@ describe('Config Schema', () => {
         connections: [],
         role: 'standalone',
         redirects: [],
+        defaultProvider: 'native',
       })
     })
 
@@ -302,6 +303,7 @@ describe('Config Schema', () => {
         connections: [],
         role: 'standalone',
         redirects: [],
+        defaultProvider: 'native',
       }
 
       const result = OpenTasksConfigSchema.parse(config)

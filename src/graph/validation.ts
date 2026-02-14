@@ -28,6 +28,12 @@ const MAX_PRIORITY = 4
 const VALID_NODE_TYPES = ['spec', 'issue', 'feedback', 'external'] as const
 const VALID_ISSUE_STATUSES = ['open', 'in_progress', 'blocked', 'closed'] as const
 const VALID_FEEDBACK_TYPES = ['comment', 'suggestion', 'request'] as const
+const VALID_EDGE_TYPES = [
+  // Core
+  'blocks', 'implements', 'references', 'related',
+  // Extended
+  'parent-of', 'child-of', 'duplicates', 'supersedes', 'depends-on', 'discovered-from',
+] as const
 
 // ============================================================================
 // Validation Service Interface
@@ -309,6 +315,14 @@ async function validateEdge(
   // type required
   if (!input.type) {
     errors.push(error('REQUIRED', 'Edge type is required', 'type'))
+  } else if (!VALID_EDGE_TYPES.includes(input.type as (typeof VALID_EDGE_TYPES)[number])) {
+    errors.push(
+      error(
+        'INVALID_EDGE_TYPE',
+        `Invalid edge type: '${input.type}'. Valid types: ${VALID_EDGE_TYPES.join(', ')}`,
+        'type'
+      )
+    )
   }
 
   // No self-reference

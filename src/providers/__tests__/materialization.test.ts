@@ -82,7 +82,7 @@ describe('MaterializationManager', () => {
     mockProvider = {
       name: 'beads',
       schemes: ['beads', 'bd'],
-      capabilities: { read: true, write: true, search: true, watch: false },
+      capabilities: { read: true, write: true, search: true, watch: false, mount: true, feedback: false },
       parseUri: vi.fn(),
       buildUri: vi.fn(),
       isValidUri: vi.fn(),
@@ -388,7 +388,7 @@ describe('MaterializationManager', () => {
 
       await manager.refresh(node, mockProvider, mockStore)
 
-      expect(mockProvider.get).toHaveBeenCalledWith('beads://./bd-123')
+      expect(mockProvider.get).toHaveBeenCalledWith('beads://./bd-123', undefined)
       expect(mockStore.updateNode).toHaveBeenCalled()
     })
 

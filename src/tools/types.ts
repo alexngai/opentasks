@@ -310,6 +310,119 @@ export interface AnnotateResult {
 }
 
 // ============================================================================
+// Task Tool Types
+// ============================================================================
+
+/**
+ * Semantic task actions
+ */
+export type { TaskAction } from '../providers/traits/TaskManageable.js'
+
+/**
+ * Parameters for the task tool
+ *
+ * Exactly one operation must be specified.
+ */
+export interface TaskParams {
+  /** Transition a task's status using a semantic action */
+  transition?: {
+    /** Task ID or provider URI */
+    id: string
+    /** Semantic action: 'start' | 'complete' | 'block' | 'reopen' | 'close' */
+    action: 'start' | 'complete' | 'block' | 'reopen' | 'close'
+  }
+
+  /** Get tasks that are ready to work on (no active blockers) */
+  ready?: {
+    /** Only query these providers (by name). If omitted, queries all task-capable providers. */
+    providers?: string[]
+    /** Maximum results to return */
+    limit?: number
+    /** Filter by tags */
+    tags?: string[]
+    /** Filter by minimum priority */
+    priority?: number
+    /** Filter by assignee */
+    assignee?: string
+  }
+
+  /** Assign a task to an owner */
+  assign?: {
+    /** Task ID or provider URI */
+    id: string
+    /** Assignee identifier */
+    assignee: string
+  }
+
+  /** Get valid next actions for a task in its current state */
+  validActions?: {
+    /** Task ID or provider URI */
+    id: string
+  }
+
+  /** Return full objects instead of summaries (default: false) */
+  verbose?: boolean
+}
+
+/**
+ * Result from the task tool
+ */
+export interface TaskResult {
+  /** Whether the operation succeeded */
+  success: boolean
+
+  /** Result data (shape depends on operation) */
+  data?: TaskTransitionData | TaskReadyData | TaskAssignData | TaskValidActionsData
+
+  /** Error message if operation failed */
+  error?: string
+}
+
+/**
+ * Result data for a transition operation
+ */
+export interface TaskTransitionData {
+  type: 'transition'
+  /** The updated node summary */
+  node: NodeSummary
+  /** Which provider handled the transition */
+  provider: string
+  /** The action that was applied */
+  action: string
+}
+
+/**
+ * Result data for a ready query
+ */
+export interface TaskReadyData {
+  type: 'ready'
+  /** Ready task summaries */
+  items: NodeSummary[]
+  /** Total count */
+  total: number
+}
+
+/**
+ * Result data for an assign operation
+ */
+export interface TaskAssignData {
+  type: 'assign'
+  /** The updated node summary */
+  node: NodeSummary
+  /** Which provider handled the assignment */
+  provider: string
+}
+
+/**
+ * Result data for a validActions query
+ */
+export interface TaskValidActionsData {
+  type: 'validActions'
+  /** Valid actions for the task's current state */
+  actions: string[]
+}
+
+// ============================================================================
 // Utility Types
 // ============================================================================
 

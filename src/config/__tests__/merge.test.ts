@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mergeConfigs } from '../merge'
+import { mergeConfigs } from '../merge.js'
 
 describe('Config Merger', () => {
   describe('mergeConfigs', () => {

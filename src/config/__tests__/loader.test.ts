@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { loadConfigFile } from '../loader'
-import { ConfigParseError, ConfigValidationError } from '../errors'
+import { loadConfigFile } from '../loader.js'
+import { ConfigParseError, ConfigValidationError } from '../errors.js'
 
 describe('Config Loader', () => {
   let tempDir: string

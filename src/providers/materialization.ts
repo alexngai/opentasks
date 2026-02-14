@@ -11,6 +11,7 @@ import type {
   Provider,
   ProviderNode,
   ProviderRegistry,
+  ProviderOperationContext,
   MaterializationStrategy,
   MaterializationConfig,
 } from './types.js'
@@ -58,7 +59,8 @@ export interface MaterializationManager {
   refresh(
     node: ExternalNode,
     provider: Provider,
-    store: GraphStore
+    store: GraphStore,
+    context?: ProviderOperationContext
   ): Promise<ExternalNode | null>
 
   /** Start background sync */
@@ -245,11 +247,12 @@ export function createMaterializationManager(
     async refresh(
       node: ExternalNode,
       provider: Provider,
-      store: GraphStore
+      store: GraphStore,
+      context?: ProviderOperationContext
     ): Promise<ExternalNode | null> {
       try {
         // Fetch fresh data from provider
-        const providerNode = await provider.get(node.uri)
+        const providerNode = await provider.get(node.uri, context)
 
         if (!providerNode) {
           // Node no longer exists in provider, mark as stale

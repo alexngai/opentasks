@@ -28,7 +28,7 @@ function createMockServer() {
       return handler(params)
     },
     handlers,
-  } as unknown as IPCServer & { call: (method: string, params?: unknown) => Promise<unknown> }
+  } as unknown as IPCServer & { call: (method: string, params?: unknown) => Promise<unknown>; handlers: Map<string, (params: unknown) => Promise<unknown>> }
 }
 
 function createMockFlushManager() {
@@ -145,7 +145,7 @@ describe('registerToolsMethods', () => {
       // Set up nodes
       store._nodes.set('i-1', { id: 'i-1', type: 'issue', title: 'Issue 1' })
       store._nodes.set('i-2', { id: 'i-2', type: 'issue', title: 'Issue 2' })
-      store.getNode = vi.fn((id) => Promise.resolve(store._nodes.get(id) ?? null))
+      store.getNode = vi.fn((id: string) => Promise.resolve(store._nodes.get(id) ?? null)) as any
 
       const result = await server.call('tools.link', {
         fromId: 'i-1',
@@ -199,7 +199,7 @@ describe('registerToolsMethods', () => {
     })
 
     it('should query nodes', async () => {
-      store.query.nodes.mockResolvedValue([
+      ;(store.query.nodes as any).mockResolvedValue([
         { id: 'i-1', type: 'issue', title: 'Test', archived: false },
       ])
 
@@ -213,7 +213,7 @@ describe('registerToolsMethods', () => {
     })
 
     it('should query ready items', async () => {
-      store.query.ready.mockResolvedValue([
+      ;(store.query.ready as any).mockResolvedValue([
         { id: 'i-1', type: 'issue', title: 'Ready Issue', archived: false },
       ])
 
@@ -246,7 +246,7 @@ describe('registerToolsMethods', () => {
     it('should create feedback on target node', async () => {
       // Set up target node
       store._nodes.set('s-1', { id: 's-1', type: 'spec', title: 'Test Spec' })
-      store.getNode = vi.fn((id) => Promise.resolve(store._nodes.get(id) ?? null))
+      store.getNode = vi.fn((id: string) => Promise.resolve(store._nodes.get(id) ?? null)) as any
 
       const result = await server.call('tools.annotate', {
         targetId: 's-1',
@@ -282,7 +282,7 @@ describe('registerToolsMethods', () => {
     })
 
     it('should return error if target node not found', async () => {
-      store.getNode = vi.fn().mockResolvedValue(null)
+      store.getNode = vi.fn().mockResolvedValue(null) as any
 
       const result = await server.call('tools.annotate', {
         targetId: 'nonexistent',
@@ -301,7 +301,7 @@ describe('registerToolsMethods', () => {
         title: 'Feedback',
         resolved: false,
       })
-      store.getNode = vi.fn((id) => Promise.resolve(store._nodes.get(id) ?? null))
+      store.getNode = vi.fn((id: string) => Promise.resolve(store._nodes.get(id) ?? null)) as any
 
       const result = await server.call('tools.annotate', {
         targetId: 'f-1',
@@ -320,7 +320,7 @@ describe('registerToolsMethods', () => {
         title: 'Feedback',
         dismissed: false,
       })
-      store.getNode = vi.fn((id) => Promise.resolve(store._nodes.get(id) ?? null))
+      store.getNode = vi.fn((id: string) => Promise.resolve(store._nodes.get(id) ?? null)) as any
 
       const result = await server.call('tools.annotate', {
         targetId: 'f-1',
@@ -335,7 +335,7 @@ describe('registerToolsMethods', () => {
       // Set up nodes
       store._nodes.set('s-1', { id: 's-1', type: 'spec', title: 'Test Spec' })
       store._nodes.set('i-1', { id: 'i-1', type: 'issue', title: 'Test Issue' })
-      store.getNode = vi.fn((id) => Promise.resolve(store._nodes.get(id) ?? null))
+      store.getNode = vi.fn((id: string) => Promise.resolve(store._nodes.get(id) ?? null)) as any
 
       const result = await server.call('tools.annotate', {
         targetId: 's-1',

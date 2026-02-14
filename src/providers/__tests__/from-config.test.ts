@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createProvidersFromConfig } from '../from-config.js'
 import { getDefaults } from '../../config/defaults.js'
 import type { OpenTasksConfig } from '../../config/schema.js'
-import type { GraphStore } from '../../graph/types.js'
+import type { GraphStore } from '../../graph/store.js'
 
 // Create a minimal mock GraphStore
 function createMockGraphStore(): GraphStore {

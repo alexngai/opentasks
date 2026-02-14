@@ -113,6 +113,8 @@ describe('EntireProvider', () => {
         write: false,
         search: true,
         watch: false,
+        mount: false,
+        feedback: false,
       })
     })
   })

@@ -127,6 +127,8 @@ describe('NativeProvider', () => {
         write: true,
         search: true,
         watch: false,
+        mount: true,
+        feedback: true,
       })
     })
   })
