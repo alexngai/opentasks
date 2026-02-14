@@ -17,6 +17,9 @@ describe('task tool', () => {
     title: 'Test Task',
     priority: 1,
     archived: false,
+    uri: 'beads://x-task1',
+    source: 'beads',
+    materialized: true,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
   }

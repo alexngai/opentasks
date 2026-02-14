@@ -10,7 +10,7 @@ import {
   validateConfig,
   parseConfig,
   type OpenTasksConfig,
-} from '../schema'
+} from '../schema.js'
 
 describe('Config Schema', () => {
   describe('StorageConfigSchema', () => {

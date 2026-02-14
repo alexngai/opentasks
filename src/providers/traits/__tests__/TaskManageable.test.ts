@@ -83,7 +83,7 @@ const mockTaskProvider: Provider & TaskManageable = {
       type: 'issue',
       title: `Task ${id}`,
       status: 'open',
-      metadata: { assignee },
+      rawData: { assignee },
       fetchedAt: new Date().toISOString(),
     }
   },
@@ -179,7 +179,7 @@ describe('TaskManageable implementation', () => {
 
   it('assigns a task', async () => {
     const result = await mockTaskProvider.assignTask!('task-1', 'alice')
-    expect(result.metadata?.assignee).toBe('alice')
+    expect(result.rawData?.assignee).toBe('alice')
   })
 
   it('returns valid actions for a task', async () => {

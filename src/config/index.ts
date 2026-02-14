@@ -1,18 +1,18 @@
 /**
  * Configuration system public API
  */
-import { loadConfigFile } from './loader'
-import { parseEnvConfig } from './env'
-import { mergeConfigs } from './merge'
-import type { OpenTasksConfig, PartialOpenTasksConfig } from './schema'
+import { loadConfigFile } from './loader.js'
+import { parseEnvConfig } from './env.js'
+import { mergeConfigs } from './merge.js'
+import type { OpenTasksConfig, PartialOpenTasksConfig } from './schema.js'
 
 // Re-export types and utilities
-export { getDefaults, DEFAULT_CONFIG } from './defaults'
-export { parseEnvConfig } from './env'
-export { mergeConfigs } from './merge'
-export { loadConfigFile } from './loader'
-export { validateConfig, parseConfig } from './schema'
-export { ConfigParseError, ConfigValidationError } from './errors'
+export { getDefaults, DEFAULT_CONFIG } from './defaults.js'
+export { parseEnvConfig } from './env.js'
+export { mergeConfigs } from './merge.js'
+export { loadConfigFile } from './loader.js'
+export { validateConfig, parseConfig } from './schema.js'
+export { ConfigParseError, ConfigValidationError } from './errors.js'
 export type {
   OpenTasksConfig,
   PartialOpenTasksConfig,
@@ -25,7 +25,7 @@ export type {
   LoggingLevel,
   DeepPartial,
   ValidationResult,
-} from './schema'
+} from './schema.js'
 
 /**
  * Load configuration for a location

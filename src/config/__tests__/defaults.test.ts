@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_CONFIG, getDefaults } from '../defaults'
+import { DEFAULT_CONFIG, getDefaults } from '../defaults.js'
 
 describe('Config Defaults', () => {
   describe('DEFAULT_CONFIG', () => {
