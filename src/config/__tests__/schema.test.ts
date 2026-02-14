@@ -143,6 +143,13 @@ describe('Config Schema', () => {
           executable: 'sudocode',
           timeout: 30000,
         },
+        entire: {
+          enabled: true,
+          executable: 'entire',
+          timeout: 30000,
+          autoLink: true,
+          autoLinkMinConfidence: 'medium',
+        },
       })
     })
 
@@ -221,6 +228,13 @@ describe('Config Schema', () => {
             executable: 'sudocode',
             timeout: 30000,
           },
+          entire: {
+            enabled: true,
+            executable: 'entire',
+            timeout: 30000,
+            autoLink: true,
+            autoLinkMinConfidence: 'medium',
+          },
         },
         logging: {
           level: 'info',
@@ -272,6 +286,13 @@ describe('Config Schema', () => {
             enabled: false,
             executable: '/opt/sudocode',
             timeout: 45000,
+          },
+          entire: {
+            enabled: false,
+            executable: '/opt/entire',
+            timeout: 45000,
+            autoLink: false,
+            autoLinkMinConfidence: 'high',
           },
         },
         logging: {

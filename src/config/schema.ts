@@ -169,6 +169,36 @@ export const ClaudeTasksProviderConfigSchema = z
 
 export type ClaudeTasksProviderConfig = z.infer<typeof ClaudeTasksProviderConfigSchema>
 
+const EntireProviderConfigSchemaInner = z.object({
+  /** Enable Entire provider and auto-linking */
+  enabled: z.boolean().default(true),
+
+  /** Path to entire executable */
+  executable: z.string().default('entire'),
+
+  /** Command timeout (ms) */
+  timeout: z.number().min(1000, 'timeout must be >= 1000ms').default(30000),
+
+  /** Enable automatic session ↔ task linking */
+  autoLink: z.boolean().default(true),
+
+  /** Minimum confidence for auto-linking */
+  autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).default('medium'),
+})
+
+export const EntireProviderConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    executable: z.string().optional(),
+    timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+    autoLink: z.boolean().optional(),
+    autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
+  })
+  .default({})
+  .transform((val) => EntireProviderConfigSchemaInner.parse(val))
+
+export type EntireProviderConfig = z.infer<typeof EntireProviderConfigSchema>
+
 const SudocodeProviderConfigSchemaInner = z.object({
   /** Enable Sudocode provider (auto-detects executable) */
   enabled: z.boolean().default(true),
@@ -195,6 +225,7 @@ const ProvidersConfigSchemaInner = z.object({
   beads: BeadsProviderConfigSchema,
   claudeTasks: ClaudeTasksProviderConfigSchema,
   sudocode: SudocodeProviderConfigSchema,
+  entire: EntireProviderConfigSchema,
 })
 
 export const ProvidersConfigSchema = z
@@ -216,6 +247,15 @@ export const ProvidersConfigSchema = z
         enabled: z.boolean().optional(),
         executable: z.string().optional(),
         timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+      })
+      .optional(),
+    entire: z
+      .object({
+        enabled: z.boolean().optional(),
+        executable: z.string().optional(),
+        timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+        autoLink: z.boolean().optional(),
+        autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
       })
       .optional(),
   })
@@ -308,6 +348,15 @@ export const OpenTasksConfigSchema = z
             enabled: z.boolean().optional(),
             executable: z.string().optional(),
             timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+          })
+          .optional(),
+        entire: z
+          .object({
+            enabled: z.boolean().optional(),
+            executable: z.string().optional(),
+            timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+            autoLink: z.boolean().optional(),
+            autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
           })
           .optional(),
       })

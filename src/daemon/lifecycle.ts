@@ -7,26 +7,39 @@
  *   - Multi-location: multiple worktrees under one git repo
  */
 
-import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
-import { createLockManager, type LockManager } from './lock.js'
-import { createRegistryManager, type RegistryManager } from './registry.js'
-import { DaemonError, type DaemonState, type DaemonStatus, type DaemonEntry } from './types.js'
-import { createIPCServer, type IPCServer } from './ipc.js'
-import { createFileWatcher, type FileWatcher } from './watcher.js'
-import { createDaemonFlushManager, type DaemonFlushManager } from './flush.js'
-import { registerLifecycleMethods } from './methods/lifecycle.js'
-import { registerGraphMethods } from './methods/graph.js'
-import { registerToolsMethods } from './methods/tools.js'
-import { registerLocationMethods } from './methods/location.js'
-import type { GraphStore } from '../graph/store.js'
-import { createProviderAwareStore, type ProviderAwareStore } from '../graph/provider-store.js'
-import { registerProviderMethods } from './methods/provider.js'
-import type { PartialOpenTasksConfig } from '../config/index.js'
-import { loadConfigFile } from '../config/loader.js'
-import { createBeadsProvider } from '../providers/beads.js'
-import { createSudocodeProvider } from '../providers/sudocode.js'
-import { createClaudeTasksProvider } from '../providers/claude-tasks.js'
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { createLockManager, type LockManager } from "./lock.js";
+import { createRegistryManager, type RegistryManager } from "./registry.js";
+import {
+  DaemonError,
+  type DaemonState,
+  type DaemonStatus,
+  type DaemonEntry,
+} from "./types.js";
+import { createIPCServer, type IPCServer } from "./ipc.js";
+import { createFileWatcher, type FileWatcher } from "./watcher.js";
+import { createDaemonFlushManager, type DaemonFlushManager } from "./flush.js";
+import { createEntireWatcher, type EntireWatcher } from "./entire-watcher.js";
+import {
+  createEntireAutoLinker,
+  type EntireAutoLinker,
+} from "./entire-linker.js";
+import { registerLifecycleMethods } from "./methods/lifecycle.js";
+import { registerGraphMethods } from "./methods/graph.js";
+import { registerToolsMethods } from "./methods/tools.js";
+import { registerLocationMethods } from "./methods/location.js";
+import type { GraphStore } from "../graph/store.js";
+import {
+  createProviderAwareStore,
+  type ProviderAwareStore,
+} from "../graph/provider-store.js";
+import { registerProviderMethods } from "./methods/provider.js";
+import type { PartialOpenTasksConfig } from "../config/index.js";
+import { loadConfigFile } from "../config/loader.js";
+import { createBeadsProvider } from "../providers/beads.js";
+import { createSudocodeProvider } from "../providers/sudocode.js";
+import { createClaudeTasksProvider } from "../providers/claude-tasks.js";
 import {
   createLocationState,
   destroyLocationState,
@@ -34,11 +47,8 @@ import {
   createMultiLocationResolver,
   type LocationState,
   type LocationResolver,
-} from './location-state.js'
-import {
-  readWorktreeRegistry,
-  type WorktreeEntry,
-} from '../core/worktree.js'
+} from "./location-state.js";
+import { readWorktreeRegistry, type WorktreeEntry } from "../core/worktree.js";
 
 // ============================================================================
 // Types
@@ -49,13 +59,13 @@ import {
  */
 interface DaemonConfigBase {
   /** OpenTasks version */
-  version: string
+  version: string;
 
   /** Shutdown timeout in milliseconds (default: 2000) */
-  shutdownTimeoutMs?: number
+  shutdownTimeoutMs?: number;
 
   /** Custom registry path (for testing) */
-  registryPath?: string
+  registryPath?: string;
 }
 
 /**
@@ -63,13 +73,13 @@ interface DaemonConfigBase {
  */
 export interface SingleLocationDaemonConfig extends DaemonConfigBase {
   /** Path to .opentasks/ directory */
-  locationPath: string
+  locationPath: string;
 
   /** Injected GraphStore instance (caller creates and initializes it) */
-  store: GraphStore
+  store: GraphStore;
 
   /** OpenTasks config override (for custom paths) */
-  openTasksConfig?: PartialOpenTasksConfig
+  openTasksConfig?: PartialOpenTasksConfig;
 }
 
 /**
@@ -77,35 +87,37 @@ export interface SingleLocationDaemonConfig extends DaemonConfigBase {
  */
 export interface MultiLocationDaemonConfig extends DaemonConfigBase {
   /** Path to git common dir (e.g., /repo/.git) */
-  gitCommonDir: string
+  gitCommonDir: string;
 
   /** Override for primary location path (default: auto-detected from git root) */
-  primaryLocationPath?: string
+  primaryLocationPath?: string;
 }
 
 /**
  * Unified daemon configuration (discriminated by presence of gitCommonDir)
  */
-export type DaemonConfig = SingleLocationDaemonConfig | MultiLocationDaemonConfig
+export type DaemonConfig =
+  | SingleLocationDaemonConfig
+  | MultiLocationDaemonConfig;
 
 /**
  * Daemon interface
  */
 export interface Daemon {
   /** Start the daemon */
-  start(): Promise<void>
+  start(): Promise<void>;
 
   /** Stop the daemon gracefully */
-  stop(): Promise<void>
+  stop(): Promise<void>;
 
   /** Get daemon status */
-  getStatus(): DaemonStatus
+  getStatus(): DaemonStatus;
 
   /** Socket path for IPC */
-  readonly socketPath: string
+  readonly socketPath: string;
 
   /** Location path (daemon home directory) */
-  readonly locationPath: string
+  readonly locationPath: string;
 }
 
 /**
@@ -113,20 +125,20 @@ export interface Daemon {
  */
 export interface ExistingDaemonResult {
   /** Whether a daemon is already running */
-  running: boolean
+  running: boolean;
 
   /** Socket path if running */
-  socketPath?: string
+  socketPath?: string;
 
   /** PID if running */
-  pid?: number
+  pid?: number;
 }
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2000
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2000;
 
 // ============================================================================
 // Type Guards
@@ -135,8 +147,10 @@ const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2000
 /**
  * Check if config is for multi-location mode
  */
-function isMultiLocationConfig(config: DaemonConfig): config is MultiLocationDaemonConfig {
-  return 'gitCommonDir' in config
+function isMultiLocationConfig(
+  config: DaemonConfig,
+): config is MultiLocationDaemonConfig {
+  return "gitCommonDir" in config;
 }
 
 // ============================================================================
@@ -150,15 +164,17 @@ function isMultiLocationConfig(config: DaemonConfig): config is MultiLocationDae
  */
 function registerConfiguredProviders(
   providerStore: ProviderAwareStore,
-  config?: PartialOpenTasksConfig
+  config?: PartialOpenTasksConfig,
 ): void {
-  const providersConfig = config?.providers as {
-    beads?: { enabled?: boolean; executable?: string; timeout?: number }
-    claudeTasks?: { enabled?: boolean }
-    sudocode?: { enabled?: boolean; executable?: string; timeout?: number }
-  } | undefined
+  const providersConfig = config?.providers as
+    | {
+        beads?: { enabled?: boolean; executable?: string; timeout?: number };
+        claudeTasks?: { enabled?: boolean };
+        sudocode?: { enabled?: boolean; executable?: string; timeout?: number };
+      }
+    | undefined;
 
-  if (!providersConfig) return
+  if (!providersConfig) return;
 
   // Register Beads provider if enabled
   if (providersConfig.beads?.enabled !== false) {
@@ -166,8 +182,8 @@ function registerConfiguredProviders(
       const beads = createBeadsProvider({
         executable: providersConfig.beads?.executable,
         timeout: providersConfig.beads?.timeout,
-      })
-      providerStore.providers.register(beads)
+      });
+      providerStore.providers.register(beads);
     } catch {
       // Graceful degradation: skip provider if creation fails
     }
@@ -179,8 +195,8 @@ function registerConfiguredProviders(
       const sudocode = createSudocodeProvider({
         executable: providersConfig.sudocode?.executable,
         timeout: providersConfig.sudocode?.timeout,
-      })
-      providerStore.providers.register(sudocode)
+      });
+      providerStore.providers.register(sudocode);
     } catch {
       // Graceful degradation: skip provider if creation fails
     }
@@ -189,8 +205,8 @@ function registerConfiguredProviders(
   // Register Claude Tasks provider if enabled
   if (providersConfig.claudeTasks?.enabled !== false) {
     try {
-      const claudeTasks = createClaudeTasksProvider()
-      providerStore.providers.register(claudeTasks)
+      const claudeTasks = createClaudeTasksProvider();
+      providerStore.providers.register(claudeTasks);
     } catch {
       // Graceful degradation: skip provider if creation fails
     }
@@ -205,25 +221,25 @@ function registerConfiguredProviders(
  * Check if a daemon is already running for a location
  */
 export async function checkExistingDaemon(
-  locationPath: string
+  locationPath: string,
 ): Promise<ExistingDaemonResult> {
-  const lockManager = createLockManager(locationPath)
-  const isHeld = await lockManager.isHeld()
+  const lockManager = createLockManager(locationPath);
+  const isHeld = await lockManager.isHeld();
 
   if (!isHeld) {
-    return { running: false }
+    return { running: false };
   }
 
-  const lock = await lockManager.read()
+  const lock = await lockManager.read();
   if (!lock) {
-    return { running: false }
+    return { running: false };
   }
 
   return {
     running: true,
     socketPath: lock.socketPath,
     pid: lock.pid,
-  }
+  };
 }
 
 // ============================================================================
@@ -238,16 +254,18 @@ export async function checkExistingDaemon(
  */
 export function createDaemon(config: DaemonConfig): Daemon {
   if (isMultiLocationConfig(config)) {
-    return createMultiLocationDaemon(config)
+    return createMultiLocationDaemon(config);
   }
-  return createSingleLocationDaemon(config)
+  return createSingleLocationDaemon(config);
 }
 
 // ============================================================================
 // Single-Location Daemon
 // ============================================================================
 
-function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon {
+function createSingleLocationDaemon(
+  config: SingleLocationDaemonConfig,
+): Daemon {
   const {
     locationPath,
     version,
@@ -255,54 +273,58 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
     shutdownTimeoutMs = DEFAULT_SHUTDOWN_TIMEOUT_MS,
     registryPath,
     openTasksConfig,
-  } = config
+  } = config;
 
   // Use config values for paths, falling back to defaults
-  const socketFileName = openTasksConfig?.daemon?.socketPath ?? 'daemon.sock'
-  const databaseFileName = openTasksConfig?.storage?.sqlitePath ?? 'cache.db'
+  const socketFileName = openTasksConfig?.daemon?.socketPath ?? "daemon.sock";
+  const databaseFileName = openTasksConfig?.storage?.sqlitePath ?? "cache.db";
 
-  const socketPath = path.join(locationPath, socketFileName)
-  const databasePath = path.join(locationPath, databaseFileName)
+  const socketPath = path.join(locationPath, socketFileName);
+  const databasePath = path.join(locationPath, databaseFileName);
 
   // State
-  let state: DaemonState = 'stopped'
-  let startedAt: string | null = null
+  let state: DaemonState = "stopped";
+  let startedAt: string | null = null;
 
   // Managers
-  const lockManager: LockManager = createLockManager(locationPath)
-  const registryManager: RegistryManager = createRegistryManager(registryPath)
+  const lockManager: LockManager = createLockManager(locationPath);
+  const registryManager: RegistryManager = createRegistryManager(registryPath);
 
   // Components (initialized in start(), torn down in stop())
-  let ipcServer: IPCServer | null = null
-  let fileWatcher: FileWatcher | null = null
-  let flushManager: DaemonFlushManager | null = null
-  let activeProviderStore: ProviderAwareStore | null = null
+  let ipcServer: IPCServer | null = null;
+  let fileWatcher: FileWatcher | null = null;
+  let flushManager: DaemonFlushManager | null = null;
+  let activeProviderStore: ProviderAwareStore | null = null;
+  let entireWatcher: EntireWatcher | null = null;
+  let entireLinker: EntireAutoLinker | null = null;
 
   // Signal handlers (stored for cleanup)
-  let signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = []
+  let signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = [];
 
   function setupSignalHandlers(daemon: Daemon): void {
-    const handler = () => { void daemon.stop() }
-    const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGINT']
+    const handler = () => {
+      void daemon.stop();
+    };
+    const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT"];
     for (const signal of signals) {
-      process.on(signal, handler)
-      signalHandlers.push({ signal, handler })
+      process.on(signal, handler);
+      signalHandlers.push({ signal, handler });
     }
   }
 
   function removeSignalHandlers(): void {
     for (const { signal, handler } of signalHandlers) {
-      process.off(signal, handler)
+      process.off(signal, handler);
     }
-    signalHandlers = []
+    signalHandlers = [];
   }
 
   async function removeSocketFile(): Promise<void> {
     try {
-      await fs.unlink(socketPath)
+      await fs.unlink(socketPath);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
       }
     }
   }
@@ -312,24 +334,24 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
     locationPath,
 
     async start(): Promise<void> {
-      if (state !== 'stopped') {
+      if (state !== "stopped") {
         throw new DaemonError(
-          'DAEMON_ALREADY_RUNNING',
-          `Daemon is already ${state}`
-        )
+          "DAEMON_ALREADY_RUNNING",
+          `Daemon is already ${state}`,
+        );
       }
 
-      state = 'starting'
+      state = "starting";
 
       try {
         // 1. Check for existing daemon
-        const existing = await checkExistingDaemon(locationPath)
+        const existing = await checkExistingDaemon(locationPath);
         if (existing.running) {
-          state = 'stopped'
+          state = "stopped";
           throw new DaemonError(
-            'DAEMON_ALREADY_RUNNING',
-            `Daemon already running (PID ${existing.pid}) at ${existing.socketPath}`
-          )
+            "DAEMON_ALREADY_RUNNING",
+            `Daemon already running (PID ${existing.pid}) at ${existing.socketPath}`,
+          );
         }
 
         // 2. Acquire lock
@@ -337,13 +359,13 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           version,
           socketPath,
           databasePath,
-        })
+        });
 
         // 3. Remove stale socket file
-        await removeSocketFile()
+        await removeSocketFile();
 
         // 4. Register in global registry
-        startedAt = new Date().toISOString()
+        startedAt = new Date().toISOString();
         const entry: DaemonEntry = {
           locationPath,
           socketPath,
@@ -351,40 +373,41 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           version,
           startedAt,
           lastActivity: startedAt,
-        }
-        await registryManager.register(entry)
+        };
+        await registryManager.register(entry);
 
         // 5. Setup signal handlers
-        setupSignalHandlers(daemon)
+        setupSignalHandlers(daemon);
 
         // 6. Create flush manager
         flushManager = createDaemonFlushManager(
           { debounceMs: 5000, maxDelayMs: 30000 },
           async (_dirtyNodeIds) => {
-            fileWatcher?.pause()
+            fileWatcher?.pause();
             try {
-              await store.flush()
+              await store.flush();
             } finally {
-              fileWatcher?.resume()
+              fileWatcher?.resume();
             }
-          }
-        )
+          },
+        );
 
         // 7. Create IPC server
-        ipcServer = createIPCServer(socketPath)
+        ipcServer = createIPCServer(socketPath);
 
         // 8. Create single-location resolver wrapping store + flushManager
-        const defaultProvider = openTasksConfig?.defaultProvider as string | undefined ?? 'native'
+        const defaultProvider =
+          (openTasksConfig?.defaultProvider as string | undefined) ?? "native";
         const providerStore = createProviderAwareStore(store, {
           defaultProvider,
-        })
+        });
 
         // Register external providers from config
-        registerConfiguredProviders(providerStore, openTasksConfig)
-        activeProviderStore = providerStore
+        registerConfiguredProviders(providerStore, openTasksConfig);
+        activeProviderStore = providerStore;
 
         const locationState: LocationState = {
-          hash: 'primary',
+          hash: "primary",
           opentasksPath: locationPath,
           store,
           providerStore,
@@ -392,8 +415,8 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           watcher: null as unknown as FileWatcher, // watcher managed separately
           primary: true,
           healthy: true,
-        }
-        const locationResolver = createSingleLocationResolver(locationState)
+        };
+        const locationResolver = createSingleLocationResolver(locationState);
 
         // 9. Register method handlers
         registerLifecycleMethods({
@@ -402,137 +425,180 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           shutdown: () => daemon.stop(),
           version,
           startedAt: new Date(startedAt),
-        })
+        });
 
         registerGraphMethods({
           server: ipcServer,
           locationResolver,
-        })
+        });
 
         registerToolsMethods({
           server: ipcServer,
           locationResolver,
-        })
+        });
 
         registerProviderMethods({
           server: ipcServer,
           locationResolver,
-        })
+        });
 
         // 10. Start IPC server (begin listening)
-        await ipcServer.start()
+        await ipcServer.start();
 
         // 11. Create and start file watcher
-        fileWatcher = createFileWatcher({ locationPath })
+        fileWatcher = createFileWatcher({ locationPath });
 
         fileWatcher.onchange((_event) => {
           // External changes detected. Full reload deferred.
-        })
+        });
 
-        await fileWatcher.start()
+        await fileWatcher.start();
 
         // Update the location state's watcher reference
-        locationState.watcher = fileWatcher
+        locationState.watcher = fileWatcher;
 
         // 12. Start provider watching for watchable providers
-        providerStore.startProviderWatching()
+        providerStore.startProviderWatching();
+
+        // 13. Initialize Entire watcher + auto-linker (optional)
+        try {
+          entireWatcher = createEntireWatcher({ locationPath });
+          entireLinker = createEntireAutoLinker({
+            store,
+            flushManager,
+          });
+
+          entireWatcher.onSessionEvent((event) => {
+            void entireLinker!.handleSessionEvent(event);
+          });
+
+          await entireWatcher.start();
+        } catch {
+          // Entire integration is optional — continue without it
+          entireWatcher = null;
+          entireLinker = null;
+        }
 
         // 13. Mark as running
-        state = 'running'
+        state = "running";
       } catch (error) {
         // Cleanup on failure
-        state = 'stopped'
-        startedAt = null
+        state = "stopped";
+        startedAt = null;
+
+        if (entireWatcher) {
+          try {
+            await entireWatcher.stop();
+          } catch {
+            /* ignore */
+          }
+          entireWatcher = null;
+          entireLinker = null;
+        }
 
         if (fileWatcher) {
-          try { await fileWatcher.stop() } catch { /* ignore */ }
-          fileWatcher = null
+          try {
+            await fileWatcher.stop();
+          } catch {
+            /* ignore */
+          }
+          fileWatcher = null;
         }
 
         if (ipcServer) {
-          try { await ipcServer.stop() } catch { /* ignore */ }
-          ipcServer = null
+          try {
+            await ipcServer.stop();
+          } catch {
+            /* ignore */
+          }
+          ipcServer = null;
         }
 
-        flushManager = null
+        flushManager = null;
 
         try {
-          await lockManager.release()
+          await lockManager.release();
         } catch {
           // Ignore release errors during cleanup
         }
 
-        throw error
+        throw error;
       }
     },
 
     async stop(): Promise<void> {
-      if (state === 'stopped' || state === 'stopping') {
-        return
+      if (state === "stopped" || state === "stopping") {
+        return;
       }
 
-      if (state === 'starting') {
-        await new Promise((resolve) => setTimeout(resolve, 100))
-        if (state === 'starting') {
+      if (state === "starting") {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        if (state === "starting") {
           throw new DaemonError(
-            'SHUTDOWN_TIMEOUT',
-            'Cannot stop daemon while starting'
-          )
+            "SHUTDOWN_TIMEOUT",
+            "Cannot stop daemon while starting",
+          );
         }
       }
 
-      state = 'stopping'
+      state = "stopping";
 
       const shutdownPromise = (async () => {
         try {
-          removeSignalHandlers()
+          removeSignalHandlers();
 
           if (ipcServer) {
-            await ipcServer.stop()
-            ipcServer = null
+            await ipcServer.stop();
+            ipcServer = null;
+          }
+
+          // Stop Entire watcher before file watcher
+          if (entireWatcher) {
+            await entireWatcher.stop();
+            entireWatcher = null;
+            entireLinker = null;
           }
 
           // Stop provider watching before tearing down file watcher and store
           if (activeProviderStore) {
-            activeProviderStore.stopProviderWatching()
-            activeProviderStore.stopBackgroundSync()
-            activeProviderStore = null
+            activeProviderStore.stopProviderWatching();
+            activeProviderStore.stopBackgroundSync();
+            activeProviderStore = null;
           }
 
           if (fileWatcher) {
-            await fileWatcher.stop()
-            fileWatcher = null
+            await fileWatcher.stop();
+            fileWatcher = null;
           }
 
           if (flushManager) {
-            await flushManager.finalFlush()
-            flushManager = null
+            await flushManager.finalFlush();
+            flushManager = null;
           }
 
-          await store.close()
-          await registryManager.unregister(locationPath)
-          await removeSocketFile()
-          await lockManager.release()
-
+          await store.close();
+          await registryManager.unregister(locationPath);
+          await removeSocketFile();
+          await lockManager.release();
         } finally {
-          state = 'stopped'
-          startedAt = null
+          state = "stopped";
+          startedAt = null;
         }
-      })()
+      })();
 
       const timeoutPromise = new Promise<void>((_, reject) => {
         setTimeout(() => {
-          reject(new DaemonError('SHUTDOWN_TIMEOUT', 'Shutdown timed out'))
-        }, shutdownTimeoutMs)
-      })
+          reject(new DaemonError("SHUTDOWN_TIMEOUT", "Shutdown timed out"));
+        }, shutdownTimeoutMs);
+      });
 
       try {
-        await Promise.race([shutdownPromise, timeoutPromise])
+        await Promise.race([shutdownPromise, timeoutPromise]);
       } catch (error) {
-        state = 'stopped'
-        startedAt = null
-        removeSignalHandlers()
-        throw error
+        state = "stopped";
+        startedAt = null;
+        removeSignalHandlers();
+        throw error;
       }
     },
 
@@ -544,11 +610,11 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         socketPath,
         pendingFlush: flushManager?.hasPendingChanges() ?? false,
         connectionCount: ipcServer?.getConnectionCount() ?? 0,
-      }
+      };
     },
-  }
+  };
 
-  return daemon
+  return daemon;
 }
 
 // ============================================================================
@@ -562,55 +628,57 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
     shutdownTimeoutMs = DEFAULT_SHUTDOWN_TIMEOUT_MS,
     registryPath,
     primaryLocationPath: primaryOverride,
-  } = config
+  } = config;
 
   // Daemon home is .git/opentasks/
-  const daemonHomePath = path.join(gitCommonDir, 'opentasks')
-  const socketPath = path.join(daemonHomePath, 'daemon.sock')
-  const databasePath = path.join(daemonHomePath, 'cache.db')
+  const daemonHomePath = path.join(gitCommonDir, "opentasks");
+  const socketPath = path.join(daemonHomePath, "daemon.sock");
+  const databasePath = path.join(daemonHomePath, "cache.db");
 
   // Primary location: override or auto-detect (git root's .opentasks/)
-  const gitRoot = path.dirname(gitCommonDir) // /repo/.git → /repo
-  const defaultPrimaryPath = path.join(gitRoot, '.opentasks')
-  const primaryPath = primaryOverride ?? defaultPrimaryPath
+  const gitRoot = path.dirname(gitCommonDir); // /repo/.git → /repo
+  const defaultPrimaryPath = path.join(gitRoot, ".opentasks");
+  const primaryPath = primaryOverride ?? defaultPrimaryPath;
 
   // State
-  let state: DaemonState = 'stopped'
-  let startedAt: string | null = null
+  let state: DaemonState = "stopped";
+  let startedAt: string | null = null;
 
   // Managers
-  const lockManager: LockManager = createLockManager(daemonHomePath)
-  const registryManager: RegistryManager = createRegistryManager(registryPath)
+  const lockManager: LockManager = createLockManager(daemonHomePath);
+  const registryManager: RegistryManager = createRegistryManager(registryPath);
 
   // Components
-  let ipcServer: IPCServer | null = null
-  let locationResolver: LocationResolver | null = null
+  let ipcServer: IPCServer | null = null;
+  let locationResolver: LocationResolver | null = null;
 
   // Signal handlers
-  let signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = []
+  let signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = [];
 
   function setupSignalHandlers(daemon: Daemon): void {
-    const handler = () => { void daemon.stop() }
-    const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGINT']
+    const handler = () => {
+      void daemon.stop();
+    };
+    const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT"];
     for (const signal of signals) {
-      process.on(signal, handler)
-      signalHandlers.push({ signal, handler })
+      process.on(signal, handler);
+      signalHandlers.push({ signal, handler });
     }
   }
 
   function removeSignalHandlers(): void {
     for (const { signal, handler } of signalHandlers) {
-      process.off(signal, handler)
+      process.off(signal, handler);
     }
-    signalHandlers = []
+    signalHandlers = [];
   }
 
   async function removeSocketFile(): Promise<void> {
     try {
-      await fs.unlink(socketPath)
+      await fs.unlink(socketPath);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
       }
     }
   }
@@ -622,28 +690,33 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
     opentasksPath: string,
     hash: string,
     isPrimary: boolean,
-    locationConfig?: PartialOpenTasksConfig
+    locationConfig?: PartialOpenTasksConfig,
   ): Promise<LocationState | null> {
     try {
-      const locState = await createLocationState(opentasksPath, hash, isPrimary)
+      const locState = await createLocationState(
+        opentasksPath,
+        hash,
+        isPrimary,
+      );
       // Wrap store with provider-aware dispatch
-      const defaultProvider = locationConfig?.defaultProvider as string | undefined ?? 'native'
+      const defaultProvider =
+        (locationConfig?.defaultProvider as string | undefined) ?? "native";
       locState.providerStore = createProviderAwareStore(locState.store, {
         defaultProvider,
-      })
+      });
 
       // Register external providers from config
-      registerConfiguredProviders(locState.providerStore, locationConfig)
+      registerConfiguredProviders(locState.providerStore, locationConfig);
 
-      await locState.watcher.start()
+      await locState.watcher.start();
 
       // Start provider watching for watchable providers
-      locState.providerStore.startProviderWatching()
+      locState.providerStore.startProviderWatching();
 
-      return locState
+      return locState;
     } catch {
       // Graceful degradation: skip failed locations
-      return null
+      return null;
     }
   }
 
@@ -652,10 +725,10 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
    */
   function getWorktreeEntries(): WorktreeEntry[] {
     try {
-      const registry = readWorktreeRegistry(gitCommonDir)
-      return registry.worktrees
+      const registry = readWorktreeRegistry(gitCommonDir);
+      return registry.worktrees;
     } catch {
-      return []
+      return [];
     }
   }
 
@@ -665,13 +738,13 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
   function determinePrimaryHash(entries: WorktreeEntry[]): string {
     // If primary path matches a registered worktree, use its hash
     const primaryEntry = entries.find(
-      (e) => path.resolve(e.opentasksPath) === path.resolve(primaryPath)
-    )
+      (e) => path.resolve(e.opentasksPath) === path.resolve(primaryPath),
+    );
     if (primaryEntry) {
-      return primaryEntry.hash
+      return primaryEntry.hash;
     }
     // Fallback: use 'primary' as the hash
-    return 'primary'
+    return "primary";
   }
 
   const daemon: Daemon = {
@@ -679,27 +752,27 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
     locationPath: daemonHomePath,
 
     async start(): Promise<void> {
-      if (state !== 'stopped') {
+      if (state !== "stopped") {
         throw new DaemonError(
-          'DAEMON_ALREADY_RUNNING',
-          `Daemon is already ${state}`
-        )
+          "DAEMON_ALREADY_RUNNING",
+          `Daemon is already ${state}`,
+        );
       }
 
-      state = 'starting'
+      state = "starting";
 
       try {
         // 1. Ensure daemon home directory exists
-        await fs.mkdir(daemonHomePath, { recursive: true })
+        await fs.mkdir(daemonHomePath, { recursive: true });
 
         // 2. Check for existing daemon
-        const existing = await checkExistingDaemon(daemonHomePath)
+        const existing = await checkExistingDaemon(daemonHomePath);
         if (existing.running) {
-          state = 'stopped'
+          state = "stopped";
           throw new DaemonError(
-            'DAEMON_ALREADY_RUNNING',
-            `Daemon already running (PID ${existing.pid}) at ${existing.socketPath}`
-          )
+            "DAEMON_ALREADY_RUNNING",
+            `Daemon already running (PID ${existing.pid}) at ${existing.socketPath}`,
+          );
         }
 
         // 3. Acquire lock
@@ -707,13 +780,13 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
           version,
           socketPath,
           databasePath,
-        })
+        });
 
         // 4. Remove stale socket file
-        await removeSocketFile()
+        await removeSocketFile();
 
         // 5. Register in global registry
-        startedAt = new Date().toISOString()
+        startedAt = new Date().toISOString();
         const entry: DaemonEntry = {
           locationPath: daemonHomePath,
           socketPath,
@@ -721,60 +794,70 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
           version,
           startedAt,
           lastActivity: startedAt,
-        }
-        await registryManager.register(entry)
+        };
+        await registryManager.register(entry);
 
         // 6. Setup signal handlers
-        setupSignalHandlers(daemon)
+        setupSignalHandlers(daemon);
 
         // 7. Read worktree registry and determine primary hash
-        const worktreeEntries = getWorktreeEntries()
-        const primaryHash = determinePrimaryHash(worktreeEntries)
+        const worktreeEntries = getWorktreeEntries();
+        const primaryHash = determinePrimaryHash(worktreeEntries);
 
         // 8. Create multi-location resolver
-        locationResolver = createMultiLocationResolver(primaryHash)
+        locationResolver = createMultiLocationResolver(primaryHash);
 
         // 9. Initialize primary location (load config from .opentasks/config.json)
-        let primaryConfig: PartialOpenTasksConfig | null = null
+        let primaryConfig: PartialOpenTasksConfig | null = null;
         try {
-          primaryConfig = await loadConfigFile(path.dirname(primaryPath))
+          primaryConfig = await loadConfigFile(path.dirname(primaryPath));
         } catch {
           // Config load failure is non-fatal; defaults will be used
         }
 
-        const primaryState = await initLocation(primaryPath, primaryHash, true, primaryConfig ?? undefined)
+        const primaryState = await initLocation(
+          primaryPath,
+          primaryHash,
+          true,
+          primaryConfig ?? undefined,
+        );
         if (primaryState) {
-          locationResolver.add(primaryState)
+          locationResolver.add(primaryState);
         }
 
         // 10. Initialize worktree locations (graceful degradation)
         for (const wt of worktreeEntries) {
           // Skip if already added as primary
-          if (locationResolver.has(wt.hash)) continue
+          if (locationResolver.has(wt.hash)) continue;
 
-          let wtConfig: PartialOpenTasksConfig | null = null
+          let wtConfig: PartialOpenTasksConfig | null = null;
           try {
-            wtConfig = await loadConfigFile(path.dirname(wt.opentasksPath))
+            wtConfig = await loadConfigFile(path.dirname(wt.opentasksPath));
           } catch {
             // Config load failure is non-fatal
           }
 
-          const wtState = await initLocation(wt.opentasksPath, wt.hash, false, wtConfig ?? undefined)
+          const wtState = await initLocation(
+            wt.opentasksPath,
+            wt.hash,
+            false,
+            wtConfig ?? undefined,
+          );
           if (wtState) {
-            locationResolver.add(wtState)
+            locationResolver.add(wtState);
           }
         }
 
         // 11. Verify at least one location initialized
         if (locationResolver.list().length === 0) {
           throw new DaemonError(
-            'LOCATION_INIT_FAILED',
-            'No locations could be initialized'
-          )
+            "LOCATION_INIT_FAILED",
+            "No locations could be initialized",
+          );
         }
 
         // 12. Create IPC server
-        ipcServer = createIPCServer(socketPath)
+        ipcServer = createIPCServer(socketPath);
 
         // 13. Register method handlers
         registerLifecycleMethods({
@@ -784,144 +867,153 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
           version,
           startedAt: new Date(startedAt),
           checkHealth: () => {
-            const locations = locationResolver!.list()
-            if (locations.length === 0) return 'unhealthy'
-            const unhealthy = locations.filter(l => !l.healthy)
-            if (unhealthy.length === locations.length) return 'unhealthy'
-            if (unhealthy.length > 0) return 'degraded'
-            return 'healthy'
+            const locations = locationResolver!.list();
+            if (locations.length === 0) return "unhealthy";
+            const unhealthy = locations.filter((l) => !l.healthy);
+            if (unhealthy.length === locations.length) return "unhealthy";
+            if (unhealthy.length > 0) return "degraded";
+            return "healthy";
           },
-        })
+        });
 
         registerGraphMethods({
           server: ipcServer,
           locationResolver,
-        })
+        });
 
         registerToolsMethods({
           server: ipcServer,
           locationResolver,
-        })
+        });
 
         registerProviderMethods({
           server: ipcServer,
           locationResolver,
-        })
+        });
 
         registerLocationMethods({
           server: ipcServer,
           locationResolver,
           gitCommonDir,
-        })
+        });
 
         // 14. Start IPC server
-        await ipcServer.start()
+        await ipcServer.start();
 
         // 15. Mark as running
-        state = 'running'
+        state = "running";
       } catch (error) {
         // Cleanup on failure
-        state = 'stopped'
-        startedAt = null
+        state = "stopped";
+        startedAt = null;
 
         if (ipcServer) {
-          try { await ipcServer.stop() } catch { /* ignore */ }
-          ipcServer = null
+          try {
+            await ipcServer.stop();
+          } catch {
+            /* ignore */
+          }
+          ipcServer = null;
         }
 
         // Tear down all initialized locations
         if (locationResolver) {
           for (const info of locationResolver.list()) {
-            try { await locationResolver.remove(info.hash) } catch { /* ignore */ }
+            try {
+              await locationResolver.remove(info.hash);
+            } catch {
+              /* ignore */
+            }
           }
-          locationResolver = null
+          locationResolver = null;
         }
 
         try {
-          await lockManager.release()
+          await lockManager.release();
         } catch {
           // Ignore release errors during cleanup
         }
 
-        throw error
+        throw error;
       }
     },
 
     async stop(): Promise<void> {
-      if (state === 'stopped' || state === 'stopping') {
-        return
+      if (state === "stopped" || state === "stopping") {
+        return;
       }
 
-      if (state === 'starting') {
-        await new Promise((resolve) => setTimeout(resolve, 100))
-        if (state === 'starting') {
+      if (state === "starting") {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        if (state === "starting") {
           throw new DaemonError(
-            'SHUTDOWN_TIMEOUT',
-            'Cannot stop daemon while starting'
-          )
+            "SHUTDOWN_TIMEOUT",
+            "Cannot stop daemon while starting",
+          );
         }
       }
 
-      state = 'stopping'
+      state = "stopping";
 
       const shutdownPromise = (async () => {
         try {
-          removeSignalHandlers()
+          removeSignalHandlers();
 
           // Stop IPC server
           if (ipcServer) {
-            await ipcServer.stop()
-            ipcServer = null
+            await ipcServer.stop();
+            ipcServer = null;
           }
 
           // Tear down all locations (stop watchers, flush, close stores)
           if (locationResolver) {
-            const locations = locationResolver.list()
+            const locations = locationResolver.list();
             for (const info of locations) {
               try {
-                await locationResolver.remove(info.hash)
-              } catch { /* ignore during shutdown */ }
+                await locationResolver.remove(info.hash);
+              } catch {
+                /* ignore during shutdown */
+              }
             }
-            locationResolver = null
+            locationResolver = null;
           }
 
           // Unregister, remove socket, release lock
-          await registryManager.unregister(daemonHomePath)
-          await removeSocketFile()
-          await lockManager.release()
-
+          await registryManager.unregister(daemonHomePath);
+          await removeSocketFile();
+          await lockManager.release();
         } finally {
-          state = 'stopped'
-          startedAt = null
+          state = "stopped";
+          startedAt = null;
         }
-      })()
+      })();
 
       const timeoutPromise = new Promise<void>((_, reject) => {
         setTimeout(() => {
-          reject(new DaemonError('SHUTDOWN_TIMEOUT', 'Shutdown timed out'))
-        }, shutdownTimeoutMs)
-      })
+          reject(new DaemonError("SHUTDOWN_TIMEOUT", "Shutdown timed out"));
+        }, shutdownTimeoutMs);
+      });
 
       try {
-        await Promise.race([shutdownPromise, timeoutPromise])
+        await Promise.race([shutdownPromise, timeoutPromise]);
       } catch (error) {
-        state = 'stopped'
-        startedAt = null
-        removeSignalHandlers()
-        throw error
+        state = "stopped";
+        startedAt = null;
+        removeSignalHandlers();
+        throw error;
       }
     },
 
     getStatus(): DaemonStatus {
-      const locations = locationResolver?.list() ?? []
+      const locations = locationResolver?.list() ?? [];
       const hasPendingFlush = locations.some((info) => {
         try {
-          const locState = locationResolver?.resolve(info.hash)
-          return locState?.flushManager.hasPendingChanges() ?? false
+          const locState = locationResolver?.resolve(info.hash);
+          return locState?.flushManager.hasPendingChanges() ?? false;
         } catch {
-          return false
+          return false;
         }
-      })
+      });
 
       return {
         state,
@@ -931,9 +1023,9 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
         pendingFlush: hasPendingFlush,
         connectionCount: ipcServer?.getConnectionCount() ?? 0,
         locationCount: locations.length,
-      }
+      };
     },
-  }
+  };
 
-  return daemon
+  return daemon;
 }
