@@ -7,6 +7,9 @@
 
 import type { IPCServer } from '../ipc.js'
 import type { LocationResolver } from '../location-state.js'
+import type { Provider } from '../../providers/types.js'
+import { isTaskManageable } from '../../providers/traits/TaskManageable.js'
+import type { TaskCapabilities } from '../../providers/traits/TaskManageable.js'
 
 // ============================================================================
 // Types
@@ -45,6 +48,9 @@ interface ProviderSummary {
 
   /** Whether this is the default provider for creates */
   isDefault: boolean
+
+  /** Task lifecycle capabilities (only present if provider supports tasks) */
+  taskCapabilities?: TaskCapabilities
 }
 
 /**
@@ -74,6 +80,32 @@ interface ProviderInfoResult {
 // ============================================================================
 
 /**
+ * Build a ProviderSummary from a Provider, including optional task capabilities
+ */
+function toProviderSummary(provider: Provider, defaultProvider: string): ProviderSummary {
+  const summary: ProviderSummary = {
+    name: provider.name,
+    schemes: [...provider.schemes],
+    capabilities: {
+      read: provider.capabilities.read,
+      write: provider.capabilities.write,
+      search: provider.capabilities.search,
+      watch: provider.capabilities.watch,
+      mount: provider.capabilities.mount,
+      feedback: provider.capabilities.feedback,
+    },
+    isDefault: provider.name === defaultProvider
+      || provider.schemes.some((s) => s === defaultProvider),
+  }
+
+  if (isTaskManageable(provider)) {
+    summary.taskCapabilities = { ...provider.taskCapabilities }
+  }
+
+  return summary
+}
+
+/**
  * Register provider method handlers on an IPC server
  */
 export function registerProviderMethods(options: ProviderMethodsOptions): void {
@@ -92,20 +124,7 @@ export function registerProviderMethods(options: ProviderMethodsOptions): void {
     const defaultProvider = state.providerStore.defaultProvider
 
     return {
-      providers: providers.map((p) => ({
-        name: p.name,
-        schemes: [...p.schemes],
-        capabilities: {
-          read: p.capabilities.read,
-          write: p.capabilities.write,
-          search: p.capabilities.search,
-          watch: p.capabilities.watch,
-          mount: p.capabilities.mount,
-          feedback: p.capabilities.feedback,
-        },
-        isDefault: p.name === defaultProvider
-          || p.schemes.some((s) => s === defaultProvider),
-      })),
+      providers: providers.map((p) => toProviderSummary(p, defaultProvider)),
       defaultProvider,
     }
   })
@@ -131,20 +150,7 @@ export function registerProviderMethods(options: ProviderMethodsOptions): void {
     const defaultProvider = state.providerStore.defaultProvider
 
     return {
-      provider: {
-        name: provider.name,
-        schemes: [...provider.schemes],
-        capabilities: {
-          read: provider.capabilities.read,
-          write: provider.capabilities.write,
-          search: provider.capabilities.search,
-          watch: provider.capabilities.watch,
-          mount: provider.capabilities.mount,
-          feedback: provider.capabilities.feedback,
-        },
-        isDefault: provider.name === defaultProvider
-          || provider.schemes.some((s) => s === defaultProvider),
-      },
+      provider: toProviderSummary(provider, defaultProvider),
     }
   })
 }

@@ -16,6 +16,8 @@ import type {
   QueryResult,
   AnnotateParams,
   AnnotateResult,
+  TaskParams,
+  TaskResult,
   NodeSummary,
   FeedbackSummary,
   ReadyOptions,
@@ -275,6 +277,17 @@ export class OpenTasksClient {
     return this.client!.request<AnnotateResult>('tools.annotate', params)
   }
 
+  /**
+   * Task lifecycle operations
+   *
+   * @param params - Task parameters (transition, ready, assign, or validActions)
+   * @returns Task result with operation-specific data
+   */
+  async task(params: TaskParams): Promise<TaskResult> {
+    await this.ensureConnected()
+    return this.client!.request<TaskResult>('tools.task', params)
+  }
+
   // ==========================================================================
   // Convenience Methods
   // ==========================================================================
@@ -330,6 +343,48 @@ export class OpenTasksClient {
       feedback: { nodeId, ...options },
     })
     return result.items as FeedbackSummary[]
+  }
+
+  /**
+   * Transition a task's status using a semantic action
+   *
+   * @param id - Task ID or provider URI
+   * @param action - Semantic action ('start', 'complete', 'block', 'reopen', 'close')
+   * @returns Task result with updated node
+   */
+  async taskTransition(id: string, action: 'start' | 'complete' | 'block' | 'reopen' | 'close'): Promise<TaskResult> {
+    return this.task({ transition: { id, action } })
+  }
+
+  /**
+   * Get tasks ready to work on across all task-capable providers
+   *
+   * @param options - Ready task query options
+   * @returns Task result with ready items
+   */
+  async taskReady(options?: { providers?: string[]; limit?: number; tags?: string[] }): Promise<TaskResult> {
+    return this.task({ ready: options || {} })
+  }
+
+  /**
+   * Assign a task to an owner
+   *
+   * @param id - Task ID or provider URI
+   * @param assignee - Assignee identifier
+   * @returns Task result with updated node
+   */
+  async taskAssign(id: string, assignee: string): Promise<TaskResult> {
+    return this.task({ assign: { id, assignee } })
+  }
+
+  /**
+   * Get valid next actions for a task in its current state
+   *
+   * @param id - Task ID or provider URI
+   * @returns Task result with valid actions
+   */
+  async taskValidActions(id: string): Promise<TaskResult> {
+    return this.task({ validActions: { id } })
   }
 
   // ==========================================================================

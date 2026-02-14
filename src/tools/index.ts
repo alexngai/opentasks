@@ -25,6 +25,13 @@ export type {
   CreateFeedbackParams,
   FeedbackAnchor,
   FeedbackType,
+  // Task tool
+  TaskParams,
+  TaskResult,
+  TaskTransitionData,
+  TaskReadyData,
+  TaskAssignData,
+  TaskValidActionsData,
   // Re-exports
   EdgeType,
   NodeType,
@@ -47,3 +54,4 @@ export { ToolError } from './types.js'
 export { link } from './link.js'
 export { query } from './query.js'
 export { annotate } from './annotate.js'
+export { task } from './task.js'
