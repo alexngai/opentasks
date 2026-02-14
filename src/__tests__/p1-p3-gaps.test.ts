@@ -306,7 +306,7 @@ function mockProvider(hash: string, nodes: ProviderNode[] = []): LocationProvide
   return {
     name: `opentasks-${hash}`,
     schemes: ['opentasks'],
-    capabilities: { read: true, write: false, search: true, watch: false },
+    capabilities: { read: true, write: false, search: true, watch: false, mount: false, feedback: false },
     parseUri: vi.fn().mockReturnValue(null),
     buildUri: vi.fn().mockReturnValue(''),
     isValidUri: vi.fn().mockReturnValue(false),

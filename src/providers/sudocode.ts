@@ -21,6 +21,7 @@ import type {
   ProviderCreateInput,
   ProviderUpdateInput,
   ProviderFilter,
+  ProviderOperationContext,
   ParsedUri,
   UriOptions,
   SearchOptions,
@@ -333,6 +334,8 @@ export function createSudocodeProvider(
     write: true,
     search: true,
     watch: !!watchPath,
+    mount: true,
+    feedback: false,
   }
 
   // =========================================================================
@@ -575,13 +578,13 @@ export function createSudocodeProvider(
   /**
    * Execute a sudocode CLI command
    */
-  async function execSudocode(args: string[]): Promise<string> {
+  async function execSudocode(args: string[], context?: ProviderOperationContext): Promise<string> {
     const command = [executable, ...extraArgs.map(shellEscape), ...args.map(shellEscape)].join(' ')
 
     try {
       const { stdout } = await execAsync(command, {
-        cwd,
-        timeout,
+        cwd: context?.cwd ?? cwd,
+        timeout: context?.timeout ?? timeout,
         env: { ...process.env },
       })
       return stdout.trim()
@@ -788,7 +791,7 @@ export function createSudocodeProvider(
     // CRUD Operations
     // =========================================================================
 
-    async get(id: string): Promise<ProviderNode | null> {
+    async get(id: string, _context?: ProviderOperationContext): Promise<ProviderNode | null> {
       const parsed = this.parseUri(id)
       const entityId = parsed?.id ?? id
       const workspace = parsed?.workspace ?? '.'
@@ -798,7 +801,7 @@ export function createSudocodeProvider(
       return entityToProviderNode(entity, workspace)
     },
 
-    async list(filter?: ProviderFilter): Promise<ProviderNode[]> {
+    async list(filter?: ProviderFilter, _context?: ProviderOperationContext): Promise<ProviderNode[]> {
       const results: ProviderNode[] = []
       const entityTypes: Array<'spec' | 'issue'> =
         filter?.type === 'spec' ? ['spec'] :
@@ -833,7 +836,7 @@ export function createSudocodeProvider(
       return results
     },
 
-    async create(input: ProviderCreateInput): Promise<ProviderNode> {
+    async create(input: ProviderCreateInput, context?: ProviderOperationContext): Promise<ProviderNode> {
       const entityType = input.type === 'spec' ? 'spec' : 'issue'
       const subcommand = entityType === 'spec' ? 'spec' : 'issue'
       // --json is global (before subcommand), title is positional (after create)
@@ -846,13 +849,13 @@ export function createSudocodeProvider(
         args.push('-p', String(input.priority))
       }
 
-      const output = await execSudocode(args)
+      const output = await execSudocode(args, context)
       const entity = parseJson<SudocodeEntity>(output)
 
       return entityToProviderNode(entity)
     },
 
-    async update(id: string, updates: ProviderUpdateInput): Promise<ProviderNode> {
+    async update(id: string, updates: ProviderUpdateInput, context?: ProviderOperationContext): Promise<ProviderNode> {
       const parsed = this.parseUri(id)
       const entityId = parsed?.id ?? id
       const entityType = entityTypeFromId(entityId)
@@ -874,19 +877,19 @@ export function createSudocodeProvider(
         args.push('-p', String(updates.priority))
       }
 
-      const output = await execSudocode(args)
+      const output = await execSudocode(args, context)
       const entity = parseJson<SudocodeEntity>(output)
 
       return entityToProviderNode(entity)
     },
 
-    async delete(id: string): Promise<void> {
+    async delete(id: string, context?: ProviderOperationContext): Promise<void> {
       const parsed = this.parseUri(id)
       const entityId = parsed?.id ?? id
       const entityType = entityTypeFromId(entityId)
       const subcommand = entityType === 'spec' ? 'spec' : 'issue'
 
-      await execSudocode([subcommand, 'delete', '--hard', entityId])
+      await execSudocode([subcommand, 'delete', '--hard', entityId], context)
     },
 
     // =========================================================================

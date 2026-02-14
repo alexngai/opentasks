@@ -24,6 +24,12 @@ export interface ProviderCapabilities {
 
   /** Can watch for changes */
   watch: boolean
+
+  /** Can be used as a CRUD backend through OpenTasks' unified interface */
+  mount: boolean
+
+  /** Supports feedback/annotation natively (else falls back to local graph) */
+  feedback: boolean
 }
 
 // ============================================================================
@@ -100,6 +106,31 @@ export interface ProviderNode {
 }
 
 // ============================================================================
+// Operation Context
+// ============================================================================
+
+/**
+ * Operational context passed to provider methods.
+ *
+ * Carries per-call operational overrides (cwd, timeout) and a freeform
+ * extensions bag for provider-specific parameters. Providers read what
+ * they need and ignore the rest.
+ *
+ * Designed as the forward-compatible seed for a full CallContext if
+ * we later want namespaced extensions (extensions keyed by provider name).
+ */
+export interface ProviderOperationContext {
+  /** Override the provider's default working directory */
+  cwd?: string
+
+  /** Override the provider's default timeout (ms) */
+  timeout?: number
+
+  /** Provider-specific extension parameters */
+  extensions?: Record<string, unknown>
+}
+
+// ============================================================================
 // CRUD Input Types
 // ============================================================================
 
@@ -124,6 +155,9 @@ export interface ProviderCreateInput {
 
   /** Additional metadata */
   metadata?: Record<string, unknown>
+
+  /** Provider-specific data extensions (ignored by providers that don't understand them) */
+  extensions?: Record<string, unknown>
 }
 
 /**
@@ -144,6 +178,9 @@ export interface ProviderUpdateInput {
 
   /** Additional metadata to merge */
   metadata?: Record<string, unknown>
+
+  /** Provider-specific data extensions (ignored by providers that don't understand them) */
+  extensions?: Record<string, unknown>
 }
 
 /**
@@ -255,29 +292,34 @@ export interface Provider {
 
   /**
    * Get a node by ID
+   * @param context - Optional operational context (cwd override, timeout, extensions)
    * @returns Node data or null if not found
    */
-  get(id: string): Promise<ProviderNode | null>
+  get(id: string, context?: ProviderOperationContext): Promise<ProviderNode | null>
 
   /**
    * List nodes with optional filtering
+   * @param context - Optional operational context (cwd override, timeout, extensions)
    */
-  list(filter?: ProviderFilter): Promise<ProviderNode[]>
+  list(filter?: ProviderFilter, context?: ProviderOperationContext): Promise<ProviderNode[]>
 
   /**
    * Create a new node
+   * @param context - Optional operational context (cwd override, timeout, extensions)
    */
-  create(input: ProviderCreateInput): Promise<ProviderNode>
+  create(input: ProviderCreateInput, context?: ProviderOperationContext): Promise<ProviderNode>
 
   /**
    * Update an existing node
+   * @param context - Optional operational context (cwd override, timeout, extensions)
    */
-  update(id: string, updates: ProviderUpdateInput): Promise<ProviderNode>
+  update(id: string, updates: ProviderUpdateInput, context?: ProviderOperationContext): Promise<ProviderNode>
 
   /**
    * Delete a node
+   * @param context - Optional operational context (cwd override, timeout, extensions)
    */
-  delete(id: string): Promise<void>
+  delete(id: string, context?: ProviderOperationContext): Promise<void>
 
   // ===========================================================================
   // Optional Operations

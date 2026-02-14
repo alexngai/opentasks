@@ -28,7 +28,7 @@ function createMockServer() {
       return handler(params)
     },
     handlers,
-  } as unknown as IPCServer & { call: (method: string, params?: unknown) => Promise<unknown> }
+  } as unknown as IPCServer & { call: (method: string, params?: unknown) => Promise<unknown>; handlers: Map<string, (params: unknown) => Promise<unknown>> }
 }
 
 function createMockFlushManager() {

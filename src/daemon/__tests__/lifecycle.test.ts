@@ -188,7 +188,7 @@ describe('Daemon Lifecycle', () => {
 
       const status = daemon.getStatus()
       expect(status.startedAt).toBeTruthy()
-      expect(status.startedAt >= beforeStart).toBe(true)
+      expect(status.startedAt! >= beforeStart).toBe(true)
     })
 
     it('should throw when daemon already running', async () => {

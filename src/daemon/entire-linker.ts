@@ -123,7 +123,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
       })
 
       for (const issue of allIssues) {
-        const raw = issue as Record<string, unknown>
+        const raw = issue as unknown as Record<string, unknown>
         const claimedBy = raw.claimed_by as string | undefined
         const lockUntil = raw.lock_until as string | undefined
 
@@ -152,7 +152,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
         })
 
         for (const issue of allIssues) {
-          const raw = issue as Record<string, unknown>
+          const raw = issue as unknown as Record<string, unknown>
           if (raw.branch === session.branch) {
             matched.push({
               nodeId: issue.id,
@@ -179,7 +179,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
       })
 
       if (allInProgress.length === 1) {
-        const raw = allInProgress[0] as Record<string, unknown>
+        const raw = allInProgress[0] as unknown as Record<string, unknown>
         matched.push({
           nodeId: allInProgress[0].id,
           uri: raw.uri as string | undefined,
@@ -214,7 +214,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
     })
 
     if (existing.length > 0) {
-      const nodeId = (existing[0] as Record<string, unknown>).id as string
+      const nodeId = (existing[0] as unknown as Record<string, unknown>).id as string
       createdNodes.set(uri, nodeId)
       return nodeId
     }
@@ -235,7 +235,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
         },
       })
 
-      const nodeId = (node as Record<string, unknown>).id as string
+      const nodeId = (node as unknown as Record<string, unknown>).id as string
       createdNodes.set(uri, nodeId)
       flushManager.markDirty(nodeId)
       flushManager.schedule()
@@ -249,7 +249,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
         limit: 1,
       })
       if (retryExisting.length > 0) {
-        const nodeId = (retryExisting[0] as Record<string, unknown>).id as string
+        const nodeId = (retryExisting[0] as unknown as Record<string, unknown>).id as string
         createdNodes.set(uri, nodeId)
         return nodeId
       }
@@ -280,7 +280,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
     })
 
     if (existing.length > 0) {
-      const nodeId = (existing[0] as Record<string, unknown>).id as string
+      const nodeId = (existing[0] as unknown as Record<string, unknown>).id as string
       createdNodes.set(uri, nodeId)
       return nodeId
     }
@@ -297,7 +297,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
         },
       })
 
-      const nodeId = (node as Record<string, unknown>).id as string
+      const nodeId = (node as unknown as Record<string, unknown>).id as string
       createdNodes.set(uri, nodeId)
       flushManager.markDirty(nodeId)
       flushManager.schedule()
@@ -311,7 +311,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
         limit: 1,
       })
       if (retryExisting.length > 0) {
-        const nodeId = (retryExisting[0] as Record<string, unknown>).id as string
+        const nodeId = (retryExisting[0] as unknown as Record<string, unknown>).id as string
         createdNodes.set(uri, nodeId)
         return nodeId
       }
@@ -354,7 +354,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
           _context: {
             source: 'entire-auto-linker',
             timestamp: new Date().toISOString(),
-            ...(metadata?._context as Record<string, unknown> | undefined),
+            ...(metadata?._context as unknown as Record<string, unknown> | undefined),
           },
         },
       })

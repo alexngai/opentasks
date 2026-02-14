@@ -15,6 +15,7 @@ import type {
   ProviderCreateInput,
   ProviderUpdateInput,
   ProviderFilter,
+  ProviderOperationContext,
   ParsedUri,
   UriOptions,
   SearchOptions,
@@ -208,6 +209,8 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
     write: true,
     search: true,
     watch: !!watchPath,
+    mount: true,
+    feedback: false,
   }
 
   // =========================================================================
@@ -481,14 +484,16 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
 
   /**
    * Execute a bd CLI command
+   * @param args - Command arguments
+   * @param context - Optional operational context for per-call overrides (cwd, timeout)
    */
-  async function execBd(args: string[]): Promise<string> {
+  async function execBd(args: string[], context?: ProviderOperationContext): Promise<string> {
     const command = [executable, ...extraArgs, ...args.map(shellEscape)].join(' ')
 
     try {
       const { stdout } = await execAsync(command, {
-        cwd,
-        timeout,
+        cwd: context?.cwd ?? cwd,
+        timeout: context?.timeout ?? timeout,
         env: { ...process.env },
       })
       return stdout.trim()
@@ -606,14 +611,14 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
     // CRUD Operations
     // =========================================================================
 
-    async get(id: string): Promise<ProviderNode | null> {
+    async get(id: string, context?: ProviderOperationContext): Promise<ProviderNode | null> {
       // Parse URI if full URI is passed
       const parsed = this.parseUri(id)
       const issueId = parsed?.id ?? id
       const workspace = parsed?.workspace ?? '.'
 
       try {
-        const output = await execBd(['show', issueId, '--json'])
+        const output = await execBd(['show', issueId, '--json'], context)
         // bd show returns an array, take the first element
         const issues = parseJson<BeadsIssue[]>(output)
         if (!issues || issues.length === 0) {
@@ -640,7 +645,7 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
       }
     },
 
-    async list(filter?: ProviderFilter): Promise<ProviderNode[]> {
+    async list(filter?: ProviderFilter, context?: ProviderOperationContext): Promise<ProviderNode[]> {
       const args = ['list', '--json']
 
       // Add filters if supported by bd CLI
@@ -651,7 +656,7 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
         args.push('--limit', String(filter.limit))
       }
 
-      const output = await execBd(args)
+      const output = await execBd(args, context)
       const issues = parseJson<BeadsIssue[]>(output)
 
       return issues
@@ -659,7 +664,7 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
         .map((issue) => beadsIssueToProviderNode(issue))
     },
 
-    async create(input: ProviderCreateInput): Promise<ProviderNode> {
+    async create(input: ProviderCreateInput, context?: ProviderOperationContext): Promise<ProviderNode> {
       const args = ['create', input.title]
 
       if (input.content) {
@@ -674,13 +679,13 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
 
       args.push('--json')
 
-      const output = await execBd(args)
+      const output = await execBd(args, context)
       const issue = parseJson<BeadsIssue>(output)
 
       return beadsIssueToProviderNode(issue)
     },
 
-    async update(id: string, updates: ProviderUpdateInput): Promise<ProviderNode> {
+    async update(id: string, updates: ProviderUpdateInput, context?: ProviderOperationContext): Promise<ProviderNode> {
       // Parse URI if full URI is passed
       const parsed = this.parseUri(id)
       const issueId = parsed?.id ?? id
@@ -702,7 +707,7 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
 
       args.push('--json')
 
-      const output = await execBd(args)
+      const output = await execBd(args, context)
       // bd update returns an array, take the first element
       const issues = parseJson<BeadsIssue[]>(output)
       if (!issues || issues.length === 0) {
@@ -712,12 +717,12 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
       return beadsIssueToProviderNode(issues[0])
     },
 
-    async delete(id: string): Promise<void> {
+    async delete(id: string, context?: ProviderOperationContext): Promise<void> {
       // Parse URI if full URI is passed
       const parsed = this.parseUri(id)
       const issueId = parsed?.id ?? id
 
-      await execBd(['delete', issueId, '--force'])
+      await execBd(['delete', issueId, '--force'], context)
     },
 
     // =========================================================================

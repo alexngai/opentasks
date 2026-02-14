@@ -35,7 +35,7 @@ describe('HydratingFederatedGraph', () => {
     mockProvider = {
       name: 'beads',
       schemes: ['beads', 'bd'],
-      capabilities: { read: true, write: true, search: true, watch: false },
+      capabilities: { read: true, write: true, search: true, watch: false, mount: true, feedback: false },
       parseUri: vi.fn((uri: string) => {
         if (uri.startsWith('beads://')) {
           const id = uri.replace('beads://./', '')

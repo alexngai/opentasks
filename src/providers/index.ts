@@ -15,6 +15,7 @@ export type {
   ProviderCreateInput,
   ProviderUpdateInput,
   ProviderFilter,
+  ProviderOperationContext,
   ParsedUri,
   UriOptions,
   WatchCallback,
@@ -96,6 +97,16 @@ export type {
 } from './traits/index.js'
 
 export { isWatchable } from './traits/index.js'
+
+// Traits - TaskManageable
+export type {
+  TaskManageable,
+  TaskAction,
+  TaskCapabilities,
+  ReadyTaskOptions,
+} from './traits/index.js'
+
+export { isTaskManageable } from './traits/index.js'
 
 // Config-based Provider Factory
 export {

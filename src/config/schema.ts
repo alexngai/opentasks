@@ -308,6 +308,8 @@ const OpenTasksConfigSchemaInner = z.object({
   role: z.enum(['manager', 'worker', 'standalone']).default('standalone'),
   /** Redirect rules (Phase 2) */
   redirects: z.array(RedirectRuleSchema).default([]),
+  /** Default provider for CRUD operations ('native' = local GraphStore) */
+  defaultProvider: z.string().default('native'),
 })
 
 export const OpenTasksConfigSchema = z
@@ -390,6 +392,7 @@ export const OpenTasksConfigSchema = z
         fallback: z.enum(['local', 'error']).optional(),
       })
     ).optional(),
+    defaultProvider: z.string().optional(),
   })
   .default({})
   .transform((val) => OpenTasksConfigSchemaInner.parse(val))

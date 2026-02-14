@@ -15,10 +15,13 @@ import type {
   QueryResult,
   AnnotateParams,
   AnnotateResult,
+  TaskParams,
+  TaskResult,
 } from '../../tools/types.js'
 import { link } from '../../tools/link.js'
 import { query } from '../../tools/query.js'
 import { annotate } from '../../tools/annotate.js'
+import { task } from '../../tools/task.js'
 
 // ============================================================================
 // Types
@@ -122,6 +125,36 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
         state.flushManager.markDirty(annotateParams.fromId)
       }
       state.flushManager.schedule()
+    }
+
+    return result
+  })
+
+  // tools.task - Task lifecycle operations
+  server.handle<TaskParams & { location?: string }, TaskResult>('tools.task', async (params) => {
+    if (!params) {
+      return { success: false, error: 'Missing required parameters' }
+    }
+
+    const { location, ...taskParams } = params
+    const state = locationResolver.resolve(location)
+
+    if (!state.providerStore) {
+      return { success: false, error: 'Provider store not available' }
+    }
+
+    const result = await task(state.providerStore, taskParams)
+
+    // Mark nodes dirty and schedule flush for mutations
+    if (result.success && result.data) {
+      if (result.data.type === 'transition' && isLocalId(result.data.node.id)) {
+        state.flushManager.markDirty(result.data.node.id)
+        state.flushManager.schedule()
+      }
+      if (result.data.type === 'assign' && isLocalId(result.data.node.id)) {
+        state.flushManager.markDirty(result.data.node.id)
+        state.flushManager.schedule()
+      }
     }
 
     return result

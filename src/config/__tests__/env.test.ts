@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseEnvConfig } from '../env'
+import { parseEnvConfig } from '../env.js'
 
 describe('Environment Variable Parser', () => {
   describe('parseEnvConfig', () => {

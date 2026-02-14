@@ -62,6 +62,8 @@ describe('BeadsProvider', () => {
         write: true,
         search: true,
         watch: false,
+        mount: true,
+        feedback: false,
       })
     })
   })

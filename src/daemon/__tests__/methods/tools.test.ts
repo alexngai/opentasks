@@ -15,8 +15,9 @@ import {
 import { registerToolsMethods } from '../../methods/tools.js'
 import { createDaemonFlushManager, type DaemonFlushManager } from '../../flush.js'
 import type { GraphStore } from '../../../graph/store.js'
-import type { LinkResult, QueryResult, AnnotateResult } from '../../../tools/types.js'
+import type { LinkResult, QueryResult, AnnotateResult, TaskResult } from '../../../tools/types.js'
 import type { LocationResolver, LocationState } from '../../location-state.js'
+import type { ProviderAwareStore } from '../../../graph/provider-store.js'
 
 describe('Tools Methods', () => {
   let tempDir: string
@@ -469,5 +470,230 @@ describe('Tools Methods', () => {
         client.request('tools.query', null as any)
       ).rejects.toThrow()
     })
+  })
+})
+
+// =============================================================================
+// tools.task tests — separate describe with providerStore on location state
+// =============================================================================
+
+describe('Tools Methods - tools.task', () => {
+  let tempDir: string
+  let socketPath: string
+  let server: IPCServer
+  let client: IPCClient
+  let mockStore: GraphStore
+  let mockProviderStore: ProviderAwareStore
+  let flushManager: DaemonFlushManager
+
+  const sampleNode = {
+    id: 'x-task1',
+    uuid: 'uuid-task-1',
+    type: 'external' as const,
+    title: 'Task One',
+    status: 'in_progress',
+    priority: 1,
+    archived: false,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  }
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'opentasks-tools-task-test-'))
+    socketPath = path.join(tempDir, 'test.sock')
+
+    mockStore = {
+      getNode: vi.fn(),
+      createNode: vi.fn(),
+      updateNode: vi.fn(),
+      deleteNode: vi.fn(),
+      createEdge: vi.fn(),
+      deleteEdge: vi.fn(),
+      getEdge: vi.fn(),
+      query: {
+        nodes: vi.fn().mockResolvedValue([]),
+        edges: vi.fn().mockResolvedValue([]),
+        ready: vi.fn().mockResolvedValue([]),
+        blockers: vi.fn().mockResolvedValue([]),
+        blocking: vi.fn().mockResolvedValue([]),
+        feedback: vi.fn().mockResolvedValue([]),
+      },
+    } as unknown as GraphStore
+
+    mockProviderStore = {
+      ...mockStore,
+      taskTransition: vi.fn().mockResolvedValue({
+        node: sampleNode,
+        provider: 'beads',
+        action: 'start',
+      }),
+      taskReady: vi.fn().mockResolvedValue([sampleNode]),
+      taskAssign: vi.fn().mockResolvedValue(sampleNode),
+      taskValidActions: vi.fn().mockResolvedValue(['start', 'complete', 'close']),
+    } as unknown as ProviderAwareStore
+
+    flushManager = createDaemonFlushManager(
+      { debounceMs: 100, maxDelayMs: 500 },
+      async () => {}
+    )
+
+    server = createIPCServer(socketPath)
+    const locationState = {
+      hash: 'primary',
+      opentasksPath: tempDir,
+      store: mockStore,
+      providerStore: mockProviderStore,
+      flushManager,
+      watcher: {} as any,
+      primary: true,
+      healthy: true,
+    } as LocationState
+    const locationResolver: LocationResolver = {
+      resolve: () => locationState,
+      getDefault: () => locationState,
+      list: () => [{ hash: 'primary', opentasksPath: tempDir, primary: true, healthy: true }],
+      has: () => true,
+      add: () => {},
+      remove: async () => {},
+    }
+    registerToolsMethods({ server, locationResolver })
+
+    await server.start()
+    client = createIPCClient(socketPath)
+    await client.connect()
+  })
+
+  afterEach(async () => {
+    try { client.disconnect() } catch {}
+    try { await server.stop() } catch {}
+    try { await fs.rm(tempDir, { recursive: true, force: true }) } catch {}
+  })
+
+  it('should transition a task', async () => {
+    const result = await client.request<TaskResult>('tools.task', {
+      transition: { id: 'x-task1', action: 'start' },
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.data).toBeDefined()
+    expect(result.data!.type).toBe('transition')
+    expect(mockProviderStore.taskTransition).toHaveBeenCalledWith('x-task1', 'start')
+  })
+
+  it('should return ready tasks', async () => {
+    const result = await client.request<TaskResult>('tools.task', {
+      ready: { providers: ['beads'], limit: 10 },
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.data!.type).toBe('ready')
+    expect(mockProviderStore.taskReady).toHaveBeenCalled()
+  })
+
+  it('should assign a task', async () => {
+    const result = await client.request<TaskResult>('tools.task', {
+      assign: { id: 'x-task1', assignee: 'alice' },
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.data!.type).toBe('assign')
+    expect(mockProviderStore.taskAssign).toHaveBeenCalledWith('x-task1', 'alice')
+  })
+
+  it('should return valid actions', async () => {
+    const result = await client.request<TaskResult>('tools.task', {
+      validActions: { id: 'x-task1' },
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.data!.type).toBe('validActions')
+    if (result.data!.type === 'validActions') {
+      expect(result.data!.actions).toEqual(['start', 'complete', 'close'])
+    }
+  })
+
+  it('should return error when no operation specified', async () => {
+    const result = await client.request<TaskResult>('tools.task', {})
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('No operation specified')
+  })
+
+  it('should return error for missing params', async () => {
+    const result = await client.request<TaskResult>('tools.task', null as any)
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBeDefined()
+  })
+
+  it('should mark local node dirty on transition', async () => {
+    await client.request<TaskResult>('tools.task', {
+      transition: { id: 'x-task1', action: 'start' },
+    })
+
+    const dirty = flushManager.getDirtyNodes()
+    expect(dirty).toContain('x-task1')
+  })
+
+  it('should mark local node dirty on assign', async () => {
+    await client.request<TaskResult>('tools.task', {
+      assign: { id: 'x-task1', assignee: 'alice' },
+    })
+
+    const dirty = flushManager.getDirtyNodes()
+    expect(dirty).toContain('x-task1')
+  })
+
+  it('should handle provider errors gracefully', async () => {
+    vi.mocked(mockProviderStore.taskTransition).mockRejectedValue(
+      new Error('Provider does not support task operations')
+    )
+
+    const result = await client.request<TaskResult>('tools.task', {
+      transition: { id: 'x-task1', action: 'start' },
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('does not support task operations')
+  })
+
+  it('should return error when providerStore not available', async () => {
+    // Create a new server without providerStore
+    const tempDir2 = await fs.mkdtemp(path.join(os.tmpdir(), 'opentasks-no-ps-test-'))
+    const socketPath2 = path.join(tempDir2, 'test.sock')
+    const server2 = createIPCServer(socketPath2)
+    const stateWithoutPS = {
+      hash: 'primary',
+      opentasksPath: tempDir2,
+      store: mockStore,
+      // no providerStore
+      flushManager,
+      watcher: {} as any,
+      primary: true,
+      healthy: true,
+    } as LocationState
+    const resolver2: LocationResolver = {
+      resolve: () => stateWithoutPS,
+      getDefault: () => stateWithoutPS,
+      list: () => [],
+      has: () => true,
+      add: () => {},
+      remove: async () => {},
+    }
+    registerToolsMethods({ server: server2, locationResolver: resolver2 })
+    await server2.start()
+    const client2 = createIPCClient(socketPath2)
+    await client2.connect()
+
+    const result = await client2.request<TaskResult>('tools.task', {
+      transition: { id: 'x-task1', action: 'start' },
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('Provider store not available')
+
+    client2.disconnect()
+    await server2.stop()
+    await fs.rm(tempDir2, { recursive: true, force: true })
   })
 })

@@ -16,6 +16,8 @@ import type {
   QueryResult,
   AnnotateParams,
   AnnotateResult,
+  TaskParams,
+  TaskResult,
   NodeSummary,
   FeedbackSummary,
   ReadyOptions,
@@ -275,6 +277,17 @@ export class OpenTasksClient {
     return this.client!.request<AnnotateResult>('tools.annotate', params)
   }
 
+  /**
+   * Task lifecycle operations
+   *
+   * @param params - Task parameters (transition, ready, assign, or validActions)
+   * @returns Task result with operation-specific data
+   */
+  async task(params: TaskParams): Promise<TaskResult> {
+    await this.ensureConnected()
+    return this.client!.request<TaskResult>('tools.task', params)
+  }
+
   // ==========================================================================
   // Convenience Methods
   // ==========================================================================
@@ -332,40 +345,125 @@ export class OpenTasksClient {
     return result.items as FeedbackSummary[]
   }
 
+  /**
+   * Transition a task's status using a semantic action
+   *
+   * @param id - Task ID or provider URI
+   * @param action - Semantic action ('start', 'complete', 'block', 'reopen', 'close')
+   * @returns Task result with updated node
+   */
+  async taskTransition(id: string, action: 'start' | 'complete' | 'block' | 'reopen' | 'close'): Promise<TaskResult> {
+    return this.task({ transition: { id, action } })
+  }
+
+  /**
+   * Get tasks ready to work on across all task-capable providers
+   *
+   * @param options - Ready task query options
+   * @returns Task result with ready items
+   */
+  async taskReady(options?: { providers?: string[]; limit?: number; tags?: string[] }): Promise<TaskResult> {
+    return this.task({ ready: options || {} })
+  }
+
+  /**
+   * Assign a task to an owner
+   *
+   * @param id - Task ID or provider URI
+   * @param assignee - Assignee identifier
+   * @returns Task result with updated node
+   */
+  async taskAssign(id: string, assignee: string): Promise<TaskResult> {
+    return this.task({ assign: { id, assignee } })
+  }
+
+  /**
+   * Get valid next actions for a task in its current state
+   *
+   * @param id - Task ID or provider URI
+   * @returns Task result with valid actions
+   */
+  async taskValidActions(id: string): Promise<TaskResult> {
+    return this.task({ validActions: { id } })
+  }
+
   // ==========================================================================
-  // Graph CRUD
+  // Graph CRUD (with unified provider dispatch)
   // ==========================================================================
 
   /**
-   * Create a node
+   * Create a node.
+   * When `scheme` is provided, routes creation to that provider.
+   * Otherwise uses the configured defaultProvider.
+   *
+   * @param params - Node creation parameters
+   * @param options - Optional provider routing options
+   * @returns The created node (materialized locally if via external provider)
    */
-  async createNode(params: CreateNodeInput): Promise<unknown> {
+  async createNode(
+    params: CreateNodeInput,
+    options?: { scheme?: string }
+  ): Promise<unknown> {
     await this.ensureConnected()
-    return this.client!.request('graph.create', params)
+    return this.client!.request('graph.create', { ...params, scheme: options?.scheme })
   }
 
   /**
-   * Get a node by ID
+   * Get a node by local ID or provider URI.
+   * For external/materialized nodes, refreshes if stale.
+   *
+   * @param idOrUri - Local node ID (e.g., 'i-abc1') or provider URI (e.g., 'sudocode://proj/i-456')
    */
-  async getNode(id: string): Promise<unknown> {
+  async getNode(idOrUri: string): Promise<unknown> {
     await this.ensureConnected()
-    return this.client!.request('graph.get', { id })
+    return this.client!.request('graph.get', { id: idOrUri })
   }
 
   /**
-   * Update a node by ID
+   * Update a node by local ID or provider URI.
+   * For external/materialized nodes, routes update to the owning provider.
+   *
+   * @param idOrUri - Local node ID or provider URI
+   * @param updates - Fields to update
    */
-  async updateNode(id: string, updates: UpdateNodeInput): Promise<unknown> {
+  async updateNode(idOrUri: string, updates: UpdateNodeInput): Promise<unknown> {
     await this.ensureConnected()
-    return this.client!.request('graph.update', { id, ...updates })
+    return this.client!.request('graph.update', { id: idOrUri, ...updates })
   }
 
   /**
-   * Delete a node by ID
+   * Delete a node by local ID or provider URI.
+   * For external/materialized nodes, deletes in the owning provider
+   * and removes the local materialized copy.
+   *
+   * @param idOrUri - Local node ID or provider URI
+   * @param options - Delete options (hard vs soft)
    */
-  async deleteNode(id: string, options?: DeleteOptions): Promise<void> {
+  async deleteNode(idOrUri: string, options?: DeleteOptions): Promise<void> {
     await this.ensureConnected()
-    await this.client!.request('graph.delete', { id, options })
+    await this.client!.request('graph.delete', { id: idOrUri, options })
+  }
+
+  // ==========================================================================
+  // Provider Introspection
+  // ==========================================================================
+
+  /**
+   * List all registered providers and their capabilities
+   */
+  async listProviders(): Promise<unknown> {
+    await this.ensureConnected()
+    return this.client!.request('provider.list', {})
+  }
+
+  /**
+   * Get info about a specific provider
+   *
+   * @param name - Provider name
+   */
+  async getProvider(name: string): Promise<unknown> {
+    await this.ensureConnected()
+    return this.client!.request('provider.info', { name })
   }
 
   // ==========================================================================
