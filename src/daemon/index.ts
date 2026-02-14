@@ -98,3 +98,23 @@ export type {
   FlushOperation,
 } from './flush.js'
 export { createDaemonFlushManager, DEFAULT_FLUSH_CONFIG } from './flush.js'
+
+// Entire Integration
+export type {
+  EntireWatcher,
+  EntireWatcherConfig,
+  EntireSessionState,
+  EntireSessionEvent,
+  SessionEventHandler,
+} from './entire-watcher.js'
+export { createEntireWatcher } from './entire-watcher.js'
+
+export type {
+  EntireAutoLinker,
+  EntireAutoLinkerConfig,
+  CorrelationResult,
+  MatchedTask,
+  CorrelationStrategy,
+  CorrelationConfidence,
+} from './entire-linker.js'
+export { createEntireAutoLinker } from './entire-linker.js'

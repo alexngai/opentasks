@@ -27,9 +27,17 @@ export type ExtendedEdgeType =
   | 'discovered-from' // found while working on
 
 /**
+ * Entire integration edge types (auto-created by EntireAutoLinker)
+ */
+export type EntireEdgeType =
+  | 'worked-on'       // task → session: "this task was worked on during this session"
+  | 'implemented-by'  // task → checkpoint: "this checkpoint implements this task"
+  | 'contains'        // session → checkpoint: "this session produced this checkpoint"
+
+/**
  * All edge types (extensible via string)
  */
-export type EdgeType = CoreEdgeType | ExtendedEdgeType | string
+export type EdgeType = CoreEdgeType | ExtendedEdgeType | EntireEdgeType | string
 
 /**
  * Edge - Represents a relationship between nodes

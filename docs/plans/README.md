@@ -26,6 +26,7 @@ CORE-ARCHITECTURE.md (s-9jju)
 | [PHASE-1.md](./PHASE-1.md) | v1: Single-location, provider URIs | **Current Focus** |
 | [PHASE-2.md](./PHASE-2.md) | v2: Cross-location, daemon | Planned |
 | [PHASE-3.md](./PHASE-3.md) | v3: Discovery, expansion | Planned |
+| [ENTIRE-INTEGRATION.md](./ENTIRE-INTEGRATION.md) | Entire intent-tracking provider + auto-linker | Planned |
 
 ## Key Design Decisions
 

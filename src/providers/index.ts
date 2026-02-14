@@ -50,6 +50,18 @@ export {
 // Sudocode Provider
 export { createSudocodeProvider, type SudocodeConfig } from './sudocode.js'
 
+// Entire Provider
+export {
+  createEntireProvider,
+  createInMemoryEntireStore,
+  createEntireCliStore,
+  type EntireConfig,
+  type EntireSession,
+  type EntireCheckpoint,
+  type EntireTokenUsage,
+  type EntireStore,
+} from './entire.js'
+
 // Materialization
 export {
   createMaterializationManager,
