@@ -11,8 +11,9 @@ import { createIPCServer, type IPCServer } from '../../daemon/ipc.js'
 import { registerToolsMethods } from '../../daemon/methods/tools.js'
 import { createDaemonFlushManager, type DaemonFlushManager } from '../../daemon/flush.js'
 import type { GraphStore } from '../../graph/store.js'
-import type { LinkResult, QueryResult, AnnotateResult } from '../../tools/types.js'
+import type { LinkResult, QueryResult, AnnotateResult, TaskResult } from '../../tools/types.js'
 import type { LocationResolver, LocationState } from '../../daemon/location-state.js'
+import type { ProviderAwareStore } from '../../graph/provider-store.js'
 
 describe('OpenTasksClient', () => {
   let tempDir: string
@@ -467,6 +468,193 @@ describe('OpenTasksClient', () => {
       await expect(client.connect()).rejects.toMatchObject({
         code: 'CONNECTION_FAILED',
       })
+    })
+  })
+})
+
+// =============================================================================
+// Client task methods — separate describe with providerStore
+// =============================================================================
+
+describe('OpenTasksClient - task methods', () => {
+  let tempDir: string
+  let socketPath: string
+  let server: IPCServer
+  let mockStore: GraphStore
+  let mockProviderStore: ProviderAwareStore
+  let flushManager: DaemonFlushManager
+
+  const sampleNode = {
+    id: 'x-task1',
+    uuid: 'uuid-task-1',
+    type: 'external' as const,
+    title: 'Task One',
+    status: 'in_progress',
+    priority: 1,
+    archived: false,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  }
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'opentasks-client-task-test-'))
+    socketPath = path.join(tempDir, 'daemon.sock')
+
+    mockStore = {
+      getNode: vi.fn(),
+      createNode: vi.fn(),
+      updateNode: vi.fn(),
+      deleteNode: vi.fn(),
+      createEdge: vi.fn(),
+      deleteEdge: vi.fn(),
+      getEdge: vi.fn(),
+      query: {
+        nodes: vi.fn().mockResolvedValue([]),
+        edges: vi.fn().mockResolvedValue([]),
+        ready: vi.fn().mockResolvedValue([]),
+        blockers: vi.fn().mockResolvedValue([]),
+        blocking: vi.fn().mockResolvedValue([]),
+        feedback: vi.fn().mockResolvedValue([]),
+      },
+    } as unknown as GraphStore
+
+    mockProviderStore = {
+      ...mockStore,
+      taskTransition: vi.fn().mockResolvedValue({
+        node: sampleNode,
+        provider: 'beads',
+        action: 'start',
+      }),
+      taskReady: vi.fn().mockResolvedValue([sampleNode]),
+      taskAssign: vi.fn().mockResolvedValue(sampleNode),
+      taskValidActions: vi.fn().mockResolvedValue(['start', 'complete']),
+    } as unknown as ProviderAwareStore
+
+    flushManager = createDaemonFlushManager(
+      { debounceMs: 100, maxDelayMs: 500 },
+      async () => {}
+    )
+
+    server = createIPCServer(socketPath)
+    const locationState = {
+      hash: 'primary',
+      opentasksPath: tempDir,
+      store: mockStore,
+      providerStore: mockProviderStore,
+      flushManager,
+      watcher: {} as any,
+      primary: true,
+      healthy: true,
+    } as LocationState
+    const locationResolver: LocationResolver = {
+      resolve: () => locationState,
+      getDefault: () => locationState,
+      list: () => [{ hash: 'primary', opentasksPath: tempDir, primary: true, healthy: true }],
+      has: () => true,
+      add: () => {},
+      remove: async () => {},
+    }
+    registerToolsMethods({ server, locationResolver })
+
+    await server.start()
+  })
+
+  afterEach(async () => {
+    try { await server.stop() } catch {}
+    try { await fs.rm(tempDir, { recursive: true, force: true }) } catch {}
+  })
+
+  describe('task()', () => {
+    it('should call tools.task with transition params', async () => {
+      const client = new OpenTasksClient({ socketPath })
+
+      const result = await client.task({
+        transition: { id: 'x-task1', action: 'start' },
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.data!.type).toBe('transition')
+
+      client.disconnect()
+    })
+
+    it('should call tools.task with ready params', async () => {
+      const client = new OpenTasksClient({ socketPath })
+
+      const result = await client.task({ ready: {} })
+
+      expect(result.success).toBe(true)
+      expect(result.data!.type).toBe('ready')
+
+      client.disconnect()
+    })
+  })
+
+  describe('taskTransition()', () => {
+    it('should transition a task', async () => {
+      const client = new OpenTasksClient({ socketPath })
+
+      const result = await client.taskTransition('x-task1', 'start')
+
+      expect(result.success).toBe(true)
+      expect(result.data!.type).toBe('transition')
+      expect(mockProviderStore.taskTransition).toHaveBeenCalledWith('x-task1', 'start')
+
+      client.disconnect()
+    })
+  })
+
+  describe('taskReady()', () => {
+    it('should get ready tasks', async () => {
+      const client = new OpenTasksClient({ socketPath })
+
+      const result = await client.taskReady({ providers: ['beads'], limit: 5 })
+
+      expect(result.success).toBe(true)
+      expect(result.data!.type).toBe('ready')
+      expect(mockProviderStore.taskReady).toHaveBeenCalled()
+
+      client.disconnect()
+    })
+
+    it('should work without options', async () => {
+      const client = new OpenTasksClient({ socketPath })
+
+      const result = await client.taskReady()
+
+      expect(result.success).toBe(true)
+
+      client.disconnect()
+    })
+  })
+
+  describe('taskAssign()', () => {
+    it('should assign a task', async () => {
+      const client = new OpenTasksClient({ socketPath })
+
+      const result = await client.taskAssign('x-task1', 'alice')
+
+      expect(result.success).toBe(true)
+      expect(result.data!.type).toBe('assign')
+      expect(mockProviderStore.taskAssign).toHaveBeenCalledWith('x-task1', 'alice')
+
+      client.disconnect()
+    })
+  })
+
+  describe('taskValidActions()', () => {
+    it('should return valid actions', async () => {
+      const client = new OpenTasksClient({ socketPath })
+
+      const result = await client.taskValidActions('x-task1')
+
+      expect(result.success).toBe(true)
+      expect(result.data!.type).toBe('validActions')
+      if (result.data!.type === 'validActions') {
+        expect(result.data!.actions).toEqual(['start', 'complete'])
+      }
+
+      client.disconnect()
     })
   })
 })
