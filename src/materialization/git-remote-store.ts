@@ -110,7 +110,7 @@ function extractCheckpointId(uri: string): string | null {
  * Create a git remote store
  */
 export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStore {
-  const config = storeConfig.config as GitRemoteStoreConfig;
+  const config = storeConfig.config as unknown as GitRemoteStoreConfig;
   const remoteUrl = config.url;
   const branch = config.branch ?? 'opentasks/archive';
   const pushPolicy = config.pushPolicy ?? 'immediate';

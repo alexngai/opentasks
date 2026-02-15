@@ -621,10 +621,10 @@ export function createNativeProvider(
       if (!node) {
         throw new ProviderErrorClass('NOT_FOUND', `Node not found: ${nodeId}`, 'native');
       }
-      if (node.type !== 'issue') {
+      if (node.type !== 'task') {
         throw new ProviderErrorClass(
           'NOT_SUPPORTED',
-          `Cannot transition ${node.type} node ${nodeId} — only issues support task lifecycle`,
+          `Cannot transition ${node.type} node ${nodeId} — only tasks support task lifecycle`,
           'native',
         );
       }
@@ -652,7 +652,7 @@ export function createNativeProvider(
       if (!allowed.includes(action)) {
         throw new ProviderErrorClass(
           'NOT_SUPPORTED',
-          `Cannot ${action} an issue in '${currentStatus}' state. Valid actions: ${allowed.join(', ')}`,
+          `Cannot ${action} a task in '${currentStatus}' state. Valid actions: ${allowed.join(', ')}`,
           'native',
         );
       }
@@ -690,10 +690,10 @@ export function createNativeProvider(
       if (!node) {
         throw new ProviderErrorClass('NOT_FOUND', `Node not found: ${nodeId}`, 'native');
       }
-      if (node.type !== 'issue') {
+      if (node.type !== 'task') {
         throw new ProviderErrorClass(
           'NOT_SUPPORTED',
-          `Cannot assign ${node.type} node ${nodeId} — only issues support assignment`,
+          `Cannot assign ${node.type} node ${nodeId} — only tasks support assignment`,
           'native',
         );
       }
@@ -710,10 +710,10 @@ export function createNativeProvider(
       if (!node) {
         throw new ProviderErrorClass('NOT_FOUND', `Node not found: ${nodeId}`, 'native');
       }
-      if (node.type !== 'issue') {
+      if (node.type !== 'task') {
         throw new ProviderErrorClass(
           'NOT_SUPPORTED',
-          `Cannot query actions for ${node.type} node ${nodeId} — only issues support task lifecycle`,
+          `Cannot query actions for ${node.type} node ${nodeId} — only tasks support task lifecycle`,
           'native',
         );
       }

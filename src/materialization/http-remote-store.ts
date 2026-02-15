@@ -45,7 +45,7 @@ interface HttpStoreConfig {
  * Create an HTTP webhook remote store
  */
 export function createHttpRemoteStore(storeConfig: RemoteStoreConfig): RemoteStore {
-  const config = storeConfig.config as HttpStoreConfig;
+  const config = storeConfig.config as unknown as HttpStoreConfig;
   const url = config.url;
   const headers = config.headers ?? {};
   const timeout = config.timeout ?? 10000;
