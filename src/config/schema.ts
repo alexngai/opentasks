@@ -265,6 +265,124 @@ export const ProvidersConfigSchema = z
 export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>
 
 // ============================================================================
+// Materialization Archive Configuration
+// ============================================================================
+
+const GitArchiveConfigSchemaInner = z.object({
+  /** Enable git-based archival */
+  enabled: z.boolean().default(false),
+
+  /** Branch name for archive commits */
+  branch: z.string().default('opentasks/archive'),
+
+  /** Git remote to push archive branch to */
+  remote: z.string().optional(),
+
+  /** Path to a separate git repo for the archive */
+  repoPath: z.string().optional(),
+
+  /** When to push to remote */
+  pushPolicy: z.enum(['immediate', 'on-session-end', 'manual']).default('on-session-end'),
+})
+
+export const GitArchiveConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    branch: z.string().optional(),
+    remote: z.string().optional(),
+    repoPath: z.string().optional(),
+    pushPolicy: z.enum(['immediate', 'on-session-end', 'manual']).optional(),
+  })
+  .default({})
+  .transform((val) => GitArchiveConfigSchemaInner.parse(val))
+
+export type GitArchiveConfig = z.infer<typeof GitArchiveConfigSchema>
+
+const RemoteStoreConfigSchema = z.object({
+  /** Store type (resolved by factory) */
+  type: z.string(),
+  /** Human-readable name */
+  name: z.string(),
+  /** Whether this store is active */
+  enabled: z.boolean().default(true),
+  /** Store-specific configuration */
+  config: z.record(z.string(), z.any()).default({}),
+  /** Which events trigger archival to this store */
+  events: z.array(z.enum([
+    'session.started',
+    'session.checkpoint',
+    'session.ended',
+  ])).default(['session.ended']),
+})
+
+const ArchivePolicySchemaInner = z.object({
+  archiveOnStart: z.boolean().default(false),
+  archiveOnCheckpoint: z.boolean().default(true),
+  archiveOnEnd: z.boolean().default(true),
+  materializeBeforeArchive: z.boolean().default(true),
+})
+
+const MaterializationConfigSchemaInner = z.object({
+  /** Graph ID — namespace in the archive tree */
+  graphId: z.string().optional(),
+
+  /** Git archive store configuration */
+  git: GitArchiveConfigSchema,
+
+  /** Remote (non-git) store configurations */
+  remoteStores: z.array(RemoteStoreConfigSchema).default([]),
+
+  /** Archive policy */
+  policy: z.object({
+    archiveOnStart: z.boolean().optional(),
+    archiveOnCheckpoint: z.boolean().optional(),
+    archiveOnEnd: z.boolean().optional(),
+    materializeBeforeArchive: z.boolean().optional(),
+  }).default({}).transform((val) => ArchivePolicySchemaInner.parse(val)),
+
+  /** Restore missing nodes from archive on daemon startup */
+  rematerializeOnStartup: z.boolean().default(false),
+})
+
+export const MaterializationConfigSchema = z
+  .object({
+    graphId: z.string().optional(),
+    git: z
+      .object({
+        enabled: z.boolean().optional(),
+        branch: z.string().optional(),
+        remote: z.string().optional(),
+        repoPath: z.string().optional(),
+        pushPolicy: z.enum(['immediate', 'on-session-end', 'manual']).optional(),
+      })
+      .optional(),
+    remoteStores: z.array(
+      z.object({
+        type: z.string(),
+        name: z.string(),
+        enabled: z.boolean().optional(),
+        config: z.record(z.string(), z.any()).optional(),
+        events: z.array(z.enum([
+          'session.started',
+          'session.checkpoint',
+          'session.ended',
+        ])).optional(),
+      })
+    ).optional(),
+    policy: z.object({
+      archiveOnStart: z.boolean().optional(),
+      archiveOnCheckpoint: z.boolean().optional(),
+      archiveOnEnd: z.boolean().optional(),
+      materializeBeforeArchive: z.boolean().optional(),
+    }).optional(),
+    rematerializeOnStartup: z.boolean().optional(),
+  })
+  .default({})
+  .transform((val) => MaterializationConfigSchemaInner.parse(val))
+
+export type MaterializationConfig = z.infer<typeof MaterializationConfigSchema>
+
+// ============================================================================
 // Logging Configuration
 // ============================================================================
 
@@ -310,6 +428,8 @@ const OpenTasksConfigSchemaInner = z.object({
   redirects: z.array(RedirectRuleSchema).default([]),
   /** Default provider for CRUD operations ('native' = local GraphStore) */
   defaultProvider: z.string().default('native'),
+  /** Materialization archive configuration */
+  materialization: MaterializationConfigSchema,
 })
 
 export const OpenTasksConfigSchema = z
@@ -393,6 +513,40 @@ export const OpenTasksConfigSchema = z
       })
     ).optional(),
     defaultProvider: z.string().optional(),
+    materialization: z
+      .object({
+        graphId: z.string().optional(),
+        git: z
+          .object({
+            enabled: z.boolean().optional(),
+            branch: z.string().optional(),
+            remote: z.string().optional(),
+            repoPath: z.string().optional(),
+            pushPolicy: z.enum(['immediate', 'on-session-end', 'manual']).optional(),
+          })
+          .optional(),
+        remoteStores: z.array(
+          z.object({
+            type: z.string(),
+            name: z.string(),
+            enabled: z.boolean().optional(),
+            config: z.record(z.string(), z.any()).optional(),
+            events: z.array(z.enum([
+              'session.started',
+              'session.checkpoint',
+              'session.ended',
+            ])).optional(),
+          })
+        ).optional(),
+        policy: z.object({
+          archiveOnStart: z.boolean().optional(),
+          archiveOnCheckpoint: z.boolean().optional(),
+          archiveOnEnd: z.boolean().optional(),
+          materializeBeforeArchive: z.boolean().optional(),
+        }).optional(),
+        rematerializeOnStartup: z.boolean().optional(),
+      })
+      .optional(),
   })
   .default({})
   .transform((val) => OpenTasksConfigSchemaInner.parse(val))

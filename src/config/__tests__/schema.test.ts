@@ -240,6 +240,22 @@ describe('Config Schema', () => {
           level: 'info',
           file: null,
         },
+        materialization: {
+          graphId: undefined,
+          git: {
+            enabled: false,
+            branch: 'opentasks/archive',
+            pushPolicy: 'on-session-end',
+          },
+          remoteStores: [],
+          policy: {
+            archiveOnStart: false,
+            archiveOnCheckpoint: true,
+            archiveOnEnd: true,
+            materializeBeforeArchive: true,
+          },
+          rematerializeOnStartup: false,
+        },
         location: undefined,
         connections: [],
         role: 'standalone',
@@ -298,6 +314,22 @@ describe('Config Schema', () => {
         logging: {
           level: 'error',
           file: 'logs/error.log',
+        },
+        materialization: {
+          graphId: undefined,
+          git: {
+            enabled: false,
+            branch: 'opentasks/archive',
+            pushPolicy: 'on-session-end',
+          },
+          remoteStores: [],
+          policy: {
+            archiveOnStart: false,
+            archiveOnCheckpoint: true,
+            archiveOnEnd: true,
+            materializeBeforeArchive: true,
+          },
+          rematerializeOnStartup: false,
         },
         location: undefined,
         connections: [],
