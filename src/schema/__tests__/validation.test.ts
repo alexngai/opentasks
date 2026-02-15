@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'vitest';
 import {
   isContext,
   isTask,
@@ -8,9 +8,9 @@ import {
   parseNode,
   tryParseNode,
   ValidationError,
-} from '../validation.js'
-import type { StoredNode } from '../storage.js'
-import type { Node, Context, Task, Feedback, ExternalNode } from '../nodes.js'
+} from '../validation.js';
+import type { StoredNode } from '../storage.js';
+import type { Node, Context, Task, Feedback, ExternalNode } from '../nodes.js';
 
 // Test fixtures
 const baseFields = {
@@ -19,20 +19,20 @@ const baseFields = {
   title: 'Test Node',
   created_at: '2025-01-26T10:00:00Z',
   updated_at: '2025-01-26T10:00:00Z',
-}
+};
 
 const validContext: StoredNode = {
   ...baseFields,
   type: 'context',
   content: '## Overview\n\nThis is a context.',
-}
+};
 
 const validTask: StoredNode = {
   ...baseFields,
   id: 't-x7k9',
   type: 'task',
   status: 'open',
-}
+};
 
 const validFeedback: StoredNode = {
   ...baseFields,
@@ -40,7 +40,7 @@ const validFeedback: StoredNode = {
   type: 'feedback',
   target_id: 'c-a2b3',
   feedback_type: 'suggestion',
-}
+};
 
 const validExternal: StoredNode = {
   ...baseFields,
@@ -49,60 +49,60 @@ const validExternal: StoredNode = {
   uri: 'jira://PROJ-123',
   source: 'jira',
   materialized: false,
-}
+};
 
 describe('Type Guards', () => {
   it('isContext returns true for context nodes', () => {
-    const node = parseNode(validContext)
-    expect(isContext(node)).toBe(true)
-    expect(isTask(node)).toBe(false)
-    expect(isFeedback(node)).toBe(false)
-    expect(isExternal(node)).toBe(false)
-  })
+    const node = parseNode(validContext);
+    expect(isContext(node)).toBe(true);
+    expect(isTask(node)).toBe(false);
+    expect(isFeedback(node)).toBe(false);
+    expect(isExternal(node)).toBe(false);
+  });
 
   it('isTask returns true for task nodes', () => {
-    const node = parseNode(validTask)
-    expect(isTask(node)).toBe(true)
-    expect(isContext(node)).toBe(false)
-  })
+    const node = parseNode(validTask);
+    expect(isTask(node)).toBe(true);
+    expect(isContext(node)).toBe(false);
+  });
 
   it('isFeedback returns true for feedback nodes', () => {
-    const node = parseNode(validFeedback)
-    expect(isFeedback(node)).toBe(true)
-    expect(isContext(node)).toBe(false)
-  })
+    const node = parseNode(validFeedback);
+    expect(isFeedback(node)).toBe(true);
+    expect(isContext(node)).toBe(false);
+  });
 
   it('isExternal returns true for external nodes', () => {
-    const node = parseNode(validExternal)
-    expect(isExternal(node)).toBe(true)
-    expect(isContext(node)).toBe(false)
-  })
-})
+    const node = parseNode(validExternal);
+    expect(isExternal(node)).toBe(true);
+    expect(isContext(node)).toBe(false);
+  });
+});
 
 describe('validateStoredNode', () => {
   it('validates a valid context', () => {
-    const result = validateStoredNode(validContext)
-    expect(result.valid).toBe(true)
-    expect(result.errors).toHaveLength(0)
-  })
+    const result = validateStoredNode(validContext);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
 
   it('validates a valid task', () => {
-    const result = validateStoredNode(validTask)
-    expect(result.valid).toBe(true)
-    expect(result.errors).toHaveLength(0)
-  })
+    const result = validateStoredNode(validTask);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
 
   it('validates a valid feedback', () => {
-    const result = validateStoredNode(validFeedback)
-    expect(result.valid).toBe(true)
-    expect(result.errors).toHaveLength(0)
-  })
+    const result = validateStoredNode(validFeedback);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
 
   it('validates a valid external node', () => {
-    const result = validateStoredNode(validExternal)
-    expect(result.valid).toBe(true)
-    expect(result.errors).toHaveLength(0)
-  })
+    const result = validateStoredNode(validExternal);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
 
   it('rejects node missing required core fields', () => {
     const invalid: StoredNode = {
@@ -112,24 +112,24 @@ describe('validateStoredNode', () => {
       title: '',
       created_at: '',
       updated_at: '2025-01-26T10:00:00Z',
-    }
-    const result = validateStoredNode(invalid)
-    expect(result.valid).toBe(false)
-    expect(result.errors.length).toBeGreaterThan(0)
-    expect(result.errors.some((e) => e.field === 'uuid')).toBe(true)
-    expect(result.errors.some((e) => e.field === 'title')).toBe(true)
-  })
+    };
+    const result = validateStoredNode(invalid);
+    expect(result.valid).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => e.field === 'uuid')).toBe(true);
+    expect(result.errors.some((e) => e.field === 'title')).toBe(true);
+  });
 
   it('rejects task missing status', () => {
     const invalid: StoredNode = {
       ...baseFields,
       type: 'task',
       // missing status
-    }
-    const result = validateStoredNode(invalid)
-    expect(result.valid).toBe(false)
-    expect(result.errors.some((e) => e.field === 'status')).toBe(true)
-  })
+    };
+    const result = validateStoredNode(invalid);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.field === 'status')).toBe(true);
+  });
 
   it('rejects feedback missing target_id', () => {
     const invalid: StoredNode = {
@@ -137,11 +137,11 @@ describe('validateStoredNode', () => {
       type: 'feedback',
       feedback_type: 'comment',
       // missing target_id
-    }
-    const result = validateStoredNode(invalid)
-    expect(result.valid).toBe(false)
-    expect(result.errors.some((e) => e.field === 'target_id')).toBe(true)
-  })
+    };
+    const result = validateStoredNode(invalid);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.field === 'target_id')).toBe(true);
+  });
 
   it('rejects feedback missing feedback_type', () => {
     const invalid: StoredNode = {
@@ -149,11 +149,11 @@ describe('validateStoredNode', () => {
       type: 'feedback',
       target_id: 'c-a2b3',
       // missing feedback_type
-    }
-    const result = validateStoredNode(invalid)
-    expect(result.valid).toBe(false)
-    expect(result.errors.some((e) => e.field === 'feedback_type')).toBe(true)
-  })
+    };
+    const result = validateStoredNode(invalid);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.field === 'feedback_type')).toBe(true);
+  });
 
   it('rejects external missing uri', () => {
     const invalid: StoredNode = {
@@ -162,11 +162,11 @@ describe('validateStoredNode', () => {
       source: 'jira',
       materialized: false,
       // missing uri
-    }
-    const result = validateStoredNode(invalid)
-    expect(result.valid).toBe(false)
-    expect(result.errors.some((e) => e.field === 'uri')).toBe(true)
-  })
+    };
+    const result = validateStoredNode(invalid);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.field === 'uri')).toBe(true);
+  });
 
   it('rejects external missing source', () => {
     const invalid: StoredNode = {
@@ -175,11 +175,11 @@ describe('validateStoredNode', () => {
       uri: 'jira://PROJ-123',
       materialized: false,
       // missing source
-    }
-    const result = validateStoredNode(invalid)
-    expect(result.valid).toBe(false)
-    expect(result.errors.some((e) => e.field === 'source')).toBe(true)
-  })
+    };
+    const result = validateStoredNode(invalid);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.field === 'source')).toBe(true);
+  });
 
   it('rejects external missing materialized', () => {
     const invalid: StoredNode = {
@@ -188,96 +188,96 @@ describe('validateStoredNode', () => {
       uri: 'jira://PROJ-123',
       source: 'jira',
       // missing materialized
-    }
-    const result = validateStoredNode(invalid)
-    expect(result.valid).toBe(false)
-    expect(result.errors.some((e) => e.field === 'materialized')).toBe(true)
-  })
-})
+    };
+    const result = validateStoredNode(invalid);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.field === 'materialized')).toBe(true);
+  });
+});
 
 describe('parseNode', () => {
   it('parses a valid context', () => {
-    const node = parseNode(validContext)
-    expect(node.type).toBe('context')
-    expect(isContext(node)).toBe(true)
-  })
+    const node = parseNode(validContext);
+    expect(node.type).toBe('context');
+    expect(isContext(node)).toBe(true);
+  });
 
   it('parses a valid task', () => {
-    const node = parseNode(validTask)
-    expect(node.type).toBe('task')
-    expect(isTask(node)).toBe(true)
+    const node = parseNode(validTask);
+    expect(node.type).toBe('task');
+    expect(isTask(node)).toBe(true);
     if (isTask(node)) {
-      expect(node.status).toBe('open')
+      expect(node.status).toBe('open');
     }
-  })
+  });
 
   it('throws ValidationError for invalid node', () => {
     const invalid: StoredNode = {
       ...baseFields,
       type: 'task',
       // missing status
-    }
-    expect(() => parseNode(invalid)).toThrow(ValidationError)
-  })
+    };
+    expect(() => parseNode(invalid)).toThrow(ValidationError);
+  });
 
   it('preserves unknown fields', () => {
     const withExtra: StoredNode = {
       ...validContext,
       customField: 'custom value',
       anotherField: 123,
-    }
-    const node = parseNode(withExtra)
-    expect((node as any).customField).toBe('custom value')
-    expect((node as any).anotherField).toBe(123)
-  })
-})
+    };
+    const node = parseNode(withExtra);
+    expect((node as any).customField).toBe('custom value');
+    expect((node as any).anotherField).toBe(123);
+  });
+});
 
 describe('tryParseNode', () => {
   it('returns node for valid input', () => {
-    const node = tryParseNode(validContext)
-    expect(node).not.toBeNull()
-    expect(node?.type).toBe('context')
-  })
+    const node = tryParseNode(validContext);
+    expect(node).not.toBeNull();
+    expect(node?.type).toBe('context');
+  });
 
   it('returns null for invalid input', () => {
     const invalid: StoredNode = {
       ...baseFields,
       type: 'task',
       // missing status
-    }
-    const node = tryParseNode(invalid)
-    expect(node).toBeNull()
-  })
-})
+    };
+    const node = tryParseNode(invalid);
+    expect(node).toBeNull();
+  });
+});
 
 describe('Node type narrowing', () => {
   it('allows type-safe access after guard', () => {
-    const node = parseNode(validTask)
+    const node = parseNode(validTask);
 
     if (isTask(node)) {
       // TypeScript should allow access to task-specific fields
-      expect(node.status).toBe('open')
+      expect(node.status).toBe('open');
       // assignee is optional on tasks
-      expect(node.assignee).toBeUndefined()
+      expect(node.assignee).toBeUndefined();
     }
-  })
+  });
 
   it('allows type-safe access to feedback fields', () => {
-    const node = parseNode(validFeedback)
+    const node = parseNode(validFeedback);
 
     if (isFeedback(node)) {
-      expect(node.target_id).toBe('c-a2b3')
-      expect(node.feedback_type).toBe('suggestion')
+      expect(node.target_id).toBe('c-a2b3');
+      expect(node.feedback_type).toBe('suggestion');
     }
-  })
+  });
 
   it('allows type-safe access to external fields', () => {
-    const node = parseNode(validExternal)
+    const node = parseNode(validExternal);
 
     if (isExternal(node)) {
-      expect(node.uri).toBe('jira://PROJ-123')
-      expect(node.source).toBe('jira')
-      expect(node.materialized).toBe(false)
+      expect(node.uri).toBe('jira://PROJ-123');
+      expect(node.source).toBe('jira');
+      expect(node.materialized).toBe(false);
     }
-  })
-})
+  });
+});

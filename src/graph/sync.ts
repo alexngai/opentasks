@@ -8,8 +8,8 @@
  * and Storage integration.
  */
 
-import type { Storage } from '../storage/interface.js'
-import { createDebouncedFlusher, type DebouncedFlusher } from './debounce.js'
+import type { Storage } from '../storage/interface.js';
+import { createDebouncedFlusher, type DebouncedFlusher } from './debounce.js';
 
 // ============================================================================
 // Types
@@ -20,35 +20,35 @@ import { createDebouncedFlusher, type DebouncedFlusher } from './debounce.js'
  */
 export interface SyncConfig {
   /** Debounce delay in milliseconds (default: 5000) */
-  debounceMs: number
+  debounceMs: number;
 
   /** Maximum delay before forced flush (default: 30000) */
-  maxDelayMs: number
+  maxDelayMs: number;
 }
 
 /**
  * Callback for performing the actual flush operation
  */
-export type FlushCallback = () => Promise<void>
+export type FlushCallback = () => Promise<void>;
 
 /**
  * Sync manager interface
  */
 export interface SyncManager {
   /** Mark a node as dirty (needs JSONL sync) */
-  markDirty(nodeId: string): void
+  markDirty(nodeId: string): void;
 
   /** Schedule a debounced flush */
-  scheduleFlush(): void
+  scheduleFlush(): void;
 
   /** Force immediate flush */
-  flush(): Promise<void>
+  flush(): Promise<void>;
 
   /** Cancel pending flush (for cleanup) */
-  cancel(): void
+  cancel(): void;
 
   /** Check if there are pending changes */
-  hasPendingChanges(): boolean
+  hasPendingChanges(): boolean;
 }
 
 // ============================================================================
@@ -58,7 +58,7 @@ export interface SyncManager {
 export const DEFAULT_SYNC_CONFIG: SyncConfig = {
   debounceMs: 5000, // 5 seconds
   maxDelayMs: 30000, // 30 seconds
-}
+};
 
 // ============================================================================
 // Implementation
@@ -74,43 +74,43 @@ export const DEFAULT_SYNC_CONFIG: SyncConfig = {
 export function createSyncManager(
   config: SyncConfig,
   storage: Storage,
-  onFlush: FlushCallback
+  onFlush: FlushCallback,
 ): SyncManager {
-  let pendingDirtyNodes = new Set<string>()
+  let pendingDirtyNodes = new Set<string>();
 
   // Create debounced flusher with our flush logic
   const flusher: DebouncedFlusher = createDebouncedFlusher(config, async () => {
     // Mark nodes as dirty in storage before flush
     for (const nodeId of pendingDirtyNodes) {
-      await storage.markDirty(nodeId)
+      await storage.markDirty(nodeId);
     }
-    pendingDirtyNodes.clear()
+    pendingDirtyNodes.clear();
 
     // Perform the actual flush
-    await onFlush()
-  })
+    await onFlush();
+  });
 
   return {
     markDirty(nodeId: string): void {
-      pendingDirtyNodes.add(nodeId)
-      flusher.markDirty()
+      pendingDirtyNodes.add(nodeId);
+      flusher.markDirty();
     },
 
     scheduleFlush(): void {
-      flusher.schedule()
+      flusher.schedule();
     },
 
     async flush(): Promise<void> {
-      return flusher.flush()
+      return flusher.flush();
     },
 
     cancel(): void {
-      flusher.cancel()
-      pendingDirtyNodes.clear()
+      flusher.cancel();
+      pendingDirtyNodes.clear();
     },
 
     hasPendingChanges(): boolean {
-      return pendingDirtyNodes.size > 0 || flusher.hasPending()
+      return pendingDirtyNodes.size > 0 || flusher.hasPending();
     },
-  }
+  };
 }

@@ -14,35 +14,35 @@
  */
 export interface DebounceConfig {
   /** Debounce delay in milliseconds */
-  debounceMs: number
+  debounceMs: number;
 
   /** Maximum delay before forced flush */
-  maxDelayMs: number
+  maxDelayMs: number;
 }
 
 /**
  * Callback for performing the actual flush operation
  */
-export type FlushCallback = () => Promise<void>
+export type FlushCallback = () => Promise<void>;
 
 /**
  * Debounced flusher interface - handles timing without external dependencies
  */
 export interface DebouncedFlusher {
   /** Mark that changes exist (sets dirty flag) */
-  markDirty(): void
+  markDirty(): void;
 
   /** Schedule a debounced flush */
-  schedule(): void
+  schedule(): void;
 
   /** Force immediate flush */
-  flush(): Promise<void>
+  flush(): Promise<void>;
 
   /** Cancel pending flush and clear dirty state */
-  cancel(): void
+  cancel(): void;
 
   /** Check if there are pending changes or scheduled flush */
-  hasPending(): boolean
+  hasPending(): boolean;
 }
 
 // ============================================================================
@@ -62,24 +62,24 @@ export interface DebouncedFlusher {
  */
 export function createDebouncedFlusher(
   config: DebounceConfig,
-  onFlush: FlushCallback
+  onFlush: FlushCallback,
 ): DebouncedFlusher {
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null
-  let maxDelayTimer: ReturnType<typeof setTimeout> | null = null
-  let flushPromise: Promise<void> | null = null
-  let isDirty = false
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let maxDelayTimer: ReturnType<typeof setTimeout> | null = null;
+  let flushPromise: Promise<void> | null = null;
+  let isDirty = false;
 
   /**
    * Clear all timers
    */
   function clearTimers(): void {
     if (debounceTimer) {
-      clearTimeout(debounceTimer)
-      debounceTimer = null
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
     }
     if (maxDelayTimer) {
-      clearTimeout(maxDelayTimer)
-      maxDelayTimer = null
+      clearTimeout(maxDelayTimer);
+      maxDelayTimer = null;
     }
   }
 
@@ -88,67 +88,67 @@ export function createDebouncedFlusher(
    */
   async function doFlush(): Promise<void> {
     // Clear timers
-    clearTimers()
+    clearTimers();
 
     // If not dirty, nothing to do
     if (!isDirty) {
-      return
+      return;
     }
 
     // Clear dirty flag before flush (new changes during flush will re-set it)
-    isDirty = false
+    isDirty = false;
 
     // Perform the flush
-    await onFlush()
+    await onFlush();
   }
 
   const flusher: DebouncedFlusher = {
     markDirty(): void {
-      isDirty = true
+      isDirty = true;
     },
 
     schedule(): void {
       // Clear existing debounce timer
       if (debounceTimer) {
-        clearTimeout(debounceTimer)
+        clearTimeout(debounceTimer);
       }
 
       // Set new debounce timer
       debounceTimer = setTimeout(() => {
-        void flusher.flush()
-      }, config.debounceMs)
+        void flusher.flush();
+      }, config.debounceMs);
 
       // Set max delay timer (only once per batch)
       if (!maxDelayTimer) {
         maxDelayTimer = setTimeout(() => {
-          void flusher.flush()
-        }, config.maxDelayMs)
+          void flusher.flush();
+        }, config.maxDelayMs);
       }
     },
 
     async flush(): Promise<void> {
       // If already flushing, wait for it
       if (flushPromise) {
-        return flushPromise
+        return flushPromise;
       }
 
       // Create new flush promise
       flushPromise = doFlush().finally(() => {
-        flushPromise = null
-      })
+        flushPromise = null;
+      });
 
-      return flushPromise
+      return flushPromise;
     },
 
     cancel(): void {
-      clearTimers()
-      isDirty = false
+      clearTimers();
+      isDirty = false;
     },
 
     hasPending(): boolean {
-      return isDirty || debounceTimer !== null
+      return isDirty || debounceTimer !== null;
     },
-  }
+  };
 
-  return flusher
+  return flusher;
 }

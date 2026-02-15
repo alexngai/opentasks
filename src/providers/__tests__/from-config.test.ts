@@ -2,11 +2,11 @@
  * Tests for Provider Factory from Configuration
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { createProvidersFromConfig } from '../from-config.js'
-import { getDefaults } from '../../config/defaults.js'
-import type { OpenTasksConfig } from '../../config/schema.js'
-import type { GraphStore } from '../../graph/store.js'
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { createProvidersFromConfig } from '../from-config.js';
+import { getDefaults } from '../../config/defaults.js';
+import type { OpenTasksConfig } from '../../config/schema.js';
+import type { GraphStore } from '../../graph/store.js';
 
 // Create a minimal mock GraphStore
 function createMockGraphStore(): GraphStore {
@@ -30,29 +30,29 @@ function createMockGraphStore(): GraphStore {
     markDirty: vi.fn(),
     getDirty: vi.fn().mockReturnValue(new Set()),
     clearDirty: vi.fn(),
-  } as unknown as GraphStore
+  } as unknown as GraphStore;
 }
 
 describe('createProvidersFromConfig', () => {
-  let graphStore: GraphStore
-  let defaultConfig: OpenTasksConfig
+  let graphStore: GraphStore;
+  let defaultConfig: OpenTasksConfig;
 
   beforeEach(() => {
-    graphStore = createMockGraphStore()
-    defaultConfig = getDefaults()
-  })
+    graphStore = createMockGraphStore();
+    defaultConfig = getDefaults();
+  });
 
   describe('native provider', () => {
     it('always creates native provider', async () => {
       const result = await createProvidersFromConfig({
         config: defaultConfig,
         graphStore,
-      })
+      });
 
-      expect(result.providers.some((p) => p.name === 'native')).toBe(true)
-      expect(result.registry.get('native')).toBeDefined()
-    })
-  })
+      expect(result.providers.some((p) => p.name === 'native')).toBe(true);
+      expect(result.registry.get('native')).toBeDefined();
+    });
+  });
 
   describe('beads provider', () => {
     it('skips beads when disabled', async () => {
@@ -62,16 +62,16 @@ describe('createProvidersFromConfig', () => {
           ...defaultConfig.providers,
           beads: { ...defaultConfig.providers.beads, enabled: false },
         },
-      }
+      };
 
       const result = await createProvidersFromConfig({
         config,
         graphStore,
-      })
+      });
 
-      expect(result.providers.some((p) => p.name === 'beads')).toBe(false)
-      expect(result.skipped).toContain('beads')
-    })
+      expect(result.providers.some((p) => p.name === 'beads')).toBe(false);
+      expect(result.skipped).toContain('beads');
+    });
 
     it('skips beads when enabled but executable not found', async () => {
       const config: OpenTasksConfig = {
@@ -84,28 +84,28 @@ describe('createProvidersFromConfig', () => {
             executable: 'nonexistent-bd-command-12345',
           },
         },
-      }
+      };
 
       const result = await createProvidersFromConfig({
         config,
         graphStore,
-      })
+      });
 
-      expect(result.providers.some((p) => p.name === 'beads')).toBe(false)
-      expect(result.skipped).toContain('beads')
-    })
-  })
+      expect(result.providers.some((p) => p.name === 'beads')).toBe(false);
+      expect(result.skipped).toContain('beads');
+    });
+  });
 
   describe('claude provider', () => {
     it('creates claude when enabled', async () => {
       const result = await createProvidersFromConfig({
         config: defaultConfig,
         graphStore,
-      })
+      });
 
-      expect(result.providers.some((p) => p.name === 'claude')).toBe(true)
-      expect(result.registry.get('claude')).toBeDefined()
-    })
+      expect(result.providers.some((p) => p.name === 'claude')).toBe(true);
+      expect(result.registry.get('claude')).toBeDefined();
+    });
 
     it('skips claude when disabled', async () => {
       const config: OpenTasksConfig = {
@@ -114,38 +114,38 @@ describe('createProvidersFromConfig', () => {
           ...defaultConfig.providers,
           claudeTasks: { enabled: false },
         },
-      }
+      };
 
       const result = await createProvidersFromConfig({
         config,
         graphStore,
-      })
+      });
 
-      expect(result.providers.some((p) => p.name === 'claude')).toBe(false)
-      expect(result.skipped).toContain('claude')
-    })
-  })
+      expect(result.providers.some((p) => p.name === 'claude')).toBe(false);
+      expect(result.skipped).toContain('claude');
+    });
+  });
 
   describe('result structure', () => {
     it('returns registry with all providers', async () => {
       const result = await createProvidersFromConfig({
         config: defaultConfig,
         graphStore,
-      })
+      });
 
-      expect(result.registry).toBeDefined()
-      expect(result.registry.list().length).toBeGreaterThan(0)
-    })
+      expect(result.registry).toBeDefined();
+      expect(result.registry.list().length).toBeGreaterThan(0);
+    });
 
     it('returns list of created providers', async () => {
       const result = await createProvidersFromConfig({
         config: defaultConfig,
         graphStore,
-      })
+      });
 
-      expect(Array.isArray(result.providers)).toBe(true)
-      expect(result.providers.length).toBeGreaterThan(0)
-    })
+      expect(Array.isArray(result.providers)).toBe(true);
+      expect(result.providers.length).toBeGreaterThan(0);
+    });
 
     it('returns list of skipped providers', async () => {
       const config: OpenTasksConfig = {
@@ -156,26 +156,26 @@ describe('createProvidersFromConfig', () => {
           sudocode: { ...defaultConfig.providers.sudocode, enabled: false },
           entire: { ...defaultConfig.providers.entire, enabled: false },
         },
-      }
+      };
 
       const result = await createProvidersFromConfig({
         config,
         graphStore,
-      })
+      });
 
-      expect(result.skipped).toContain('beads')
-      expect(result.skipped).toContain('claude')
-      expect(result.skipped).toContain('sudocode')
-      expect(result.skipped).toContain('entire')
-    })
+      expect(result.skipped).toContain('beads');
+      expect(result.skipped).toContain('claude');
+      expect(result.skipped).toContain('sudocode');
+      expect(result.skipped).toContain('entire');
+    });
 
     it('returns empty failed array on success', async () => {
       const result = await createProvidersFromConfig({
         config: defaultConfig,
         graphStore,
-      })
+      });
 
-      expect(result.failed).toEqual([])
-    })
-  })
-})
+      expect(result.failed).toEqual([]);
+    });
+  });
+});

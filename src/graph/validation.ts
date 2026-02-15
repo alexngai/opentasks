@@ -5,7 +5,7 @@
  * Includes cycle detection for blocks edges.
  */
 
-import type { StoredNode, StoredEdge } from '../schema/storage.js'
+import type { StoredNode, StoredEdge } from '../schema/storage.js';
 import type {
   CreateNodeInput,
   UpdateNodeInput,
@@ -14,26 +14,34 @@ import type {
   ValidationError,
   ValidationWarning,
   CycleResult,
-} from './types.js'
+} from './types.js';
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const MAX_TITLE_LENGTH = 500
-const MAX_CONTENT_LENGTH = 100_000
-const MIN_PRIORITY = 0
-const MAX_PRIORITY = 4
+const MAX_TITLE_LENGTH = 500;
+const MAX_CONTENT_LENGTH = 100_000;
+const MIN_PRIORITY = 0;
+const MAX_PRIORITY = 4;
 
-const VALID_NODE_TYPES = ['context', 'task', 'feedback', 'external'] as const
-const VALID_TASK_STATUSES = ['open', 'in_progress', 'blocked', 'closed'] as const
-const VALID_FEEDBACK_TYPES = ['comment', 'suggestion', 'request'] as const
+const VALID_NODE_TYPES = ['context', 'task', 'feedback', 'external'] as const;
+const VALID_TASK_STATUSES = ['open', 'in_progress', 'blocked', 'closed'] as const;
+const VALID_FEEDBACK_TYPES = ['comment', 'suggestion', 'request'] as const;
 const VALID_EDGE_TYPES = [
   // Core
-  'blocks', 'implements', 'references', 'related',
+  'blocks',
+  'implements',
+  'references',
+  'related',
   // Extended
-  'parent-of', 'child-of', 'duplicates', 'supersedes', 'depends-on', 'discovered-from',
-] as const
+  'parent-of',
+  'child-of',
+  'duplicates',
+  'supersedes',
+  'depends-on',
+  'discovered-from',
+] as const;
 
 // ============================================================================
 // Validation Service Interface
@@ -44,26 +52,23 @@ const VALID_EDGE_TYPES = [
  */
 export interface ValidationService {
   /** Validate node creation input */
-  validateCreateNode(input: CreateNodeInput): ValidationResult
+  validateCreateNode(input: CreateNodeInput): ValidationResult;
 
   /** Validate node update input */
-  validateUpdateNode(
-    existing: StoredNode,
-    updates: UpdateNodeInput
-  ): ValidationResult
+  validateUpdateNode(existing: StoredNode, updates: UpdateNodeInput): ValidationResult;
 
   /** Validate edge creation */
   validateCreateEdge(
     input: CreateEdgeInput,
-    getNode: (id: string) => Promise<StoredNode | null>
-  ): Promise<ValidationResult>
+    getNode: (id: string) => Promise<StoredNode | null>,
+  ): Promise<ValidationResult>;
 
   /** Check for cycles in blocks graph */
   detectCycle(
     fromId: string,
     toId: string,
-    getBlocksEdges: (nodeId: string) => Promise<StoredEdge[]>
-  ): Promise<CycleResult>
+    getBlocksEdges: (nodeId: string) => Promise<StoredEdge[]>,
+  ): Promise<CycleResult>;
 }
 
 // ============================================================================
@@ -75,31 +80,27 @@ export interface ValidationService {
  */
 function result(
   errors: ValidationError[] = [],
-  warnings: ValidationWarning[] = []
+  warnings: ValidationWarning[] = [],
 ): ValidationResult {
   return {
     valid: errors.length === 0,
     errors,
     warnings,
-  }
+  };
 }
 
 /**
  * Create an error
  */
 function error(code: string, message: string, field?: string): ValidationError {
-  return { code, message, field }
+  return { code, message, field };
 }
 
 /**
  * Create a warning
  */
-function warning(
-  code: string,
-  message: string,
-  field?: string
-): ValidationWarning {
-  return { code, message, field }
+function warning(code: string, message: string, field?: string): ValidationWarning {
+  return { code, message, field };
 }
 
 // ============================================================================
@@ -113,48 +114,46 @@ function validateCommonFields(
   input: CreateNodeInput | UpdateNodeInput,
   errors: ValidationError[],
   warnings: ValidationWarning[],
-  isCreate: boolean
+  isCreate: boolean,
 ): void {
   // Title validation
   if (isCreate && !('title' in input && input.title)) {
-    errors.push(error('REQUIRED', 'Title is required', 'title'))
+    errors.push(error('REQUIRED', 'Title is required', 'title'));
   } else if ('title' in input && input.title !== undefined) {
     if (typeof input.title !== 'string') {
-      errors.push(error('INVALID_TYPE', 'Title must be a string', 'title'))
+      errors.push(error('INVALID_TYPE', 'Title must be a string', 'title'));
     } else if (input.title.length === 0) {
-      errors.push(error('REQUIRED', 'Title cannot be empty', 'title'))
+      errors.push(error('REQUIRED', 'Title cannot be empty', 'title'));
     } else if (input.title.length > MAX_TITLE_LENGTH) {
       errors.push(
         error(
           'MAX_LENGTH',
           `Title exceeds maximum length of ${MAX_TITLE_LENGTH} characters`,
-          'title'
-        )
-      )
+          'title',
+        ),
+      );
     }
   }
 
   // Content validation
   if ('content' in input && input.content !== undefined) {
     if (typeof input.content !== 'string') {
-      errors.push(error('INVALID_TYPE', 'Content must be a string', 'content'))
+      errors.push(error('INVALID_TYPE', 'Content must be a string', 'content'));
     } else if (input.content.length > MAX_CONTENT_LENGTH) {
       errors.push(
         error(
           'MAX_LENGTH',
           `Content exceeds maximum length of ${MAX_CONTENT_LENGTH} characters`,
-          'content'
-        )
-      )
+          'content',
+        ),
+      );
     }
   }
 
   // Priority validation
   if ('priority' in input && input.priority !== undefined) {
     if (typeof input.priority !== 'number') {
-      errors.push(
-        error('INVALID_TYPE', 'Priority must be a number', 'priority')
-      )
+      errors.push(error('INVALID_TYPE', 'Priority must be a number', 'priority'));
     } else if (
       !Number.isInteger(input.priority) ||
       input.priority < MIN_PRIORITY ||
@@ -164,9 +163,9 @@ function validateCommonFields(
         error(
           'INVALID_RANGE',
           `Priority must be an integer between ${MIN_PRIORITY} and ${MAX_PRIORITY}`,
-          'priority'
-        )
-      )
+          'priority',
+        ),
+      );
     }
   }
 }
@@ -177,16 +176,14 @@ function validateCommonFields(
 function validateContextFields(
   input: CreateNodeInput,
   errors: ValidationError[],
-  _warnings: ValidationWarning[]
+  _warnings: ValidationWarning[],
 ): void {
   // Context nodes have no required fields beyond common fields
   // Status is optional for context nodes
   if (input.status !== undefined) {
-    const validStatuses = ['draft', 'active', 'archived']
+    const validStatuses = ['draft', 'active', 'archived'];
     if (!validStatuses.includes(input.status) && typeof input.status !== 'string') {
-      errors.push(
-        error('INVALID_TYPE', 'Status must be a string', 'status')
-      )
+      errors.push(error('INVALID_TYPE', 'Status must be a string', 'status'));
     }
   }
 }
@@ -197,24 +194,22 @@ function validateContextFields(
 function validateTaskFields(
   input: CreateNodeInput,
   errors: ValidationError[],
-  warnings: ValidationWarning[]
+  warnings: ValidationWarning[],
 ): void {
   // Status is required for issues
   if (!input.status) {
-    errors.push(error('REQUIRED', 'Status is required for issues', 'status'))
+    errors.push(error('REQUIRED', 'Status is required for issues', 'status'));
   } else if (typeof input.status !== 'string') {
-    errors.push(error('INVALID_TYPE', 'Status must be a string', 'status'))
-  } else if (
-    !VALID_TASK_STATUSES.includes(input.status as (typeof VALID_TASK_STATUSES)[number])
-  ) {
+    errors.push(error('INVALID_TYPE', 'Status must be a string', 'status'));
+  } else if (!VALID_TASK_STATUSES.includes(input.status as (typeof VALID_TASK_STATUSES)[number])) {
     // Warn for non-standard statuses but allow them
     warnings.push(
       warning(
         'NON_STANDARD_STATUS',
         `Status '${input.status}' is not a standard status. Standard values: ${VALID_TASK_STATUSES.join(', ')}`,
-        'status'
-      )
-    )
+        'status',
+      ),
+    );
   }
 }
 
@@ -224,40 +219,28 @@ function validateTaskFields(
 function validateFeedbackFields(
   input: CreateNodeInput,
   errors: ValidationError[],
-  warnings: ValidationWarning[]
+  warnings: ValidationWarning[],
 ): void {
   // target_id is required
   if (!input.target_id) {
-    errors.push(
-      error('REQUIRED', 'Target ID is required for feedback', 'target_id')
-    )
+    errors.push(error('REQUIRED', 'Target ID is required for feedback', 'target_id'));
   } else if (typeof input.target_id !== 'string') {
-    errors.push(
-      error('INVALID_TYPE', 'Target ID must be a string', 'target_id')
-    )
+    errors.push(error('INVALID_TYPE', 'Target ID must be a string', 'target_id'));
   }
 
   // feedback_type is required
   if (!input.feedback_type) {
-    errors.push(
-      error(
-        'REQUIRED',
-        'Feedback type is required for feedback',
-        'feedback_type'
-      )
-    )
+    errors.push(error('REQUIRED', 'Feedback type is required for feedback', 'feedback_type'));
   } else if (
-    !VALID_FEEDBACK_TYPES.includes(
-      input.feedback_type as (typeof VALID_FEEDBACK_TYPES)[number]
-    )
+    !VALID_FEEDBACK_TYPES.includes(input.feedback_type as (typeof VALID_FEEDBACK_TYPES)[number])
   ) {
     warnings.push(
       warning(
         'NON_STANDARD_FEEDBACK_TYPE',
         `Feedback type '${input.feedback_type}' is not standard. Standard values: ${VALID_FEEDBACK_TYPES.join(', ')}`,
-        'feedback_type'
-      )
-    )
+        'feedback_type',
+      ),
+    );
   }
 }
 
@@ -267,24 +250,20 @@ function validateFeedbackFields(
 function validateExternalFields(
   input: CreateNodeInput,
   errors: ValidationError[],
-  _warnings: ValidationWarning[]
+  _warnings: ValidationWarning[],
 ): void {
   // uri is required
   if (!input.uri) {
-    errors.push(
-      error('REQUIRED', 'URI is required for external nodes', 'uri')
-    )
+    errors.push(error('REQUIRED', 'URI is required for external nodes', 'uri'));
   } else if (typeof input.uri !== 'string') {
-    errors.push(error('INVALID_TYPE', 'URI must be a string', 'uri'))
+    errors.push(error('INVALID_TYPE', 'URI must be a string', 'uri'));
   }
 
   // source is required
   if (!input.source) {
-    errors.push(
-      error('REQUIRED', 'Source is required for external nodes', 'source')
-    )
+    errors.push(error('REQUIRED', 'Source is required for external nodes', 'source'));
   } else if (typeof input.source !== 'string') {
-    errors.push(error('INVALID_TYPE', 'Source must be a string', 'source'))
+    errors.push(error('INVALID_TYPE', 'Source must be a string', 'source'));
   }
 }
 
@@ -297,65 +276,58 @@ function validateExternalFields(
  */
 async function validateEdge(
   input: CreateEdgeInput,
-  getNode: (id: string) => Promise<StoredNode | null>
+  getNode: (id: string) => Promise<StoredNode | null>,
 ): Promise<ValidationResult> {
-  const errors: ValidationError[] = []
-  const warnings: ValidationWarning[] = []
+  const errors: ValidationError[] = [];
+  const warnings: ValidationWarning[] = [];
 
   // from_id required
   if (!input.from_id) {
-    errors.push(error('REQUIRED', 'From ID is required', 'from_id'))
+    errors.push(error('REQUIRED', 'From ID is required', 'from_id'));
   }
 
   // to_id required
   if (!input.to_id) {
-    errors.push(error('REQUIRED', 'To ID is required', 'to_id'))
+    errors.push(error('REQUIRED', 'To ID is required', 'to_id'));
   }
 
   // type required
   if (!input.type) {
-    errors.push(error('REQUIRED', 'Edge type is required', 'type'))
+    errors.push(error('REQUIRED', 'Edge type is required', 'type'));
   } else if (!VALID_EDGE_TYPES.includes(input.type as (typeof VALID_EDGE_TYPES)[number])) {
     errors.push(
       error(
         'INVALID_EDGE_TYPE',
         `Invalid edge type: '${input.type}'. Valid types: ${VALID_EDGE_TYPES.join(', ')}`,
-        'type'
-      )
-    )
+        'type',
+      ),
+    );
   }
 
   // No self-reference
   if (input.from_id && input.to_id && input.from_id === input.to_id) {
-    errors.push(
-      error('SELF_REFERENCE', 'Cannot create edge from node to itself')
-    )
+    errors.push(error('SELF_REFERENCE', 'Cannot create edge from node to itself'));
   }
 
   // If we have errors so far, return early
   if (errors.length > 0) {
-    return result(errors, warnings)
+    return result(errors, warnings);
   }
 
   // Verify nodes exist (for local IDs)
-  const isLocalId = (id: string) =>
-    id.match(/^[ctfex]-[a-z0-9]+$/) && !id.includes('://')
+  const isLocalId = (id: string) => id.match(/^[ctfex]-[a-z0-9]+$/) && !id.includes('://');
 
   if (isLocalId(input.from_id)) {
-    const fromNode = await getNode(input.from_id)
+    const fromNode = await getNode(input.from_id);
     if (!fromNode) {
-      errors.push(
-        error('NOT_FOUND', `Source node not found: ${input.from_id}`, 'from_id')
-      )
+      errors.push(error('NOT_FOUND', `Source node not found: ${input.from_id}`, 'from_id'));
     }
   }
 
   if (isLocalId(input.to_id)) {
-    const toNode = await getNode(input.to_id)
+    const toNode = await getNode(input.to_id);
     if (!toNode) {
-      errors.push(
-        error('NOT_FOUND', `Target node not found: ${input.to_id}`, 'to_id')
-      )
+      errors.push(error('NOT_FOUND', `Target node not found: ${input.to_id}`, 'to_id'));
     }
   }
 
@@ -363,34 +335,34 @@ async function validateEdge(
   if (input.type === 'implements') {
     // Warn if from is not a task
     if (isLocalId(input.from_id)) {
-      const fromNode = await getNode(input.from_id)
+      const fromNode = await getNode(input.from_id);
       if (fromNode && fromNode.type !== 'task') {
         warnings.push(
           warning(
             'IMPLEMENTS_FROM_NON_TASK',
             `'implements' edge typically has a task as source, but found ${fromNode.type}`,
-            'from_id'
-          )
-        )
+            'from_id',
+          ),
+        );
       }
     }
 
     // Warn if to is not a context
     if (isLocalId(input.to_id)) {
-      const toNode = await getNode(input.to_id)
+      const toNode = await getNode(input.to_id);
       if (toNode && toNode.type !== 'context') {
         warnings.push(
           warning(
             'IMPLEMENTS_TO_NON_CONTEXT',
             `'implements' edge typically has a context as target, but found ${toNode.type}`,
-            'to_id'
-          )
-        )
+            'to_id',
+          ),
+        );
       }
     }
   }
 
-  return result(errors, warnings)
+  return result(errors, warnings);
 }
 
 // ============================================================================
@@ -410,44 +382,44 @@ async function validateEdge(
 async function detectCycleImpl(
   fromId: string,
   toId: string,
-  getBlocksEdges: (nodeId: string) => Promise<StoredEdge[]>
+  getBlocksEdges: (nodeId: string) => Promise<StoredEdge[]>,
 ): Promise<CycleResult> {
-  const visited = new Set<string>()
-  const path: string[] = []
+  const visited = new Set<string>();
+  const path: string[] = [];
 
   async function dfs(current: string): Promise<boolean> {
     // If we've reached the fromId, we would have a cycle
     if (current === fromId) {
-      return true
+      return true;
     }
 
     // Already visited this node
     if (visited.has(current)) {
-      return false
+      return false;
     }
 
-    visited.add(current)
-    path.push(current)
+    visited.add(current);
+    path.push(current);
 
     // Get outgoing blocks edges from current node
-    const edges = await getBlocksEdges(current)
+    const edges = await getBlocksEdges(current);
 
     for (const edge of edges) {
       if (await dfs(edge.to_id)) {
-        return true
+        return true;
       }
     }
 
-    path.pop()
-    return false
+    path.pop();
+    return false;
   }
 
-  const hasCycle = await dfs(toId)
+  const hasCycle = await dfs(toId);
 
   return {
     hasCycle,
     cycle: hasCycle ? [fromId, ...path.reverse()] : undefined,
-  }
+  };
 }
 
 // ============================================================================
@@ -460,13 +432,13 @@ async function detectCycleImpl(
 export function createValidationService(): ValidationService {
   return {
     validateCreateNode(input: CreateNodeInput): ValidationResult {
-      const errors: ValidationError[] = []
-      const warnings: ValidationWarning[] = []
+      const errors: ValidationError[] = [];
+      const warnings: ValidationWarning[] = [];
 
       // Validate type
       if (!input.type) {
-        errors.push(error('REQUIRED', 'Type is required', 'type'))
-        return result(errors, warnings)
+        errors.push(error('REQUIRED', 'Type is required', 'type'));
+        return result(errors, warnings);
       }
 
       if (!VALID_NODE_TYPES.includes(input.type)) {
@@ -474,80 +446,75 @@ export function createValidationService(): ValidationService {
           error(
             'INVALID_TYPE',
             `Invalid node type: ${input.type}. Valid types: ${VALID_NODE_TYPES.join(', ')}`,
-            'type'
-          )
-        )
-        return result(errors, warnings)
+            'type',
+          ),
+        );
+        return result(errors, warnings);
       }
 
       // Validate common fields
-      validateCommonFields(input, errors, warnings, true)
+      validateCommonFields(input, errors, warnings, true);
 
       // Type-specific validation
       switch (input.type) {
         case 'context':
-          validateContextFields(input, errors, warnings)
-          break
+          validateContextFields(input, errors, warnings);
+          break;
         case 'task':
-          validateTaskFields(input, errors, warnings)
-          break
+          validateTaskFields(input, errors, warnings);
+          break;
         case 'feedback':
-          validateFeedbackFields(input, errors, warnings)
-          break
+          validateFeedbackFields(input, errors, warnings);
+          break;
         case 'external':
-          validateExternalFields(input, errors, warnings)
-          break
+          validateExternalFields(input, errors, warnings);
+          break;
       }
 
-      return result(errors, warnings)
+      return result(errors, warnings);
     },
 
-    validateUpdateNode(
-      existing: StoredNode,
-      updates: UpdateNodeInput
-    ): ValidationResult {
-      const errors: ValidationError[] = []
-      const warnings: ValidationWarning[] = []
+    validateUpdateNode(existing: StoredNode, updates: UpdateNodeInput): ValidationResult {
+      const errors: ValidationError[] = [];
+      const warnings: ValidationWarning[] = [];
 
       // Validate common fields
-      validateCommonFields(updates, errors, warnings, false)
+      validateCommonFields(updates, errors, warnings, false);
 
       // Type-specific validation for status changes
       if (existing.type === 'task' && 'status' in updates) {
         if (updates.status !== undefined && typeof updates.status !== 'string') {
-          errors.push(error('INVALID_TYPE', 'Status must be a string', 'status'))
+          errors.push(error('INVALID_TYPE', 'Status must be a string', 'status'));
         } else if (
           updates.status &&
-          !VALID_TASK_STATUSES.includes(
-            updates.status as (typeof VALID_TASK_STATUSES)[number]
-          )
+          !VALID_TASK_STATUSES.includes(updates.status as (typeof VALID_TASK_STATUSES)[number])
         ) {
           warnings.push(
             warning(
               'NON_STANDARD_STATUS',
               `Status '${updates.status}' is not a standard status`,
-              'status'
-            )
-          )
+              'status',
+            ),
+          );
         }
       }
 
-      return result(errors, warnings)
+      return result(errors, warnings);
     },
 
     async validateCreateEdge(
       input: CreateEdgeInput,
-      getNode: (id: string) => Promise<StoredNode | null>
+      getNode: (id: string) => Promise<StoredNode | null>,
     ): Promise<ValidationResult> {
-      return validateEdge(input, getNode)
+      return validateEdge(input, getNode);
     },
 
     async detectCycle(
       fromId: string,
       toId: string,
-      getBlocksEdges: (nodeId: string) => Promise<StoredEdge[]>
+      getBlocksEdges: (nodeId: string) => Promise<StoredEdge[]>,
     ): Promise<CycleResult> {
-      return detectCycleImpl(fromId, toId, getBlocksEdges)
+      return detectCycleImpl(fromId, toId, getBlocksEdges);
     },
-  }
+  };
 }

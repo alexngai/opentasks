@@ -9,11 +9,11 @@
  * This provider bridges sudocode data into the OpenTasks graph.
  */
 
-import { exec as execCallback } from 'child_process'
-import { readFile } from 'fs/promises'
-import { join } from 'path'
-import { promisify } from 'util'
-import chokidar, { type FSWatcher } from 'chokidar'
+import { exec as execCallback } from 'child_process';
+import { readFile } from 'fs/promises';
+import { join } from 'path';
+import { promisify } from 'util';
+import chokidar, { type FSWatcher } from 'chokidar';
 import type {
   Provider,
   ProviderCapabilities,
@@ -25,33 +25,30 @@ import type {
   ParsedUri,
   UriOptions,
   SearchOptions,
-} from './types.js'
-import { ProviderError as ProviderErrorClass } from './types.js'
+} from './types.js';
+import { ProviderError as ProviderErrorClass } from './types.js';
 import type {
   RelationshipQueryable,
   ProviderEdge,
   QueryEdgesOptions,
-} from './traits/RelationshipQueryable.js'
-import {
-  filterEdgesByType,
-  filterEdgesByDirection,
-} from './traits/RelationshipQueryable.js'
-import type { EdgeTypeSupport } from '../graph/EdgeTypeRegistry.js'
+} from './traits/RelationshipQueryable.js';
+import { filterEdgesByType, filterEdgesByDirection } from './traits/RelationshipQueryable.js';
+import type { EdgeTypeSupport } from '../graph/EdgeTypeRegistry.js';
 import type {
   Watchable,
   WatchGranularity,
   WatchChangeCallback,
   ProviderNodeChangeEvent,
   ProviderEdgeChangeEvent,
-} from './traits/Watchable.js'
+} from './traits/Watchable.js';
 import type {
   TaskManageable,
   TaskAction,
   TaskCapabilities,
   ReadyTaskOptions,
-} from './traits/TaskManageable.js'
+} from './traits/TaskManageable.js';
 
-const execAsync = promisify(execCallback)
+const execAsync = promisify(execCallback);
 
 // ============================================================================
 // Types
@@ -62,13 +59,13 @@ const execAsync = promisify(execCallback)
  */
 export interface SudocodeConfig {
   /** Path to sudocode executable (default: 'sudocode') */
-  executable?: string
+  executable?: string;
 
   /** Working directory for sudocode commands */
-  cwd?: string
+  cwd?: string;
 
   /** Timeout for CLI commands in ms (default: 30000) */
-  timeout?: number
+  timeout?: number;
 
   /**
    * Extra global flags passed to every sudocode command invocation.
@@ -76,7 +73,7 @@ export interface SudocodeConfig {
    *
    * @example ['--no-daemon'] or ['--verbose']
    */
-  extraArgs?: string[]
+  extraArgs?: string[];
 
   /**
    * Path to Sudocode data directory to watch for changes.
@@ -87,49 +84,49 @@ export interface SudocodeConfig {
    * Typically points to a `.sudocode/` directory.
    * If not set, watching is not available for this provider.
    */
-  watchPath?: string
+  watchPath?: string;
 
   /** Debounce delay for file watching in ms (default: 200) */
-  watchDebounceMs?: number
+  watchDebounceMs?: number;
 }
 
 /**
  * Raw Sudocode spec structure from CLI JSON output
  */
 interface SudocodeSpec {
-  id: string
-  uuid?: string
-  title: string
-  content?: string
-  priority?: number
-  tags?: string[]
-  archived?: boolean | number
-  created_at?: string
-  updated_at?: string
-  parent_id?: string
-  relationships?: SudocodeRelationships
-  [key: string]: unknown
+  id: string;
+  uuid?: string;
+  title: string;
+  content?: string;
+  priority?: number;
+  tags?: string[];
+  archived?: boolean | number;
+  created_at?: string;
+  updated_at?: string;
+  parent_id?: string;
+  relationships?: SudocodeRelationships;
+  [key: string]: unknown;
 }
 
 /**
  * Raw Sudocode issue structure from CLI JSON output
  */
 interface SudocodeIssue {
-  id: string
-  uuid?: string
-  title: string
-  content?: string
-  status?: string
-  priority?: number
-  assignee?: string
-  tags?: string[]
-  archived?: boolean | number
-  created_at?: string
-  updated_at?: string
-  closed_at?: string
-  parent_id?: string
-  relationships?: SudocodeRelationships
-  [key: string]: unknown
+  id: string;
+  uuid?: string;
+  title: string;
+  content?: string;
+  status?: string;
+  priority?: number;
+  assignee?: string;
+  tags?: string[];
+  archived?: boolean | number;
+  created_at?: string;
+  updated_at?: string;
+  closed_at?: string;
+  parent_id?: string;
+  relationships?: SudocodeRelationships;
+  [key: string]: unknown;
 }
 
 /**
@@ -143,21 +140,21 @@ interface SudocodeIssue {
  */
 interface SudocodeRelationship {
   // show --json fields
-  from_id?: string
-  from_uuid?: string
-  from_type?: string
-  to_id?: string
-  to_uuid?: string
-  to_type?: string
-  relationship_type?: string
+  from_id?: string;
+  from_uuid?: string;
+  from_type?: string;
+  to_id?: string;
+  to_uuid?: string;
+  to_type?: string;
+  relationship_type?: string;
   // JSONL fields
-  from?: string
-  to?: string
-  type?: string
+  from?: string;
+  to?: string;
+  type?: string;
   // common
-  created_at?: string
-  metadata?: string
-  [key: string]: unknown
+  created_at?: string;
+  metadata?: string;
+  [key: string]: unknown;
 }
 
 /**
@@ -167,10 +164,10 @@ interface SudocodeRelationship {
  */
 type SudocodeRelationships =
   | { outgoing?: SudocodeRelationship[]; incoming?: SudocodeRelationship[] }
-  | SudocodeRelationship[]
+  | SudocodeRelationship[];
 
 /** Union type for spec or issue */
-type SudocodeEntity = SudocodeSpec | SudocodeIssue
+type SudocodeEntity = SudocodeSpec | SudocodeIssue;
 
 // ============================================================================
 // Constants
@@ -180,22 +177,22 @@ type SudocodeEntity = SudocodeSpec | SudocodeIssue
  * Pattern for sudocode:// or sc:// URIs
  * Format: sudocode://[workspace/]id or sc://[workspace/]id
  */
-const SUDOCODE_URI_PATTERN = /^(sudocode|sc):\/\/(?:([^/]+)\/)?(.+)$/i
+const SUDOCODE_URI_PATTERN = /^(sudocode|sc):\/\/(?:([^/]+)\/)?(.+)$/i;
 
 /**
  * Pattern for Sudocode spec IDs (e.g., s-14sh, SPEC-001)
  */
-const SPEC_ID_PATTERN = /^(?:s-[a-z0-9]+|SPEC-\d+)$/i
+const SPEC_ID_PATTERN = /^(?:s-[a-z0-9]+|SPEC-\d+)$/i;
 
 /**
  * Pattern for Sudocode issue IDs (e.g., i-x7k9, ISSUE-001)
  */
-const ISSUE_ID_PATTERN = /^(?:i-[a-z0-9]+|ISSUE-\d+)$/i
+const ISSUE_ID_PATTERN = /^(?:i-[a-z0-9]+|ISSUE-\d+)$/i;
 
 /**
  * Pattern for any Sudocode entity ID
  */
-const ENTITY_ID_PATTERN = /^(?:[si]-[a-z0-9]+|(?:SPEC|ISSUE)-\d+)$/i
+const ENTITY_ID_PATTERN = /^(?:[si]-[a-z0-9]+|(?:SPEC|ISSUE)-\d+)$/i;
 
 // ============================================================================
 // Helper Functions
@@ -206,9 +203,9 @@ const ENTITY_ID_PATTERN = /^(?:[si]-[a-z0-9]+|(?:SPEC|ISSUE)-\d+)$/i
  */
 function entityTypeFromId(id: string): 'spec' | 'issue' {
   if (id.startsWith('s-') || id.toUpperCase().startsWith('SPEC-')) {
-    return 'spec'
+    return 'spec';
   }
-  return 'issue'
+  return 'issue';
 }
 
 /**
@@ -217,15 +214,15 @@ function entityTypeFromId(id: string): 'spec' | 'issue' {
 function validActionsForStatus(status: string): TaskAction[] {
   switch (status) {
     case 'open':
-      return ['start', 'block', 'close']
+      return ['start', 'block', 'close'];
     case 'in_progress':
-      return ['complete', 'block', 'close']
+      return ['complete', 'block', 'close'];
     case 'blocked':
-      return ['reopen', 'close']
+      return ['reopen', 'close'];
     case 'closed':
-      return ['reopen']
+      return ['reopen'];
     default:
-      return ['start', 'complete', 'block', 'reopen', 'close']
+      return ['start', 'complete', 'block', 'reopen', 'close'];
   }
 }
 
@@ -233,8 +230,8 @@ function validActionsForStatus(status: string): TaskAction[] {
  * Map Sudocode priority to normalized 0-4 scale
  */
 function mapPriority(priority: number | undefined): number | undefined {
-  if (priority === undefined) return undefined
-  return Math.max(0, Math.min(4, priority))
+  if (priority === undefined) return undefined;
+  return Math.max(0, Math.min(4, priority));
 }
 
 /**
@@ -243,19 +240,19 @@ function mapPriority(priority: number | undefined): number | undefined {
 function mapRelationshipType(relType: string): string {
   switch (relType.toLowerCase()) {
     case 'blocks':
-      return 'blocks'
+      return 'blocks';
     case 'related':
-      return 'related'
+      return 'related';
     case 'discovered-from':
-      return 'discovered-from'
+      return 'discovered-from';
     case 'implements':
-      return 'implements'
+      return 'implements';
     case 'references':
-      return 'references'
+      return 'references';
     case 'depends-on':
-      return 'depends-on'
+      return 'depends-on';
     default:
-      return relType
+      return relType;
   }
 }
 
@@ -264,15 +261,15 @@ function mapRelationshipType(relType: string): string {
  * with consistent `from_id`, `to_id`, `relationship_type` fields.
  */
 function normalizeRelationships(rels: SudocodeRelationships | undefined): SudocodeRelationship[] {
-  if (!rels) return []
+  if (!rels) return [];
 
-  let flat: SudocodeRelationship[]
+  let flat: SudocodeRelationship[];
   if (Array.isArray(rels)) {
     // JSONL format: flat array with from/to/type
-    flat = rels
+    flat = rels;
   } else {
     // show --json format: { outgoing, incoming } with from_id/to_id/relationship_type
-    flat = [...(rels.outgoing ?? []), ...(rels.incoming ?? [])]
+    flat = [...(rels.outgoing ?? []), ...(rels.incoming ?? [])];
   }
 
   // Normalize field names so consumers can always use from_id/to_id/relationship_type
@@ -281,14 +278,14 @@ function normalizeRelationships(rels: SudocodeRelationships | undefined): Sudoco
     from_id: rel.from_id ?? rel.from,
     to_id: rel.to_id ?? rel.to,
     relationship_type: rel.relationship_type ?? rel.type,
-  }))
+  }));
 }
 
 /**
  * Check if an entity is archived (handles both boolean and number)
  */
 function isArchived(entity: SudocodeEntity): boolean {
-  return entity.archived === true || entity.archived === 1
+  return entity.archived === true || entity.archived === 1;
 }
 
 /**
@@ -305,7 +302,7 @@ function specToProviderNode(spec: SudocodeSpec, workspace: string = '.'): Provid
     priority: mapPriority(spec.priority),
     rawData: spec as unknown as Record<string, unknown>,
     fetchedAt: new Date().toISOString(),
-  }
+  };
 }
 
 /**
@@ -322,18 +319,18 @@ function issueToProviderNode(issue: SudocodeIssue, workspace: string = '.'): Pro
     priority: mapPriority(issue.priority),
     rawData: issue as unknown as Record<string, unknown>,
     fetchedAt: new Date().toISOString(),
-  }
+  };
 }
 
 /**
  * Convert any Sudocode entity to ProviderNode
  */
 function entityToProviderNode(entity: SudocodeEntity, workspace: string = '.'): ProviderNode {
-  const entityType = entityTypeFromId(entity.id)
+  const entityType = entityTypeFromId(entity.id);
   if (entityType === 'spec') {
-    return specToProviderNode(entity as SudocodeSpec, workspace)
+    return specToProviderNode(entity as SudocodeSpec, workspace);
   }
-  return issueToProviderNode(entity as SudocodeIssue, workspace)
+  return issueToProviderNode(entity as SudocodeIssue, workspace);
 }
 
 // ============================================================================
@@ -344,14 +341,14 @@ function entityToProviderNode(entity: SudocodeEntity, workspace: string = '.'): 
  * Create a Sudocode provider with relationship querying and optional watching support
  */
 export function createSudocodeProvider(
-  config: SudocodeConfig = {}
+  config: SudocodeConfig = {},
 ): Provider & RelationshipQueryable & Partial<Watchable> & TaskManageable {
-  const executable = config.executable ?? 'sudocode'
-  const cwd = config.cwd
-  const timeout = config.timeout ?? 30000
-  const extraArgs = config.extraArgs ?? []
-  const watchPath = config.watchPath
-  const watchDebounceMs = config.watchDebounceMs ?? 200
+  const executable = config.executable ?? 'sudocode';
+  const cwd = config.cwd;
+  const timeout = config.timeout ?? 30000;
+  const extraArgs = config.extraArgs ?? [];
+  const watchPath = config.watchPath;
+  const watchDebounceMs = config.watchDebounceMs ?? 200;
 
   const capabilities: ProviderCapabilities = {
     read: true,
@@ -360,38 +357,38 @@ export function createSudocodeProvider(
     watch: !!watchPath,
     mount: true,
     feedback: false,
-  }
+  };
 
   // =========================================================================
   // Watch State (only active when watchPath is configured)
   // =========================================================================
 
   /** Cached content hashes for change diffing: entity id → hash of serialized data */
-  const cachedHashes = new Map<string, string>()
+  const cachedHashes = new Map<string, string>();
 
   /** Cached edge signatures for edge change detection: "from\0to\0type" → true */
-  const cachedEdgeKeys = new Set<string>()
+  const cachedEdgeKeys = new Set<string>();
 
   /** chokidar watcher instance */
-  let fileWatcher: FSWatcher | null = null
+  let fileWatcher: FSWatcher | null = null;
 
   /** Current watch callback */
-  let watchCallback: WatchChangeCallback | null = null
+  let watchCallback: WatchChangeCallback | null = null;
 
   /** Debounce timer for coalescing rapid file changes */
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Simple hash for diffing (not cryptographic — just for detecting changes).
    */
   function quickHash(input: string): string {
-    let hash = 0
+    let hash = 0;
     for (let i = 0; i < input.length; i++) {
-      const char = input.charCodeAt(i)
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash
+      const char = input.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash;
     }
-    return hash.toString(16)
+    return hash.toString(16);
   }
 
   /**
@@ -406,44 +403,44 @@ export function createSudocodeProvider(
       tags: entity.tags ? [...entity.tags].sort() : undefined,
       archived: entity.archived,
       parent_id: entity.parent_id,
-    }
-    return quickHash(JSON.stringify(substantive))
+    };
+    return quickHash(JSON.stringify(substantive));
   }
 
   /**
    * Compute the set of edge keys from an entity's relationship fields
    */
   function entityEdgeKeys(entity: SudocodeEntity): Set<string> {
-    const keys = new Set<string>()
+    const keys = new Set<string>();
 
     for (const rel of normalizeRelationships(entity.relationships)) {
       if (rel.from_id && rel.to_id && rel.relationship_type) {
-        const edgeType = mapRelationshipType(rel.relationship_type)
-        keys.add(`${rel.from_id}\0${rel.to_id}\0${edgeType}`)
+        const edgeType = mapRelationshipType(rel.relationship_type);
+        keys.add(`${rel.from_id}\0${rel.to_id}\0${edgeType}`);
       }
     }
 
     if (entity.parent_id) {
-      keys.add(`${entity.parent_id}\0${entity.id}\0parent-of`)
+      keys.add(`${entity.parent_id}\0${entity.id}\0parent-of`);
     }
 
-    return keys
+    return keys;
   }
 
   /**
    * Diff current Sudocode state against cached hashes and emit change events.
    */
   async function diffAndEmit(): Promise<void> {
-    if (!watchCallback) return
+    if (!watchCallback) return;
 
     try {
       // Read entities directly from JSONL files (includes relationships)
-      const issues = await readEntitiesFromJsonl('issue')
-      const specs = await readEntitiesFromJsonl('spec')
-      const allEntities = [...issues, ...specs]
+      const issues = await readEntitiesFromJsonl('issue');
+      const specs = await readEntitiesFromJsonl('spec');
+      const allEntities = [...issues, ...specs];
 
-      const currentIds = new Set<string>()
-      const currentEdgeKeys = new Set<string>()
+      const currentIds = new Set<string>();
+      const currentEdgeKeys = new Set<string>();
 
       for (const entity of allEntities) {
         if (isArchived(entity)) {
@@ -456,16 +453,16 @@ export function createSudocodeProvider(
                 uri: `sudocode://./${entity.id}`,
                 timestamp: new Date().toISOString(),
               },
-            })
-            cachedHashes.delete(entity.id)
+            });
+            cachedHashes.delete(entity.id);
           }
-          continue
+          continue;
         }
 
-        currentIds.add(entity.id)
-        const hash = entityHashKey(entity)
-        const prevHash = cachedHashes.get(entity.id)
-        const providerNode = entityToProviderNode(entity)
+        currentIds.add(entity.id);
+        const hash = entityHashKey(entity);
+        const prevHash = cachedHashes.get(entity.id);
+        const providerNode = entityToProviderNode(entity);
 
         if (!prevHash) {
           watchCallback({
@@ -477,7 +474,7 @@ export function createSudocodeProvider(
               node: providerNode,
               timestamp: new Date().toISOString(),
             },
-          })
+          });
         } else if (prevHash !== hash) {
           const event: ProviderNodeChangeEvent = {
             type: 'updated',
@@ -485,14 +482,14 @@ export function createSudocodeProvider(
             uri: providerNode.uri,
             node: providerNode,
             timestamp: new Date().toISOString(),
-          }
-          watchCallback({ kind: 'node', event })
+          };
+          watchCallback({ kind: 'node', event });
         }
 
-        cachedHashes.set(entity.id, hash)
+        cachedHashes.set(entity.id, hash);
 
         for (const key of entityEdgeKeys(entity)) {
-          currentEdgeKeys.add(key)
+          currentEdgeKeys.add(key);
         }
       }
 
@@ -507,44 +504,44 @@ export function createSudocodeProvider(
               uri: `sudocode://./${id}`,
               timestamp: new Date().toISOString(),
             },
-          })
-          cachedHashes.delete(id)
+          });
+          cachedHashes.delete(id);
         }
       }
 
       // Detect edge changes — new edges
       for (const key of currentEdgeKeys) {
         if (!cachedEdgeKeys.has(key)) {
-          const [from, to, type] = key.split('\0')
+          const [from, to, type] = key.split('\0');
           const event: ProviderEdgeChangeEvent = {
             type: 'created',
             edge: { from, to, type },
             sourceUri: `sudocode://./${from}`,
             targetUri: `sudocode://./${to}`,
             timestamp: new Date().toISOString(),
-          }
-          watchCallback({ kind: 'edge', event })
+          };
+          watchCallback({ kind: 'edge', event });
         }
       }
       // Deleted edges
       for (const key of cachedEdgeKeys) {
         if (!currentEdgeKeys.has(key)) {
-          const [from, to, type] = key.split('\0')
+          const [from, to, type] = key.split('\0');
           const event: ProviderEdgeChangeEvent = {
             type: 'deleted',
             edge: { from, to, type },
             sourceUri: `sudocode://./${from}`,
             targetUri: `sudocode://./${to}`,
             timestamp: new Date().toISOString(),
-          }
-          watchCallback({ kind: 'edge', event })
+          };
+          watchCallback({ kind: 'edge', event });
         }
       }
 
       // Update cached edge state
-      cachedEdgeKeys.clear()
+      cachedEdgeKeys.clear();
       for (const key of currentEdgeKeys) {
-        cachedEdgeKeys.add(key)
+        cachedEdgeKeys.add(key);
       }
     } catch {
       // Resilient — log internally but don't crash the watcher
@@ -556,12 +553,12 @@ export function createSudocodeProvider(
    */
   function onFileChange(): void {
     if (debounceTimer) {
-      clearTimeout(debounceTimer)
+      clearTimeout(debounceTimer);
     }
     debounceTimer = setTimeout(() => {
-      debounceTimer = null
-      void diffAndEmit()
-    }, watchDebounceMs)
+      debounceTimer = null;
+      void diffAndEmit();
+    }, watchDebounceMs);
   }
 
   /**
@@ -569,19 +566,19 @@ export function createSudocodeProvider(
    */
   async function seedCache(): Promise<void> {
     try {
-      const issues = await readEntitiesFromJsonl('issue')
-      const specs = await readEntitiesFromJsonl('spec')
-      const allEntities = [...issues, ...specs]
+      const issues = await readEntitiesFromJsonl('issue');
+      const specs = await readEntitiesFromJsonl('spec');
+      const allEntities = [...issues, ...specs];
 
-      cachedHashes.clear()
-      cachedEdgeKeys.clear()
+      cachedHashes.clear();
+      cachedEdgeKeys.clear();
 
       for (const entity of allEntities) {
-        if (isArchived(entity)) continue
+        if (isArchived(entity)) continue;
 
-        cachedHashes.set(entity.id, entityHashKey(entity))
+        cachedHashes.set(entity.id, entityHashKey(entity));
         for (const key of entityEdgeKeys(entity)) {
-          cachedEdgeKeys.add(key)
+          cachedEdgeKeys.add(key);
         }
       }
     } catch {
@@ -594,55 +591,55 @@ export function createSudocodeProvider(
    */
   function shellEscape(arg: string): string {
     if (/['\s"\\$`!]/.test(arg)) {
-      return `'${arg.replace(/'/g, "'\\''")}'`
+      return `'${arg.replace(/'/g, "'\\''")}'`;
     }
-    return arg
+    return arg;
   }
 
   /**
    * Execute a sudocode CLI command
    */
   async function execSudocode(args: string[], context?: ProviderOperationContext): Promise<string> {
-    const command = [executable, ...extraArgs.map(shellEscape), ...args.map(shellEscape)].join(' ')
+    const command = [executable, ...extraArgs.map(shellEscape), ...args.map(shellEscape)].join(' ');
 
     try {
       const { stdout } = await execAsync(command, {
         cwd: context?.cwd ?? cwd,
         timeout: context?.timeout ?? timeout,
         env: { ...process.env },
-      })
-      return stdout.trim()
+      });
+      return stdout.trim();
     } catch (error) {
       const err = error as {
-        code?: string | number
-        message?: string
-        killed?: boolean
-        stdout?: string
-        stderr?: string
-      }
+        code?: string | number;
+        message?: string;
+        killed?: boolean;
+        stdout?: string;
+        stderr?: string;
+      };
 
       if (err.code === 'ENOENT') {
         throw new ProviderErrorClass(
           'PROVIDER_ERROR',
           `Sudocode CLI not found: ${executable}`,
-          'sudocode'
-        )
+          'sudocode',
+        );
       }
 
       if (err.killed) {
-        throw new ProviderErrorClass('TIMEOUT', `Command timed out: ${command}`, 'sudocode')
+        throw new ProviderErrorClass('TIMEOUT', `Command timed out: ${command}`, 'sudocode');
       }
 
-      let errorMessage = err.message ?? 'Unknown error'
+      let errorMessage = err.message ?? 'Unknown error';
       if (err.stdout) {
         try {
-          const parsed = JSON.parse(err.stdout)
+          const parsed = JSON.parse(err.stdout);
           if (parsed.error) {
-            errorMessage = parsed.error
+            errorMessage = parsed.error;
           }
         } catch {
           if (err.stdout.trim()) {
-            errorMessage = err.stdout.trim()
+            errorMessage = err.stdout.trim();
           }
         }
       }
@@ -651,8 +648,8 @@ export function createSudocodeProvider(
         'OPERATION_FAILED',
         `Sudocode CLI error: ${errorMessage}`,
         'sudocode',
-        error instanceof Error ? error : undefined
-      )
+        error instanceof Error ? error : undefined,
+      );
     }
   }
 
@@ -661,13 +658,13 @@ export function createSudocodeProvider(
    */
   function parseJson<T>(output: string): T {
     try {
-      return JSON.parse(output) as T
+      return JSON.parse(output) as T;
     } catch {
       throw new ProviderErrorClass(
         'PROVIDER_ERROR',
         'Failed to parse Sudocode CLI output as JSON',
-        'sudocode'
-      )
+        'sudocode',
+      );
     }
   }
 
@@ -675,9 +672,9 @@ export function createSudocodeProvider(
    * Fetch entities of a given type from sudocode CLI (list — no relationships)
    */
   async function fetchEntities(type: 'spec' | 'issue'): Promise<SudocodeEntity[]> {
-    const subcommand = type === 'spec' ? 'spec' : 'issue'
-    const output = await execSudocode(['--json', subcommand, 'list'])
-    return parseJson<SudocodeEntity[]>(output)
+    const subcommand = type === 'spec' ? 'spec' : 'issue';
+    const output = await execSudocode(['--json', subcommand, 'list']);
+    return parseJson<SudocodeEntity[]>(output);
   }
 
   /**
@@ -685,7 +682,7 @@ export function createSudocodeProvider(
    * Prefers watchPath, then derives from cwd.
    */
   function sudocodeDataDir(): string | null {
-    return watchPath ?? (cwd ? join(cwd, '.sudocode') : null)
+    return watchPath ?? (cwd ? join(cwd, '.sudocode') : null);
   }
 
   /**
@@ -696,29 +693,29 @@ export function createSudocodeProvider(
    * Falls back to CLI `list` if the file can't be read.
    */
   async function readEntitiesFromJsonl(type: 'spec' | 'issue'): Promise<SudocodeEntity[]> {
-    const jsonlFile = type === 'spec' ? 'specs.jsonl' : 'issues.jsonl'
-    const dir = sudocodeDataDir()
+    const jsonlFile = type === 'spec' ? 'specs.jsonl' : 'issues.jsonl';
+    const dir = sudocodeDataDir();
     if (!dir) {
       // No path to .sudocode dir — fall back to CLI
-      return fetchEntities(type)
+      return fetchEntities(type);
     }
 
     try {
-      const content = await readFile(join(dir, jsonlFile), 'utf-8')
-      const entities: SudocodeEntity[] = []
+      const content = await readFile(join(dir, jsonlFile), 'utf-8');
+      const entities: SudocodeEntity[] = [];
       for (const line of content.split('\n')) {
-        const trimmed = line.trim()
-        if (!trimmed) continue
+        const trimmed = line.trim();
+        if (!trimmed) continue;
         try {
-          entities.push(JSON.parse(trimmed) as SudocodeEntity)
+          entities.push(JSON.parse(trimmed) as SudocodeEntity);
         } catch {
           // Skip malformed lines
         }
       }
-      return entities
+      return entities;
     } catch {
       // File doesn't exist or isn't readable — fall back to CLI
-      return fetchEntities(type)
+      return fetchEntities(type);
     }
   }
 
@@ -726,15 +723,18 @@ export function createSudocodeProvider(
    * Find a single entity by ID from the JSONL files.
    * Falls back to CLI `show` if JSONL is unavailable or entity not found.
    */
-  async function findEntityById(id: string, workspace: string = '.'): Promise<SudocodeEntity | null> {
-    const entityType = entityTypeFromId(id)
-    const dir = sudocodeDataDir()
+  async function findEntityById(
+    id: string,
+    workspace: string = '.',
+  ): Promise<SudocodeEntity | null> {
+    const entityType = entityTypeFromId(id);
+    const dir = sudocodeDataDir();
 
     if (dir) {
       try {
-        const entities = await readEntitiesFromJsonl(entityType)
-        const found = entities.find((e) => e.id === id)
-        if (found) return found
+        const entities = await readEntitiesFromJsonl(entityType);
+        const found = entities.find((e) => e.id === id);
+        if (found) return found;
         // Not in JSONL — might be a stale file; fall through to CLI
       } catch {
         // JSONL read failed — fall through to CLI
@@ -742,23 +742,23 @@ export function createSudocodeProvider(
     }
 
     // Fall back to CLI show
-    const subcommand = entityType === 'spec' ? 'spec' : 'issue'
+    const subcommand = entityType === 'spec' ? 'spec' : 'issue';
     try {
-      const output = await execSudocode(['--json', subcommand, 'show', id])
-      return parseJson<SudocodeEntity>(output)
+      const output = await execSudocode(['--json', subcommand, 'show', id]);
+      return parseJson<SudocodeEntity>(output);
     } catch (error) {
       if (error instanceof ProviderErrorClass && error.code === 'OPERATION_FAILED') {
-        const message = error.message.toLowerCase()
+        const message = error.message.toLowerCase();
         if (
           message.includes('not found') ||
           message.includes('does not exist') ||
           message.includes('no issue found') ||
           message.includes('no spec found')
         ) {
-          return null
+          return null;
         }
       }
-      throw error
+      throw error;
     }
   }
 
@@ -773,17 +773,17 @@ export function createSudocodeProvider(
 
     parseUri(uri: string): ParsedUri | null {
       // Check for sudocode:// or sc:// URI
-      const match = uri.match(SUDOCODE_URI_PATTERN)
+      const match = uri.match(SUDOCODE_URI_PATTERN);
       if (match) {
-        const scheme = match[1].toLowerCase()
-        const workspace = match[2] || '.'
-        const id = match[3]
+        const scheme = match[1].toLowerCase();
+        const workspace = match[2] || '.';
+        const id = match[3];
         return {
           scheme,
           workspace,
           id,
           isRelative: workspace === '.',
-        }
+        };
       }
 
       // Check for bare Sudocode entity ID
@@ -793,22 +793,22 @@ export function createSudocodeProvider(
           workspace: '.',
           id: uri,
           isRelative: true,
-        }
+        };
       }
 
-      return null
+      return null;
     },
 
     buildUri(id: string, options?: UriOptions): string {
-      const workspace = options?.workspace ?? '.'
+      const workspace = options?.workspace ?? '.';
       if (options?.relative) {
-        return id
+        return id;
       }
-      return `sudocode://${workspace}/${id}`
+      return `sudocode://${workspace}/${id}`;
     },
 
     isValidUri(uri: string): boolean {
-      return this.parseUri(uri) !== null
+      return this.parseUri(uri) !== null;
     },
 
     // =========================================================================
@@ -816,36 +816,41 @@ export function createSudocodeProvider(
     // =========================================================================
 
     async get(id: string, _context?: ProviderOperationContext): Promise<ProviderNode | null> {
-      const parsed = this.parseUri(id)
-      const entityId = parsed?.id ?? id
-      const workspace = parsed?.workspace ?? '.'
+      const parsed = this.parseUri(id);
+      const entityId = parsed?.id ?? id;
+      const workspace = parsed?.workspace ?? '.';
 
-      const entity = await findEntityById(entityId, workspace)
-      if (!entity) return null
-      return entityToProviderNode(entity, workspace)
+      const entity = await findEntityById(entityId, workspace);
+      if (!entity) return null;
+      return entityToProviderNode(entity, workspace);
     },
 
-    async list(filter?: ProviderFilter, _context?: ProviderOperationContext): Promise<ProviderNode[]> {
-      const results: ProviderNode[] = []
+    async list(
+      filter?: ProviderFilter,
+      _context?: ProviderOperationContext,
+    ): Promise<ProviderNode[]> {
+      const results: ProviderNode[] = [];
       const entityTypes: Array<'spec' | 'issue'> =
-        filter?.type === 'spec' ? ['spec'] :
-          filter?.type === 'issue' ? ['issue'] :
-            ['issue', 'spec']
+        filter?.type === 'spec'
+          ? ['spec']
+          : filter?.type === 'issue'
+            ? ['issue']
+            : ['issue', 'spec'];
 
       for (const entityType of entityTypes) {
         try {
-          const entities = await readEntitiesFromJsonl(entityType)
+          const entities = await readEntitiesFromJsonl(entityType);
 
           for (const entity of entities) {
-            if (isArchived(entity)) continue
+            if (isArchived(entity)) continue;
 
             // Client-side status filter (applies to issues; specs don't have status)
             if (filter?.status && entityType === 'issue') {
-              const issue = entity as SudocodeIssue
-              if (issue.status !== filter.status) continue
+              const issue = entity as SudocodeIssue;
+              if (issue.status !== filter.status) continue;
             }
 
-            results.push(entityToProviderNode(entity))
+            results.push(entityToProviderNode(entity));
           }
         } catch {
           // If one type fails (e.g., no specs), continue with the other
@@ -854,66 +859,73 @@ export function createSudocodeProvider(
 
       // Apply limit after combining
       if (filter?.limit && results.length > filter.limit) {
-        return results.slice(0, filter.limit)
+        return results.slice(0, filter.limit);
       }
 
-      return results
+      return results;
     },
 
-    async create(input: ProviderCreateInput, context?: ProviderOperationContext): Promise<ProviderNode> {
-      const entityType = input.type === 'spec' ? 'spec' : 'issue'
-      const subcommand = entityType === 'spec' ? 'spec' : 'issue'
+    async create(
+      input: ProviderCreateInput,
+      context?: ProviderOperationContext,
+    ): Promise<ProviderNode> {
+      const entityType = input.type === 'spec' ? 'spec' : 'issue';
+      const subcommand = entityType === 'spec' ? 'spec' : 'issue';
       // --json is global (before subcommand), title is positional (after create)
-      const args = ['--json', subcommand, 'create', input.title]
+      const args = ['--json', subcommand, 'create', input.title];
 
       if (input.content) {
-        args.push('-d', input.content)
+        args.push('-d', input.content);
       }
       if (input.priority !== undefined) {
-        args.push('-p', String(input.priority))
+        args.push('-p', String(input.priority));
       }
 
-      const output = await execSudocode(args, context)
-      const entity = parseJson<SudocodeEntity>(output)
+      const output = await execSudocode(args, context);
+      const entity = parseJson<SudocodeEntity>(output);
 
-      return entityToProviderNode(entity)
+      return entityToProviderNode(entity);
     },
 
-    async update(id: string, updates: ProviderUpdateInput, context?: ProviderOperationContext): Promise<ProviderNode> {
-      const parsed = this.parseUri(id)
-      const entityId = parsed?.id ?? id
-      const entityType = entityTypeFromId(entityId)
-      const subcommand = entityType === 'spec' ? 'spec' : 'issue'
+    async update(
+      id: string,
+      updates: ProviderUpdateInput,
+      context?: ProviderOperationContext,
+    ): Promise<ProviderNode> {
+      const parsed = this.parseUri(id);
+      const entityId = parsed?.id ?? id;
+      const entityType = entityTypeFromId(entityId);
+      const subcommand = entityType === 'spec' ? 'spec' : 'issue';
 
       // --json is global (before subcommand)
-      const args = ['--json', subcommand, 'update', entityId]
+      const args = ['--json', subcommand, 'update', entityId];
 
       if (updates.title) {
-        args.push('--title', updates.title)
+        args.push('--title', updates.title);
       }
       if (updates.content) {
-        args.push('--description', updates.content)
+        args.push('--description', updates.content);
       }
       if (updates.status && entityType === 'issue') {
-        args.push('-s', updates.status)
+        args.push('-s', updates.status);
       }
       if (updates.priority !== undefined) {
-        args.push('-p', String(updates.priority))
+        args.push('-p', String(updates.priority));
       }
 
-      const output = await execSudocode(args, context)
-      const entity = parseJson<SudocodeEntity>(output)
+      const output = await execSudocode(args, context);
+      const entity = parseJson<SudocodeEntity>(output);
 
-      return entityToProviderNode(entity)
+      return entityToProviderNode(entity);
     },
 
     async delete(id: string, context?: ProviderOperationContext): Promise<void> {
-      const parsed = this.parseUri(id)
-      const entityId = parsed?.id ?? id
-      const entityType = entityTypeFromId(entityId)
-      const subcommand = entityType === 'spec' ? 'spec' : 'issue'
+      const parsed = this.parseUri(id);
+      const entityId = parsed?.id ?? id;
+      const entityType = entityTypeFromId(entityId);
+      const subcommand = entityType === 'spec' ? 'spec' : 'issue';
 
-      await execSudocode([subcommand, 'delete', '--hard', entityId], context)
+      await execSudocode([subcommand, 'delete', '--hard', entityId], context);
     },
 
     // =========================================================================
@@ -921,27 +933,29 @@ export function createSudocodeProvider(
     // =========================================================================
 
     async search(query: string, options?: SearchOptions): Promise<ProviderNode[]> {
-      const results: ProviderNode[] = []
+      const results: ProviderNode[] = [];
       const entityTypes: Array<'spec' | 'issue'> =
-        options?.type === 'spec' ? ['spec'] :
-          options?.type === 'issue' ? ['issue'] :
-            ['issue', 'spec']
+        options?.type === 'spec'
+          ? ['spec']
+          : options?.type === 'issue'
+            ? ['issue']
+            : ['issue', 'spec'];
 
-      const queryLower = query.toLowerCase()
+      const queryLower = query.toLowerCase();
 
       for (const entityType of entityTypes) {
         try {
-          const entities = await readEntitiesFromJsonl(entityType)
+          const entities = await readEntitiesFromJsonl(entityType);
 
           for (const entity of entities) {
-            if (isArchived(entity)) continue
+            if (isArchived(entity)) continue;
 
             // Client-side text search across title and content
-            const titleMatch = entity.title?.toLowerCase().includes(queryLower)
-            const contentMatch = entity.content?.toLowerCase().includes(queryLower)
-            if (!titleMatch && !contentMatch) continue
+            const titleMatch = entity.title?.toLowerCase().includes(queryLower);
+            const contentMatch = entity.content?.toLowerCase().includes(queryLower);
+            if (!titleMatch && !contentMatch) continue;
 
-            results.push(entityToProviderNode(entity))
+            results.push(entityToProviderNode(entity));
           }
         } catch {
           // If search fails for one type, continue with the other
@@ -949,10 +963,10 @@ export function createSudocodeProvider(
       }
 
       if (options?.limit && results.length > options.limit) {
-        return results.slice(0, options.limit)
+        return results.slice(0, options.limit);
       }
 
-      return results
+      return results;
     },
 
     // =========================================================================
@@ -960,13 +974,13 @@ export function createSudocodeProvider(
     // =========================================================================
 
     async queryEdges(nodeId: string, options?: QueryEdgesOptions): Promise<ProviderEdge[]> {
-      const parsed = this.parseUri(nodeId)
-      const entityId = parsed?.id ?? nodeId
+      const parsed = this.parseUri(nodeId);
+      const entityId = parsed?.id ?? nodeId;
 
-      const entity = await findEntityById(entityId)
-      if (!entity) return []
+      const entity = await findEntityById(entityId);
+      if (!entity) return [];
 
-      let edges: ProviderEdge[] = []
+      let edges: ProviderEdge[] = [];
 
       // Extract relationships (handles both show and JSONL formats)
       for (const rel of normalizeRelationships(entity.relationships)) {
@@ -975,36 +989,36 @@ export function createSudocodeProvider(
             from: rel.from_id,
             to: rel.to_id,
             type: mapRelationshipType(rel.relationship_type),
-          })
+          });
         }
       }
 
       // Parent-child relationship
       if (entity.parent_id) {
-        edges.push({ from: entity.parent_id, to: entityId, type: 'parent-of' })
+        edges.push({ from: entity.parent_id, to: entityId, type: 'parent-of' });
       }
 
       // Deduplicate edges
-      const seen = new Set<string>()
+      const seen = new Set<string>();
       edges = edges.filter((edge) => {
-        const key = `${edge.from}\0${edge.to}\0${edge.type}`
-        if (seen.has(key)) return false
-        seen.add(key)
-        return true
-      })
+        const key = `${edge.from}\0${edge.to}\0${edge.type}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
 
       // Apply filters
       if (options?.edgeType) {
-        edges = filterEdgesByType(edges, options.edgeType)
+        edges = filterEdgesByType(edges, options.edgeType);
       }
       if (options?.direction) {
-        edges = filterEdgesByDirection(edges, entityId, options.direction)
+        edges = filterEdgesByDirection(edges, entityId, options.direction);
       }
       if (options?.limit && edges.length > options.limit) {
-        edges = edges.slice(0, options.limit)
+        edges = edges.slice(0, options.limit);
       }
 
-      return edges
+      return edges;
     },
 
     supportedEdgeTypes(): EdgeTypeSupport[] {
@@ -1016,7 +1030,7 @@ export function createSudocodeProvider(
         { type: 'references', canQuery: true, canCreate: false, canDelete: false },
         { type: 'depends-on', canQuery: true, canCreate: false, canDelete: false },
         { type: 'parent-of', canQuery: true, canCreate: false, canDelete: false },
-      ]
+      ];
     },
 
     // =========================================================================
@@ -1032,17 +1046,17 @@ export function createSudocodeProvider(
 
     startWatching(callback: WatchChangeCallback): void {
       if (!watchPath) {
-        return
+        return;
       }
 
-      watchCallback = callback
+      watchCallback = callback;
 
       if (fileWatcher) {
-        return // Already watching, just updated callback
+        return; // Already watching, just updated callback
       }
 
       void seedCache().then(() => {
-        if (!watchCallback) return
+        if (!watchCallback) return;
 
         fileWatcher = chokidar.watch(watchPath, {
           ignoreInitial: true,
@@ -1051,34 +1065,34 @@ export function createSudocodeProvider(
             stabilityThreshold: 100,
             pollInterval: 20,
           },
-        })
+        });
 
-        fileWatcher.on('add', onFileChange)
-        fileWatcher.on('change', onFileChange)
-        fileWatcher.on('unlink', onFileChange)
+        fileWatcher.on('add', onFileChange);
+        fileWatcher.on('change', onFileChange);
+        fileWatcher.on('unlink', onFileChange);
 
         fileWatcher.on('error', () => {
           // Resilient — continue watching despite transient errors
-        })
-      })
+        });
+      });
     },
 
     stopWatching(): void {
-      watchCallback = null
+      watchCallback = null;
 
       if (debounceTimer) {
-        clearTimeout(debounceTimer)
-        debounceTimer = null
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
       }
 
       if (fileWatcher) {
-        void fileWatcher.close()
-        fileWatcher = null
+        void fileWatcher.close();
+        fileWatcher = null;
       }
     },
 
     get isWatching(): boolean {
-      return fileWatcher !== null && watchCallback !== null
+      return fileWatcher !== null && watchCallback !== null;
     },
 
     // =========================================================================
@@ -1095,18 +1109,18 @@ export function createSudocodeProvider(
     async transitionTask(
       id: string,
       action: TaskAction,
-      context?: ProviderOperationContext
+      context?: ProviderOperationContext,
     ): Promise<ProviderNode> {
-      const parsed = this.parseUri(id)
-      const entityId = parsed?.id ?? id
+      const parsed = this.parseUri(id);
+      const entityId = parsed?.id ?? id;
 
       // Only issues support task transitions (not specs)
       if (entityTypeFromId(entityId) !== 'issue') {
         throw new ProviderErrorClass(
           'NOT_SUPPORTED',
           `Cannot transition spec ${entityId} — only issues support task lifecycle`,
-          'sudocode'
-        )
+          'sudocode',
+        );
       }
 
       const statusMap: Record<TaskAction, string> = {
@@ -1115,160 +1129,164 @@ export function createSudocodeProvider(
         block: 'blocked',
         reopen: 'open',
         close: 'closed',
-      }
+      };
 
-      const targetStatus = statusMap[action]
+      const targetStatus = statusMap[action];
       if (!targetStatus) {
         throw new ProviderErrorClass(
           'NOT_SUPPORTED',
           `Unsupported task action: ${action}`,
-          'sudocode'
-        )
+          'sudocode',
+        );
       }
 
       // Validate transition is allowed from current state
-      const current = await findEntityById(entityId)
+      const current = await findEntityById(entityId);
       if (current) {
-        const currentStatus = (current as SudocodeIssue).status ?? 'open'
-        const allowed = validActionsForStatus(currentStatus)
+        const currentStatus = (current as SudocodeIssue).status ?? 'open';
+        const allowed = validActionsForStatus(currentStatus);
         if (!allowed.includes(action)) {
           throw new ProviderErrorClass(
             'NOT_SUPPORTED',
             `Cannot ${action} an issue in '${currentStatus}' state. Valid actions: ${allowed.join(', ')}`,
-            'sudocode'
-          )
+            'sudocode',
+          );
         }
       }
 
-      const output = await execSudocode(['--json', 'issue', 'update', entityId, '-s', targetStatus], context)
-      const entity = parseJson<SudocodeEntity>(output)
+      const output = await execSudocode(
+        ['--json', 'issue', 'update', entityId, '-s', targetStatus],
+        context,
+      );
+      const entity = parseJson<SudocodeEntity>(output);
 
-      return entityToProviderNode(entity)
+      return entityToProviderNode(entity);
     },
 
     async readyTasks(
       options?: ReadyTaskOptions,
-      context?: ProviderOperationContext
+      context?: ProviderOperationContext,
     ): Promise<ProviderNode[]> {
-      const issues = await readEntitiesFromJsonl('issue')
+      const issues = await readEntitiesFromJsonl('issue');
 
-      const readyIssues: ProviderNode[] = []
+      const readyIssues: ProviderNode[] = [];
 
       for (const entity of issues) {
-        const issue = entity as SudocodeIssue
-        if (isArchived(issue)) continue
-        if (issue.status !== 'open') continue
+        const issue = entity as SudocodeIssue;
+        if (isArchived(issue)) continue;
+        if (issue.status !== 'open') continue;
 
         // Apply tag filter
         if (options?.tags) {
-          const issueTags = issue.tags ?? []
-          if (!options.tags.every((t) => issueTags.includes(t))) continue
+          const issueTags = issue.tags ?? [];
+          if (!options.tags.every((t) => issueTags.includes(t))) continue;
         }
 
         // Apply priority filter
         if (options?.priority !== undefined) {
-          const p = mapPriority(issue.priority)
-          if (p === undefined || p > options.priority) continue
+          const p = mapPriority(issue.priority);
+          if (p === undefined || p > options.priority) continue;
         }
 
         // Apply assignee filter
-        if (options?.assignee && issue.assignee !== options.assignee) continue
+        if (options?.assignee && issue.assignee !== options.assignee) continue;
 
         // Check for active blockers via relationships
-        let hasActiveBlocker = false
-        const rels = normalizeRelationships(issue.relationships)
+        let hasActiveBlocker = false;
+        const rels = normalizeRelationships(issue.relationships);
 
         for (const rel of rels) {
-          if (!rel.from_id || !rel.to_id || !rel.relationship_type) continue
+          if (!rel.from_id || !rel.to_id || !rel.relationship_type) continue;
 
-          const relType = rel.relationship_type.toLowerCase()
-          const isBlocking = (relType === 'blocks' && rel.to_id === issue.id)
-            || (relType === 'depends-on' && rel.from_id === issue.id)
+          const relType = rel.relationship_type.toLowerCase();
+          const isBlocking =
+            (relType === 'blocks' && rel.to_id === issue.id) ||
+            (relType === 'depends-on' && rel.from_id === issue.id);
 
-          if (!isBlocking) continue
+          if (!isBlocking) continue;
 
           // Resolve the blocker to check its status
-          const blockerId = relType === 'blocks' ? rel.from_id : rel.to_id
+          const blockerId = relType === 'blocks' ? rel.from_id : rel.to_id;
           try {
-            const blocker = await findEntityById(blockerId)
+            const blocker = await findEntityById(blockerId);
             if (blocker && !isArchived(blocker)) {
-              const blockerStatus = (blocker as SudocodeIssue).status
+              const blockerStatus = (blocker as SudocodeIssue).status;
               if (blockerStatus && blockerStatus !== 'closed') {
-                hasActiveBlocker = true
-                break
+                hasActiveBlocker = true;
+                break;
               }
             }
           } catch {
             // If we can't resolve the blocker, assume it's active
-            hasActiveBlocker = true
-            break
+            hasActiveBlocker = true;
+            break;
           }
         }
 
         if (!hasActiveBlocker) {
-          readyIssues.push(entityToProviderNode(issue))
+          readyIssues.push(entityToProviderNode(issue));
         }
       }
 
       // Sort by priority (lower number = higher priority)
       readyIssues.sort((a, b) => {
-        const aPriority = a.priority ?? Infinity
-        const bPriority = b.priority ?? Infinity
-        return aPriority - bPriority
-      })
+        const aPriority = a.priority ?? Infinity;
+        const bPriority = b.priority ?? Infinity;
+        return aPriority - bPriority;
+      });
 
       // Apply limit
       if (options?.limit && readyIssues.length > options.limit) {
-        return readyIssues.slice(0, options.limit)
+        return readyIssues.slice(0, options.limit);
       }
 
-      return readyIssues
+      return readyIssues;
     },
 
     async assignTask(
       id: string,
       assignee: string,
-      context?: ProviderOperationContext
+      context?: ProviderOperationContext,
     ): Promise<ProviderNode> {
-      const parsed = this.parseUri(id)
-      const entityId = parsed?.id ?? id
+      const parsed = this.parseUri(id);
+      const entityId = parsed?.id ?? id;
 
       if (entityTypeFromId(entityId) !== 'issue') {
         throw new ProviderErrorClass(
           'NOT_SUPPORTED',
           `Cannot assign spec ${entityId} — only issues support assignment`,
-          'sudocode'
-        )
+          'sudocode',
+        );
       }
 
-      const output = await execSudocode(['--json', 'issue', 'update', entityId, '--assignee', assignee], context)
-      const entity = parseJson<SudocodeEntity>(output)
+      const output = await execSudocode(
+        ['--json', 'issue', 'update', entityId, '--assignee', assignee],
+        context,
+      );
+      const entity = parseJson<SudocodeEntity>(output);
 
-      return entityToProviderNode(entity)
+      return entityToProviderNode(entity);
     },
 
-    async validActions(
-      id: string,
-      context?: ProviderOperationContext
-    ): Promise<TaskAction[]> {
-      const parsed = this.parseUri(id)
-      const entityId = parsed?.id ?? id
+    async validActions(id: string, context?: ProviderOperationContext): Promise<TaskAction[]> {
+      const parsed = this.parseUri(id);
+      const entityId = parsed?.id ?? id;
 
       if (entityTypeFromId(entityId) !== 'issue') {
         throw new ProviderErrorClass(
           'NOT_SUPPORTED',
           `Cannot query actions for spec ${entityId} — only issues support task lifecycle`,
-          'sudocode'
-        )
+          'sudocode',
+        );
       }
 
-      const entity = await findEntityById(entityId)
+      const entity = await findEntityById(entityId);
       if (!entity) {
-        throw new ProviderErrorClass('NOT_FOUND', `Issue not found: ${entityId}`, 'sudocode')
+        throw new ProviderErrorClass('NOT_FOUND', `Issue not found: ${entityId}`, 'sudocode');
       }
 
-      const issue = entity as SudocodeIssue
-      return validActionsForStatus(issue.status ?? 'open')
+      const issue = entity as SudocodeIssue;
+      return validActionsForStatus(issue.status ?? 'open');
     },
-  }
+  };
 }

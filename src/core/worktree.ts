@@ -5,38 +5,43 @@
  * Registry lives at .git/opentasks/worktrees.json.
  */
 
-import * as fs from 'node:fs'
-import * as path from 'node:path'
-import { execSync } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
-import { generateLocationHash, generateLocationHashFallback, getGitRemoteUrl, getGitRoot } from './location.js'
-import { installMergeDriver } from './merge-driver.js'
-import type { Connection } from './connections.js'
-import { FileLock } from '../storage/file-lock.js'
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { execSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import {
+  generateLocationHash,
+  generateLocationHashFallback,
+  getGitRemoteUrl,
+  getGitRoot,
+} from './location.js';
+import { installMergeDriver } from './merge-driver.js';
+import type { Connection } from './connections.js';
+import { FileLock } from '../storage/file-lock.js';
 
 /**
  * Registered worktree entry
  */
 export interface WorktreeEntry {
   /** Filesystem path to worktree root */
-  path: string
+  path: string;
   /** Path to .opentasks directory */
-  opentasksPath: string
+  opentasksPath: string;
   /** Location hash */
-  hash: string
+  hash: string;
   /** Git branch */
-  branch?: string
+  branch?: string;
   /** Role (manager or worker) */
-  role: 'manager' | 'worker' | 'standalone'
+  role: 'manager' | 'worker' | 'standalone';
   /** Redirect target hash (for workers) */
-  redirectTarget?: string
+  redirectTarget?: string;
 }
 
 /**
  * Worktree registry stored at .git/opentasks/worktrees.json
  */
 export interface WorktreeRegistry {
-  worktrees: WorktreeEntry[]
+  worktrees: WorktreeEntry[];
 }
 
 /**
@@ -44,13 +49,13 @@ export interface WorktreeRegistry {
  */
 export interface WorktreeSetupOptions {
   /** Git branch name */
-  branch?: string
+  branch?: string;
   /** Role for the new worktree */
-  role?: 'manager' | 'worker'
+  role?: 'manager' | 'worker';
   /** Location hash to redirect to (or "." for current location) */
-  redirectTo?: string
+  redirectTo?: string;
   /** Don't create git worktree, just configure opentasks */
-  noGitWorktree?: boolean
+  noGitWorktree?: boolean;
 }
 
 /**
@@ -58,9 +63,9 @@ export interface WorktreeSetupOptions {
  */
 export interface WorktreeTeardownOptions {
   /** Also run git worktree remove */
-  removeGitWorktree?: boolean
+  removeGitWorktree?: boolean;
   /** Keep .opentasks data */
-  keepData?: boolean
+  keepData?: boolean;
 }
 
 /**
@@ -72,10 +77,10 @@ export function getGitCommonDir(cwd: string): string | null {
       cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim()
-    return path.resolve(cwd, result)
+    }).trim();
+    return path.resolve(cwd, result);
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -88,10 +93,10 @@ export function getCurrentBranch(cwd: string): string | null {
       cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim()
-    return result === 'HEAD' ? null : result
+    }).trim();
+    return result === 'HEAD' ? null : result;
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -99,172 +104,170 @@ export function getCurrentBranch(cwd: string): string | null {
  * Get the path to the worktree registry
  */
 export function getRegistryPath(gitCommonDir: string): string {
-  return path.join(gitCommonDir, 'opentasks', 'worktrees.json')
+  return path.join(gitCommonDir, 'opentasks', 'worktrees.json');
 }
 
 /**
  * Read the worktree registry
  */
 export function readWorktreeRegistry(gitCommonDir: string): WorktreeRegistry {
-  const registryPath = getRegistryPath(gitCommonDir)
+  const registryPath = getRegistryPath(gitCommonDir);
   try {
-    const content = fs.readFileSync(registryPath, 'utf-8')
-    return JSON.parse(content)
+    const content = fs.readFileSync(registryPath, 'utf-8');
+    return JSON.parse(content);
   } catch {
-    return { worktrees: [] }
+    return { worktrees: [] };
   }
 }
 
 /**
  * Write the worktree registry
  */
-export function writeWorktreeRegistry(
-  gitCommonDir: string,
-  registry: WorktreeRegistry
-): void {
-  const registryPath = getRegistryPath(gitCommonDir)
-  const dir = path.dirname(registryPath)
-  fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2) + '\n', 'utf-8')
+export function writeWorktreeRegistry(gitCommonDir: string, registry: WorktreeRegistry): void {
+  const registryPath = getRegistryPath(gitCommonDir);
+  const dir = path.dirname(registryPath);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2) + '\n', 'utf-8');
 }
 
 /**
  * Get the path to the registry lock file
  */
 function getRegistryLockPath(gitCommonDir: string): string {
-  return path.join(gitCommonDir, 'opentasks', 'worktrees.lock')
+  return path.join(gitCommonDir, 'opentasks', 'worktrees.lock');
 }
 
 /**
  * Execute a read-modify-write operation on the registry under a file lock
  */
 function withRegistryLock<T>(gitCommonDir: string, fn: () => T): T {
-  const lockPath = getRegistryLockPath(gitCommonDir)
-  const lock = new FileLock({ lockPath, timeout: 5000 })
+  const lockPath = getRegistryLockPath(gitCommonDir);
+  const lock = new FileLock({ lockPath, timeout: 5000 });
 
   // Synchronously spin-acquire: create lock file exclusively
-  const dir = path.dirname(lockPath)
-  fs.mkdirSync(dir, { recursive: true })
-  const startTime = Date.now()
+  const dir = path.dirname(lockPath);
+  fs.mkdirSync(dir, { recursive: true });
+  const startTime = Date.now();
   while (true) {
     try {
-      const fd = fs.openSync(lockPath, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY)
-      fs.writeSync(fd, `${process.pid}\n${Date.now()}\n`)
-      fs.closeSync(fd)
-      break
+      const fd = fs.openSync(
+        lockPath,
+        fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY,
+      );
+      fs.writeSync(fd, `${process.pid}\n${Date.now()}\n`);
+      fs.closeSync(fd);
+      break;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
         // Check if lock is stale (> 30s old or dead PID)
         try {
-          const content = fs.readFileSync(lockPath, 'utf-8')
-          const lines = content.trim().split('\n')
-          const pid = parseInt(lines[0], 10)
-          const timestamp = parseInt(lines[1], 10)
+          const content = fs.readFileSync(lockPath, 'utf-8');
+          const lines = content.trim().split('\n');
+          const pid = parseInt(lines[0], 10);
+          const timestamp = parseInt(lines[1], 10);
           const isStale =
-            (timestamp && Date.now() - timestamp > 30000) ||
-            (pid && !isProcessAlive(pid))
+            (timestamp && Date.now() - timestamp > 30000) || (pid && !isProcessAlive(pid));
           if (isStale) {
-            try { fs.unlinkSync(lockPath) } catch {}
-            continue
+            try {
+              fs.unlinkSync(lockPath);
+            } catch {}
+            continue;
           }
         } catch {
-          try { fs.unlinkSync(lockPath) } catch {}
-          continue
+          try {
+            fs.unlinkSync(lockPath);
+          } catch {}
+          continue;
         }
         if (Date.now() - startTime >= 5000) {
-          throw new Error(`Failed to acquire registry lock within 5000ms`)
+          throw new Error(`Failed to acquire registry lock within 5000ms`);
         }
         // Busy wait briefly (sync context)
-        const waitUntil = Date.now() + 50
-        while (Date.now() < waitUntil) { /* spin */ }
+        const waitUntil = Date.now() + 50;
+        while (Date.now() < waitUntil) {
+          /* spin */
+        }
       } else {
-        throw error
+        throw error;
       }
     }
   }
 
   try {
-    return fn()
+    return fn();
   } finally {
-    try { fs.unlinkSync(lockPath) } catch {}
+    try {
+      fs.unlinkSync(lockPath);
+    } catch {}
   }
 }
 
 function isProcessAlive(pid: number): boolean {
   try {
-    process.kill(pid, 0)
-    return true
+    process.kill(pid, 0);
+    return true;
   } catch {
-    return false
+    return false;
   }
 }
 
 /**
  * Register a worktree in the registry
  */
-export function registerWorktree(
-  gitCommonDir: string,
-  entry: WorktreeEntry
-): void {
+export function registerWorktree(gitCommonDir: string, entry: WorktreeEntry): void {
   withRegistryLock(gitCommonDir, () => {
-    const registry = readWorktreeRegistry(gitCommonDir)
+    const registry = readWorktreeRegistry(gitCommonDir);
 
     // Remove existing entry with same hash
-    registry.worktrees = registry.worktrees.filter((w) => w.hash !== entry.hash)
-    registry.worktrees.push(entry)
+    registry.worktrees = registry.worktrees.filter((w) => w.hash !== entry.hash);
+    registry.worktrees.push(entry);
 
-    writeWorktreeRegistry(gitCommonDir, registry)
-  })
+    writeWorktreeRegistry(gitCommonDir, registry);
+  });
 }
 
 /**
  * Unregister a worktree from the registry
  */
-export function unregisterWorktree(
-  gitCommonDir: string,
-  hash: string
-): WorktreeEntry | null {
+export function unregisterWorktree(gitCommonDir: string, hash: string): WorktreeEntry | null {
   return withRegistryLock(gitCommonDir, () => {
-    const registry = readWorktreeRegistry(gitCommonDir)
-    const entry = registry.worktrees.find((w) => w.hash === hash)
+    const registry = readWorktreeRegistry(gitCommonDir);
+    const entry = registry.worktrees.find((w) => w.hash === hash);
 
-    if (!entry) return null
+    if (!entry) return null;
 
-    registry.worktrees = registry.worktrees.filter((w) => w.hash !== hash)
-    writeWorktreeRegistry(gitCommonDir, registry)
+    registry.worktrees = registry.worktrees.filter((w) => w.hash !== hash);
+    writeWorktreeRegistry(gitCommonDir, registry);
 
-    return entry
-  })
+    return entry;
+  });
 }
 
 /**
  * Find a worktree by hash or path
  */
-export function findWorktree(
-  gitCommonDir: string,
-  hashOrPath: string
-): WorktreeEntry | null {
-  const registry = readWorktreeRegistry(gitCommonDir)
+export function findWorktree(gitCommonDir: string, hashOrPath: string): WorktreeEntry | null {
+  const registry = readWorktreeRegistry(gitCommonDir);
 
   return (
     registry.worktrees.find((w) => w.hash === hashOrPath) ||
     registry.worktrees.find((w) => path.resolve(w.path) === path.resolve(hashOrPath)) ||
     null
-  )
+  );
 }
 
 /**
  * List all registered worktrees with status
  */
 export function listWorktrees(
-  gitCommonDir: string
+  gitCommonDir: string,
 ): Array<WorktreeEntry & { status: 'active' | 'unreachable' }> {
-  const registry = readWorktreeRegistry(gitCommonDir)
+  const registry = readWorktreeRegistry(gitCommonDir);
 
   return registry.worktrees.map((entry) => {
-    const status = fs.existsSync(entry.opentasksPath) ? 'active' : 'unreachable'
-    return { ...entry, status }
-  })
+    const status = fs.existsSync(entry.opentasksPath) ? 'active' : 'unreachable';
+    return { ...entry, status };
+  });
 }
 
 /**
@@ -277,69 +280,68 @@ export function listWorktrees(
 export function worktreeSetup(
   targetPath: string,
   managerOpentasksPath: string,
-  options: WorktreeSetupOptions = {}
+  options: WorktreeSetupOptions = {},
 ): WorktreeEntry {
-  const resolvedTarget = path.resolve(targetPath)
-  const managerDir = path.dirname(managerOpentasksPath)
-  const gitRoot = getGitRoot(managerDir)
+  const resolvedTarget = path.resolve(targetPath);
+  const managerDir = path.dirname(managerOpentasksPath);
+  const gitRoot = getGitRoot(managerDir);
 
   if (!gitRoot) {
-    throw new Error('Not in a git repository')
+    throw new Error('Not in a git repository');
   }
 
-  const gitCommonDir = getGitCommonDir(managerDir)
+  const gitCommonDir = getGitCommonDir(managerDir);
   if (!gitCommonDir) {
-    throw new Error('Cannot determine git common dir')
+    throw new Error('Cannot determine git common dir');
   }
 
   // 1. Create git worktree (unless --no-git-worktree)
   if (!options.noGitWorktree) {
-    const branch = options.branch ?? `worker-${Date.now()}`
+    const branch = options.branch ?? `worker-${Date.now()}`;
     try {
       execSync(`git worktree add "${resolvedTarget}" -b "${branch}"`, {
         cwd: managerDir,
         stdio: ['pipe', 'pipe', 'pipe'],
-      })
+      });
     } catch (error) {
       // Branch might already exist, try without -b
       try {
         execSync(`git worktree add "${resolvedTarget}" "${branch}"`, {
           cwd: managerDir,
           stdio: ['pipe', 'pipe', 'pipe'],
-        })
+        });
       } catch {
-        throw new Error(`Failed to create git worktree: ${(error as Error).message}`)
+        throw new Error(`Failed to create git worktree: ${(error as Error).message}`);
       }
     }
   }
 
   // 2. Initialize .opentasks in worktree
-  const workerOpentasksDir = path.join(resolvedTarget, '.opentasks')
-  fs.mkdirSync(workerOpentasksDir, { recursive: true })
+  const workerOpentasksDir = path.join(resolvedTarget, '.opentasks');
+  fs.mkdirSync(workerOpentasksDir, { recursive: true });
 
   // 3. Generate location hash
-  const remoteUrl = getGitRemoteUrl(gitRoot)
-  const relativePath = path.relative(gitRoot, resolvedTarget)
+  const remoteUrl = getGitRemoteUrl(gitRoot);
+  const relativePath = path.relative(gitRoot, resolvedTarget);
   const workerHash = remoteUrl
     ? generateLocationHash(remoteUrl, relativePath)
-    : generateLocationHashFallback(workerOpentasksDir)
+    : generateLocationHashFallback(workerOpentasksDir);
 
   // Read manager's identity
-  let managerHash: string
+  let managerHash: string;
   try {
     const managerConfig = JSON.parse(
-      fs.readFileSync(path.join(managerOpentasksPath, 'config.json'), 'utf-8')
-    )
-    managerHash = managerConfig.location?.hash
+      fs.readFileSync(path.join(managerOpentasksPath, 'config.json'), 'utf-8'),
+    );
+    managerHash = managerConfig.location?.hash;
   } catch {
-    throw new Error('Cannot read manager location identity')
+    throw new Error('Cannot read manager location identity');
   }
 
   // 4. Write worker config
-  const role = options.role ?? 'worker'
-  const redirectTarget = options.redirectTo === '.'
-    ? managerHash
-    : (options.redirectTo ?? managerHash)
+  const role = options.role ?? 'worker';
+  const redirectTarget =
+    options.redirectTo === '.' ? managerHash : (options.redirectTo ?? managerHash);
 
   const workerConfig: Record<string, unknown> = {
     version: '1.0',
@@ -369,39 +371,47 @@ export function worktreeSetup(
             },
           ]
         : [],
-  }
+  };
 
   fs.writeFileSync(
     path.join(workerOpentasksDir, 'config.json'),
     JSON.stringify(workerConfig, null, 2) + '\n',
-    'utf-8'
-  )
+    'utf-8',
+  );
 
   // 5. Create empty graph.jsonl
-  const graphPath = path.join(workerOpentasksDir, 'graph.jsonl')
+  const graphPath = path.join(workerOpentasksDir, 'graph.jsonl');
   if (!fs.existsSync(graphPath)) {
-    fs.writeFileSync(graphPath, '', 'utf-8')
+    fs.writeFileSync(graphPath, '', 'utf-8');
   }
 
   // 6. Create .gitignore
-  const gitignorePath = path.join(workerOpentasksDir, '.gitignore')
+  const gitignorePath = path.join(workerOpentasksDir, '.gitignore');
   if (!fs.existsSync(gitignorePath)) {
     fs.writeFileSync(
       gitignorePath,
-      ['cache.db', 'cache.db-wal', 'cache.db-shm', 'write.lock', 'daemon.sock', 'daemon.lock', ''].join('\n'),
-      'utf-8'
-    )
+      [
+        'cache.db',
+        'cache.db-wal',
+        'cache.db-shm',
+        'write.lock',
+        'daemon.sock',
+        'daemon.lock',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
   }
 
   // 7. Install merge driver
   try {
-    installMergeDriver(resolvedTarget)
+    installMergeDriver(resolvedTarget);
   } catch {
     // Non-fatal: merge driver installation might fail
   }
 
   // 8. Register worktree
-  const branch = options.branch ?? getCurrentBranch(resolvedTarget) ?? undefined
+  const branch = options.branch ?? getCurrentBranch(resolvedTarget) ?? undefined;
   const entry: WorktreeEntry = {
     path: resolvedTarget,
     opentasksPath: workerOpentasksDir,
@@ -409,30 +419,30 @@ export function worktreeSetup(
     branch,
     role,
     redirectTarget: role === 'worker' ? redirectTarget : undefined,
-  }
-  registerWorktree(gitCommonDir, entry)
+  };
+  registerWorktree(gitCommonDir, entry);
 
   // 9. Add connection in manager's config
-  const managerConfigPath = path.join(managerOpentasksPath, 'config.json')
+  const managerConfigPath = path.join(managerOpentasksPath, 'config.json');
   try {
-    const managerConfig = JSON.parse(fs.readFileSync(managerConfigPath, 'utf-8'))
-    const connections = (managerConfig.connections || []) as Connection[]
+    const managerConfig = JSON.parse(fs.readFileSync(managerConfigPath, 'utf-8'));
+    const connections = (managerConfig.connections || []) as Connection[];
     const newConn: Connection = {
       hash: workerHash,
       path: path.relative(managerOpentasksPath, workerOpentasksDir),
       role: 'child',
       name: path.basename(resolvedTarget),
-    }
+    };
     managerConfig.connections = [
       ...connections.filter((c: Connection) => c.hash !== workerHash),
       newConn,
-    ]
-    fs.writeFileSync(managerConfigPath, JSON.stringify(managerConfig, null, 2) + '\n', 'utf-8')
+    ];
+    fs.writeFileSync(managerConfigPath, JSON.stringify(managerConfig, null, 2) + '\n', 'utf-8');
   } catch {
     // Non-fatal: manager config update failed
   }
 
-  return entry
+  return entry;
 }
 
 /**
@@ -445,37 +455,37 @@ export function worktreeSetup(
 export function worktreeTeardown(
   pathOrHash: string,
   managerOpentasksPath: string,
-  options: WorktreeTeardownOptions = {}
+  options: WorktreeTeardownOptions = {},
 ): WorktreeEntry | null {
-  const managerDir = path.dirname(managerOpentasksPath)
-  const gitCommonDir = getGitCommonDir(managerDir)
+  const managerDir = path.dirname(managerOpentasksPath);
+  const gitCommonDir = getGitCommonDir(managerDir);
   if (!gitCommonDir) {
-    throw new Error('Cannot determine git common dir')
+    throw new Error('Cannot determine git common dir');
   }
 
-  const entry = findWorktree(gitCommonDir, pathOrHash)
+  const entry = findWorktree(gitCommonDir, pathOrHash);
   if (!entry) {
-    throw new Error(`Worktree not found: ${pathOrHash}`)
+    throw new Error(`Worktree not found: ${pathOrHash}`);
   }
 
   // 1. Unregister from registry
-  unregisterWorktree(gitCommonDir, entry.hash)
+  unregisterWorktree(gitCommonDir, entry.hash);
 
   // 2. Remove connection from manager
-  const managerConfigPath = path.join(managerOpentasksPath, 'config.json')
+  const managerConfigPath = path.join(managerOpentasksPath, 'config.json');
   try {
-    const managerConfig = JSON.parse(fs.readFileSync(managerConfigPath, 'utf-8'))
+    const managerConfig = JSON.parse(fs.readFileSync(managerConfigPath, 'utf-8'));
     managerConfig.connections = (managerConfig.connections || []).filter(
-      (c: Connection) => c.hash !== entry.hash
-    )
-    fs.writeFileSync(managerConfigPath, JSON.stringify(managerConfig, null, 2) + '\n', 'utf-8')
+      (c: Connection) => c.hash !== entry.hash,
+    );
+    fs.writeFileSync(managerConfigPath, JSON.stringify(managerConfig, null, 2) + '\n', 'utf-8');
   } catch {
     // Non-fatal
   }
 
   // 3. Remove .opentasks data
   if (!options.keepData && fs.existsSync(entry.opentasksPath)) {
-    fs.rmSync(entry.opentasksPath, { recursive: true, force: true })
+    fs.rmSync(entry.opentasksPath, { recursive: true, force: true });
   }
 
   // 4. Remove git worktree
@@ -484,11 +494,11 @@ export function worktreeTeardown(
       execSync(`git worktree remove "${entry.path}" --force`, {
         cwd: managerDir,
         stdio: ['pipe', 'pipe', 'pipe'],
-      })
+      });
     } catch {
       // Non-fatal: git worktree remove might fail
     }
   }
 
-  return entry
+  return entry;
 }

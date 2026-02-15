@@ -46,12 +46,12 @@ export type {
   OperationContext,
   // Errors
   ToolErrorCode,
-} from './types.js'
+} from './types.js';
 
-export { ToolError } from './types.js'
+export { ToolError } from './types.js';
 
 // Tools
-export { link } from './link.js'
-export { query } from './query.js'
-export { annotate } from './annotate.js'
-export { task } from './task.js'
+export { link } from './link.js';
+export { query } from './query.js';
+export { annotate } from './annotate.js';
+export { task } from './task.js';

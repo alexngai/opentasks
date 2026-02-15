@@ -27,29 +27,29 @@ export type {
   FlushConfig,
   GraphStoreConfig,
   GraphErrorCode,
-} from './types.js'
+} from './types.js';
 
-export { GraphError } from './types.js'
+export { GraphError } from './types.js';
 
 // Validation
-export type { ValidationService } from './validation.js'
-export { createValidationService } from './validation.js'
+export type { ValidationService } from './validation.js';
+export { createValidationService } from './validation.js';
 
 // Query
-export type { QueryEngine, NodeResolver, QueryEngineOptions } from './query.js'
-export { createQueryEngine } from './query.js'
+export type { QueryEngine, NodeResolver, QueryEngineOptions } from './query.js';
+export { createQueryEngine } from './query.js';
 
 // Debounce (core timing utility)
-export type { DebouncedFlusher, DebounceConfig } from './debounce.js'
-export { createDebouncedFlusher } from './debounce.js'
+export type { DebouncedFlusher, DebounceConfig } from './debounce.js';
+export { createDebouncedFlusher } from './debounce.js';
 
 // Sync
-export type { SyncManager, SyncConfig } from './sync.js'
-export { createSyncManager, DEFAULT_SYNC_CONFIG } from './sync.js'
+export type { SyncManager, SyncConfig } from './sync.js';
+export { createSyncManager, DEFAULT_SYNC_CONFIG } from './sync.js';
 
 // Store
-export type { GraphStore, GraphTransaction } from './store.js'
-export { createGraphStore } from './store.js'
+export type { GraphStore, GraphTransaction } from './store.js';
+export { createGraphStore } from './store.js';
 
 // Provider-Aware Store
 export type {
@@ -57,22 +57,22 @@ export type {
   ProviderStoreConfig,
   ResolveOptions,
   ProviderChangeHandler,
-} from './provider-store.js'
-export { createProviderAwareStore } from './provider-store.js'
+} from './provider-store.js';
+export { createProviderAwareStore } from './provider-store.js';
 
 // Edge Type Registry
 export type {
   EdgeTypeDefinition,
   EdgeTypeSupport,
   EdgeTypeLookupResult,
-} from './EdgeTypeRegistry.js'
+} from './EdgeTypeRegistry.js';
 export {
   EdgeTypeRegistry,
   BUILTIN_EDGE_TYPES,
   getEdgeTypeRegistry,
   createEdgeTypeRegistry,
   resetEdgeTypeRegistry,
-} from './EdgeTypeRegistry.js'
+} from './EdgeTypeRegistry.js';
 
 // Graphology Adapter
 export type {
@@ -80,11 +80,8 @@ export type {
   GraphNodeAttributes,
   GraphEdgeAttributes,
   GraphologyAdapter,
-} from './GraphologyAdapter.js'
-export {
-  GraphologyAdapterImpl,
-  createGraphologyAdapter,
-} from './GraphologyAdapter.js'
+} from './GraphologyAdapter.js';
+export { GraphologyAdapterImpl, createGraphologyAdapter } from './GraphologyAdapter.js';
 
 // Federated Graph
 export type {
@@ -100,11 +97,8 @@ export type {
   ParsedSelector,
   GraphCapabilities,
   FederatedGraph,
-} from './FederatedGraph.js'
-export {
-  FederatedGraphImpl,
-  createFederatedGraph,
-} from './FederatedGraph.js'
+} from './FederatedGraph.js';
+export { FederatedGraphImpl, createFederatedGraph } from './FederatedGraph.js';
 
 // Hydrating Federated Graph
 export type {
@@ -113,12 +107,12 @@ export type {
   FederatedReadyOptions,
   HydratingFederatedGraph,
   HydratingFederatedGraphConfig,
-} from './HydratingFederatedGraph.js'
+} from './HydratingFederatedGraph.js';
 export {
   DEFAULT_CACHE_CONFIG,
   HydratingFederatedGraphImpl,
   createHydratingFederatedGraph,
-} from './HydratingFederatedGraph.js'
+} from './HydratingFederatedGraph.js';
 
 // Coordination (Agent Context and Claims)
 export type {
@@ -131,8 +125,8 @@ export type {
   ClaimOptions,
   ClaimResult,
   ClaimManager,
-} from './coordination.js'
-export { createClaimManager } from './coordination.js'
+} from './coordination.js';
+export { createClaimManager } from './coordination.js';
 
 // History (Audit Trail)
 export type {
@@ -142,10 +136,10 @@ export type {
   OperationLogQueryOptions,
   AgentActivitySummary,
   OperationLogger,
-} from './history.js'
+} from './history.js';
 export {
   createInMemoryOperationLogger,
   createNodeLogEntry,
   createEdgeLogEntry,
   createClaimLogEntry,
-} from './history.js'
+} from './history.js';

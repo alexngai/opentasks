@@ -5,9 +5,9 @@
  * Handles beads:// and bd:// URI schemes.
  */
 
-import { exec as execCallback } from 'child_process'
-import { promisify } from 'util'
-import chokidar, { type FSWatcher } from 'chokidar'
+import { exec as execCallback } from 'child_process';
+import { promisify } from 'util';
+import chokidar, { type FSWatcher } from 'chokidar';
 import type {
   Provider,
   ProviderCapabilities,
@@ -20,33 +20,30 @@ import type {
   UriOptions,
   SearchOptions,
   ProviderError,
-} from './types.js'
-import { ProviderError as ProviderErrorClass } from './types.js'
+} from './types.js';
+import { ProviderError as ProviderErrorClass } from './types.js';
 import type {
   RelationshipQueryable,
   ProviderEdge,
   QueryEdgesOptions,
-} from './traits/RelationshipQueryable.js'
-import {
-  filterEdgesByType,
-  filterEdgesByDirection,
-} from './traits/RelationshipQueryable.js'
-import type { EdgeTypeSupport } from '../graph/EdgeTypeRegistry.js'
+} from './traits/RelationshipQueryable.js';
+import { filterEdgesByType, filterEdgesByDirection } from './traits/RelationshipQueryable.js';
+import type { EdgeTypeSupport } from '../graph/EdgeTypeRegistry.js';
 import type {
   Watchable,
   WatchGranularity,
   WatchChangeCallback,
   ProviderNodeChangeEvent,
   ProviderEdgeChangeEvent,
-} from './traits/Watchable.js'
+} from './traits/Watchable.js';
 import type {
   TaskManageable,
   TaskAction,
   TaskCapabilities,
   ReadyTaskOptions,
-} from './traits/TaskManageable.js'
+} from './traits/TaskManageable.js';
 
-const execAsync = promisify(execCallback)
+const execAsync = promisify(execCallback);
 
 // ============================================================================
 // Types
@@ -57,13 +54,13 @@ const execAsync = promisify(execCallback)
  */
 export interface BeadsConfig {
   /** Path to bd executable (default: 'bd') */
-  executable?: string
+  executable?: string;
 
   /** Working directory for bd commands */
-  cwd?: string
+  cwd?: string;
 
   /** Timeout for CLI commands in ms (default: 30000) */
-  timeout?: number
+  timeout?: number;
 
   /**
    * Extra global flags passed to every bd command invocation.
@@ -72,7 +69,7 @@ export interface BeadsConfig {
    *
    * @example ['--no-db'] or ['--no-daemon', '--sandbox']
    */
-  extraArgs?: string[]
+  extraArgs?: string[];
 
   /**
    * Path to Beads data directory to watch for changes.
@@ -83,30 +80,30 @@ export interface BeadsConfig {
    * Typically points to a `.beads/` directory.
    * If not set, watching is not available for this provider.
    */
-  watchPath?: string
+  watchPath?: string;
 
   /** Debounce delay for file watching in ms (default: 200) */
-  watchDebounceMs?: number
+  watchDebounceMs?: number;
 }
 
 /**
  * Raw Beads issue structure from CLI JSON output
  */
 interface BeadsIssue {
-  id: string
-  title: string
-  description?: string
-  status?: string
-  priority?: number | string
-  tags?: string[]
-  created_at?: string
-  updated_at?: string
+  id: string;
+  title: string;
+  description?: string;
+  status?: string;
+  priority?: number | string;
+  tags?: string[];
+  created_at?: string;
+  updated_at?: string;
 
   // --- Legacy relationship fields (older bd versions) ---
   /** IDs of issues this issue blocks */
-  blocks?: string[]
+  blocks?: string[];
   /** IDs of issues that block this issue */
-  blockedBy?: string[]
+  blockedBy?: string[];
 
   // --- bd v0.49+ relationship fields ---
   /**
@@ -114,19 +111,26 @@ interface BeadsIssue {
    * - `bd list --json`: compact refs `[{issue_id, depends_on_id, type}]`
    * - `bd show --json`: full issue objects `[{id, title, ...}]` (issues this depends on)
    */
-  dependencies?: Array<{ issue_id?: string; depends_on_id?: string; type?: string; id?: string; dependency_type?: string; [k: string]: unknown }>
+  dependencies?: Array<{
+    issue_id?: string;
+    depends_on_id?: string;
+    type?: string;
+    id?: string;
+    dependency_type?: string;
+    [k: string]: unknown;
+  }>;
   /** Issues that depend on this issue (bd show --json) — full issue objects */
-  dependents?: Array<{ id: string; dependency_type?: string; [k: string]: unknown }>
+  dependents?: Array<{ id: string; dependency_type?: string; [k: string]: unknown }>;
   /** Number of dependencies (bd v0.49+ list output) */
-  dependency_count?: number
+  dependency_count?: number;
   /** Number of dependents (bd v0.49+ list output) */
-  dependent_count?: number
+  dependent_count?: number;
 
   /** Parent issue ID */
-  parent?: string
+  parent?: string;
   /** Child issue IDs */
-  children?: string[]
-  [key: string]: unknown
+  children?: string[];
+  [key: string]: unknown;
 }
 
 // ============================================================================
@@ -137,12 +141,12 @@ interface BeadsIssue {
  * Pattern for beads:// or bd:// URIs
  * Format: beads://[workspace/]id or bd://[workspace/]id
  */
-const BEADS_URI_PATTERN = /^(beads|bd):\/\/(?:([^/]+)\/)?(.+)$/i
+const BEADS_URI_PATTERN = /^(beads|bd):\/\/(?:([^/]+)\/)?(.+)$/i;
 
 /**
  * Pattern for Beads issue IDs
  */
-const BEADS_ID_PATTERN = /^bd-[a-z0-9]+$/i
+const BEADS_ID_PATTERN = /^bd-[a-z0-9]+$/i;
 
 // ============================================================================
 // Helper Functions
@@ -152,29 +156,29 @@ const BEADS_ID_PATTERN = /^bd-[a-z0-9]+$/i
  * Map Beads priority to normalized 0-4 scale
  */
 function mapPriority(priority: number | string | undefined): number | undefined {
-  if (priority === undefined) return undefined
+  if (priority === undefined) return undefined;
 
   if (typeof priority === 'number') {
     // Assume already 0-4 scale
-    return Math.max(0, Math.min(4, priority))
+    return Math.max(0, Math.min(4, priority));
   }
 
   // Map string priorities
   switch (priority.toLowerCase()) {
     case 'critical':
     case 'highest':
-      return 0
+      return 0;
     case 'high':
-      return 1
+      return 1;
     case 'medium':
     case 'normal':
-      return 2
+      return 2;
     case 'low':
-      return 3
+      return 3;
     case 'lowest':
-      return 4
+      return 4;
     default:
-      return 2
+      return 2;
   }
 }
 
@@ -184,15 +188,15 @@ function mapPriority(priority: number | string | undefined): number | undefined 
 function validActionsForStatus(status: string): TaskAction[] {
   switch (status) {
     case 'open':
-      return ['start', 'block', 'close']
+      return ['start', 'block', 'close'];
     case 'in_progress':
-      return ['complete', 'block', 'close']
+      return ['complete', 'block', 'close'];
     case 'blocked':
-      return ['reopen', 'close']
+      return ['reopen', 'close'];
     case 'closed':
-      return ['reopen']
+      return ['reopen'];
     default:
-      return ['start', 'complete', 'block', 'reopen', 'close']
+      return ['start', 'complete', 'block', 'reopen', 'close'];
   }
 }
 
@@ -210,7 +214,7 @@ function beadsIssueToProviderNode(issue: BeadsIssue, workspace: string = '.'): P
     priority: mapPriority(issue.priority),
     rawData: issue,
     fetchedAt: new Date().toISOString(),
-  }
+  };
 }
 
 // ============================================================================
@@ -220,13 +224,15 @@ function beadsIssueToProviderNode(issue: BeadsIssue, workspace: string = '.'): P
 /**
  * Create a Beads provider with relationship querying and optional watching support
  */
-export function createBeadsProvider(config: BeadsConfig = {}): Provider & RelationshipQueryable & Partial<Watchable> & TaskManageable {
-  const executable = config.executable ?? 'bd'
-  const cwd = config.cwd
-  const timeout = config.timeout ?? 30000
-  const extraArgs = config.extraArgs ?? []
-  const watchPath = config.watchPath
-  const watchDebounceMs = config.watchDebounceMs ?? 200
+export function createBeadsProvider(
+  config: BeadsConfig = {},
+): Provider & RelationshipQueryable & Partial<Watchable> & TaskManageable {
+  const executable = config.executable ?? 'bd';
+  const cwd = config.cwd;
+  const timeout = config.timeout ?? 30000;
+  const extraArgs = config.extraArgs ?? [];
+  const watchPath = config.watchPath;
+  const watchDebounceMs = config.watchDebounceMs ?? 200;
 
   const capabilities: ProviderCapabilities = {
     read: true,
@@ -235,39 +241,39 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
     watch: !!watchPath,
     mount: true,
     feedback: false,
-  }
+  };
 
   // =========================================================================
   // Watch State (only active when watchPath is configured)
   // =========================================================================
 
   /** Cached content hashes for change diffing: beads issue id → hash of serialized data */
-  const cachedHashes = new Map<string, string>()
+  const cachedHashes = new Map<string, string>();
 
   /** Cached edge signatures for edge change detection: "from:to:type" → true */
-  const cachedEdgeKeys = new Set<string>()
+  const cachedEdgeKeys = new Set<string>();
 
   /** chokidar watcher instance */
-  let fileWatcher: FSWatcher | null = null
+  let fileWatcher: FSWatcher | null = null;
 
   /** Current watch callback */
-  let watchCallback: WatchChangeCallback | null = null
+  let watchCallback: WatchChangeCallback | null = null;
 
   /** Debounce timer for coalescing rapid file changes */
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Simple hash for diffing (not cryptographic — just for detecting changes).
    * Uses the same approach as sync.ts calculateContentHash.
    */
   function quickHash(input: string): string {
-    let hash = 0
+    let hash = 0;
     for (let i = 0; i < input.length; i++) {
-      const char = input.charCodeAt(i)
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash
+      const char = input.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash;
     }
-    return hash.toString(16)
+    return hash.toString(16);
   }
 
   /**
@@ -287,39 +293,39 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
       dependent_count: issue.dependent_count,
       parent: issue.parent,
       children: issue.children ? [...issue.children].sort() : undefined,
-    }
-    return quickHash(JSON.stringify(substantive))
+    };
+    return quickHash(JSON.stringify(substantive));
   }
 
   /**
    * Compute the set of edge keys from an issue's relationship fields
    */
   function issueEdgeKeys(issue: BeadsIssue): Set<string> {
-    const keys = new Set<string>()
+    const keys = new Set<string>();
 
     // Legacy format: blocks/blockedBy string arrays
     if (issue.blocks) {
-      for (const id of issue.blocks) keys.add(`${issue.id}:${id}:blocks`)
+      for (const id of issue.blocks) keys.add(`${issue.id}:${id}:blocks`);
     }
     if (issue.blockedBy) {
-      for (const id of issue.blockedBy) keys.add(`${id}:${issue.id}:blocks`)
+      for (const id of issue.blockedBy) keys.add(`${id}:${issue.id}:blocks`);
     }
 
     // Structured format (bd v0.49+): dependencies array with {issue_id, depends_on_id, type}
     if (issue.dependencies) {
       for (const dep of issue.dependencies) {
         // dep.depends_on_id blocks dep.issue_id
-        keys.add(`${dep.depends_on_id}:${dep.issue_id}:blocks`)
+        keys.add(`${dep.depends_on_id}:${dep.issue_id}:blocks`);
       }
     }
 
     if (issue.parent) {
-      keys.add(`${issue.parent}:${issue.id}:parent-child`)
+      keys.add(`${issue.parent}:${issue.id}:parent-child`);
     }
     if (issue.children) {
-      for (const id of issue.children) keys.add(`${issue.id}:${id}:parent-child`)
+      for (const id of issue.children) keys.add(`${issue.id}:${id}:parent-child`);
     }
-    return keys
+    return keys;
   }
 
   /**
@@ -327,18 +333,18 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
    * Called when file watcher detects a change.
    */
   async function diffAndEmit(): Promise<void> {
-    if (!watchCallback) return
+    if (!watchCallback) return;
 
     try {
-      const output = await execBd(['list', '--json'])
-      const issues = parseJson<BeadsIssue[]>(output)
+      const output = await execBd(['list', '--json']);
+      const issues = parseJson<BeadsIssue[]>(output);
 
-      const currentIds = new Set<string>()
-      const currentEdgeKeys = new Set<string>()
+      const currentIds = new Set<string>();
+      const currentEdgeKeys = new Set<string>();
 
       for (const issue of issues) {
         // Beads uses "tombstone" status for soft-deleted issues — treat as deleted
-        const isTombstone = issue.status === 'tombstone'
+        const isTombstone = issue.status === 'tombstone';
 
         if (isTombstone) {
           // Only emit 'deleted' if we previously knew about this issue
@@ -351,16 +357,16 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
                 uri: `beads://./${issue.id}`,
                 timestamp: new Date().toISOString(),
               },
-            })
-            cachedHashes.delete(issue.id)
+            });
+            cachedHashes.delete(issue.id);
           }
-          continue
+          continue;
         }
 
-        currentIds.add(issue.id)
-        const hash = issueHashKey(issue)
-        const prevHash = cachedHashes.get(issue.id)
-        const providerNode = beadsIssueToProviderNode(issue)
+        currentIds.add(issue.id);
+        const hash = issueHashKey(issue);
+        const prevHash = cachedHashes.get(issue.id);
+        const providerNode = beadsIssueToProviderNode(issue);
 
         if (!prevHash) {
           // New issue
@@ -373,7 +379,7 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
               node: providerNode,
               timestamp: new Date().toISOString(),
             },
-          })
+          });
         } else if (prevHash !== hash) {
           // Changed issue — compute changed fields if possible
           const event: ProviderNodeChangeEvent = {
@@ -382,20 +388,20 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
             uri: providerNode.uri,
             node: providerNode,
             timestamp: new Date().toISOString(),
-          }
+          };
 
           // We can report changed fields by comparing against cached data
           // but we only store hashes, not full data. For field-level we'd
           // need to cache full issue objects. For now, we report the node
           // change without field detail — consumers can diff themselves.
-          watchCallback({ kind: 'node', event })
+          watchCallback({ kind: 'node', event });
         }
 
-        cachedHashes.set(issue.id, hash)
+        cachedHashes.set(issue.id, hash);
 
         // Collect current edges
         for (const key of issueEdgeKeys(issue)) {
-          currentEdgeKeys.add(key)
+          currentEdgeKeys.add(key);
         }
       }
 
@@ -410,8 +416,8 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
               uri: `beads://./${id}`,
               timestamp: new Date().toISOString(),
             },
-          })
-          cachedHashes.delete(id)
+          });
+          cachedHashes.delete(id);
         }
       }
 
@@ -419,36 +425,36 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
       // New edges
       for (const key of currentEdgeKeys) {
         if (!cachedEdgeKeys.has(key)) {
-          const [from, to, type] = key.split(':')
+          const [from, to, type] = key.split(':');
           const event: ProviderEdgeChangeEvent = {
             type: 'created',
             edge: { from, to, type },
             sourceUri: `beads://./${from}`,
             targetUri: `beads://./${to}`,
             timestamp: new Date().toISOString(),
-          }
-          watchCallback({ kind: 'edge', event })
+          };
+          watchCallback({ kind: 'edge', event });
         }
       }
       // Deleted edges
       for (const key of cachedEdgeKeys) {
         if (!currentEdgeKeys.has(key)) {
-          const [from, to, type] = key.split(':')
+          const [from, to, type] = key.split(':');
           const event: ProviderEdgeChangeEvent = {
             type: 'deleted',
             edge: { from, to, type },
             sourceUri: `beads://./${from}`,
             targetUri: `beads://./${to}`,
             timestamp: new Date().toISOString(),
-          }
-          watchCallback({ kind: 'edge', event })
+          };
+          watchCallback({ kind: 'edge', event });
         }
       }
 
       // Update cached edge state
-      cachedEdgeKeys.clear()
+      cachedEdgeKeys.clear();
       for (const key of currentEdgeKeys) {
-        cachedEdgeKeys.add(key)
+        cachedEdgeKeys.add(key);
       }
     } catch {
       // Resilient — log internally but don't crash the watcher
@@ -460,12 +466,12 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
    */
   function onFileChange(): void {
     if (debounceTimer) {
-      clearTimeout(debounceTimer)
+      clearTimeout(debounceTimer);
     }
     debounceTimer = setTimeout(() => {
-      debounceTimer = null
-      void diffAndEmit()
-    }, watchDebounceMs)
+      debounceTimer = null;
+      void diffAndEmit();
+    }, watchDebounceMs);
   }
 
   /**
@@ -474,19 +480,19 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
    */
   async function seedCache(): Promise<void> {
     try {
-      const output = await execBd(['list', '--json'])
-      const issues = parseJson<BeadsIssue[]>(output)
+      const output = await execBd(['list', '--json']);
+      const issues = parseJson<BeadsIssue[]>(output);
 
-      cachedHashes.clear()
-      cachedEdgeKeys.clear()
+      cachedHashes.clear();
+      cachedEdgeKeys.clear();
 
       for (const issue of issues) {
         // Skip tombstoned (deleted) issues when seeding cache
-        if (issue.status === 'tombstone') continue
+        if (issue.status === 'tombstone') continue;
 
-        cachedHashes.set(issue.id, issueHashKey(issue))
+        cachedHashes.set(issue.id, issueHashKey(issue));
         for (const key of issueEdgeKeys(issue)) {
-          cachedEdgeKeys.add(key)
+          cachedEdgeKeys.add(key);
         }
       }
     } catch {
@@ -501,9 +507,9 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
     // If arg contains spaces, quotes, or special shell chars, wrap in single quotes
     // and escape any existing single quotes
     if (/['\s"\\$`!]/.test(arg)) {
-      return `'${arg.replace(/'/g, "'\\''")}'`
+      return `'${arg.replace(/'/g, "'\\''")}'`;
     }
-    return arg
+    return arg;
   }
 
   /**
@@ -512,48 +518,48 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
    * @param context - Optional operational context for per-call overrides (cwd, timeout)
    */
   async function execBd(args: string[], context?: ProviderOperationContext): Promise<string> {
-    const command = [executable, ...extraArgs, ...args.map(shellEscape)].join(' ')
+    const command = [executable, ...extraArgs, ...args.map(shellEscape)].join(' ');
 
     try {
       const { stdout } = await execAsync(command, {
         cwd: context?.cwd ?? cwd,
         timeout: context?.timeout ?? timeout,
         env: { ...process.env },
-      })
-      return stdout.trim()
+      });
+      return stdout.trim();
     } catch (error) {
       const err = error as {
-        code?: string | number
-        message?: string
-        killed?: boolean
-        stdout?: string
-        stderr?: string
-      }
+        code?: string | number;
+        message?: string;
+        killed?: boolean;
+        stdout?: string;
+        stderr?: string;
+      };
 
       if (err.code === 'ENOENT') {
         throw new ProviderErrorClass(
           'PROVIDER_ERROR',
           `Beads CLI not found: ${executable}`,
-          'beads'
-        )
+          'beads',
+        );
       }
 
       if (err.killed) {
-        throw new ProviderErrorClass('TIMEOUT', `Command timed out: ${command}`, 'beads')
+        throw new ProviderErrorClass('TIMEOUT', `Command timed out: ${command}`, 'beads');
       }
 
       // Extract error details from stdout if available (bd returns JSON errors)
-      let errorMessage = err.message ?? 'Unknown error'
+      let errorMessage = err.message ?? 'Unknown error';
       if (err.stdout) {
         try {
-          const parsed = JSON.parse(err.stdout)
+          const parsed = JSON.parse(err.stdout);
           if (parsed.error) {
-            errorMessage = parsed.error
+            errorMessage = parsed.error;
           }
         } catch {
           // Not JSON, use stdout as-is if it has content
           if (err.stdout.trim()) {
-            errorMessage = err.stdout.trim()
+            errorMessage = err.stdout.trim();
           }
         }
       }
@@ -562,8 +568,8 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
         'OPERATION_FAILED',
         `Beads CLI error: ${errorMessage}`,
         'beads',
-        error instanceof Error ? error : undefined
-      )
+        error instanceof Error ? error : undefined,
+      );
     }
   }
 
@@ -572,13 +578,13 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
    */
   function parseJson<T>(output: string): T {
     try {
-      return JSON.parse(output) as T
+      return JSON.parse(output) as T;
     } catch {
       throw new ProviderErrorClass(
         'PROVIDER_ERROR',
         'Failed to parse Beads CLI output as JSON',
-        'beads'
-      )
+        'beads',
+      );
     }
   }
 
@@ -593,17 +599,17 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
 
     parseUri(uri: string): ParsedUri | null {
       // Check for beads:// or bd:// URI
-      const match = uri.match(BEADS_URI_PATTERN)
+      const match = uri.match(BEADS_URI_PATTERN);
       if (match) {
-        const scheme = match[1].toLowerCase()
-        const workspace = match[2] || '.'
-        const id = match[3]
+        const scheme = match[1].toLowerCase();
+        const workspace = match[2] || '.';
+        const id = match[3];
         return {
           scheme,
           workspace,
           id,
           isRelative: workspace === '.',
-        }
+        };
       }
 
       // Check for bare Beads ID
@@ -613,22 +619,22 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
           workspace: '.',
           id: uri,
           isRelative: true,
-        }
+        };
       }
 
-      return null
+      return null;
     },
 
     buildUri(id: string, options?: UriOptions): string {
-      const workspace = options?.workspace ?? '.'
+      const workspace = options?.workspace ?? '.';
       if (options?.relative) {
-        return id
+        return id;
       }
-      return `beads://${workspace}/${id}`
+      return `beads://${workspace}/${id}`;
     },
 
     isValidUri(uri: string): boolean {
-      return this.parseUri(uri) !== null
+      return this.parseUri(uri) !== null;
     },
 
     // =========================================================================
@@ -637,116 +643,126 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
 
     async get(id: string, context?: ProviderOperationContext): Promise<ProviderNode | null> {
       // Parse URI if full URI is passed
-      const parsed = this.parseUri(id)
-      const issueId = parsed?.id ?? id
-      const workspace = parsed?.workspace ?? '.'
+      const parsed = this.parseUri(id);
+      const issueId = parsed?.id ?? id;
+      const workspace = parsed?.workspace ?? '.';
 
       try {
-        const output = await execBd(['show', issueId, '--json'], context)
+        const output = await execBd(['show', issueId, '--json'], context);
         // bd show returns an array, take the first element
-        const issues = parseJson<BeadsIssue[]>(output)
+        const issues = parseJson<BeadsIssue[]>(output);
         if (!issues || issues.length === 0) {
-          return null
+          return null;
         }
         // Treat tombstoned (soft-deleted) issues as not found
         if (issues[0].status === 'tombstone') {
-          return null
+          return null;
         }
-        return beadsIssueToProviderNode(issues[0], workspace)
+        return beadsIssueToProviderNode(issues[0], workspace);
       } catch (error) {
         // Return null for not found, re-throw other errors
         if (error instanceof ProviderErrorClass && error.code === 'OPERATION_FAILED') {
-          const message = error.message.toLowerCase()
+          const message = error.message.toLowerCase();
           if (
             message.includes('not found') ||
             message.includes('does not exist') ||
             message.includes('no issue found matching')
           ) {
-            return null
+            return null;
           }
         }
-        throw error
+        throw error;
       }
     },
 
-    async list(filter?: ProviderFilter, context?: ProviderOperationContext): Promise<ProviderNode[]> {
-      const args = ['list', '--json']
+    async list(
+      filter?: ProviderFilter,
+      context?: ProviderOperationContext,
+    ): Promise<ProviderNode[]> {
+      const args = ['list', '--json'];
 
       // Add filters if supported by bd CLI
       if (filter?.status) {
-        args.push('--status', filter.status)
+        args.push('--status', filter.status);
       }
       if (filter?.limit) {
-        args.push('--limit', String(filter.limit))
+        args.push('--limit', String(filter.limit));
       }
 
-      const output = await execBd(args, context)
-      const issues = parseJson<BeadsIssue[]>(output)
+      const output = await execBd(args, context);
+      const issues = parseJson<BeadsIssue[]>(output);
 
       return issues
         .filter((issue) => issue.status !== 'tombstone')
-        .map((issue) => beadsIssueToProviderNode(issue))
+        .map((issue) => beadsIssueToProviderNode(issue));
     },
 
-    async create(input: ProviderCreateInput, context?: ProviderOperationContext): Promise<ProviderNode> {
-      const args = ['create', input.title]
+    async create(
+      input: ProviderCreateInput,
+      context?: ProviderOperationContext,
+    ): Promise<ProviderNode> {
+      const args = ['create', input.title];
 
       if (input.content) {
-        args.push('--description', input.content)
+        args.push('--description', input.content);
       }
       if (input.status) {
-        args.push('--status', input.status)
+        args.push('--status', input.status);
       }
       if (input.priority !== undefined) {
-        args.push('--priority', String(input.priority))
+        args.push('--priority', String(input.priority));
       }
 
-      args.push('--json')
+      args.push('--json');
 
-      const output = await execBd(args, context)
-      const issue = parseJson<BeadsIssue>(output)
+      const output = await execBd(args, context);
+      const issue = parseJson<BeadsIssue>(output);
 
-      return beadsIssueToProviderNode(issue)
+      return beadsIssueToProviderNode(issue);
     },
 
-    async update(id: string, updates: ProviderUpdateInput, context?: ProviderOperationContext): Promise<ProviderNode> {
+    async update(
+      id: string,
+      updates: ProviderUpdateInput,
+      context?: ProviderOperationContext,
+    ): Promise<ProviderNode> {
       // Parse URI if full URI is passed
-      const parsed = this.parseUri(id)
-      const issueId = parsed?.id ?? id
+      const parsed = this.parseUri(id);
+      const issueId = parsed?.id ?? id;
 
-      const args = ['update', issueId]
+      const args = ['update', issueId];
 
       if (updates.title) {
-        args.push('--title', updates.title)
+        args.push('--title', updates.title);
       }
       if (updates.content) {
-        args.push('--description', updates.content)
+        args.push('--description', updates.content);
       }
       if (updates.status) {
-        args.push('--status', updates.status)
+        args.push('--status', updates.status);
       }
       if (updates.priority !== undefined) {
-        args.push('--priority', String(updates.priority))
+        args.push('--priority', String(updates.priority));
       }
 
-      args.push('--json')
+      args.push('--json');
 
-      const output = await execBd(args, context)
+      const output = await execBd(args, context);
       // bd update returns an array, take the first element
-      const issues = parseJson<BeadsIssue[]>(output)
+      const issues = parseJson<BeadsIssue[]>(output);
       if (!issues || issues.length === 0) {
-        throw new ProviderErrorClass('OPERATION_FAILED', 'Update returned no results', 'beads')
+        throw new ProviderErrorClass('OPERATION_FAILED', 'Update returned no results', 'beads');
       }
 
-      return beadsIssueToProviderNode(issues[0])
+      return beadsIssueToProviderNode(issues[0]);
     },
 
     async delete(id: string, context?: ProviderOperationContext): Promise<void> {
       // Parse URI if full URI is passed
-      const parsed = this.parseUri(id)
-      const issueId = parsed?.id ?? id
+      const parsed = this.parseUri(id);
+      const issueId = parsed?.id ?? id;
 
-      await execBd(['delete', issueId, '--force'], context)
+      await execBd(['delete', issueId, '--force'], context);
     },
 
     // =========================================================================
@@ -754,18 +770,18 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
     // =========================================================================
 
     async search(query: string, options?: SearchOptions): Promise<ProviderNode[]> {
-      const args = ['search', query, '--json']
+      const args = ['search', query, '--json'];
 
       if (options?.limit) {
-        args.push('--limit', String(options.limit))
+        args.push('--limit', String(options.limit));
       }
 
-      const output = await execBd(args)
-      const issues = parseJson<BeadsIssue[]>(output)
+      const output = await execBd(args);
+      const issues = parseJson<BeadsIssue[]>(output);
 
       return issues
         .filter((issue) => issue.status !== 'tombstone')
-        .map((issue) => beadsIssueToProviderNode(issue))
+        .map((issue) => beadsIssueToProviderNode(issue));
     },
 
     // =========================================================================
@@ -774,32 +790,32 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
 
     async queryEdges(nodeId: string, options?: QueryEdgesOptions): Promise<ProviderEdge[]> {
       // Parse URI if full URI is passed
-      const parsed = this.parseUri(nodeId)
-      const issueId = parsed?.id ?? nodeId
+      const parsed = this.parseUri(nodeId);
+      const issueId = parsed?.id ?? nodeId;
 
       try {
-        const output = await execBd(['show', issueId, '--json'])
-        const issues = parseJson<BeadsIssue[]>(output)
+        const output = await execBd(['show', issueId, '--json']);
+        const issues = parseJson<BeadsIssue[]>(output);
         if (!issues || issues.length === 0) {
-          return []
+          return [];
         }
 
-        const issue = issues[0]
+        const issue = issues[0];
         // Tombstoned issues have no meaningful edges
         if (issue.status === 'tombstone') {
-          return []
+          return [];
         }
-        let edges: ProviderEdge[] = []
+        let edges: ProviderEdge[] = [];
 
         // --- Legacy format: blocks/blockedBy string arrays ---
         if (issue.blocks && Array.isArray(issue.blocks)) {
           for (const blockedId of issue.blocks) {
-            edges.push({ from: issueId, to: blockedId, type: 'blocks' })
+            edges.push({ from: issueId, to: blockedId, type: 'blocks' });
           }
         }
         if (issue.blockedBy && Array.isArray(issue.blockedBy)) {
           for (const blockerId of issue.blockedBy) {
-            edges.push({ from: blockerId, to: issueId, type: 'blocks' })
+            edges.push({ from: blockerId, to: issueId, type: 'blocks' });
           }
         }
 
@@ -810,10 +826,10 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
           for (const dep of issue.dependencies) {
             if (dep.id) {
               // Full object format from `bd show` — dep.id is the blocker
-              edges.push({ from: dep.id, to: issueId, type: 'blocks' })
+              edges.push({ from: dep.id, to: issueId, type: 'blocks' });
             } else if (dep.depends_on_id && dep.issue_id) {
               // Compact format from `bd list` — depends_on_id blocks issue_id
-              edges.push({ from: dep.depends_on_id, to: dep.issue_id, type: 'blocks' })
+              edges.push({ from: dep.depends_on_id, to: dep.issue_id, type: 'blocks' });
             }
           }
         }
@@ -822,55 +838,55 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
         if (issue.dependents && Array.isArray(issue.dependents)) {
           for (const dep of issue.dependents) {
             if (dep.id) {
-              edges.push({ from: issueId, to: dep.id, type: 'blocks' })
+              edges.push({ from: issueId, to: dep.id, type: 'blocks' });
             }
           }
         }
 
         // --- Parent/children ---
         if (issue.parent) {
-          edges.push({ from: issue.parent, to: issueId, type: 'parent-child' })
+          edges.push({ from: issue.parent, to: issueId, type: 'parent-child' });
         }
         if (issue.children && Array.isArray(issue.children)) {
           for (const childId of issue.children) {
-            edges.push({ from: issueId, to: childId, type: 'parent-child' })
+            edges.push({ from: issueId, to: childId, type: 'parent-child' });
           }
         }
 
         // Deduplicate edges (multiple formats may report the same relationship)
-        const seen = new Set<string>()
+        const seen = new Set<string>();
         edges = edges.filter((edge) => {
-          const key = `${edge.from}:${edge.to}:${edge.type}`
-          if (seen.has(key)) return false
-          seen.add(key)
-          return true
-        })
+          const key = `${edge.from}:${edge.to}:${edge.type}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
 
         // Apply filters if specified
         if (options?.edgeType) {
-          edges = filterEdgesByType(edges, options.edgeType)
+          edges = filterEdgesByType(edges, options.edgeType);
         }
         if (options?.direction) {
-          edges = filterEdgesByDirection(edges, issueId, options.direction)
+          edges = filterEdgesByDirection(edges, issueId, options.direction);
         }
         if (options?.limit && edges.length > options.limit) {
-          edges = edges.slice(0, options.limit)
+          edges = edges.slice(0, options.limit);
         }
 
-        return edges
+        return edges;
       } catch (error) {
         // Return empty for not found, re-throw other errors
         if (error instanceof ProviderErrorClass && error.code === 'OPERATION_FAILED') {
-          const message = error.message.toLowerCase()
+          const message = error.message.toLowerCase();
           if (
             message.includes('not found') ||
             message.includes('does not exist') ||
             message.includes('no issue found matching')
           ) {
-            return []
+            return [];
           }
         }
-        throw error
+        throw error;
       }
     },
 
@@ -878,7 +894,7 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
       return [
         { type: 'blocks', canQuery: true, canCreate: true, canDelete: true },
         { type: 'parent-child', canQuery: true, canCreate: true, canDelete: true },
-      ]
+      ];
     },
 
     // =========================================================================
@@ -901,19 +917,19 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
 
     startWatching(callback: WatchChangeCallback): void {
       if (!watchPath) {
-        return // Watching not configured — silently no-op
+        return; // Watching not configured — silently no-op
       }
 
       // Replace callback if already watching
-      watchCallback = callback
+      watchCallback = callback;
 
       if (fileWatcher) {
-        return // Already watching, just updated callback
+        return; // Already watching, just updated callback
       }
 
       // Seed cache before starting watcher so we only emit real changes
       void seedCache().then(() => {
-        if (!watchCallback) return // Stopped before seed completed
+        if (!watchCallback) return; // Stopped before seed completed
 
         fileWatcher = chokidar.watch(watchPath, {
           ignoreInitial: true,
@@ -922,34 +938,34 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
             stabilityThreshold: 100,
             pollInterval: 20,
           },
-        })
+        });
 
-        fileWatcher.on('add', onFileChange)
-        fileWatcher.on('change', onFileChange)
-        fileWatcher.on('unlink', onFileChange)
+        fileWatcher.on('add', onFileChange);
+        fileWatcher.on('change', onFileChange);
+        fileWatcher.on('unlink', onFileChange);
 
         fileWatcher.on('error', () => {
           // Resilient — continue watching despite transient errors
-        })
-      })
+        });
+      });
     },
 
     stopWatching(): void {
-      watchCallback = null
+      watchCallback = null;
 
       if (debounceTimer) {
-        clearTimeout(debounceTimer)
-        debounceTimer = null
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
       }
 
       if (fileWatcher) {
-        void fileWatcher.close()
-        fileWatcher = null
+        void fileWatcher.close();
+        fileWatcher = null;
       }
     },
 
     get isWatching(): boolean {
-      return fileWatcher !== null && watchCallback !== null
+      return fileWatcher !== null && watchCallback !== null;
     },
 
     // =========================================================================
@@ -966,7 +982,7 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
     async transitionTask(
       id: string,
       action: TaskAction,
-      context?: ProviderOperationContext
+      context?: ProviderOperationContext,
     ): Promise<ProviderNode> {
       const statusMap: Record<TaskAction, string> = {
         start: 'in_progress',
@@ -974,91 +990,95 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
         block: 'blocked',
         reopen: 'open',
         close: 'closed',
-      }
+      };
 
-      const targetStatus = statusMap[action]
+      const targetStatus = statusMap[action];
       if (!targetStatus) {
         throw new ProviderErrorClass(
           'NOT_SUPPORTED',
           `Unsupported task action: ${action}`,
-          'beads'
-        )
+          'beads',
+        );
       }
 
-      const parsed = this.parseUri(id)
-      const issueId = parsed?.id ?? id
+      const parsed = this.parseUri(id);
+      const issueId = parsed?.id ?? id;
 
       // Validate transition is allowed from current state
-      const current = await this.get(issueId, context)
+      const current = await this.get(issueId, context);
       if (current) {
-        const currentStatus = current.status ?? 'open'
-        const allowed = validActionsForStatus(currentStatus)
+        const currentStatus = current.status ?? 'open';
+        const allowed = validActionsForStatus(currentStatus);
         if (!allowed.includes(action)) {
           throw new ProviderErrorClass(
             'NOT_SUPPORTED',
             `Cannot ${action} an issue in '${currentStatus}' state. Valid actions: ${allowed.join(', ')}`,
-            'beads'
-          )
+            'beads',
+          );
         }
       }
 
-      const output = await execBd(['update', issueId, '--status', targetStatus, '--json'], context)
-      const issues = parseJson<BeadsIssue[]>(output)
+      const output = await execBd(['update', issueId, '--status', targetStatus, '--json'], context);
+      const issues = parseJson<BeadsIssue[]>(output);
       if (!issues || issues.length === 0) {
-        throw new ProviderErrorClass('OPERATION_FAILED', 'Transition returned no results', 'beads')
+        throw new ProviderErrorClass('OPERATION_FAILED', 'Transition returned no results', 'beads');
       }
 
-      return beadsIssueToProviderNode(issues[0])
+      return beadsIssueToProviderNode(issues[0]);
     },
 
     async readyTasks(
       options?: ReadyTaskOptions,
-      context?: ProviderOperationContext
+      context?: ProviderOperationContext,
     ): Promise<ProviderNode[]> {
-      const output = await execBd(['list', '--json'], context)
-      const issues = parseJson<BeadsIssue[]>(output)
+      const output = await execBd(['list', '--json'], context);
+      const issues = parseJson<BeadsIssue[]>(output);
 
-      const readyIssues: ProviderNode[] = []
+      const readyIssues: ProviderNode[] = [];
 
       for (const issue of issues) {
         // Skip tombstoned and non-open issues
-        if (issue.status === 'tombstone' || issue.status !== 'open') continue
+        if (issue.status === 'tombstone' || issue.status !== 'open') continue;
 
         // Apply tag filter
         if (options?.tags) {
-          const issueTags = issue.tags ?? []
-          if (!options.tags.every((t) => issueTags.includes(t))) continue
+          const issueTags = issue.tags ?? [];
+          if (!options.tags.every((t) => issueTags.includes(t))) continue;
         }
 
         // Apply priority filter
         if (options?.priority !== undefined) {
-          const normalized = mapPriority(issue.priority)
-          if (normalized === undefined || normalized > options.priority) continue
+          const normalized = mapPriority(issue.priority);
+          if (normalized === undefined || normalized > options.priority) continue;
         }
 
         // Apply assignee filter
         if (options?.assignee) {
-          if ((issue as Record<string, unknown>).assignee !== options.assignee) continue
+          if ((issue as Record<string, unknown>).assignee !== options.assignee) continue;
         }
 
         // Check for active blockers
-        let hasActiveBlocker = false
+        let hasActiveBlocker = false;
 
         // Legacy format: blockedBy
         if (issue.blockedBy && issue.blockedBy.length > 0) {
           // Need to check if blockers are still active
           for (const blockerId of issue.blockedBy) {
             try {
-              const blockerOutput = await execBd(['show', blockerId, '--json'], context)
-              const blockerIssues = parseJson<BeadsIssue[]>(blockerOutput)
-              if (blockerIssues?.[0] && blockerIssues[0].status !== 'closed' && blockerIssues[0].status !== 'tombstone') {
-                hasActiveBlocker = true
-                break
+              const blockerOutput = await execBd(['show', blockerId, '--json'], context);
+              const blockerIssues = parseJson<BeadsIssue[]>(blockerOutput);
+              if (
+                blockerIssues?.[0] &&
+                blockerIssues[0].status !== 'closed' &&
+                blockerIssues[0].status !== 'tombstone'
+              ) {
+                hasActiveBlocker = true;
+                break;
               }
             } catch {
               // If we can't resolve the blocker, assume it's active
-              hasActiveBlocker = true
-              break
+              hasActiveBlocker = true;
+              break;
             }
           }
         }
@@ -1066,69 +1086,70 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
         // Structured format (bd v0.49+): dependencies
         if (!hasActiveBlocker && issue.dependencies && issue.dependencies.length > 0) {
           for (const dep of issue.dependencies) {
-            const depId = dep.id ?? dep.depends_on_id
-            if (!depId) continue
+            const depId = dep.id ?? dep.depends_on_id;
+            if (!depId) continue;
             try {
-              const depOutput = await execBd(['show', depId, '--json'], context)
-              const depIssues = parseJson<BeadsIssue[]>(depOutput)
-              if (depIssues?.[0] && depIssues[0].status !== 'closed' && depIssues[0].status !== 'tombstone') {
-                hasActiveBlocker = true
-                break
+              const depOutput = await execBd(['show', depId, '--json'], context);
+              const depIssues = parseJson<BeadsIssue[]>(depOutput);
+              if (
+                depIssues?.[0] &&
+                depIssues[0].status !== 'closed' &&
+                depIssues[0].status !== 'tombstone'
+              ) {
+                hasActiveBlocker = true;
+                break;
               }
             } catch {
-              hasActiveBlocker = true
-              break
+              hasActiveBlocker = true;
+              break;
             }
           }
         }
 
         if (!hasActiveBlocker) {
-          readyIssues.push(beadsIssueToProviderNode(issue))
+          readyIssues.push(beadsIssueToProviderNode(issue));
         }
       }
 
       // Sort by priority (lower number = higher priority)
       readyIssues.sort((a, b) => {
-        const aPriority = a.priority ?? Infinity
-        const bPriority = b.priority ?? Infinity
-        return aPriority - bPriority
-      })
+        const aPriority = a.priority ?? Infinity;
+        const bPriority = b.priority ?? Infinity;
+        return aPriority - bPriority;
+      });
 
       // Apply limit
       if (options?.limit && readyIssues.length > options.limit) {
-        return readyIssues.slice(0, options.limit)
+        return readyIssues.slice(0, options.limit);
       }
 
-      return readyIssues
+      return readyIssues;
     },
 
     async assignTask(
       id: string,
       assignee: string,
-      context?: ProviderOperationContext
+      context?: ProviderOperationContext,
     ): Promise<ProviderNode> {
-      const parsed = this.parseUri(id)
-      const issueId = parsed?.id ?? id
+      const parsed = this.parseUri(id);
+      const issueId = parsed?.id ?? id;
 
-      const output = await execBd(['update', issueId, '--assignee', assignee, '--json'], context)
-      const issues = parseJson<BeadsIssue[]>(output)
+      const output = await execBd(['update', issueId, '--assignee', assignee, '--json'], context);
+      const issues = parseJson<BeadsIssue[]>(output);
       if (!issues || issues.length === 0) {
-        throw new ProviderErrorClass('OPERATION_FAILED', 'Assign returned no results', 'beads')
+        throw new ProviderErrorClass('OPERATION_FAILED', 'Assign returned no results', 'beads');
       }
 
-      return beadsIssueToProviderNode(issues[0])
+      return beadsIssueToProviderNode(issues[0]);
     },
 
-    async validActions(
-      id: string,
-      context?: ProviderOperationContext
-    ): Promise<TaskAction[]> {
-      const node = await this.get(id, context)
+    async validActions(id: string, context?: ProviderOperationContext): Promise<TaskAction[]> {
+      const node = await this.get(id, context);
       if (!node) {
-        throw new ProviderErrorClass('NOT_FOUND', `Issue not found: ${id}`, 'beads')
+        throw new ProviderErrorClass('NOT_FOUND', `Issue not found: ${id}`, 'beads');
       }
 
-      return validActionsForStatus(node.status ?? 'open')
+      return validActionsForStatus(node.status ?? 'open');
     },
-  }
+  };
 }

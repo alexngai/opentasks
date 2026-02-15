@@ -1,15 +1,15 @@
 /**
  * Environment variable parser for config
  */
-import type { PartialOpenTasksConfig, LoggingLevel } from './schema.js'
+import type { PartialOpenTasksConfig, LoggingLevel } from './schema.js';
 
 /**
  * Mapping of environment variable names to config paths and types
  */
 interface EnvMapping {
-  envVar: string
-  path: string[]
-  type: 'string' | 'number' | 'boolean' | 'nullable-string'
+  envVar: string;
+  path: string[];
+  type: 'string' | 'number' | 'boolean' | 'nullable-string';
 }
 
 const ENV_MAPPINGS: EnvMapping[] = [
@@ -58,25 +58,25 @@ const ENV_MAPPINGS: EnvMapping[] = [
   // Logging
   { envVar: 'OPENTASKS_LOGGING_LEVEL', path: ['logging', 'level'], type: 'string' },
   { envVar: 'OPENTASKS_LOGGING_FILE', path: ['logging', 'file'], type: 'nullable-string' },
-]
+];
 
 /**
  * Parse a boolean value from an environment variable
  */
 function parseBoolean(value: string): boolean {
-  const lower = value.toLowerCase()
-  return lower === 'true' || lower === '1'
+  const lower = value.toLowerCase();
+  return lower === 'true' || lower === '1';
 }
 
 /**
  * Parse a number value from an environment variable
  */
 function parseNumber(value: string): number {
-  const num = parseFloat(value)
+  const num = parseFloat(value);
   if (isNaN(num)) {
-    throw new Error(`Invalid number: ${value}`)
+    throw new Error(`Invalid number: ${value}`);
   }
-  return num
+  return num;
 }
 
 /**
@@ -84,73 +84,75 @@ function parseNumber(value: string): number {
  */
 function parseNullableString(value: string): string | null {
   if (value === '' || value.toLowerCase() === 'null') {
-    return null
+    return null;
   }
-  return value
+  return value;
 }
 
 /**
  * Set a nested value in an object
  */
 function setNestedValue(obj: Record<string, unknown>, path: string[], value: unknown): void {
-  let current = obj
+  let current = obj;
   for (let i = 0; i < path.length - 1; i++) {
-    const key = path[i]
+    const key = path[i];
     if (!(key in current)) {
-      current[key] = {}
+      current[key] = {};
     }
-    current = current[key] as Record<string, unknown>
+    current = current[key] as Record<string, unknown>;
   }
-  current[path[path.length - 1]] = value
+  current[path[path.length - 1]] = value;
 }
 
 /**
  * Parse environment variables into a partial config object
  * @param env - Environment variables (defaults to process.env)
  */
-export function parseEnvConfig(env: Record<string, string | undefined> = process.env): PartialOpenTasksConfig {
-  const config: Record<string, unknown> = {}
+export function parseEnvConfig(
+  env: Record<string, string | undefined> = process.env,
+): PartialOpenTasksConfig {
+  const config: Record<string, unknown> = {};
 
   for (const mapping of ENV_MAPPINGS) {
-    const value = env[mapping.envVar]
+    const value = env[mapping.envVar];
     if (value === undefined) {
-      continue
+      continue;
     }
 
     try {
-      let parsedValue: unknown
+      let parsedValue: unknown;
       switch (mapping.type) {
         case 'string':
-          parsedValue = value
-          break
+          parsedValue = value;
+          break;
         case 'number':
-          parsedValue = parseNumber(value)
-          break
+          parsedValue = parseNumber(value);
+          break;
         case 'boolean':
-          parsedValue = parseBoolean(value)
-          break
+          parsedValue = parseBoolean(value);
+          break;
         case 'nullable-string':
-          parsedValue = parseNullableString(value)
-          break
+          parsedValue = parseNullableString(value);
+          break;
       }
-      setNestedValue(config, mapping.path, parsedValue)
+      setNestedValue(config, mapping.path, parsedValue);
     } catch {
       // Skip invalid values silently
-      continue
+      continue;
     }
   }
 
-  return config as PartialOpenTasksConfig
+  return config as PartialOpenTasksConfig;
 }
 
 /**
  * Valid logging levels for type checking
  */
-const VALID_LOGGING_LEVELS: LoggingLevel[] = ['debug', 'info', 'warn', 'error']
+const VALID_LOGGING_LEVELS: LoggingLevel[] = ['debug', 'info', 'warn', 'error'];
 
 /**
  * Check if a value is a valid logging level
  */
 export function isValidLoggingLevel(value: string): value is LoggingLevel {
-  return VALID_LOGGING_LEVELS.includes(value as LoggingLevel)
+  return VALID_LOGGING_LEVELS.includes(value as LoggingLevel);
 }

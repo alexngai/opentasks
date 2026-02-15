@@ -2,8 +2,8 @@
  * Type guards and validation for OpenTasks nodes
  */
 
-import type { Context, Task, Feedback, ExternalNode, Node } from './nodes.js'
-import type { StoredNode } from './storage.js'
+import type { Context, Task, Feedback, ExternalNode, Node } from './nodes.js';
+import type { StoredNode } from './storage.js';
 
 /**
  * Validation error with details
@@ -12,10 +12,10 @@ export class ValidationError extends Error {
   constructor(
     message: string,
     public readonly field: string,
-    public readonly code: string
+    public readonly code: string,
   ) {
-    super(message)
-    this.name = 'ValidationError'
+    super(message);
+    this.name = 'ValidationError';
   }
 }
 
@@ -23,12 +23,12 @@ export class ValidationError extends Error {
  * Validation result
  */
 export interface ValidationResult {
-  valid: boolean
+  valid: boolean;
   errors: Array<{
-    field: string
-    message: string
-    code: string
-  }>
+    field: string;
+    message: string;
+    code: string;
+  }>;
 }
 
 // === Type Guards ===
@@ -37,28 +37,28 @@ export interface ValidationResult {
  * Check if node is a Context
  */
 export function isContext(node: Node): node is Context {
-  return node.type === 'context'
+  return node.type === 'context';
 }
 
 /**
  * Check if node is a Task
  */
 export function isTask(node: Node): node is Task {
-  return node.type === 'task'
+  return node.type === 'task';
 }
 
 /**
  * Check if node is Feedback
  */
 export function isFeedback(node: Node): node is Feedback {
-  return node.type === 'feedback'
+  return node.type === 'feedback';
 }
 
 /**
  * Check if node is an ExternalNode
  */
 export function isExternal(node: Node): node is ExternalNode {
-  return node.type === 'external'
+  return node.type === 'external';
 }
 
 // === Validation ===
@@ -68,26 +68,26 @@ export function isExternal(node: Node): node is ExternalNode {
  * Returns validation result with all errors
  */
 export function validateStoredNode(stored: StoredNode): ValidationResult {
-  const errors: ValidationResult['errors'] = []
+  const errors: ValidationResult['errors'] = [];
 
   // Core validation (all types)
   if (!stored.id) {
-    errors.push({ field: 'id', message: 'Required', code: 'REQUIRED' })
+    errors.push({ field: 'id', message: 'Required', code: 'REQUIRED' });
   }
   if (!stored.uuid) {
-    errors.push({ field: 'uuid', message: 'Required', code: 'REQUIRED' })
+    errors.push({ field: 'uuid', message: 'Required', code: 'REQUIRED' });
   }
   if (!stored.type) {
-    errors.push({ field: 'type', message: 'Required', code: 'REQUIRED' })
+    errors.push({ field: 'type', message: 'Required', code: 'REQUIRED' });
   }
   if (!stored.title) {
-    errors.push({ field: 'title', message: 'Required', code: 'REQUIRED' })
+    errors.push({ field: 'title', message: 'Required', code: 'REQUIRED' });
   }
   if (!stored.created_at) {
-    errors.push({ field: 'created_at', message: 'Required', code: 'REQUIRED' })
+    errors.push({ field: 'created_at', message: 'Required', code: 'REQUIRED' });
   }
   if (!stored.updated_at) {
-    errors.push({ field: 'updated_at', message: 'Required', code: 'REQUIRED' })
+    errors.push({ field: 'updated_at', message: 'Required', code: 'REQUIRED' });
   }
 
   // Type-specific validation
@@ -98,9 +98,9 @@ export function validateStoredNode(stored: StoredNode): ValidationResult {
           field: 'status',
           message: 'Required for tasks',
           code: 'REQUIRED',
-        })
+        });
       }
-      break
+      break;
 
     case 'feedback':
       if (!stored.target_id) {
@@ -108,16 +108,16 @@ export function validateStoredNode(stored: StoredNode): ValidationResult {
           field: 'target_id',
           message: 'Required for feedback',
           code: 'REQUIRED',
-        })
+        });
       }
       if (!stored.feedback_type) {
         errors.push({
           field: 'feedback_type',
           message: 'Required for feedback',
           code: 'REQUIRED',
-        })
+        });
       }
-      break
+      break;
 
     case 'external':
       if (!stored.uri) {
@@ -125,34 +125,34 @@ export function validateStoredNode(stored: StoredNode): ValidationResult {
           field: 'uri',
           message: 'Required for external nodes',
           code: 'REQUIRED',
-        })
+        });
       }
       if (!stored.source) {
         errors.push({
           field: 'source',
           message: 'Required for external nodes',
           code: 'REQUIRED',
-        })
+        });
       }
       if (stored.materialized === undefined) {
         errors.push({
           field: 'materialized',
           message: 'Required for external nodes',
           code: 'REQUIRED',
-        })
+        });
       }
-      break
+      break;
 
     case 'context':
       // No additional required fields
-      break
+      break;
 
     default:
       // Unknown type — allow but could warn
-      break
+      break;
   }
 
-  return { valid: errors.length === 0, errors }
+  return { valid: errors.length === 0, errors };
 }
 
 /**
@@ -160,31 +160,31 @@ export function validateStoredNode(stored: StoredNode): ValidationResult {
  * Throws ValidationError if node is invalid
  */
 export function parseNode(stored: StoredNode): Node {
-  const result = validateStoredNode(stored)
+  const result = validateStoredNode(stored);
 
   if (!result.valid) {
-    const firstError = result.errors[0]
+    const firstError = result.errors[0];
     throw new ValidationError(
       `Invalid node: ${firstError.message} (${firstError.field})`,
       firstError.field,
-      firstError.code
-    )
+      firstError.code,
+    );
   }
 
   // Return as the appropriate type
   // The stored node already has all fields, we just cast based on type
   switch (stored.type) {
     case 'context':
-      return stored as unknown as Context
+      return stored as unknown as Context;
     case 'task':
-      return stored as unknown as Task
+      return stored as unknown as Task;
     case 'feedback':
-      return stored as unknown as Feedback
+      return stored as unknown as Feedback;
     case 'external':
-      return stored as unknown as ExternalNode
+      return stored as unknown as ExternalNode;
     default:
       // For unknown types, treat as Context (most permissive)
-      return { ...stored, type: 'context' } as Context
+      return { ...stored, type: 'context' } as Context;
   }
 }
 
@@ -193,9 +193,9 @@ export function parseNode(stored: StoredNode): Node {
  */
 export function tryParseNode(stored: StoredNode): Node | null {
   try {
-    return parseNode(stored)
+    return parseNode(stored);
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -203,7 +203,7 @@ export function tryParseNode(stored: StoredNode): Node | null {
  * Check if a stored node has a known type
  */
 export function hasKnownType(
-  stored: StoredNode
+  stored: StoredNode,
 ): stored is StoredNode & { type: 'context' | 'task' | 'feedback' | 'external' } {
-  return ['context', 'task', 'feedback', 'external'].includes(stored.type)
+  return ['context', 'task', 'feedback', 'external'].includes(stored.type);
 }

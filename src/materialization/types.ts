@@ -14,29 +14,29 @@
  */
 export interface SnapshotProvenance {
   /** Configured graph ID (namespace in archive) */
-  graphId: string
+  graphId: string;
 
   /** Absolute path to .opentasks/ directory at archive time */
-  graphPath: string
+  graphPath: string;
 
   /** Git remote URL (if available) */
-  gitRemote?: string
+  gitRemote?: string;
 
   /** Git branch the session operated on */
-  gitBranch?: string
+  gitBranch?: string;
 
   /** Git commit SHA at archive time */
-  gitHead?: string
+  gitHead?: string;
 }
 
 /**
  * Edge snapshot — portable URI-based edge representation
  */
 export interface EdgeSnapshot {
-  fromUri: string
-  toUri: string
-  edgeType: string
-  metadata?: Record<string, unknown>
+  fromUri: string;
+  toUri: string;
+  edgeType: string;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -45,61 +45,61 @@ export interface EdgeSnapshot {
  */
 export interface MaterializationSnapshot {
   /** Schema version for forward compatibility */
-  version: 1
+  version: 1;
 
   /** Canonical URI of the archived entity */
-  uri: string
+  uri: string;
 
   /** Provider source */
-  source: string
+  source: string;
 
   /** Entity type within the source */
-  entityType: string
+  entityType: string;
 
   /** When the original entity was created */
-  createdAt: string
+  createdAt: string;
 
   /** When this snapshot was captured */
-  archivedAt: string
+  archivedAt: string;
 
   /** Complete node data for reconstruction */
   node: {
-    title: string
-    content?: string
-    status?: string
-    external_status?: string
-    external_data: Record<string, unknown>
-    tags?: string[]
-  }
+    title: string;
+    content?: string;
+    status?: string;
+    external_status?: string;
+    external_data: Record<string, unknown>;
+    tags?: string[];
+  };
 
   /** Provenance — where this data came from */
-  provenance: SnapshotProvenance
+  provenance: SnapshotProvenance;
 }
 
 /**
  * Session snapshot — extends base with relationships and checkpoints
  */
 export interface SessionSnapshot extends MaterializationSnapshot {
-  entityType: 'session'
+  entityType: 'session';
 
   /** Related edges at archive time */
-  edges: EdgeSnapshot[]
+  edges: EdgeSnapshot[];
 
   /** Checkpoint IDs that belong to this session */
-  checkpointIds: string[]
+  checkpointIds: string[];
 }
 
 /**
  * Checkpoint snapshot — extends base with code commit correlation
  */
 export interface CheckpointSnapshot extends MaterializationSnapshot {
-  entityType: 'checkpoint'
+  entityType: 'checkpoint';
 
   /** The code commit this checkpoint corresponds to */
-  codeCommit?: string
+  codeCommit?: string;
 
   /** The session this checkpoint belongs to */
-  sessionUri: string
+  sessionUri: string;
 }
 
 // ============================================================================
@@ -111,20 +111,20 @@ export interface CheckpointSnapshot extends MaterializationSnapshot {
  */
 export interface ArchivePolicy {
   /** Archive when a session starts (default: false) */
-  archiveOnStart: boolean
+  archiveOnStart: boolean;
 
   /** Archive on each checkpoint (default: true when eager) */
-  archiveOnCheckpoint: boolean
+  archiveOnCheckpoint: boolean;
 
   /** Archive when a session ends (default: true) */
-  archiveOnEnd: boolean
+  archiveOnEnd: boolean;
 
   /**
    * Full materialization before archiving.
    * When true, captures all available data from external_data.
    * When false, archives only what's already in the graph node.
    */
-  materializeBeforeArchive: boolean
+  materializeBeforeArchive: boolean;
 }
 
 export const DEFAULT_ARCHIVE_POLICY: ArchivePolicy = {
@@ -132,7 +132,7 @@ export const DEFAULT_ARCHIVE_POLICY: ArchivePolicy = {
   archiveOnCheckpoint: true,
   archiveOnEnd: true,
   materializeBeforeArchive: true,
-}
+};
 
 // ============================================================================
 // Git Archive Store Types
@@ -143,28 +143,28 @@ export const DEFAULT_ARCHIVE_POLICY: ArchivePolicy = {
  */
 export interface GitArchiveStoreConfig {
   /** Branch name for archive commits (default: 'opentasks/archive') */
-  branch: string
+  branch: string;
 
   /** Git remote name to push to (default: none — local only) */
-  remote?: string
+  remote?: string;
 
   /**
    * Path to a separate git repo for the archive.
    * If not set, uses the source repo's git dir.
    */
-  repoPath?: string
+  repoPath?: string;
 
   /** When to push to remote */
-  pushPolicy: 'immediate' | 'on-session-end' | 'manual'
+  pushPolicy: 'immediate' | 'on-session-end' | 'manual';
 
   /** Path to the source repo's .opentasks directory */
-  sourceRepoPath: string
+  sourceRepoPath: string;
 }
 
 export const DEFAULT_GIT_ARCHIVE_CONFIG: Omit<GitArchiveStoreConfig, 'sourceRepoPath'> = {
   branch: 'opentasks/archive',
   pushPolicy: 'on-session-end',
-}
+};
 
 // ============================================================================
 // Store Interfaces
@@ -174,52 +174,52 @@ export const DEFAULT_GIT_ARCHIVE_CONFIG: Omit<GitArchiveStoreConfig, 'sourceRepo
  * Result of archiving a snapshot
  */
 export interface ArchiveResult {
-  stored: boolean
-  uri: string
-  error?: string
+  stored: boolean;
+  uri: string;
+  error?: string;
 }
 
 /**
  * Result of archiving multiple snapshots
  */
 export interface BatchArchiveResult {
-  results: ArchiveResult[]
-  successCount: number
-  failureCount: number
+  results: ArchiveResult[];
+  successCount: number;
+  failureCount: number;
 }
 
 /**
  * Filter for listing/querying archived snapshots
  */
 export interface ArchiveFilter {
-  source?: string
-  graphId?: string
-  entityType?: string
-  archivedAfter?: string
-  archivedBefore?: string
-  uriPattern?: string
+  source?: string;
+  graphId?: string;
+  entityType?: string;
+  archivedAfter?: string;
+  archivedBefore?: string;
+  uriPattern?: string;
 }
 
 /**
  * Entry in an archive listing
  */
 export interface ArchiveListEntry {
-  uri: string
-  entityType: string
-  graphId: string
-  archivedAt: string
-  title?: string
-  status?: string
+  uri: string;
+  entityType: string;
+  graphId: string;
+  archivedAt: string;
+  title?: string;
+  status?: string;
 }
 
 /**
  * Health status of a store
  */
 export interface StoreStatus {
-  healthy: boolean
-  message?: string
-  lastArchiveAt?: string
-  lastError?: string
+  healthy: boolean;
+  message?: string;
+  lastArchiveAt?: string;
+  lastError?: string;
 }
 
 /**
@@ -228,34 +228,34 @@ export interface StoreStatus {
  */
 export interface MaterializationStore {
   /** Store identifier */
-  readonly name: string
+  readonly name: string;
 
   /** Store type */
-  readonly type: string
+  readonly type: string;
 
   /** Whether this store is currently enabled */
-  readonly enabled: boolean
+  readonly enabled: boolean;
 
   /** Archive a single snapshot */
-  archive(snapshot: MaterializationSnapshot): Promise<ArchiveResult>
+  archive(snapshot: MaterializationSnapshot): Promise<ArchiveResult>;
 
   /** Archive multiple snapshots */
-  archiveBatch(snapshots: MaterializationSnapshot[]): Promise<BatchArchiveResult>
+  archiveBatch(snapshots: MaterializationSnapshot[]): Promise<BatchArchiveResult>;
 
   /** Retrieve a snapshot by URI */
-  retrieve(uri: string): Promise<MaterializationSnapshot | null>
+  retrieve(uri: string): Promise<MaterializationSnapshot | null>;
 
   /** List available snapshots */
-  list(filter?: ArchiveFilter): Promise<ArchiveListEntry[]>
+  list(filter?: ArchiveFilter): Promise<ArchiveListEntry[]>;
 
   /** Initialize the store */
-  initialize(): Promise<void>
+  initialize(): Promise<void>;
 
   /** Gracefully shut down */
-  close(): Promise<void>
+  close(): Promise<void>;
 
   /** Health check */
-  status(): Promise<StoreStatus>
+  status(): Promise<StoreStatus>;
 }
 
 /**
@@ -263,20 +263,28 @@ export interface MaterializationStore {
  */
 export interface GitArchiveStoreExtended extends MaterializationStore {
   /** Find a checkpoint by its associated code commit SHA */
-  findByCodeCommit(commitSha: string): Promise<CheckpointSnapshot | null>
+  findByCodeCommit(commitSha: string): Promise<CheckpointSnapshot | null>;
 
   /** Get the session state at a specific checkpoint */
-  getSessionAt(sessionId: string, options: { afterCheckpoint: string }): Promise<SessionSnapshot | null>
+  getSessionAt(
+    sessionId: string,
+    options: { afterCheckpoint: string },
+  ): Promise<SessionSnapshot | null>;
 
   /** List all graphId namespaces in the archive */
-  listGraphs(): Promise<string[]>
+  listGraphs(): Promise<string[]>;
 
   /** Get the git log for a specific session's archive history */
-  getSessionHistory(sessionId: string, graphId: string): Promise<Array<{
-    commitSha: string
-    message: string
-    timestamp: string
-  }>>
+  getSessionHistory(
+    sessionId: string,
+    graphId: string,
+  ): Promise<
+    Array<{
+      commitSha: string;
+      message: string;
+      timestamp: string;
+    }>
+  >;
 }
 
 // ============================================================================
@@ -287,11 +295,11 @@ export interface GitArchiveStoreExtended extends MaterializationStore {
  * Remote store configuration (from config file)
  */
 export interface RemoteStoreConfig {
-  type: string
-  name: string
-  enabled: boolean
-  config: Record<string, unknown>
-  events: string[]
+  type: string;
+  name: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  events: string[];
 }
 
 /**
@@ -300,7 +308,7 @@ export interface RemoteStoreConfig {
  */
 export interface RemoteStore extends MaterializationStore {
   /** Which events this store should receive */
-  readonly events: string[]
+  readonly events: string[];
 }
 
 // ============================================================================
@@ -311,22 +319,22 @@ export interface RemoteStore extends MaterializationStore {
  * Result of an archive event (fan-out across all stores)
  */
 export interface ArchiveEventResult {
-  uri: string
+  uri: string;
   stores: Array<{
-    storeName: string
-    stored: boolean
-    error?: string
-  }>
+    storeName: string;
+    stored: boolean;
+    error?: string;
+  }>;
 }
 
 /**
  * Result of bulk rematerialization
  */
 export interface RematerializeAllResult {
-  restored: number
-  failed: number
-  skipped: number
-  errors: Array<{ uri: string; error: string }>
+  restored: number;
+  failed: number;
+  skipped: number;
+  errors: Array<{ uri: string; error: string }>;
 }
 
 /**
@@ -338,37 +346,32 @@ export interface MaterializationArchiver {
   onSessionEvent(
     eventType: string,
     sessionUri: string,
-    store: import('../graph/store.js').GraphStore
-  ): Promise<ArchiveEventResult>
+    store: import('../graph/store.js').GraphStore,
+  ): Promise<ArchiveEventResult>;
 
   /** Manually archive a specific node by URI */
   archiveNode(
     uri: string,
-    store: import('../graph/store.js').GraphStore
-  ): Promise<ArchiveEventResult>
+    store: import('../graph/store.js').GraphStore,
+  ): Promise<ArchiveEventResult>;
 
   /** Rematerialize a node from the archive into the graph */
-  rematerialize(
-    uri: string,
-    store: import('../graph/store.js').GraphStore
-  ): Promise<boolean>
+  rematerialize(uri: string, store: import('../graph/store.js').GraphStore): Promise<boolean>;
 
   /** Rematerialize all missing nodes */
-  rematerializeAll(
-    store: import('../graph/store.js').GraphStore
-  ): Promise<RematerializeAllResult>
+  rematerializeAll(store: import('../graph/store.js').GraphStore): Promise<RematerializeAllResult>;
 
   /** List all archived sessions */
-  listArchived(filter?: ArchiveFilter): Promise<ArchiveListEntry[]>
+  listArchived(filter?: ArchiveFilter): Promise<ArchiveListEntry[]>;
 
   /** Set the materialization provider (for materializeBeforeArchive) */
-  setMaterializationProvider(provider: MaterializationProvider): void
+  setMaterializationProvider(provider: MaterializationProvider): void;
 
   /** Initialize all stores */
-  initialize(): Promise<void>
+  initialize(): Promise<void>;
 
   /** Shut down all stores */
-  close(): Promise<void>
+  close(): Promise<void>;
 }
 
 /**
@@ -376,7 +379,7 @@ export interface MaterializationArchiver {
  * Matches the materializeNode method on ProviderAwareStore.
  */
 export interface MaterializationProvider {
-  materializeNode(uri: string): Promise<import('../schema/nodes.js').ExternalNode>
+  materializeNode(uri: string): Promise<import('../schema/nodes.js').ExternalNode>;
 }
 
 /**
@@ -384,24 +387,24 @@ export interface MaterializationProvider {
  */
 export interface MaterializationArchiverConfig {
   /** The git archive store (primary, always present when archival is enabled) */
-  gitStore: MaterializationStore
+  gitStore: MaterializationStore;
 
   /** Additional remote stores */
-  remoteStores: RemoteStore[]
+  remoteStores: RemoteStore[];
 
   /** Archive policy */
-  policy: ArchivePolicy
+  policy: ArchivePolicy;
 
   /** Graph ID for namespacing */
-  graphId: string
+  graphId: string;
 
   /** Path to .opentasks/ directory */
-  graphPath: string
+  graphPath: string;
 
   /**
    * Optional materialization provider for materializeBeforeArchive.
    * When set and policy.materializeBeforeArchive is true, the archiver
    * will fetch fresh data from the provider before building snapshots.
    */
-  materializationProvider?: MaterializationProvider
+  materializationProvider?: MaterializationProvider;
 }

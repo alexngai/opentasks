@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS nodes (
 
   FOREIGN KEY (parent_id) REFERENCES nodes(id)
 )
-`
+`;
 
 /**
  * Create tags join table
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS node_tags (
   PRIMARY KEY (node_id, tag),
   FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
 )
-`
+`;
 
 /**
  * Create edges table
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS edges (
   metadata TEXT,
   cached_at TEXT
 )
-`
+`;
 
 /**
  * Create dirty tracking table
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS dirty_nodes (
   node_id TEXT PRIMARY KEY,
   marked_at TEXT NOT NULL
 )
-`
+`;
 
 /**
  * Create export hashes table
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS export_hashes (
   node_id TEXT PRIMARY KEY,
   content_hash TEXT NOT NULL
 )
-`
+`;
 
 /**
  * Create indexes
@@ -114,7 +114,7 @@ export const CREATE_INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(type)',
   'CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source)',
   'CREATE INDEX IF NOT EXISTS idx_edges_cached_at ON edges(cached_at)',
-]
+];
 
 /**
  * Create ready_tasks view
@@ -134,7 +134,7 @@ WHERE n.type = 'task'
       AND blocker.status != 'closed'
       AND blocker.archived = 0
   )
-`
+`;
 
 /**
  * Migration statements for existing databases
@@ -144,7 +144,7 @@ export const MIGRATIONS = [
   // Add metadata and cached_at columns to edges table (v1.1.0)
   `ALTER TABLE edges ADD COLUMN metadata TEXT`,
   `ALTER TABLE edges ADD COLUMN cached_at TEXT`,
-]
+];
 
 /**
  * Apply migrations safely (ignores "duplicate column" errors)
@@ -152,12 +152,12 @@ export const MIGRATIONS = [
 export function applyMigrations(db: { exec: (sql: string) => void }): void {
   for (const migration of MIGRATIONS) {
     try {
-      db.exec(migration)
+      db.exec(migration);
     } catch (error) {
       // Ignore "duplicate column name" errors (migration already applied)
-      const message = error instanceof Error ? error.message : String(error)
+      const message = error instanceof Error ? error.message : String(error);
       if (!message.includes('duplicate column name')) {
-        throw error
+        throw error;
       }
     }
   }
@@ -174,4 +174,4 @@ export const ALL_SCHEMA = [
   CREATE_EXPORT_HASHES_TABLE,
   ...CREATE_INDEXES,
   CREATE_READY_VIEW,
-]
+];

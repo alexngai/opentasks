@@ -15,10 +15,10 @@ export {
   inferTypeFromId,
   type IdNodeType,
   type GeneratedId,
-} from './id.js'
+} from './id.js';
 
 // Content hashing
-export { sha256, computeContentHash, contentEqual } from './hash.js'
+export { sha256, computeContentHash, contentEqual } from './hash.js';
 
 // Location identity (Phase 2)
 export {
@@ -29,7 +29,7 @@ export {
   getGitRoot,
   isValidLocationHash,
   type LocationIdentity,
-} from './location.js'
+} from './location.js';
 
 // URI scheme (Phase 2)
 export {
@@ -42,7 +42,7 @@ export {
   type ParsedOpentasksUri,
   type ResolvedLocationTarget,
   type ResolvedLocation,
-} from './uri.js'
+} from './uri.js';
 
 // Connections (Phase 2)
 export {
@@ -56,7 +56,7 @@ export {
   type ConnectionRole,
   type ConnectionHealth,
   type ConnectionStatus,
-} from './connections.js'
+} from './connections.js';
 
 // Redirects (Phase 2)
 export {
@@ -67,7 +67,7 @@ export {
   type RedirectOperation,
   type RedirectRule,
   type RedirectResult,
-} from './redirects.js'
+} from './redirects.js';
 
 // Conditional Redirects (Phase 3)
 export {
@@ -76,7 +76,7 @@ export {
   type RedirectCondition,
   type ConditionalRedirectRule,
   type RedirectContext,
-} from './conditional-redirects.js'
+} from './conditional-redirects.js';
 
 // Worktree Management (Phase 3)
 export {
@@ -95,7 +95,7 @@ export {
   type WorktreeRegistry,
   type WorktreeSetupOptions,
   type WorktreeTeardownOptions,
-} from './worktree.js'
+} from './worktree.js';
 
 // Merge Driver (Phase 3)
 export {
@@ -105,4 +105,4 @@ export {
   fieldLevelMerge,
   deepEqual,
   installMergeDriver,
-} from './merge-driver.js'
+} from './merge-driver.js';

@@ -5,23 +5,23 @@
  * in configurable directions from the current working directory.
  */
 
-import * as fs from 'node:fs'
-import * as path from 'node:path'
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 /**
  * Discovered OpenTasks location
  */
 export interface DiscoveredLocation {
   /** Absolute path to the .opentasks directory */
-  opentasksPath: string
+  opentasksPath: string;
   /** Location hash (from config.json) */
-  hash: string
+  hash: string;
   /** Human-readable name */
-  name: string
+  name: string;
   /** Relative direction from search origin */
-  direction: 'up' | 'down' | 'self'
+  direction: 'up' | 'down' | 'self';
   /** Filesystem depth from search origin */
-  depth: number
+  depth: number;
 }
 
 /**
@@ -29,49 +29,44 @@ export interface DiscoveredLocation {
  */
 export interface DiscoverOptions {
   /** Search direction: 'up' (parents), 'down' (children), 'both' */
-  direction?: 'up' | 'down' | 'both'
+  direction?: 'up' | 'down' | 'both';
   /** Maximum depth to traverse (default: 5) */
-  maxDepth?: number
+  maxDepth?: number;
 }
 
 /**
  * Read location identity from a .opentasks/config.json file
  */
-function readLocationConfig(
-  opentasksDir: string
-): { hash: string; name: string } | null {
-  const configPath = path.join(opentasksDir, 'config.json')
+function readLocationConfig(opentasksDir: string): { hash: string; name: string } | null {
+  const configPath = path.join(opentasksDir, 'config.json');
   try {
-    const content = fs.readFileSync(configPath, 'utf-8')
-    const config = JSON.parse(content)
+    const content = fs.readFileSync(configPath, 'utf-8');
+    const config = JSON.parse(content);
     if (config.location?.hash) {
       return {
         hash: config.location.hash,
         name: config.location.name || '',
-      }
+      };
     }
-    return null
+    return null;
   } catch {
-    return null
+    return null;
   }
 }
 
 /**
  * Walk upward from a directory looking for .opentasks locations
  */
-function discoverUp(
-  startDir: string,
-  maxDepth: number
-): DiscoveredLocation[] {
-  const results: DiscoveredLocation[] = []
-  let currentDir = path.dirname(startDir) // Start from parent
-  let depth = 1
+function discoverUp(startDir: string, maxDepth: number): DiscoveredLocation[] {
+  const results: DiscoveredLocation[] = [];
+  let currentDir = path.dirname(startDir); // Start from parent
+  let depth = 1;
 
   while (depth <= maxDepth) {
     // Check if this directory has a .opentasks
-    const opentasksDir = path.join(currentDir, '.opentasks')
+    const opentasksDir = path.join(currentDir, '.opentasks');
     if (fs.existsSync(opentasksDir)) {
-      const config = readLocationConfig(opentasksDir)
+      const config = readLocationConfig(opentasksDir);
       if (config) {
         results.push({
           opentasksPath: opentasksDir,
@@ -79,49 +74,46 @@ function discoverUp(
           name: config.name,
           direction: 'up',
           depth,
-        })
+        });
       }
     }
 
     // Move to parent
-    const parentDir = path.dirname(currentDir)
-    if (parentDir === currentDir) break // Reached filesystem root
-    currentDir = parentDir
-    depth++
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) break; // Reached filesystem root
+    currentDir = parentDir;
+    depth++;
   }
 
-  return results
+  return results;
 }
 
 /**
  * Walk downward from a directory looking for .opentasks locations
  */
-function discoverDown(
-  startDir: string,
-  maxDepth: number
-): DiscoveredLocation[] {
-  const results: DiscoveredLocation[] = []
+function discoverDown(startDir: string, maxDepth: number): DiscoveredLocation[] {
+  const results: DiscoveredLocation[] = [];
 
   function walk(dir: string, depth: number): void {
-    if (depth > maxDepth) return
+    if (depth > maxDepth) return;
 
-    let entries: fs.Dirent[]
+    let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true })
+      entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
-      return
+      return;
     }
 
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue
+      if (!entry.isDirectory()) continue;
       // Skip hidden directories (except .opentasks itself) and node_modules
-      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
 
-      const childDir = path.join(dir, entry.name)
-      const opentasksDir = path.join(childDir, '.opentasks')
+      const childDir = path.join(dir, entry.name);
+      const opentasksDir = path.join(childDir, '.opentasks');
 
       if (fs.existsSync(opentasksDir)) {
-        const config = readLocationConfig(opentasksDir)
+        const config = readLocationConfig(opentasksDir);
         if (config) {
           results.push({
             opentasksPath: opentasksDir,
@@ -129,17 +121,17 @@ function discoverDown(
             name: config.name,
             direction: 'down',
             depth,
-          })
+          });
         }
       }
 
       // Continue walking into subdirectories
-      walk(childDir, depth + 1)
+      walk(childDir, depth + 1);
     }
   }
 
-  walk(startDir, 1)
-  return results
+  walk(startDir, 1);
+  return results;
 }
 
 /**
@@ -151,18 +143,18 @@ function discoverDown(
  */
 export function discoverLocations(
   startDir: string,
-  options: DiscoverOptions = {}
+  options: DiscoverOptions = {},
 ): DiscoveredLocation[] {
-  const direction = options.direction ?? 'both'
-  const maxDepth = options.maxDepth ?? 5
-  const resolvedStart = path.resolve(startDir)
+  const direction = options.direction ?? 'both';
+  const maxDepth = options.maxDepth ?? 5;
+  const resolvedStart = path.resolve(startDir);
 
-  const results: DiscoveredLocation[] = []
+  const results: DiscoveredLocation[] = [];
 
   // Check self first
-  const selfOpentasks = path.join(resolvedStart, '.opentasks')
+  const selfOpentasks = path.join(resolvedStart, '.opentasks');
   if (fs.existsSync(selfOpentasks)) {
-    const config = readLocationConfig(selfOpentasks)
+    const config = readLocationConfig(selfOpentasks);
     if (config) {
       results.push({
         opentasksPath: selfOpentasks,
@@ -170,17 +162,17 @@ export function discoverLocations(
         name: config.name,
         direction: 'self',
         depth: 0,
-      })
+      });
     }
   }
 
   if (direction === 'up' || direction === 'both') {
-    results.push(...discoverUp(resolvedStart, maxDepth))
+    results.push(...discoverUp(resolvedStart, maxDepth));
   }
 
   if (direction === 'down' || direction === 'both') {
-    results.push(...discoverDown(resolvedStart, maxDepth))
+    results.push(...discoverDown(resolvedStart, maxDepth));
   }
 
-  return results
+  return results;
 }

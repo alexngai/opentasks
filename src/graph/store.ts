@@ -5,11 +5,11 @@
  * Provides CRUD operations with validation and debounced persistence.
  */
 
-import type { Storage } from '../storage/interface.js'
-import type { StoredNode, StoredEdge } from '../schema/storage.js'
-import type { Node, Edge } from '../schema/index.js'
-import { parseNode } from '../schema/validation.js'
-import { generateId } from '../core/id.js'
+import type { Storage } from '../storage/interface.js';
+import type { StoredNode, StoredEdge } from '../schema/storage.js';
+import type { Node, Edge } from '../schema/index.js';
+import { parseNode } from '../schema/validation.js';
+import { generateId } from '../core/id.js';
 import type {
   CreateNodeInput,
   UpdateNodeInput,
@@ -17,14 +17,14 @@ import type {
   CreateEdgeInput,
   GraphStoreConfig,
   GraphErrorCode,
-} from './types.js'
-import { GraphError } from './types.js'
-import type { ValidationService } from './validation.js'
-import { createValidationService } from './validation.js'
-import type { QueryEngine } from './query.js'
-import { createQueryEngine } from './query.js'
-import type { SyncManager, SyncConfig } from './sync.js'
-import { createSyncManager, DEFAULT_SYNC_CONFIG } from './sync.js'
+} from './types.js';
+import { GraphError } from './types.js';
+import type { ValidationService } from './validation.js';
+import { createValidationService } from './validation.js';
+import type { QueryEngine } from './query.js';
+import { createQueryEngine } from './query.js';
+import type { SyncManager, SyncConfig } from './sync.js';
+import { createSyncManager, DEFAULT_SYNC_CONFIG } from './sync.js';
 
 // ============================================================================
 // Types
@@ -34,11 +34,11 @@ import { createSyncManager, DEFAULT_SYNC_CONFIG } from './sync.js'
  * Transaction interface for atomic operations
  */
 export interface GraphTransaction {
-  createNode(input: CreateNodeInput): Promise<Node>
-  updateNode(id: string, updates: UpdateNodeInput): Promise<Node>
-  deleteNode(id: string): Promise<void>
-  createEdge(input: CreateEdgeInput): Promise<Edge>
-  deleteEdge(id: string): Promise<void>
+  createNode(input: CreateNodeInput): Promise<Node>;
+  updateNode(id: string, updates: UpdateNodeInput): Promise<Node>;
+  deleteNode(id: string): Promise<void>;
+  createEdge(input: CreateEdgeInput): Promise<Edge>;
+  deleteEdge(id: string): Promise<void>;
 }
 
 /**
@@ -48,62 +48,62 @@ export interface GraphStore {
   // === Lifecycle ===
 
   /** Initialize the store (load from JSONL, sync to SQLite) */
-  initialize(): Promise<void>
+  initialize(): Promise<void>;
 
   /** Close the store (flush pending changes) */
-  close(): Promise<void>
+  close(): Promise<void>;
 
   /** Force immediate flush to JSONL */
-  flush(): Promise<void>
+  flush(): Promise<void>;
 
   // === Node Operations ===
 
   /** Create a new node */
-  createNode(input: CreateNodeInput): Promise<Node>
+  createNode(input: CreateNodeInput): Promise<Node>;
 
   /** Get a node by ID */
-  getNode(id: string): Promise<Node | null>
+  getNode(id: string): Promise<Node | null>;
 
   /** Update an existing node */
-  updateNode(id: string, updates: UpdateNodeInput): Promise<Node>
+  updateNode(id: string, updates: UpdateNodeInput): Promise<Node>;
 
   /** Delete a node (soft delete by default) */
-  deleteNode(id: string, options?: DeleteOptions): Promise<void>
+  deleteNode(id: string, options?: DeleteOptions): Promise<void>;
 
   /** Restore an archived node */
-  restoreNode(id: string): Promise<Node>
+  restoreNode(id: string): Promise<Node>;
 
   // === Edge Operations ===
 
   /** Create a new edge */
-  createEdge(input: CreateEdgeInput): Promise<Edge>
+  createEdge(input: CreateEdgeInput): Promise<Edge>;
 
   /** Get an edge by ID */
-  getEdge(id: string): Promise<Edge | null>
+  getEdge(id: string): Promise<Edge | null>;
 
   /** Delete an edge */
-  deleteEdge(id: string): Promise<void>
+  deleteEdge(id: string): Promise<void>;
 
   // === Tag Operations ===
 
   /** Add tags to a node */
-  addTags(nodeId: string, tags: string[]): Promise<void>
+  addTags(nodeId: string, tags: string[]): Promise<void>;
 
   /** Remove tags from a node */
-  removeTags(nodeId: string, tags: string[]): Promise<void>
+  removeTags(nodeId: string, tags: string[]): Promise<void>;
 
   /** Set tags for a node (replaces existing) */
-  setTags(nodeId: string, tags: string[]): Promise<void>
+  setTags(nodeId: string, tags: string[]): Promise<void>;
 
   // === Query ===
 
   /** Query engine for graph traversal */
-  readonly query: QueryEngine
+  readonly query: QueryEngine;
 
   // === Transactions ===
 
   /** Execute operations in a transaction */
-  transaction<T>(fn: (tx: GraphTransaction) => Promise<T>): Promise<T>
+  transaction<T>(fn: (tx: GraphTransaction) => Promise<T>): Promise<T>;
 }
 
 // ============================================================================
@@ -114,14 +114,14 @@ export interface GraphStore {
  * Get current ISO timestamp
  */
 function now(): string {
-  return new Date().toISOString()
+  return new Date().toISOString();
 }
 
 /**
  * Build a StoredNode from CreateNodeInput
  */
 function buildStoredNode(input: CreateNodeInput, id: string, uuid: string): StoredNode {
-  const timestamp = now()
+  const timestamp = now();
 
   const base: StoredNode = {
     id,
@@ -134,7 +134,7 @@ function buildStoredNode(input: CreateNodeInput, id: string, uuid: string): Stor
     created_at: timestamp,
     updated_at: timestamp,
     archived: false,
-  }
+  };
 
   // Type-specific fields
   switch (input.type) {
@@ -143,7 +143,7 @@ function buildStoredNode(input: CreateNodeInput, id: string, uuid: string): Stor
         ...base,
         status: input.status || 'open',
         assignee: input.assignee,
-      }
+      };
     case 'feedback':
       return {
         ...base,
@@ -154,15 +154,15 @@ function buildStoredNode(input: CreateNodeInput, id: string, uuid: string): Stor
         reply_to_id: input.reply_to_id,
         resolved: false,
         dismissed: false,
-      }
+      };
     case 'external':
       return {
         ...base,
         uri: input.uri,
         source: input.source,
-      }
+      };
     default:
-      return base
+      return base;
   }
 }
 
@@ -172,26 +172,26 @@ function buildStoredNode(input: CreateNodeInput, id: string, uuid: string): Stor
 function applyUpdates(node: StoredNode, updates: UpdateNodeInput): Partial<StoredNode> {
   const changes: Partial<StoredNode> = {
     updated_at: now(),
-  }
+  };
 
-  if (updates.title !== undefined) changes.title = updates.title
-  if (updates.content !== undefined) changes.content = updates.content
-  if (updates.priority !== undefined) changes.priority = updates.priority
-  if (updates.status !== undefined) changes.status = updates.status
-  if (updates.assignee !== undefined) changes.assignee = updates.assignee
-  if (updates.parent_id !== undefined) changes.parent_id = updates.parent_id ?? undefined
+  if (updates.title !== undefined) changes.title = updates.title;
+  if (updates.content !== undefined) changes.content = updates.content;
+  if (updates.priority !== undefined) changes.priority = updates.priority;
+  if (updates.status !== undefined) changes.status = updates.status;
+  if (updates.assignee !== undefined) changes.assignee = updates.assignee;
+  if (updates.parent_id !== undefined) changes.parent_id = updates.parent_id ?? undefined;
   if (updates.archived !== undefined) {
-    changes.archived = updates.archived
+    changes.archived = updates.archived;
     if (updates.archived) {
-      changes.archived_at = now()
+      changes.archived_at = now();
     } else {
-      changes.archived_at = undefined
+      changes.archived_at = undefined;
     }
   }
-  if (updates.resolved !== undefined) changes.resolved = updates.resolved
-  if (updates.dismissed !== undefined) changes.dismissed = updates.dismissed
+  if (updates.resolved !== undefined) changes.resolved = updates.resolved;
+  if (updates.dismissed !== undefined) changes.dismissed = updates.dismissed;
 
-  return changes
+  return changes;
 }
 
 // ============================================================================
@@ -210,62 +210,62 @@ export function createGraphStore(
   config: GraphStoreConfig,
   storage: Storage,
   jsonlLoad: () => Promise<{ nodes: StoredNode[]; edges: StoredEdge[] }>,
-  jsonlSave: (nodes: StoredNode[], edges: StoredEdge[]) => Promise<void>
+  jsonlSave: (nodes: StoredNode[], edges: StoredEdge[]) => Promise<void>,
 ): GraphStore {
-  const validation: ValidationService = createValidationService()
-  const queryEngine: QueryEngine = createQueryEngine(storage)
+  const validation: ValidationService = createValidationService();
+  const queryEngine: QueryEngine = createQueryEngine(storage);
 
   // Sync configuration
   const syncConfig: SyncConfig = {
     debounceMs: config.flush?.debounceMs ?? DEFAULT_SYNC_CONFIG.debounceMs,
     maxDelayMs: config.flush?.maxDelayMs ?? DEFAULT_SYNC_CONFIG.maxDelayMs,
-  }
+  };
 
   // Flush callback
   async function doFlush(): Promise<void> {
     // Get dirty node IDs
-    const dirtyIds = await storage.getDirtyNodes()
-    if (dirtyIds.length === 0) return
+    const dirtyIds = await storage.getDirtyNodes();
+    if (dirtyIds.length === 0) return;
 
     // Load current JSONL
-    const { nodes, edges } = await jsonlLoad()
+    const { nodes, edges } = await jsonlLoad();
 
     // Build maps for efficient lookup
-    const nodeMap = new Map(nodes.map((n) => [n.id, n]))
-    const edgeMap = new Map(edges.map((e) => [e.id, e]))
+    const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+    const edgeMap = new Map(edges.map((e) => [e.id, e]));
 
     // For each dirty node, get current state from SQLite
     for (const id of dirtyIds) {
-      const current = await storage.getNode(id)
+      const current = await storage.getNode(id);
       if (current) {
         // Get tags and add to node
-        const tags = await storage.getTags(id)
-        nodeMap.set(id, { ...current, tags })
+        const tags = await storage.getTags(id);
+        nodeMap.set(id, { ...current, tags });
       } else {
-        nodeMap.delete(id) // Was deleted
+        nodeMap.delete(id); // Was deleted
       }
     }
 
     // Also sync edges (get all edges for dirty nodes)
     for (const id of dirtyIds) {
-      const fromEdges = await storage.getEdgesFrom(id)
-      const toEdges = await storage.getEdgesTo(id)
+      const fromEdges = await storage.getEdgesFrom(id);
+      const toEdges = await storage.getEdgesTo(id);
       for (const edge of [...fromEdges, ...toEdges]) {
-        edgeMap.set(edge.id, edge)
+        edgeMap.set(edge.id, edge);
       }
     }
 
     // Atomic write to JSONL
-    await jsonlSave(Array.from(nodeMap.values()), Array.from(edgeMap.values()))
+    await jsonlSave(Array.from(nodeMap.values()), Array.from(edgeMap.values()));
 
     // Clear dirty flags
-    await storage.clearDirty(dirtyIds)
+    await storage.clearDirty(dirtyIds);
   }
 
-  const syncManager: SyncManager = createSyncManager(syncConfig, storage, doFlush)
+  const syncManager: SyncManager = createSyncManager(syncConfig, storage, doFlush);
 
   // Track existing node count for adaptive ID generation
-  let nodeCount = 0
+  let nodeCount = 0;
 
   return {
     // =========================================================================
@@ -274,45 +274,45 @@ export function createGraphStore(
 
     async initialize(): Promise<void> {
       // Load from JSONL (source of truth)
-      const { nodes, edges } = await jsonlLoad()
+      const { nodes, edges } = await jsonlLoad();
 
       // Sync to SQLite
       for (const node of nodes) {
         try {
-          await storage.createNode(node)
+          await storage.createNode(node);
           // Sync tags
           if (node.tags) {
             for (const tag of node.tags) {
-              await storage.addTag(node.id, tag)
+              await storage.addTag(node.id, tag);
             }
           }
         } catch {
           // Node might already exist, update instead
-          await storage.updateNode(node.id, node)
+          await storage.updateNode(node.id, node);
         }
       }
 
       for (const edge of edges) {
         try {
-          await storage.createEdge(edge)
+          await storage.createEdge(edge);
         } catch {
           // Edge might already exist, skip
         }
       }
 
       // Update node count for ID generation
-      nodeCount = nodes.length
+      nodeCount = nodes.length;
     },
 
     async close(): Promise<void> {
       // Flush pending changes
-      await syncManager.flush()
+      await syncManager.flush();
       // Close storage
-      await storage.close()
+      await storage.close();
     },
 
     async flush(): Promise<void> {
-      await syncManager.flush()
+      await syncManager.flush();
     },
 
     // =========================================================================
@@ -321,124 +321,124 @@ export function createGraphStore(
 
     async createNode(input: CreateNodeInput): Promise<Node> {
       // Validate
-      const result = validation.validateCreateNode(input)
+      const result = validation.validateCreateNode(input);
       if (!result.valid) {
-        const error = result.errors[0]
+        const error = result.errors[0];
         throw new GraphError(
           'VALIDATION_ERROR',
           `${error.message}${error.field ? ` (${error.field})` : ''}`,
-          { errors: result.errors, warnings: result.warnings }
-        )
+          { errors: result.errors, warnings: result.warnings },
+        );
       }
 
       // Generate IDs
-      const { id, uuid } = generateId(input.type, nodeCount)
-      nodeCount++
+      const { id, uuid } = generateId(input.type, nodeCount);
+      nodeCount++;
 
       // Build stored node
-      const storedNode = buildStoredNode(input, id, uuid)
+      const storedNode = buildStoredNode(input, id, uuid);
 
       // Write to SQLite
-      await storage.createNode(storedNode)
+      await storage.createNode(storedNode);
 
       // Sync tags if provided
       if (input.tags) {
         for (const tag of input.tags) {
-          await storage.addTag(id, tag)
+          await storage.addTag(id, tag);
         }
       }
 
       // Schedule flush
-      syncManager.markDirty(id)
-      syncManager.scheduleFlush()
+      syncManager.markDirty(id);
+      syncManager.scheduleFlush();
 
       // Return parsed node
-      return parseNode({ ...storedNode, tags: input.tags })
+      return parseNode({ ...storedNode, tags: input.tags });
     },
 
     async getNode(id: string): Promise<Node | null> {
-      const stored = await storage.getNode(id)
-      if (!stored) return null
+      const stored = await storage.getNode(id);
+      if (!stored) return null;
 
       // Get tags
-      const tags = await storage.getTags(id)
+      const tags = await storage.getTags(id);
 
       try {
-        return parseNode({ ...stored, tags })
+        return parseNode({ ...stored, tags });
       } catch {
-        return null
+        return null;
       }
     },
 
     async updateNode(id: string, updates: UpdateNodeInput): Promise<Node> {
       // Get existing node
-      const existing = await storage.getNode(id)
+      const existing = await storage.getNode(id);
       if (!existing) {
-        throw new GraphError('NOT_FOUND', `Node not found: ${id}`)
+        throw new GraphError('NOT_FOUND', `Node not found: ${id}`);
       }
 
       // Validate updates
-      const result = validation.validateUpdateNode(existing, updates)
+      const result = validation.validateUpdateNode(existing, updates);
       if (!result.valid) {
-        const error = result.errors[0]
+        const error = result.errors[0];
         throw new GraphError(
           'VALIDATION_ERROR',
           `${error.message}${error.field ? ` (${error.field})` : ''}`,
-          { errors: result.errors, warnings: result.warnings }
-        )
+          { errors: result.errors, warnings: result.warnings },
+        );
       }
 
       // Apply updates
-      const changes = applyUpdates(existing, updates)
+      const changes = applyUpdates(existing, updates);
 
       // Write to SQLite
-      await storage.updateNode(id, changes)
+      await storage.updateNode(id, changes);
 
       // Schedule flush
-      syncManager.markDirty(id)
-      syncManager.scheduleFlush()
+      syncManager.markDirty(id);
+      syncManager.scheduleFlush();
 
       // Get updated node
-      const updated = await storage.getNode(id)
+      const updated = await storage.getNode(id);
       if (!updated) {
-        throw new GraphError('NOT_FOUND', `Node not found after update: ${id}`)
+        throw new GraphError('NOT_FOUND', `Node not found after update: ${id}`);
       }
 
-      const tags = await storage.getTags(id)
-      return parseNode({ ...updated, tags })
+      const tags = await storage.getTags(id);
+      return parseNode({ ...updated, tags });
     },
 
     async deleteNode(id: string, options?: DeleteOptions): Promise<void> {
-      const existing = await storage.getNode(id)
+      const existing = await storage.getNode(id);
       if (!existing) {
-        throw new GraphError('NOT_FOUND', `Node not found: ${id}`)
+        throw new GraphError('NOT_FOUND', `Node not found: ${id}`);
       }
 
       if (options?.hard) {
         // Hard delete - remove from storage
-        await storage.deleteNode(id)
+        await storage.deleteNode(id);
       } else {
         // Soft delete - archive
         await storage.updateNode(id, {
           archived: true,
           archived_at: now(),
           updated_at: now(),
-        })
+        });
       }
 
       // Schedule flush
-      syncManager.markDirty(id)
-      syncManager.scheduleFlush()
+      syncManager.markDirty(id);
+      syncManager.scheduleFlush();
     },
 
     async restoreNode(id: string): Promise<Node> {
-      const existing = await storage.getNode(id)
+      const existing = await storage.getNode(id);
       if (!existing) {
-        throw new GraphError('NOT_FOUND', `Node not found: ${id}`)
+        throw new GraphError('NOT_FOUND', `Node not found: ${id}`);
       }
 
       if (!existing.archived) {
-        throw new GraphError('INVALID_OPERATION', `Node is not archived: ${id}`)
+        throw new GraphError('INVALID_OPERATION', `Node is not archived: ${id}`);
       }
 
       // Restore
@@ -446,19 +446,19 @@ export function createGraphStore(
         archived: false,
         archived_at: undefined,
         updated_at: now(),
-      })
+      });
 
       // Schedule flush
-      syncManager.markDirty(id)
-      syncManager.scheduleFlush()
+      syncManager.markDirty(id);
+      syncManager.scheduleFlush();
 
-      const updated = await storage.getNode(id)
+      const updated = await storage.getNode(id);
       if (!updated) {
-        throw new GraphError('NOT_FOUND', `Node not found after restore: ${id}`)
+        throw new GraphError('NOT_FOUND', `Node not found after restore: ${id}`);
       }
 
-      const tags = await storage.getTags(id)
-      return parseNode({ ...updated, tags })
+      const tags = await storage.getTags(id);
+      return parseNode({ ...updated, tags });
     },
 
     // =========================================================================
@@ -467,30 +467,30 @@ export function createGraphStore(
 
     async createEdge(input: CreateEdgeInput): Promise<Edge> {
       // Validate
-      const result = await validation.validateCreateEdge(input, (id) => storage.getNode(id))
+      const result = await validation.validateCreateEdge(input, (id) => storage.getNode(id));
       if (!result.valid) {
-        const error = result.errors[0]
+        const error = result.errors[0];
         throw new GraphError(
           'VALIDATION_ERROR',
           `${error.message}${error.field ? ` (${error.field})` : ''}`,
-          { errors: result.errors, warnings: result.warnings }
-        )
+          { errors: result.errors, warnings: result.warnings },
+        );
       }
 
       // Check for cycles on blocks edges
       if (input.type === 'blocks') {
         const cycleResult = await validation.detectCycle(input.from_id, input.to_id, (nodeId) =>
-          storage.getEdgesFrom(nodeId, 'blocks')
-        )
+          storage.getEdgesFrom(nodeId, 'blocks'),
+        );
         if (cycleResult.hasCycle) {
           throw new GraphError('CYCLE_DETECTED', 'Creating this edge would create a cycle', {
             cycle: cycleResult.cycle,
-          })
+          });
         }
       }
 
       // Generate IDs
-      const { id, uuid } = generateId('edge')
+      const { id, uuid } = generateId('edge');
 
       // Build edge
       const edge: StoredEdge = {
@@ -501,36 +501,36 @@ export function createGraphStore(
         type: input.type,
         created_at: now(),
         metadata: input.metadata,
-      }
+      };
 
       // Write to SQLite
-      await storage.createEdge(edge)
+      await storage.createEdge(edge);
 
       // Schedule flush for both connected nodes
-      syncManager.markDirty(input.from_id)
-      syncManager.markDirty(input.to_id)
-      syncManager.scheduleFlush()
+      syncManager.markDirty(input.from_id);
+      syncManager.markDirty(input.to_id);
+      syncManager.scheduleFlush();
 
-      return edge as Edge
+      return edge as Edge;
     },
 
     async getEdge(id: string): Promise<Edge | null> {
-      const stored = await storage.getEdge(id)
-      return stored as Edge | null
+      const stored = await storage.getEdge(id);
+      return stored as Edge | null;
     },
 
     async deleteEdge(id: string): Promise<void> {
-      const existing = await storage.getEdge(id)
+      const existing = await storage.getEdge(id);
       if (!existing) {
-        throw new GraphError('NOT_FOUND', `Edge not found: ${id}`)
+        throw new GraphError('NOT_FOUND', `Edge not found: ${id}`);
       }
 
-      await storage.deleteEdge(id)
+      await storage.deleteEdge(id);
 
       // Schedule flush for both connected nodes
-      syncManager.markDirty(existing.from_id)
-      syncManager.markDirty(existing.to_id)
-      syncManager.scheduleFlush()
+      syncManager.markDirty(existing.from_id);
+      syncManager.markDirty(existing.to_id);
+      syncManager.scheduleFlush();
     },
 
     // =========================================================================
@@ -538,66 +538,66 @@ export function createGraphStore(
     // =========================================================================
 
     async addTags(nodeId: string, tags: string[]): Promise<void> {
-      const existing = await storage.getNode(nodeId)
+      const existing = await storage.getNode(nodeId);
       if (!existing) {
-        throw new GraphError('NOT_FOUND', `Node not found: ${nodeId}`)
+        throw new GraphError('NOT_FOUND', `Node not found: ${nodeId}`);
       }
 
       for (const tag of tags) {
-        await storage.addTag(nodeId, tag)
+        await storage.addTag(nodeId, tag);
       }
 
       // Update timestamp
-      await storage.updateNode(nodeId, { updated_at: now() })
+      await storage.updateNode(nodeId, { updated_at: now() });
 
       // Schedule flush
-      syncManager.markDirty(nodeId)
-      syncManager.scheduleFlush()
+      syncManager.markDirty(nodeId);
+      syncManager.scheduleFlush();
     },
 
     async removeTags(nodeId: string, tags: string[]): Promise<void> {
-      const existing = await storage.getNode(nodeId)
+      const existing = await storage.getNode(nodeId);
       if (!existing) {
-        throw new GraphError('NOT_FOUND', `Node not found: ${nodeId}`)
+        throw new GraphError('NOT_FOUND', `Node not found: ${nodeId}`);
       }
 
       for (const tag of tags) {
-        await storage.removeTag(nodeId, tag)
+        await storage.removeTag(nodeId, tag);
       }
 
       // Update timestamp
-      await storage.updateNode(nodeId, { updated_at: now() })
+      await storage.updateNode(nodeId, { updated_at: now() });
 
       // Schedule flush
-      syncManager.markDirty(nodeId)
-      syncManager.scheduleFlush()
+      syncManager.markDirty(nodeId);
+      syncManager.scheduleFlush();
     },
 
     async setTags(nodeId: string, tags: string[]): Promise<void> {
-      const existing = await storage.getNode(nodeId)
+      const existing = await storage.getNode(nodeId);
       if (!existing) {
-        throw new GraphError('NOT_FOUND', `Node not found: ${nodeId}`)
+        throw new GraphError('NOT_FOUND', `Node not found: ${nodeId}`);
       }
 
       // Get existing tags
-      const existingTags = await storage.getTags(nodeId)
+      const existingTags = await storage.getTags(nodeId);
 
       // Remove all existing tags
       for (const tag of existingTags) {
-        await storage.removeTag(nodeId, tag)
+        await storage.removeTag(nodeId, tag);
       }
 
       // Add new tags
       for (const tag of tags) {
-        await storage.addTag(nodeId, tag)
+        await storage.addTag(nodeId, tag);
       }
 
       // Update timestamp
-      await storage.updateNode(nodeId, { updated_at: now() })
+      await storage.updateNode(nodeId, { updated_at: now() });
 
       // Schedule flush
-      syncManager.markDirty(nodeId)
-      syncManager.scheduleFlush()
+      syncManager.markDirty(nodeId);
+      syncManager.scheduleFlush();
     },
 
     // =========================================================================
@@ -616,60 +616,60 @@ export function createGraphStore(
         // Create a transaction wrapper that uses the storage transaction
         const graphTx: GraphTransaction = {
           async createNode(input: CreateNodeInput): Promise<Node> {
-            const result = validation.validateCreateNode(input)
+            const result = validation.validateCreateNode(input);
             if (!result.valid) {
-              const error = result.errors[0]
+              const error = result.errors[0];
               throw new GraphError(
                 'VALIDATION_ERROR',
-                `${error.message}${error.field ? ` (${error.field})` : ''}`
-              )
+                `${error.message}${error.field ? ` (${error.field})` : ''}`,
+              );
             }
 
-            const { id, uuid } = generateId(input.type, nodeCount)
-            nodeCount++
+            const { id, uuid } = generateId(input.type, nodeCount);
+            nodeCount++;
 
-            const storedNode = buildStoredNode(input, id, uuid)
-            await storageTx.createNode(storedNode)
+            const storedNode = buildStoredNode(input, id, uuid);
+            await storageTx.createNode(storedNode);
 
             if (input.tags) {
               for (const tag of input.tags) {
-                await storageTx.addTag(id, tag)
+                await storageTx.addTag(id, tag);
               }
             }
 
-            syncManager.markDirty(id)
-            return parseNode({ ...storedNode, tags: input.tags })
+            syncManager.markDirty(id);
+            return parseNode({ ...storedNode, tags: input.tags });
           },
 
           async updateNode(id: string, updates: UpdateNodeInput): Promise<Node> {
-            const existing = await storageTx.getNode(id)
+            const existing = await storageTx.getNode(id);
             if (!existing) {
-              throw new GraphError('NOT_FOUND', `Node not found: ${id}`)
+              throw new GraphError('NOT_FOUND', `Node not found: ${id}`);
             }
 
-            const result = validation.validateUpdateNode(existing, updates)
+            const result = validation.validateUpdateNode(existing, updates);
             if (!result.valid) {
-              const error = result.errors[0]
+              const error = result.errors[0];
               throw new GraphError(
                 'VALIDATION_ERROR',
-                `${error.message}${error.field ? ` (${error.field})` : ''}`
-              )
+                `${error.message}${error.field ? ` (${error.field})` : ''}`,
+              );
             }
 
-            const changes = applyUpdates(existing, updates)
-            await storageTx.updateNode(id, changes)
+            const changes = applyUpdates(existing, updates);
+            await storageTx.updateNode(id, changes);
 
-            syncManager.markDirty(id)
+            syncManager.markDirty(id);
 
-            const updated = { ...existing, ...changes }
-            const tags = await storageTx.getTags(id)
-            return parseNode({ ...updated, tags })
+            const updated = { ...existing, ...changes };
+            const tags = await storageTx.getTags(id);
+            return parseNode({ ...updated, tags });
           },
 
           async deleteNode(id: string): Promise<void> {
-            const existing = await storageTx.getNode(id)
+            const existing = await storageTx.getNode(id);
             if (!existing) {
-              throw new GraphError('NOT_FOUND', `Node not found: ${id}`)
+              throw new GraphError('NOT_FOUND', `Node not found: ${id}`);
             }
 
             // Soft delete in transaction
@@ -677,35 +677,37 @@ export function createGraphStore(
               archived: true,
               archived_at: now(),
               updated_at: now(),
-            })
+            });
 
-            syncManager.markDirty(id)
+            syncManager.markDirty(id);
           },
 
           async createEdge(input: CreateEdgeInput): Promise<Edge> {
-            const result = await validation.validateCreateEdge(input, (id) => storageTx.getNode(id))
+            const result = await validation.validateCreateEdge(input, (id) =>
+              storageTx.getNode(id),
+            );
             if (!result.valid) {
-              const error = result.errors[0]
+              const error = result.errors[0];
               throw new GraphError(
                 'VALIDATION_ERROR',
-                `${error.message}${error.field ? ` (${error.field})` : ''}`
-              )
+                `${error.message}${error.field ? ` (${error.field})` : ''}`,
+              );
             }
 
             if (input.type === 'blocks') {
               const cycleResult = await validation.detectCycle(
                 input.from_id,
                 input.to_id,
-                (nodeId) => storageTx.getEdgesFrom(nodeId, 'blocks')
-              )
+                (nodeId) => storageTx.getEdgesFrom(nodeId, 'blocks'),
+              );
               if (cycleResult.hasCycle) {
                 throw new GraphError('CYCLE_DETECTED', 'Creating this edge would create a cycle', {
                   cycle: cycleResult.cycle,
-                })
+                });
               }
             }
 
-            const { id, uuid } = generateId('edge')
+            const { id, uuid } = generateId('edge');
 
             const edge: StoredEdge = {
               id,
@@ -715,36 +717,36 @@ export function createGraphStore(
               type: input.type,
               created_at: now(),
               metadata: input.metadata,
-            }
+            };
 
-            await storageTx.createEdge(edge)
+            await storageTx.createEdge(edge);
 
-            syncManager.markDirty(input.from_id)
-            syncManager.markDirty(input.to_id)
+            syncManager.markDirty(input.from_id);
+            syncManager.markDirty(input.to_id);
 
-            return edge as Edge
+            return edge as Edge;
           },
 
           async deleteEdge(id: string): Promise<void> {
-            const existing = await storageTx.getEdge(id)
+            const existing = await storageTx.getEdge(id);
             if (!existing) {
-              throw new GraphError('NOT_FOUND', `Edge not found: ${id}`)
+              throw new GraphError('NOT_FOUND', `Edge not found: ${id}`);
             }
 
-            await storageTx.deleteEdge(id)
+            await storageTx.deleteEdge(id);
 
-            syncManager.markDirty(existing.from_id)
-            syncManager.markDirty(existing.to_id)
+            syncManager.markDirty(existing.from_id);
+            syncManager.markDirty(existing.to_id);
           },
-        }
+        };
 
-        const result = await fn(graphTx)
+        const result = await fn(graphTx);
 
         // Schedule flush after transaction completes
-        syncManager.scheduleFlush()
+        syncManager.scheduleFlush();
 
-        return result
-      })
+        return result;
+      });
     },
-  }
+  };
 }

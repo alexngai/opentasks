@@ -4,7 +4,7 @@
  * Tracks all operations for auditing and debugging.
  */
 
-import type { OperationContext } from './coordination.js'
+import type { OperationContext } from './coordination.js';
 
 // ============================================================================
 // Operation Log Types
@@ -30,20 +30,20 @@ export type OperationType =
   | 'feedback.reopen'
   | 'sync.materialize'
   | 'sync.refresh'
-  | 'sync.conflict'
+  | 'sync.conflict';
 
 /**
  * A single change to a field
  */
 export interface FieldChange {
   /** Field that was changed */
-  field: string
+  field: string;
 
   /** Value before the change */
-  before: unknown
+  before: unknown;
 
   /** Value after the change */
-  after: unknown
+  after: unknown;
 }
 
 /**
@@ -51,37 +51,37 @@ export interface FieldChange {
  */
 export interface OperationLogEntry {
   /** Unique ID for this log entry */
-  id: string
+  id: string;
 
   /** ISO timestamp when operation occurred */
-  timestamp: string
+  timestamp: string;
 
   /** Type of operation */
-  operation: OperationType
+  operation: OperationType;
 
   /** Primary node affected */
-  nodeId: string
+  nodeId: string;
 
   /** Secondary node (for edges: target node) */
-  targetNodeId?: string
+  targetNodeId?: string;
 
   /** Agent that performed the operation */
-  agentId?: string
+  agentId?: string;
 
   /** Session context */
-  sessionId?: string
+  sessionId?: string;
 
   /** Field-level changes (for updates) */
-  changes?: FieldChange[]
+  changes?: FieldChange[];
 
   /** Additional operation-specific data */
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>;
 
   /** Whether operation succeeded */
-  success: boolean
+  success: boolean;
 
   /** Error message if failed */
-  error?: string
+  error?: string;
 }
 
 /**
@@ -89,34 +89,34 @@ export interface OperationLogEntry {
  */
 export interface OperationLogQueryOptions {
   /** Filter by node ID */
-  nodeId?: string
+  nodeId?: string;
 
   /** Filter by agent ID */
-  agentId?: string
+  agentId?: string;
 
   /** Filter by session ID */
-  sessionId?: string
+  sessionId?: string;
 
   /** Filter by operation type(s) */
-  operations?: OperationType[]
+  operations?: OperationType[];
 
   /** Only successful operations */
-  successOnly?: boolean
+  successOnly?: boolean;
 
   /** Start time (inclusive) */
-  since?: string
+  since?: string;
 
   /** End time (exclusive) */
-  until?: string
+  until?: string;
 
   /** Maximum entries to return */
-  limit?: number
+  limit?: number;
 
   /** Offset for pagination */
-  offset?: number
+  offset?: number;
 
   /** Sort order */
-  order?: 'asc' | 'desc'
+  order?: 'asc' | 'desc';
 }
 
 /**
@@ -124,37 +124,37 @@ export interface OperationLogQueryOptions {
  */
 export interface AgentActivitySummary {
   /** Agent ID */
-  agentId: string
+  agentId: string;
 
   /** Time period start */
-  since: string
+  since: string;
 
   /** Time period end */
-  until: string
+  until: string;
 
   /** Total operations */
-  totalOperations: number
+  totalOperations: number;
 
   /** Operations by type */
-  byType: Record<OperationType, number>
+  byType: Record<OperationType, number>;
 
   /** Nodes created */
-  nodesCreated: number
+  nodesCreated: number;
 
   /** Nodes updated */
-  nodesUpdated: number
+  nodesUpdated: number;
 
   /** Edges created */
-  edgesCreated: number
+  edgesCreated: number;
 
   /** Claims acquired */
-  claimsAcquired: number
+  claimsAcquired: number;
 
   /** Feedback given */
-  feedbackGiven: number
+  feedbackGiven: number;
 
   /** Success rate (0-1) */
-  successRate: number
+  successRate: number;
 }
 
 // ============================================================================
@@ -170,7 +170,9 @@ export interface OperationLogger {
    *
    * @param entry - Operation log entry (id and timestamp auto-generated if not provided)
    */
-  log(entry: Omit<OperationLogEntry, 'id' | 'timestamp'> & { id?: string; timestamp?: string }): Promise<void>
+  log(
+    entry: Omit<OperationLogEntry, 'id' | 'timestamp'> & { id?: string; timestamp?: string },
+  ): Promise<void>;
 
   /**
    * Query the operation log
@@ -178,7 +180,7 @@ export interface OperationLogger {
    * @param options - Query options
    * @returns Matching log entries
    */
-  query(options: OperationLogQueryOptions): Promise<OperationLogEntry[]>
+  query(options: OperationLogQueryOptions): Promise<OperationLogEntry[]>;
 
   /**
    * Get history for a specific node
@@ -187,7 +189,10 @@ export interface OperationLogger {
    * @param options - Query options
    * @returns Log entries for this node
    */
-  getNodeHistory(nodeId: string, options?: Omit<OperationLogQueryOptions, 'nodeId'>): Promise<OperationLogEntry[]>
+  getNodeHistory(
+    nodeId: string,
+    options?: Omit<OperationLogQueryOptions, 'nodeId'>,
+  ): Promise<OperationLogEntry[]>;
 
   /**
    * Get activity for a specific agent
@@ -196,7 +201,10 @@ export interface OperationLogger {
    * @param options - Query options
    * @returns Log entries for this agent
    */
-  getAgentActivity(agentId: string, options?: Omit<OperationLogQueryOptions, 'agentId'>): Promise<OperationLogEntry[]>
+  getAgentActivity(
+    agentId: string,
+    options?: Omit<OperationLogQueryOptions, 'agentId'>,
+  ): Promise<OperationLogEntry[]>;
 
   /**
    * Get activity summary for an agent
@@ -206,7 +214,7 @@ export interface OperationLogger {
    * @param until - End of period (defaults to now)
    * @returns Activity summary
    */
-  getAgentSummary(agentId: string, since: string, until?: string): Promise<AgentActivitySummary>
+  getAgentSummary(agentId: string, since: string, until?: string): Promise<AgentActivitySummary>;
 
   /**
    * Get the most recent operations
@@ -214,7 +222,7 @@ export interface OperationLogger {
    * @param limit - Number of entries to return
    * @returns Recent log entries
    */
-  getRecent(limit?: number): Promise<OperationLogEntry[]>
+  getRecent(limit?: number): Promise<OperationLogEntry[]>;
 
   /**
    * Clean up old log entries
@@ -222,7 +230,7 @@ export interface OperationLogger {
    * @param olderThan - ISO timestamp, entries before this will be deleted
    * @returns Number of entries deleted
    */
-  cleanup(olderThan: string): Promise<number>
+  cleanup(olderThan: string): Promise<number>;
 
   /**
    * Get total count of log entries
@@ -230,7 +238,7 @@ export interface OperationLogger {
    * @param options - Filter options
    * @returns Count of matching entries
    */
-  count(options?: OperationLogQueryOptions): Promise<number>
+  count(options?: OperationLogQueryOptions): Promise<number>;
 }
 
 // ============================================================================
@@ -243,8 +251,8 @@ export interface OperationLogger {
  * For production, use a SQLite-backed implementation.
  */
 export function createInMemoryOperationLogger(): OperationLogger {
-  const entries: OperationLogEntry[] = []
-  let nextId = 1
+  const entries: OperationLogEntry[] = [];
+  let nextId = 1;
 
   return {
     async log(entry): Promise<void> {
@@ -252,66 +260,72 @@ export function createInMemoryOperationLogger(): OperationLogger {
         ...entry,
         id: entry.id ?? `log-${nextId++}`,
         timestamp: entry.timestamp ?? new Date().toISOString(),
-      }
-      entries.push(fullEntry)
+      };
+      entries.push(fullEntry);
     },
 
     async query(options: OperationLogQueryOptions): Promise<OperationLogEntry[]> {
-      let result = [...entries]
+      let result = [...entries];
 
       // Apply filters
       if (options.nodeId) {
-        result = result.filter(e => e.nodeId === options.nodeId || e.targetNodeId === options.nodeId)
+        result = result.filter(
+          (e) => e.nodeId === options.nodeId || e.targetNodeId === options.nodeId,
+        );
       }
       if (options.agentId) {
-        result = result.filter(e => e.agentId === options.agentId)
+        result = result.filter((e) => e.agentId === options.agentId);
       }
       if (options.sessionId) {
-        result = result.filter(e => e.sessionId === options.sessionId)
+        result = result.filter((e) => e.sessionId === options.sessionId);
       }
       if (options.operations) {
-        result = result.filter(e => options.operations!.includes(e.operation))
+        result = result.filter((e) => options.operations!.includes(e.operation));
       }
       if (options.successOnly) {
-        result = result.filter(e => e.success)
+        result = result.filter((e) => e.success);
       }
       if (options.since) {
-        result = result.filter(e => e.timestamp >= options.since!)
+        result = result.filter((e) => e.timestamp >= options.since!);
       }
       if (options.until) {
-        result = result.filter(e => e.timestamp < options.until!)
+        result = result.filter((e) => e.timestamp < options.until!);
       }
 
       // Sort
       result.sort((a, b) => {
-        const cmp = a.timestamp.localeCompare(b.timestamp)
-        return options.order === 'asc' ? cmp : -cmp
-      })
+        const cmp = a.timestamp.localeCompare(b.timestamp);
+        return options.order === 'asc' ? cmp : -cmp;
+      });
 
       // Pagination
-      const offset = options.offset ?? 0
-      const limit = options.limit ?? 100
-      return result.slice(offset, offset + limit)
+      const offset = options.offset ?? 0;
+      const limit = options.limit ?? 100;
+      return result.slice(offset, offset + limit);
     },
 
     async getNodeHistory(nodeId: string, options?): Promise<OperationLogEntry[]> {
-      return this.query({ ...options, nodeId })
+      return this.query({ ...options, nodeId });
     },
 
     async getAgentActivity(agentId: string, options?): Promise<OperationLogEntry[]> {
-      return this.query({ ...options, agentId })
+      return this.query({ ...options, agentId });
     },
 
-    async getAgentSummary(agentId: string, since: string, until?: string): Promise<AgentActivitySummary> {
-      const untilTime = until ?? new Date().toISOString()
-      const activity = await this.query({ agentId, since, until: untilTime })
+    async getAgentSummary(
+      agentId: string,
+      since: string,
+      until?: string,
+    ): Promise<AgentActivitySummary> {
+      const untilTime = until ?? new Date().toISOString();
+      const activity = await this.query({ agentId, since, until: untilTime });
 
-      const byType: Record<string, number> = {}
-      let successful = 0
+      const byType: Record<string, number> = {};
+      let successful = 0;
 
       for (const entry of activity) {
-        byType[entry.operation] = (byType[entry.operation] ?? 0) + 1
-        if (entry.success) successful++
+        byType[entry.operation] = (byType[entry.operation] ?? 0) + 1;
+        if (entry.success) successful++;
       }
 
       return {
@@ -326,28 +340,28 @@ export function createInMemoryOperationLogger(): OperationLogger {
         claimsAcquired: byType['claim.acquire'] ?? 0,
         feedbackGiven: byType['feedback.create'] ?? 0,
         successRate: activity.length > 0 ? successful / activity.length : 1,
-      }
+      };
     },
 
     async getRecent(limit = 50): Promise<OperationLogEntry[]> {
-      return this.query({ limit, order: 'desc' })
+      return this.query({ limit, order: 'desc' });
     },
 
     async cleanup(olderThan: string): Promise<number> {
-      const before = entries.length
-      const cutoff = olderThan
-      const remaining = entries.filter(e => e.timestamp >= cutoff)
-      entries.length = 0
-      entries.push(...remaining)
-      return before - entries.length
+      const before = entries.length;
+      const cutoff = olderThan;
+      const remaining = entries.filter((e) => e.timestamp >= cutoff);
+      entries.length = 0;
+      entries.push(...remaining);
+      return before - entries.length;
     },
 
     async count(options?): Promise<number> {
-      if (!options) return entries.length
-      const result = await this.query({ ...options, limit: undefined, offset: undefined })
-      return result.length
+      if (!options) return entries.length;
+      const result = await this.query({ ...options, limit: undefined, offset: undefined });
+      return result.length;
     },
-  }
+  };
 }
 
 // ============================================================================
@@ -363,7 +377,7 @@ export function createNodeLogEntry(
   context?: OperationContext,
   changes?: FieldChange[],
   success = true,
-  error?: string
+  error?: string,
 ): Omit<OperationLogEntry, 'id' | 'timestamp'> {
   return {
     operation,
@@ -373,7 +387,7 @@ export function createNodeLogEntry(
     changes,
     success,
     error,
-  }
+  };
 }
 
 /**
@@ -386,7 +400,7 @@ export function createEdgeLogEntry(
   edgeType: string,
   context?: OperationContext,
   success = true,
-  error?: string
+  error?: string,
 ): Omit<OperationLogEntry, 'id' | 'timestamp'> {
   return {
     operation,
@@ -397,7 +411,7 @@ export function createEdgeLogEntry(
     data: { edgeType },
     success,
     error,
-  }
+  };
 }
 
 /**
@@ -410,7 +424,7 @@ export function createClaimLogEntry(
   context?: OperationContext,
   data?: Record<string, unknown>,
   success = true,
-  error?: string
+  error?: string,
 ): Omit<OperationLogEntry, 'id' | 'timestamp'> {
   return {
     operation,
@@ -420,5 +434,5 @@ export function createClaimLogEntry(
     data,
     success,
     error,
-  }
+  };
 }

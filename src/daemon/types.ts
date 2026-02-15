@@ -13,28 +13,28 @@
  */
 export interface DaemonLock {
   /** Process ID of daemon */
-  pid: number
+  pid: number;
 
   /** Parent process ID (for orphan detection) */
-  parentPid: number
+  parentPid: number;
 
   /** OpenTasks version */
-  version: string
+  version: string;
 
   /** ISO timestamp when daemon started */
-  startedAt: string
+  startedAt: string;
 
   /** Path to Unix socket for IPC */
-  socketPath: string
+  socketPath: string;
 
   /** Path to SQLite database */
-  databasePath: string
+  databasePath: string;
 }
 
 /**
  * Metadata provided when acquiring lock (PID and timestamp added automatically)
  */
-export type LockMetadata = Omit<DaemonLock, 'pid' | 'parentPid' | 'startedAt'>
+export type LockMetadata = Omit<DaemonLock, 'pid' | 'parentPid' | 'startedAt'>;
 
 // ============================================================================
 // Registry Types
@@ -45,10 +45,10 @@ export type LockMetadata = Omit<DaemonLock, 'pid' | 'parentPid' | 'startedAt'>
  */
 export interface DaemonRegistry {
   /** Registry format version */
-  version: string
+  version: string;
 
   /** All registered daemons */
-  daemons: DaemonEntry[]
+  daemons: DaemonEntry[];
 }
 
 /**
@@ -56,22 +56,22 @@ export interface DaemonRegistry {
  */
 export interface DaemonEntry {
   /** Absolute path to .opentasks/ directory */
-  locationPath: string
+  locationPath: string;
 
   /** Socket path for IPC */
-  socketPath: string
+  socketPath: string;
 
   /** Process ID */
-  pid: number
+  pid: number;
 
   /** OpenTasks version */
-  version: string
+  version: string;
 
   /** When daemon started (ISO timestamp) */
-  startedAt: string
+  startedAt: string;
 
   /** Last activity timestamp (ISO) */
-  lastActivity: string
+  lastActivity: string;
 }
 
 // ============================================================================
@@ -81,32 +81,32 @@ export interface DaemonEntry {
 /**
  * Daemon runtime state
  */
-export type DaemonState = 'starting' | 'running' | 'stopping' | 'stopped'
+export type DaemonState = 'starting' | 'running' | 'stopping' | 'stopped';
 
 /**
  * Daemon status information
  */
 export interface DaemonStatus {
   /** Current state */
-  state: DaemonState
+  state: DaemonState;
 
   /** When daemon started (ISO timestamp), null if not started */
-  startedAt: string | null
+  startedAt: string | null;
 
   /** Process ID */
-  pid: number
+  pid: number;
 
   /** Socket path for IPC */
-  socketPath: string
+  socketPath: string;
 
   /** Whether there are pending changes to flush */
-  pendingFlush: boolean
+  pendingFlush: boolean;
 
   /** Number of active IPC connections */
-  connectionCount: number
+  connectionCount: number;
 
   /** Number of managed locations (multi-location mode) */
-  locationCount?: number
+  locationCount?: number;
 }
 
 // ============================================================================
@@ -118,16 +118,16 @@ export interface DaemonStatus {
  */
 export interface LocationInfo {
   /** Location hash */
-  hash: string
+  hash: string;
 
   /** Absolute path to .opentasks/ directory */
-  opentasksPath: string
+  opentasksPath: string;
 
   /** Whether this is the primary (default) location */
-  primary: boolean
+  primary: boolean;
 
   /** Whether the location is healthy */
-  healthy: boolean
+  healthy: boolean;
 }
 
 // ============================================================================
@@ -146,7 +146,7 @@ export type DaemonErrorCode =
   | 'IPC_ERROR'
   | 'SHUTDOWN_TIMEOUT'
   | 'LOCATION_NOT_FOUND'
-  | 'LOCATION_INIT_FAILED'
+  | 'LOCATION_INIT_FAILED';
 
 /**
  * Daemon-specific error
@@ -155,9 +155,9 @@ export class DaemonError extends Error {
   constructor(
     public readonly code: DaemonErrorCode,
     message: string,
-    public readonly cause?: unknown
+    public readonly cause?: unknown,
   ) {
-    super(message)
-    this.name = 'DaemonError'
+    super(message);
+    this.name = 'DaemonError';
   }
 }

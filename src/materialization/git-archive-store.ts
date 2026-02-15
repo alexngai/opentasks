@@ -10,9 +10,9 @@
  *   <graphId>/sessions/<session-id>/checkpoints/<checkpoint-id>.json
  */
 
-import { execSync } from 'node:child_process'
-import * as path from 'node:path'
-import * as fs from 'node:fs'
+import { execSync } from 'node:child_process';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
 import type {
   MaterializationSnapshot,
   SessionSnapshot,
@@ -24,7 +24,7 @@ import type {
   StoreStatus,
   GitArchiveStoreConfig,
   GitArchiveStoreExtended,
-} from './types.js'
+} from './types.js';
 
 // ============================================================================
 // Helpers
@@ -40,10 +40,10 @@ function git(repoPath: string, args: string, options?: { allowFailure?: boolean 
       encoding: 'utf-8',
       timeout: 30000,
       stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim()
+    }).trim();
   } catch (error) {
-    if (options?.allowFailure) return ''
-    throw error
+    if (options?.allowFailure) return '';
+    throw error;
   }
 }
 
@@ -51,16 +51,16 @@ function git(repoPath: string, args: string, options?: { allowFailure?: boolean 
  * Extract session ID from a snapshot URI
  */
 function extractSessionId(uri: string): string | null {
-  const match = uri.match(/entire:\/\/session\/(.+)/)
-  return match ? match[1] : null
+  const match = uri.match(/entire:\/\/session\/(.+)/);
+  return match ? match[1] : null;
 }
 
 /**
  * Extract checkpoint ID from a snapshot URI
  */
 function extractCheckpointId(uri: string): string | null {
-  const match = uri.match(/entire:\/\/checkpoint\/(.+)/)
-  return match ? match[1] : null
+  const match = uri.match(/entire:\/\/checkpoint\/(.+)/);
+  return match ? match[1] : null;
 }
 
 // ============================================================================
@@ -71,35 +71,27 @@ function extractCheckpointId(uri: string): string | null {
  * Create a git archive store
  */
 export function createGitArchiveStore(config: GitArchiveStoreConfig): GitArchiveStoreExtended {
-  const {
-    branch,
-    remote,
-    pushPolicy,
-    sourceRepoPath,
-  } = config
+  const { branch, remote, pushPolicy, sourceRepoPath } = config;
 
   // Determine the repo to commit to
-  const repoPath = config.repoPath ?? path.dirname(sourceRepoPath)
-  let initialized = false
-  let lastArchiveAt: string | undefined
-  let lastError: string | undefined
+  const repoPath = config.repoPath ?? path.dirname(sourceRepoPath);
+  let initialized = false;
+  let lastArchiveAt: string | undefined;
+  let lastError: string | undefined;
 
   /**
    * Ensure the orphan branch exists
    */
   function ensureBranch(): void {
     // Check if branch exists
-    const exists = git(repoPath, `rev-parse --verify ${branch}`, { allowFailure: true })
-    if (exists) return
+    const exists = git(repoPath, `rev-parse --verify ${branch}`, { allowFailure: true });
+    if (exists) return;
 
     // Create orphan branch with an initial empty commit
     // We use git's low-level commands to avoid checkout issues
-    const emptyTree = git(repoPath, 'hash-object -t tree /dev/null')
-    const commitHash = git(
-      repoPath,
-      `commit-tree ${emptyTree} -m "Initialize opentasks archive"`
-    )
-    git(repoPath, `update-ref refs/heads/${branch} ${commitHash}`)
+    const emptyTree = git(repoPath, 'hash-object -t tree /dev/null');
+    const commitHash = git(repoPath, `commit-tree ${emptyTree} -m "Initialize opentasks archive"`);
+    git(repoPath, `update-ref refs/heads/${branch} ${commitHash}`);
   }
 
   /**
@@ -113,42 +105,47 @@ export function createGitArchiveStore(config: GitArchiveStoreConfig): GitArchive
    *   5. git commit-tree      (create commit)
    *   6. git update-ref       (advance branch)
    */
-  function commitFiles(
-    files: Array<{ path: string; content: string }>,
-    message: string
-  ): string {
+  function commitFiles(files: Array<{ path: string; content: string }>, message: string): string {
     // Set up a temporary index
-    const indexFile = path.join(repoPath, '.git', `index-archive-${Date.now()}`)
-    const env = `GIT_INDEX_FILE="${indexFile}"`
+    const indexFile = path.join(repoPath, '.git', `index-archive-${Date.now()}`);
+    const env = `GIT_INDEX_FILE="${indexFile}"`;
 
     try {
       // Read current tree from the branch into temp index
-      const currentCommit = git(repoPath, `rev-parse ${branch}`, { allowFailure: true })
+      const currentCommit = git(repoPath, `rev-parse ${branch}`, { allowFailure: true });
       if (currentCommit) {
         execSync(`${env} git -C "${repoPath}" read-tree ${branch}`, {
           encoding: 'utf-8',
           timeout: 10000,
           stdio: ['pipe', 'pipe', 'pipe'],
-        })
+        });
       }
 
       // Write each file as a blob and update the index
       for (const file of files) {
         // Write content to a temp file, then hash it
-        const tmpFile = path.join(repoPath, '.git', `tmp-archive-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-        fs.writeFileSync(tmpFile, file.content, 'utf-8')
+        const tmpFile = path.join(
+          repoPath,
+          '.git',
+          `tmp-archive-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        );
+        fs.writeFileSync(tmpFile, file.content, 'utf-8');
         try {
-          const blobHash = git(repoPath, `hash-object -w "${tmpFile}"`)
+          const blobHash = git(repoPath, `hash-object -w "${tmpFile}"`);
           execSync(
             `${env} git -C "${repoPath}" update-index --add --cacheinfo 100644,${blobHash},"${file.path}"`,
             {
               encoding: 'utf-8',
               timeout: 10000,
               stdio: ['pipe', 'pipe', 'pipe'],
-            }
-          )
+            },
+          );
         } finally {
-          try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
+          try {
+            fs.unlinkSync(tmpFile);
+          } catch {
+            /* ignore */
+          }
         }
       }
 
@@ -157,19 +154,23 @@ export function createGitArchiveStore(config: GitArchiveStoreConfig): GitArchive
         encoding: 'utf-8',
         timeout: 10000,
         stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim()
+      }).trim();
 
       // Create the commit
-      const parentArg = currentCommit ? `-p ${currentCommit}` : ''
-      const commitHash = git(repoPath, `commit-tree ${treeHash} ${parentArg} -m "${message}"`)
+      const parentArg = currentCommit ? `-p ${currentCommit}` : '';
+      const commitHash = git(repoPath, `commit-tree ${treeHash} ${parentArg} -m "${message}"`);
 
       // Update the branch ref
-      git(repoPath, `update-ref refs/heads/${branch} ${commitHash}`)
+      git(repoPath, `update-ref refs/heads/${branch} ${commitHash}`);
 
-      return commitHash
+      return commitHash;
     } finally {
       // Clean up temporary index
-      try { fs.unlinkSync(indexFile) } catch { /* ignore */ }
+      try {
+        fs.unlinkSync(indexFile);
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -178,9 +179,9 @@ export function createGitArchiveStore(config: GitArchiveStoreConfig): GitArchive
    */
   function readFile(filePath: string): string | null {
     try {
-      return git(repoPath, `show ${branch}:"${filePath}"`)
+      return git(repoPath, `show ${branch}:"${filePath}"`);
     } catch {
-      return null
+      return null;
     }
   }
 
@@ -189,10 +190,10 @@ export function createGitArchiveStore(config: GitArchiveStoreConfig): GitArchive
    */
   function listFiles(prefix: string): string[] {
     try {
-      const output = git(repoPath, `ls-tree -r --name-only ${branch} -- "${prefix}"`)
-      return output ? output.split('\n').filter(Boolean) : []
+      const output = git(repoPath, `ls-tree -r --name-only ${branch} -- "${prefix}"`);
+      return output ? output.split('\n').filter(Boolean) : [];
     } catch {
-      return []
+      return [];
     }
   }
 
@@ -200,24 +201,24 @@ export function createGitArchiveStore(config: GitArchiveStoreConfig): GitArchive
    * Push to remote if configured
    */
   function pushToRemote(): void {
-    if (!remote) return
+    if (!remote) return;
     try {
-      git(repoPath, `push ${remote} ${branch}`)
+      git(repoPath, `push ${remote} ${branch}`);
     } catch (error) {
       // Retry with fetch + rebase for conflict resolution
       try {
-        git(repoPath, `fetch ${remote} ${branch}`)
+        git(repoPath, `fetch ${remote} ${branch}`);
         // Get the current local and remote refs
-        const localRef = git(repoPath, `rev-parse ${branch}`)
-        const remoteRef = git(repoPath, `rev-parse ${remote}/${branch}`, { allowFailure: true })
+        const localRef = git(repoPath, `rev-parse ${branch}`);
+        const remoteRef = git(repoPath, `rev-parse ${remote}/${branch}`, { allowFailure: true });
 
         if (remoteRef && localRef !== remoteRef) {
           // Rebase our commits onto remote (safe — paths don't overlap across graphIds)
-          git(repoPath, `rebase ${remote}/${branch} ${branch}`)
-          git(repoPath, `push ${remote} ${branch}`)
+          git(repoPath, `rebase ${remote}/${branch} ${branch}`);
+          git(repoPath, `push ${remote} ${branch}`);
         }
       } catch {
-        lastError = `Push to remote '${remote}' failed: ${error instanceof Error ? error.message : String(error)}`
+        lastError = `Push to remote '${remote}' failed: ${error instanceof Error ? error.message : String(error)}`;
       }
     }
   }
@@ -226,23 +227,23 @@ export function createGitArchiveStore(config: GitArchiveStoreConfig): GitArchive
    * Determine the archive file path for a snapshot
    */
   function snapshotFilePath(snapshot: MaterializationSnapshot): string {
-    const graphId = snapshot.provenance.graphId
+    const graphId = snapshot.provenance.graphId;
 
     if (snapshot.entityType === 'session') {
-      const sessionId = extractSessionId(snapshot.uri)
-      return `${graphId}/sessions/${sessionId}/session.json`
+      const sessionId = extractSessionId(snapshot.uri);
+      return `${graphId}/sessions/${sessionId}/session.json`;
     }
 
     if (snapshot.entityType === 'checkpoint') {
-      const cpSnapshot = snapshot as CheckpointSnapshot
-      const sessionId = extractSessionId(cpSnapshot.sessionUri)
-      const checkpointId = extractCheckpointId(snapshot.uri)
-      return `${graphId}/sessions/${sessionId}/checkpoints/${checkpointId}.json`
+      const cpSnapshot = snapshot as CheckpointSnapshot;
+      const sessionId = extractSessionId(cpSnapshot.sessionUri);
+      const checkpointId = extractCheckpointId(snapshot.uri);
+      return `${graphId}/sessions/${sessionId}/checkpoints/${checkpointId}.json`;
     }
 
     // Generic fallback
-    const safeUri = snapshot.uri.replace(/[^a-zA-Z0-9-_]/g, '_')
-    return `${graphId}/other/${safeUri}.json`
+    const safeUri = snapshot.uri.replace(/[^a-zA-Z0-9-_]/g, '_');
+    return `${graphId}/other/${safeUri}.json`;
   }
 
   return {
@@ -252,136 +253,139 @@ export function createGitArchiveStore(config: GitArchiveStoreConfig): GitArchive
 
     async archive(snapshot: MaterializationSnapshot): Promise<ArchiveResult> {
       try {
-        const files: Array<{ path: string; content: string }> = []
+        const files: Array<{ path: string; content: string }> = [];
 
         // Main snapshot file
         files.push({
           path: snapshotFilePath(snapshot),
           content: JSON.stringify(snapshot, null, 2),
-        })
+        });
 
         // For sessions, also write edges.json
         if (snapshot.entityType === 'session') {
-          const sessionSnapshot = snapshot as SessionSnapshot
-          const sessionId = extractSessionId(snapshot.uri)
-          const graphId = snapshot.provenance.graphId
+          const sessionSnapshot = snapshot as SessionSnapshot;
+          const sessionId = extractSessionId(snapshot.uri);
+          const graphId = snapshot.provenance.graphId;
 
           if (sessionSnapshot.edges.length > 0) {
             files.push({
               path: `${graphId}/sessions/${sessionId}/edges.json`,
               content: JSON.stringify(sessionSnapshot.edges, null, 2),
-            })
+            });
           }
         }
 
         // Build commit message
-        const entityDesc = snapshot.entityType === 'checkpoint'
-          ? `checkpoint ${extractCheckpointId(snapshot.uri)}`
-          : `session ${extractSessionId(snapshot.uri)}`
-        const message = `archive: ${snapshot.provenance.graphId} ${entityDesc}`
+        const entityDesc =
+          snapshot.entityType === 'checkpoint'
+            ? `checkpoint ${extractCheckpointId(snapshot.uri)}`
+            : `session ${extractSessionId(snapshot.uri)}`;
+        const message = `archive: ${snapshot.provenance.graphId} ${entityDesc}`;
 
-        commitFiles(files, message)
-        lastArchiveAt = new Date().toISOString()
-        lastError = undefined
+        commitFiles(files, message);
+        lastArchiveAt = new Date().toISOString();
+        lastError = undefined;
 
         // Push if policy dictates
         if (pushPolicy === 'immediate') {
-          pushToRemote()
+          pushToRemote();
         }
 
-        return { stored: true, uri: snapshot.uri }
+        return { stored: true, uri: snapshot.uri };
       } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error)
-        lastError = errorMsg
-        return { stored: false, uri: snapshot.uri, error: errorMsg }
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        lastError = errorMsg;
+        return { stored: false, uri: snapshot.uri, error: errorMsg };
       }
     },
 
     async archiveBatch(snapshots: MaterializationSnapshot[]): Promise<BatchArchiveResult> {
-      const results: ArchiveResult[] = []
+      const results: ArchiveResult[] = [];
       for (const snapshot of snapshots) {
-        results.push(await this.archive(snapshot))
+        results.push(await this.archive(snapshot));
       }
       return {
         results,
-        successCount: results.filter(r => r.stored).length,
-        failureCount: results.filter(r => !r.stored).length,
-      }
+        successCount: results.filter((r) => r.stored).length,
+        failureCount: results.filter((r) => !r.stored).length,
+      };
     },
 
     async retrieve(uri: string): Promise<MaterializationSnapshot | null> {
       // Determine which file to read based on URI
       // We need to scan graphId directories since we may not know the graphId
-      const sessionId = extractSessionId(uri)
-      const checkpointId = extractCheckpointId(uri)
+      const sessionId = extractSessionId(uri);
+      const checkpointId = extractCheckpointId(uri);
 
-      if (!sessionId && !checkpointId) return null
+      if (!sessionId && !checkpointId) return null;
 
       // List all graphId directories
       try {
-        const topLevel = git(repoPath, `ls-tree --name-only ${branch}`, { allowFailure: true })
-        if (!topLevel) return null
+        const topLevel = git(repoPath, `ls-tree --name-only ${branch}`, { allowFailure: true });
+        if (!topLevel) return null;
 
         for (const graphId of topLevel.split('\n').filter(Boolean)) {
-          let filePath: string
+          let filePath: string;
 
           if (checkpointId) {
             // Need to find which session contains this checkpoint
-            const cpFiles = listFiles(`${graphId}/sessions/`)
-              .filter(f => f.endsWith(`/${checkpointId}.json`) && f.includes('/checkpoints/'))
+            const cpFiles = listFiles(`${graphId}/sessions/`).filter(
+              (f) => f.endsWith(`/${checkpointId}.json`) && f.includes('/checkpoints/'),
+            );
 
             if (cpFiles.length > 0) {
-              filePath = cpFiles[0]
+              filePath = cpFiles[0];
             } else {
-              continue
+              continue;
             }
           } else {
-            filePath = `${graphId}/sessions/${sessionId}/session.json`
+            filePath = `${graphId}/sessions/${sessionId}/session.json`;
           }
 
-          const content = readFile(filePath)
+          const content = readFile(filePath);
           if (content) {
             try {
-              return JSON.parse(content) as MaterializationSnapshot
+              return JSON.parse(content) as MaterializationSnapshot;
             } catch {
-              continue
+              continue;
             }
           }
         }
       } catch {
-        return null
+        return null;
       }
 
-      return null
+      return null;
     },
 
     async list(filter?: ArchiveFilter): Promise<ArchiveListEntry[]> {
-      const entries: ArchiveListEntry[] = []
+      const entries: ArchiveListEntry[] = [];
 
       try {
-        const topLevel = git(repoPath, `ls-tree --name-only ${branch}`, { allowFailure: true })
-        if (!topLevel) return entries
+        const topLevel = git(repoPath, `ls-tree --name-only ${branch}`, { allowFailure: true });
+        if (!topLevel) return entries;
 
         for (const graphId of topLevel.split('\n').filter(Boolean)) {
           // Filter by graphId if specified
-          if (filter?.graphId && filter.graphId !== '*' && filter.graphId !== graphId) continue
+          if (filter?.graphId && filter.graphId !== '*' && filter.graphId !== graphId) continue;
 
           // List session directories
-          const sessionFiles = listFiles(`${graphId}/sessions/`)
-            .filter(f => f.endsWith('/session.json'))
+          const sessionFiles = listFiles(`${graphId}/sessions/`).filter((f) =>
+            f.endsWith('/session.json'),
+          );
 
           for (const sessionFile of sessionFiles) {
-            const content = readFile(sessionFile)
-            if (!content) continue
+            const content = readFile(sessionFile);
+            if (!content) continue;
 
             try {
-              const snapshot = JSON.parse(content) as MaterializationSnapshot
+              const snapshot = JSON.parse(content) as MaterializationSnapshot;
 
               // Apply filters
-              if (filter?.source && snapshot.source !== filter.source) continue
-              if (filter?.entityType && snapshot.entityType !== filter.entityType) continue
-              if (filter?.archivedAfter && snapshot.archivedAt < filter.archivedAfter) continue
-              if (filter?.archivedBefore && snapshot.archivedAt > filter.archivedBefore) continue
+              if (filter?.source && snapshot.source !== filter.source) continue;
+              if (filter?.entityType && snapshot.entityType !== filter.entityType) continue;
+              if (filter?.archivedAfter && snapshot.archivedAt < filter.archivedAfter) continue;
+              if (filter?.archivedBefore && snapshot.archivedAt > filter.archivedBefore) continue;
 
               entries.push({
                 uri: snapshot.uri,
@@ -390,9 +394,9 @@ export function createGitArchiveStore(config: GitArchiveStoreConfig): GitArchive
                 archivedAt: snapshot.archivedAt,
                 title: snapshot.node.title,
                 status: snapshot.node.status,
-              })
+              });
             } catch {
-              continue
+              continue;
             }
           }
         }
@@ -400,43 +404,43 @@ export function createGitArchiveStore(config: GitArchiveStoreConfig): GitArchive
         // Best-effort listing
       }
 
-      return entries
+      return entries;
     },
 
     async initialize(): Promise<void> {
-      if (initialized) return
+      if (initialized) return;
 
       // If using a separate repo, ensure it exists
       if (config.repoPath && !fs.existsSync(config.repoPath)) {
         if (remote) {
           // Clone from remote
-          const parentDir = path.dirname(config.repoPath)
-          fs.mkdirSync(parentDir, { recursive: true })
+          const parentDir = path.dirname(config.repoPath);
+          fs.mkdirSync(parentDir, { recursive: true });
           execSync(`git clone --bare "${remote}" "${config.repoPath}"`, {
             encoding: 'utf-8',
             timeout: 60000,
             stdio: ['pipe', 'pipe', 'pipe'],
-          })
+          });
         } else {
           // Create new bare repo
-          fs.mkdirSync(config.repoPath, { recursive: true })
+          fs.mkdirSync(config.repoPath, { recursive: true });
           execSync(`git init --bare "${config.repoPath}"`, {
             encoding: 'utf-8',
             timeout: 10000,
             stdio: ['pipe', 'pipe', 'pipe'],
-          })
+          });
         }
       }
 
-      ensureBranch()
-      initialized = true
+      ensureBranch();
+      initialized = true;
     },
 
     async close(): Promise<void> {
       // Push any remaining commits if policy allows
       if (pushPolicy === 'on-session-end' || pushPolicy === 'immediate') {
         try {
-          pushToRemote()
+          pushToRemote();
         } catch {
           // Best-effort on close
         }
@@ -449,7 +453,7 @@ export function createGitArchiveStore(config: GitArchiveStoreConfig): GitArchive
         message: initialized ? 'Git archive store initialized' : 'Not initialized',
         lastArchiveAt,
         lastError,
-      }
+      };
     },
 
     // ========================================================================
@@ -458,109 +462,107 @@ export function createGitArchiveStore(config: GitArchiveStoreConfig): GitArchive
 
     async findByCodeCommit(commitSha: string): Promise<CheckpointSnapshot | null> {
       try {
-        const topLevel = git(repoPath, `ls-tree --name-only ${branch}`, { allowFailure: true })
-        if (!topLevel) return null
+        const topLevel = git(repoPath, `ls-tree --name-only ${branch}`, { allowFailure: true });
+        if (!topLevel) return null;
 
         for (const graphId of topLevel.split('\n').filter(Boolean)) {
           // Find all checkpoint files
-          const cpFiles = listFiles(`${graphId}/sessions/`)
-            .filter(f => f.includes('/checkpoints/') && f.endsWith('.json'))
+          const cpFiles = listFiles(`${graphId}/sessions/`).filter(
+            (f) => f.includes('/checkpoints/') && f.endsWith('.json'),
+          );
 
           for (const cpFile of cpFiles) {
-            const content = readFile(cpFile)
-            if (!content) continue
+            const content = readFile(cpFile);
+            if (!content) continue;
 
             try {
-              const snapshot = JSON.parse(content) as CheckpointSnapshot
+              const snapshot = JSON.parse(content) as CheckpointSnapshot;
               if (snapshot.codeCommit === commitSha) {
-                return snapshot
+                return snapshot;
               }
             } catch {
-              continue
+              continue;
             }
           }
         }
       } catch {
-        return null
+        return null;
       }
 
-      return null
+      return null;
     },
 
     async getSessionAt(
       sessionId: string,
-      options: { afterCheckpoint: string }
+      options: { afterCheckpoint: string },
     ): Promise<SessionSnapshot | null> {
       try {
-        const topLevel = git(repoPath, `ls-tree --name-only ${branch}`, { allowFailure: true })
-        if (!topLevel) return null
+        const topLevel = git(repoPath, `ls-tree --name-only ${branch}`, { allowFailure: true });
+        if (!topLevel) return null;
 
         for (const graphId of topLevel.split('\n').filter(Boolean)) {
-          const sessionPath = `${graphId}/sessions/${sessionId}/session.json`
-          const cpPath = `${graphId}/sessions/${sessionId}/checkpoints/${options.afterCheckpoint}.json`
+          const sessionPath = `${graphId}/sessions/${sessionId}/session.json`;
+          const cpPath = `${graphId}/sessions/${sessionId}/checkpoints/${options.afterCheckpoint}.json`;
 
           // Find the commit that added this checkpoint
-          const logOutput = git(
-            repoPath,
-            `log --format="%H" ${branch} -- "${cpPath}"`,
-            { allowFailure: true }
-          )
-          if (!logOutput) continue
+          const logOutput = git(repoPath, `log --format="%H" ${branch} -- "${cpPath}"`, {
+            allowFailure: true,
+          });
+          if (!logOutput) continue;
 
-          const archiveCommit = logOutput.split('\n')[0]?.trim()
-          if (!archiveCommit) continue
+          const archiveCommit = logOutput.split('\n')[0]?.trim();
+          if (!archiveCommit) continue;
 
           // Read session.json from that specific commit
           try {
-            const sessionContent = git(
-              repoPath,
-              `show ${archiveCommit}:"${sessionPath}"`,
-              { allowFailure: true }
-            )
+            const sessionContent = git(repoPath, `show ${archiveCommit}:"${sessionPath}"`, {
+              allowFailure: true,
+            });
             if (sessionContent) {
-              return JSON.parse(sessionContent) as SessionSnapshot
+              return JSON.parse(sessionContent) as SessionSnapshot;
             }
           } catch {
-            continue
+            continue;
           }
         }
       } catch {
-        return null
+        return null;
       }
 
-      return null
+      return null;
     },
 
     async listGraphs(): Promise<string[]> {
       try {
-        const topLevel = git(repoPath, `ls-tree --name-only ${branch}`, { allowFailure: true })
-        if (!topLevel) return []
-        return topLevel.split('\n').filter(Boolean)
+        const topLevel = git(repoPath, `ls-tree --name-only ${branch}`, { allowFailure: true });
+        if (!topLevel) return [];
+        return topLevel.split('\n').filter(Boolean);
       } catch {
-        return []
+        return [];
       }
     },
 
     async getSessionHistory(
       sessionId: string,
-      graphId: string
+      graphId: string,
     ): Promise<Array<{ commitSha: string; message: string; timestamp: string }>> {
       try {
-        const sessionDir = `${graphId}/sessions/${sessionId}/`
-        const logOutput = git(
-          repoPath,
-          `log --format="%H|%s|%aI" ${branch} -- "${sessionDir}"`,
-          { allowFailure: true }
-        )
-        if (!logOutput) return []
+        const sessionDir = `${graphId}/sessions/${sessionId}/`;
+        const logOutput = git(repoPath, `log --format="%H|%s|%aI" ${branch} -- "${sessionDir}"`, {
+          allowFailure: true,
+        });
+        if (!logOutput) return [];
 
-        return logOutput.split('\n').filter(Boolean).map(line => {
-          const [commitSha, message, timestamp] = line.split('|')
-          return { commitSha, message, timestamp }
-        })
+        return logOutput
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => {
+            const [commitSha, message, timestamp] = line.split('|');
+            return { commitSha, message, timestamp };
+          });
       } catch {
-        return []
+        return [];
       }
     },
-  }
+  };
 }

@@ -5,19 +5,19 @@
  * for safe concurrent access across multiple processes.
  */
 
-import * as path from 'node:path'
-import type { StoredNode, StoredEdge } from '../schema/storage.js'
-import { JSONLPersister } from './jsonl.js'
-import { withFileLock } from './file-lock.js'
+import * as path from 'node:path';
+import type { StoredNode, StoredEdge } from '../schema/storage.js';
+import { JSONLPersister } from './jsonl.js';
+import { withFileLock } from './file-lock.js';
 
 /**
  * Configuration for the locked writer
  */
 export interface LockedWriterConfig {
   /** Path to the .opentasks directory */
-  basePath: string
+  basePath: string;
   /** Lock acquisition timeout (ms) */
-  lockTimeout?: number
+  lockTimeout?: number;
 }
 
 /**
@@ -28,16 +28,16 @@ export interface LockedWriterConfig {
  * (SQLite WAL handles concurrent reads).
  */
 export class LockedJsonlWriter {
-  private readonly persister: JSONLPersister
-  private readonly lockPath: string
-  private readonly lockTimeout: number
+  private readonly persister: JSONLPersister;
+  private readonly lockPath: string;
+  private readonly lockTimeout: number;
 
   constructor(config: LockedWriterConfig) {
     this.persister = new JSONLPersister({
       path: path.join(config.basePath, 'graph.jsonl'),
-    })
-    this.lockPath = path.join(config.basePath, 'write.lock')
-    this.lockTimeout = config.lockTimeout ?? 5000
+    });
+    this.lockPath = path.join(config.basePath, 'write.lock');
+    this.lockTimeout = config.lockTimeout ?? 5000;
   }
 
   /**
@@ -47,25 +47,25 @@ export class LockedJsonlWriter {
     await withFileLock(
       this.lockPath,
       async () => {
-        await this.persister.append(entry)
+        await this.persister.append(entry);
       },
-      this.lockTimeout
-    )
+      this.lockTimeout,
+    );
   }
 
   /**
    * Append multiple entries while holding the write lock
    */
   async appendManyLocked(entries: Array<StoredNode | StoredEdge>): Promise<void> {
-    if (entries.length === 0) return
+    if (entries.length === 0) return;
 
     await withFileLock(
       this.lockPath,
       async () => {
-        await this.persister.appendMany(entries)
+        await this.persister.appendMany(entries);
       },
-      this.lockTimeout
-    )
+      this.lockTimeout,
+    );
   }
 
   /**
@@ -75,24 +75,24 @@ export class LockedJsonlWriter {
     await withFileLock(
       this.lockPath,
       async () => {
-        await this.persister.save(nodes, edges)
+        await this.persister.save(nodes, edges);
       },
-      this.lockTimeout
-    )
+      this.lockTimeout,
+    );
   }
 
   /**
    * Load from JSONL (no lock needed — reads are safe)
    */
   async load() {
-    return this.persister.load()
+    return this.persister.load();
   }
 
   /**
    * Get the underlying persister for non-locked operations
    */
   get underlying(): JSONLPersister {
-    return this.persister
+    return this.persister;
   }
 }
 
@@ -105,16 +105,16 @@ export class LockedJsonlWriter {
  * @returns Deduplicated nodes
  */
 export function deduplicateNodes(nodes: StoredNode[]): StoredNode[] {
-  const map = new Map<string, StoredNode>()
+  const map = new Map<string, StoredNode>();
 
   for (const node of nodes) {
-    const existing = map.get(node.id)
+    const existing = map.get(node.id);
     if (!existing || node.updated_at > existing.updated_at) {
-      map.set(node.id, node)
+      map.set(node.id, node);
     }
   }
 
-  return Array.from(map.values())
+  return Array.from(map.values());
 }
 
 /**
@@ -124,17 +124,17 @@ export function deduplicateNodes(nodes: StoredNode[]): StoredNode[] {
  * @returns Deduplicated edges
  */
 export function deduplicateEdges(edges: StoredEdge[]): StoredEdge[] {
-  const map = new Map<string, StoredEdge>()
+  const map = new Map<string, StoredEdge>();
 
   for (const edge of edges) {
-    const existing = map.get(edge.id)
+    const existing = map.get(edge.id);
     if (!existing) {
-      map.set(edge.id, edge)
+      map.set(edge.id, edge);
     } else if (edge.created_at > existing.created_at) {
       // Both have created_at (required field) — keep the newer one
-      map.set(edge.id, edge)
+      map.set(edge.id, edge);
     }
   }
 
-  return Array.from(map.values())
+  return Array.from(map.values());
 }
