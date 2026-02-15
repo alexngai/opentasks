@@ -44,6 +44,12 @@ import type {
   ProviderNodeChangeEvent,
   ProviderEdgeChangeEvent,
 } from './traits/Watchable.js'
+import type {
+  TaskManageable,
+  TaskAction,
+  TaskCapabilities,
+  ReadyTaskOptions,
+} from './traits/TaskManageable.js'
 
 const execAsync = promisify(execCallback)
 
@@ -206,6 +212,24 @@ function entityTypeFromId(id: string): 'spec' | 'issue' {
 }
 
 /**
+ * Valid task actions for each status state
+ */
+function validActionsForStatus(status: string): TaskAction[] {
+  switch (status) {
+    case 'open':
+      return ['start', 'block', 'close']
+    case 'in_progress':
+      return ['complete', 'block', 'close']
+    case 'blocked':
+      return ['reopen', 'close']
+    case 'closed':
+      return ['reopen']
+    default:
+      return ['start', 'complete', 'block', 'reopen', 'close']
+  }
+}
+
+/**
  * Map Sudocode priority to normalized 0-4 scale
  */
 function mapPriority(priority: number | undefined): number | undefined {
@@ -321,7 +345,7 @@ function entityToProviderNode(entity: SudocodeEntity, workspace: string = '.'): 
  */
 export function createSudocodeProvider(
   config: SudocodeConfig = {}
-): Provider & RelationshipQueryable & Partial<Watchable> {
+): Provider & RelationshipQueryable & Partial<Watchable> & TaskManageable {
   const executable = config.executable ?? 'sudocode'
   const cwd = config.cwd
   const timeout = config.timeout ?? 30000
@@ -1055,6 +1079,196 @@ export function createSudocodeProvider(
 
     get isWatching(): boolean {
       return fileWatcher !== null && watchCallback !== null
+    },
+
+    // =========================================================================
+    // TaskManageable Implementation
+    // =========================================================================
+
+    taskCapabilities: {
+      actions: ['start', 'complete', 'block', 'reopen', 'close'],
+      supportsAssignment: true,
+      supportsReadyQuery: true,
+      statusModel: ['open', 'in_progress', 'blocked', 'closed'],
+    } satisfies TaskCapabilities,
+
+    async transitionTask(
+      id: string,
+      action: TaskAction,
+      context?: ProviderOperationContext
+    ): Promise<ProviderNode> {
+      const parsed = this.parseUri(id)
+      const entityId = parsed?.id ?? id
+
+      // Only issues support task transitions (not specs)
+      if (entityTypeFromId(entityId) !== 'issue') {
+        throw new ProviderErrorClass(
+          'NOT_SUPPORTED',
+          `Cannot transition spec ${entityId} — only issues support task lifecycle`,
+          'sudocode'
+        )
+      }
+
+      const statusMap: Record<TaskAction, string> = {
+        start: 'in_progress',
+        complete: 'closed',
+        block: 'blocked',
+        reopen: 'open',
+        close: 'closed',
+      }
+
+      const targetStatus = statusMap[action]
+      if (!targetStatus) {
+        throw new ProviderErrorClass(
+          'NOT_SUPPORTED',
+          `Unsupported task action: ${action}`,
+          'sudocode'
+        )
+      }
+
+      // Validate transition is allowed from current state
+      const current = await findEntityById(entityId)
+      if (current) {
+        const currentStatus = (current as SudocodeIssue).status ?? 'open'
+        const allowed = validActionsForStatus(currentStatus)
+        if (!allowed.includes(action)) {
+          throw new ProviderErrorClass(
+            'NOT_SUPPORTED',
+            `Cannot ${action} an issue in '${currentStatus}' state. Valid actions: ${allowed.join(', ')}`,
+            'sudocode'
+          )
+        }
+      }
+
+      const output = await execSudocode(['--json', 'issue', 'update', entityId, '-s', targetStatus], context)
+      const entity = parseJson<SudocodeEntity>(output)
+
+      return entityToProviderNode(entity)
+    },
+
+    async readyTasks(
+      options?: ReadyTaskOptions,
+      context?: ProviderOperationContext
+    ): Promise<ProviderNode[]> {
+      const issues = await readEntitiesFromJsonl('issue')
+
+      const readyIssues: ProviderNode[] = []
+
+      for (const entity of issues) {
+        const issue = entity as SudocodeIssue
+        if (isArchived(issue)) continue
+        if (issue.status !== 'open') continue
+
+        // Apply tag filter
+        if (options?.tags) {
+          const issueTags = issue.tags ?? []
+          if (!options.tags.every((t) => issueTags.includes(t))) continue
+        }
+
+        // Apply priority filter
+        if (options?.priority !== undefined) {
+          const p = mapPriority(issue.priority)
+          if (p === undefined || p > options.priority) continue
+        }
+
+        // Apply assignee filter
+        if (options?.assignee && issue.assignee !== options.assignee) continue
+
+        // Check for active blockers via relationships
+        let hasActiveBlocker = false
+        const rels = normalizeRelationships(issue.relationships)
+
+        for (const rel of rels) {
+          if (!rel.from_id || !rel.to_id || !rel.relationship_type) continue
+
+          const relType = rel.relationship_type.toLowerCase()
+          const isBlocking = (relType === 'blocks' && rel.to_id === issue.id)
+            || (relType === 'depends-on' && rel.from_id === issue.id)
+
+          if (!isBlocking) continue
+
+          // Resolve the blocker to check its status
+          const blockerId = relType === 'blocks' ? rel.from_id : rel.to_id
+          try {
+            const blocker = await findEntityById(blockerId)
+            if (blocker && !isArchived(blocker)) {
+              const blockerStatus = (blocker as SudocodeIssue).status
+              if (blockerStatus && blockerStatus !== 'closed') {
+                hasActiveBlocker = true
+                break
+              }
+            }
+          } catch {
+            // If we can't resolve the blocker, assume it's active
+            hasActiveBlocker = true
+            break
+          }
+        }
+
+        if (!hasActiveBlocker) {
+          readyIssues.push(entityToProviderNode(issue))
+        }
+      }
+
+      // Sort by priority (lower number = higher priority)
+      readyIssues.sort((a, b) => {
+        const aPriority = a.priority ?? Infinity
+        const bPriority = b.priority ?? Infinity
+        return aPriority - bPriority
+      })
+
+      // Apply limit
+      if (options?.limit && readyIssues.length > options.limit) {
+        return readyIssues.slice(0, options.limit)
+      }
+
+      return readyIssues
+    },
+
+    async assignTask(
+      id: string,
+      assignee: string,
+      context?: ProviderOperationContext
+    ): Promise<ProviderNode> {
+      const parsed = this.parseUri(id)
+      const entityId = parsed?.id ?? id
+
+      if (entityTypeFromId(entityId) !== 'issue') {
+        throw new ProviderErrorClass(
+          'NOT_SUPPORTED',
+          `Cannot assign spec ${entityId} — only issues support assignment`,
+          'sudocode'
+        )
+      }
+
+      const output = await execSudocode(['--json', 'issue', 'update', entityId, '--assignee', assignee], context)
+      const entity = parseJson<SudocodeEntity>(output)
+
+      return entityToProviderNode(entity)
+    },
+
+    async validActions(
+      id: string,
+      context?: ProviderOperationContext
+    ): Promise<TaskAction[]> {
+      const parsed = this.parseUri(id)
+      const entityId = parsed?.id ?? id
+
+      if (entityTypeFromId(entityId) !== 'issue') {
+        throw new ProviderErrorClass(
+          'NOT_SUPPORTED',
+          `Cannot query actions for spec ${entityId} — only issues support task lifecycle`,
+          'sudocode'
+        )
+      }
+
+      const entity = await findEntityById(entityId)
+      if (!entity) {
+        throw new ProviderErrorClass('NOT_FOUND', `Issue not found: ${entityId}`, 'sudocode')
+      }
+
+      const issue = entity as SudocodeIssue
+      return validActionsForStatus(issue.status ?? 'open')
     },
   }
 }

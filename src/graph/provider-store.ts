@@ -791,6 +791,11 @@ export function createProviderAwareStore(
         }
       }
 
+      // Apply global limit after aggregating across providers
+      if (options?.limit && results.length > options.limit) {
+        return results.slice(0, options.limit)
+      }
+
       return results
     },
 

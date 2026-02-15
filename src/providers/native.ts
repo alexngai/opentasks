@@ -36,6 +36,13 @@ import type {
   WatchGranularity,
   WatchChangeCallback,
 } from './traits/Watchable.js'
+import type {
+  TaskManageable,
+  TaskAction,
+  TaskCapabilities,
+  ReadyTaskOptions,
+} from './traits/TaskManageable.js'
+import { ProviderError as ProviderErrorClass } from './types.js'
 
 // ============================================================================
 // Constants
@@ -87,6 +94,24 @@ function mapProviderType(providerType: string): 'spec' | 'issue' | 'feedback' | 
       return 'feedback'
     default:
       return 'external'
+  }
+}
+
+/**
+ * Valid task actions for each status state
+ */
+function validActionsForStatus(status: string): TaskAction[] {
+  switch (status) {
+    case 'open':
+      return ['start', 'block', 'close']
+    case 'in_progress':
+      return ['complete', 'block', 'close']
+    case 'blocked':
+      return ['reopen', 'close']
+    case 'closed':
+      return ['reopen']
+    default:
+      return ['start', 'complete', 'block', 'reopen', 'close']
   }
 }
 
@@ -168,7 +193,7 @@ export interface NativeProviderConfig {
 export function createNativeProvider(
   store: GraphStore,
   config?: NativeProviderConfig
-): Provider & RelationshipQueryable & Partial<Watchable> {
+): Provider & RelationshipQueryable & Partial<Watchable> & TaskManageable {
   const watchPath = config?.watchPath
   const watchDebounceMs = config?.watchDebounceMs ?? 150
 
@@ -568,6 +593,133 @@ export function createNativeProvider(
 
     get isWatching(): boolean {
       return fsWatcher !== null && watchCallback !== null
+    },
+
+    // =========================================================================
+    // TaskManageable Implementation
+    // =========================================================================
+
+    taskCapabilities: {
+      actions: ['start', 'complete', 'block', 'reopen', 'close'],
+      supportsAssignment: true,
+      supportsReadyQuery: true,
+      statusModel: ['open', 'in_progress', 'blocked', 'closed'],
+    } satisfies TaskCapabilities,
+
+    async transitionTask(
+      id: string,
+      action: TaskAction,
+      _context?: ProviderOperationContext
+    ): Promise<ProviderNode> {
+      const parsed = this.parseUri(id)
+      const nodeId = parsed?.id ?? id
+
+      const node = await store.getNode(nodeId)
+      if (!node) {
+        throw new ProviderErrorClass('NOT_FOUND', `Node not found: ${nodeId}`, 'native')
+      }
+      if (node.type !== 'issue') {
+        throw new ProviderErrorClass(
+          'NOT_SUPPORTED',
+          `Cannot transition ${node.type} node ${nodeId} — only issues support task lifecycle`,
+          'native'
+        )
+      }
+
+      const statusMap: Record<TaskAction, string> = {
+        start: 'in_progress',
+        complete: 'closed',
+        block: 'blocked',
+        reopen: 'open',
+        close: 'closed',
+      }
+
+      const targetStatus = statusMap[action]
+      if (!targetStatus) {
+        throw new ProviderErrorClass(
+          'NOT_SUPPORTED',
+          `Unsupported task action: ${action}`,
+          'native'
+        )
+      }
+
+      // Validate transition is allowed from current state
+      const currentStatus = 'status' in node ? (node.status as string) : 'open'
+      const allowed = validActionsForStatus(currentStatus)
+      if (!allowed.includes(action)) {
+        throw new ProviderErrorClass(
+          'NOT_SUPPORTED',
+          `Cannot ${action} an issue in '${currentStatus}' state. Valid actions: ${allowed.join(', ')}`,
+          'native'
+        )
+      }
+
+      const updates: Record<string, unknown> = { status: targetStatus }
+
+      const updated = await store.updateNode(nodeId, updates)
+      return nodeToProviderNode(updated)
+    },
+
+    async readyTasks(
+      options?: ReadyTaskOptions,
+      _context?: ProviderOperationContext
+    ): Promise<ProviderNode[]> {
+      // Delegate to the existing query engine's ready() method
+      const readyIssues = await store.query.ready({
+        tags: options?.tags,
+        priority: options?.priority,
+        assignee: options?.assignee,
+        limit: options?.limit,
+      })
+
+      return readyIssues.map(nodeToProviderNode)
+    },
+
+    async assignTask(
+      id: string,
+      assignee: string,
+      _context?: ProviderOperationContext
+    ): Promise<ProviderNode> {
+      const parsed = this.parseUri(id)
+      const nodeId = parsed?.id ?? id
+
+      const node = await store.getNode(nodeId)
+      if (!node) {
+        throw new ProviderErrorClass('NOT_FOUND', `Node not found: ${nodeId}`, 'native')
+      }
+      if (node.type !== 'issue') {
+        throw new ProviderErrorClass(
+          'NOT_SUPPORTED',
+          `Cannot assign ${node.type} node ${nodeId} — only issues support assignment`,
+          'native'
+        )
+      }
+
+      const updated = await store.updateNode(nodeId, { assignee })
+      return nodeToProviderNode(updated)
+    },
+
+    async validActions(
+      id: string,
+      _context?: ProviderOperationContext
+    ): Promise<TaskAction[]> {
+      const parsed = this.parseUri(id)
+      const nodeId = parsed?.id ?? id
+
+      const node = await store.getNode(nodeId)
+      if (!node) {
+        throw new ProviderErrorClass('NOT_FOUND', `Node not found: ${nodeId}`, 'native')
+      }
+      if (node.type !== 'issue') {
+        throw new ProviderErrorClass(
+          'NOT_SUPPORTED',
+          `Cannot query actions for ${node.type} node ${nodeId} — only issues support task lifecycle`,
+          'native'
+        )
+      }
+
+      const status = 'status' in node ? (node.status as string) : 'open'
+      return validActionsForStatus(status)
     },
   }
 }
