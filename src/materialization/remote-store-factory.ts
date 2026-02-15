@@ -7,6 +7,7 @@
 
 import type { RemoteStore, RemoteStoreConfig } from './types.js'
 import { createHttpRemoteStore } from './http-remote-store.js'
+import { createGitRemoteStore } from './git-remote-store.js'
 
 /**
  * Registry of remote store factories by type
@@ -14,6 +15,7 @@ import { createHttpRemoteStore } from './http-remote-store.js'
 const storeFactories = new Map<string, (config: RemoteStoreConfig) => RemoteStore>([
   ['http', createHttpRemoteStore],
   ['webhook', createHttpRemoteStore],
+  ['git-remote', createGitRemoteStore],
 ])
 
 /**
