@@ -179,6 +179,24 @@ function mapPriority(priority: number | string | undefined): number | undefined 
 }
 
 /**
+ * Valid task actions for each status state
+ */
+function validActionsForStatus(status: string): TaskAction[] {
+  switch (status) {
+    case 'open':
+      return ['start', 'block', 'close']
+    case 'in_progress':
+      return ['complete', 'block', 'close']
+    case 'blocked':
+      return ['reopen', 'close']
+    case 'closed':
+      return ['reopen']
+    default:
+      return ['start', 'complete', 'block', 'reopen', 'close']
+  }
+}
+
+/**
  * Convert Beads issue to ProviderNode
  */
 function beadsIssueToProviderNode(issue: BeadsIssue, workspace: string = '.'): ProviderNode {
@@ -970,6 +988,20 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
       const parsed = this.parseUri(id)
       const issueId = parsed?.id ?? id
 
+      // Validate transition is allowed from current state
+      const current = await this.get(issueId, context)
+      if (current) {
+        const currentStatus = current.status ?? 'open'
+        const allowed = validActionsForStatus(currentStatus)
+        if (!allowed.includes(action)) {
+          throw new ProviderErrorClass(
+            'NOT_SUPPORTED',
+            `Cannot ${action} an issue in '${currentStatus}' state. Valid actions: ${allowed.join(', ')}`,
+            'beads'
+          )
+        }
+      }
+
       const output = await execBd(['update', issueId, '--status', targetStatus, '--json'], context)
       const issues = parseJson<BeadsIssue[]>(output)
       if (!issues || issues.length === 0) {
@@ -1096,18 +1128,7 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
         throw new ProviderErrorClass('NOT_FOUND', `Issue not found: ${id}`, 'beads')
       }
 
-      switch (node.status) {
-        case 'open':
-          return ['start', 'block', 'close']
-        case 'in_progress':
-          return ['complete', 'block', 'close']
-        case 'blocked':
-          return ['reopen', 'close']
-        case 'closed':
-          return ['reopen']
-        default:
-          return ['start', 'complete', 'block', 'reopen', 'close']
-      }
+      return validActionsForStatus(node.status ?? 'open')
     },
   }
 }

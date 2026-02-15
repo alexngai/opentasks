@@ -98,6 +98,24 @@ function mapProviderType(providerType: string): 'spec' | 'issue' | 'feedback' | 
 }
 
 /**
+ * Valid task actions for each status state
+ */
+function validActionsForStatus(status: string): TaskAction[] {
+  switch (status) {
+    case 'open':
+      return ['start', 'block', 'close']
+    case 'in_progress':
+      return ['complete', 'block', 'close']
+    case 'blocked':
+      return ['reopen', 'close']
+    case 'closed':
+      return ['reopen']
+    default:
+      return ['start', 'complete', 'block', 'reopen', 'close']
+  }
+}
+
+/**
  * Convert a Node to ProviderNode
  */
 function nodeToProviderNode(node: Node): ProviderNode {
@@ -625,6 +643,17 @@ export function createNativeProvider(
         )
       }
 
+      // Validate transition is allowed from current state
+      const currentStatus = 'status' in node ? (node.status as string) : 'open'
+      const allowed = validActionsForStatus(currentStatus)
+      if (!allowed.includes(action)) {
+        throw new ProviderErrorClass(
+          'NOT_SUPPORTED',
+          `Cannot ${action} an issue in '${currentStatus}' state. Valid actions: ${allowed.join(', ')}`,
+          'native'
+        )
+      }
+
       const updates: Record<string, unknown> = { status: targetStatus }
 
       const updated = await store.updateNode(nodeId, updates)
@@ -689,19 +718,8 @@ export function createNativeProvider(
         )
       }
 
-      const status = 'status' in node ? (node.status as string) : undefined
-      switch (status) {
-        case 'open':
-          return ['start', 'block', 'close']
-        case 'in_progress':
-          return ['complete', 'block', 'close']
-        case 'blocked':
-          return ['reopen', 'close']
-        case 'closed':
-          return ['reopen']
-        default:
-          return ['start', 'complete', 'block', 'reopen', 'close']
-      }
+      const status = 'status' in node ? (node.status as string) : 'open'
+      return validActionsForStatus(status)
     },
   }
 }

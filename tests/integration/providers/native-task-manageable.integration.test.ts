@@ -196,6 +196,36 @@ describe.skipIf(!SLOW_TESTS)('NativeProvider TaskManageable Integration', () => 
       ).rejects.toThrow(/only issues support/)
     })
 
+    it('should reject invalid transitions', async () => {
+      const node = await store.createNode({
+        type: 'issue',
+        title: 'Invalid Transition Test',
+        status: 'open',
+      })
+
+      // Can't complete an open issue (must start first)
+      await expect(
+        provider.transitionTask(node.id, 'complete')
+      ).rejects.toThrow(/Cannot complete/)
+
+      // Can't reopen an open issue
+      await expect(
+        provider.transitionTask(node.id, 'reopen')
+      ).rejects.toThrow(/Cannot reopen/)
+    })
+
+    it('should reject starting an already in_progress issue', async () => {
+      const node = await store.createNode({
+        type: 'issue',
+        title: 'Already Started Test',
+        status: 'in_progress',
+      })
+
+      await expect(
+        provider.transitionTask(node.id, 'start')
+      ).rejects.toThrow(/Cannot start/)
+    })
+
     it('should throw for nonexistent node', async () => {
       await expect(
         provider.transitionTask('i-nonexistent99999', 'start')

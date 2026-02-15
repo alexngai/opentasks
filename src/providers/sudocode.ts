@@ -212,6 +212,24 @@ function entityTypeFromId(id: string): 'spec' | 'issue' {
 }
 
 /**
+ * Valid task actions for each status state
+ */
+function validActionsForStatus(status: string): TaskAction[] {
+  switch (status) {
+    case 'open':
+      return ['start', 'block', 'close']
+    case 'in_progress':
+      return ['complete', 'block', 'close']
+    case 'blocked':
+      return ['reopen', 'close']
+    case 'closed':
+      return ['reopen']
+    default:
+      return ['start', 'complete', 'block', 'reopen', 'close']
+  }
+}
+
+/**
  * Map Sudocode priority to normalized 0-4 scale
  */
 function mapPriority(priority: number | undefined): number | undefined {
@@ -1108,6 +1126,20 @@ export function createSudocodeProvider(
         )
       }
 
+      // Validate transition is allowed from current state
+      const current = await findEntityById(entityId)
+      if (current) {
+        const currentStatus = (current as SudocodeIssue).status ?? 'open'
+        const allowed = validActionsForStatus(currentStatus)
+        if (!allowed.includes(action)) {
+          throw new ProviderErrorClass(
+            'NOT_SUPPORTED',
+            `Cannot ${action} an issue in '${currentStatus}' state. Valid actions: ${allowed.join(', ')}`,
+            'sudocode'
+          )
+        }
+      }
+
       const output = await execSudocode(['--json', 'issue', 'update', entityId, '-s', targetStatus], context)
       const entity = parseJson<SudocodeEntity>(output)
 
@@ -1236,18 +1268,7 @@ export function createSudocodeProvider(
       }
 
       const issue = entity as SudocodeIssue
-      switch (issue.status) {
-        case 'open':
-          return ['start', 'block', 'close']
-        case 'in_progress':
-          return ['complete', 'block', 'close']
-        case 'blocked':
-          return ['reopen', 'close']
-        case 'closed':
-          return ['reopen']
-        default:
-          return ['start', 'complete', 'block', 'reopen', 'close']
-      }
+      return validActionsForStatus(issue.status ?? 'open')
     },
   }
 }
