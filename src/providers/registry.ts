@@ -11,9 +11,9 @@ import type { Provider, ProviderRegistry } from './types.js'
 // ============================================================================
 
 /**
- * Pattern for local node IDs (s-, i-, f-, e-, x-)
+ * Pattern for local node IDs (c-, t-, f-, e-, x-)
  */
-const LOCAL_ID_PATTERN = /^[sifex]-[a-z0-9]+$/
+const LOCAL_ID_PATTERN = /^[ctfex]-[a-z0-9]+$/
 
 /**
  * Pattern for URI with scheme
@@ -82,7 +82,7 @@ export function createProviderRegistry(): ProviderRegistry {
         return schemeMap.get(scheme) || null
       }
 
-      // Check if it's a local ID (s-, i-, f-, e-, x-)
+      // Check if it's a local ID (c-, t-, f-, e-, x-)
       if (LOCAL_ID_PATTERN.test(idOrUri)) {
         return providers.get('native') || null
       }

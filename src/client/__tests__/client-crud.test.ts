@@ -67,7 +67,7 @@ describe('OpenTasksClient CRUD', () => {
         return nodes.get(id) || null
       }),
       createNode: vi.fn().mockImplementation(async (input: any) => {
-        const prefix = input.type === 'spec' ? 's' : input.type === 'issue' ? 'i' : input.type === 'external' ? 'e' : 'f'
+        const prefix = input.type === 'context' ? 'c' : input.type === 'task' ? 't' : input.type === 'external' ? 'e' : 'f'
         const node = {
           ...input,
           id: `${prefix}-new${++nodeCounter}`,
@@ -153,14 +153,14 @@ describe('OpenTasksClient CRUD', () => {
       const client = new OpenTasksClient({ socketPath })
 
       const result = await client.createNode({
-        type: 'issue',
-        title: 'New Issue',
+        type: 'task',
+        title: 'New Task',
         status: 'open',
       }) as any
 
-      expect(result.id).toMatch(/^i-/)
-      expect(result.type).toBe('issue')
-      expect(result.title).toBe('New Issue')
+      expect(result.id).toMatch(/^t-/)
+      expect(result.type).toBe('task')
+      expect(result.title).toBe('New Task')
       expect(result.status).toBe('open')
       expect(result.created_at).toBeDefined()
 
@@ -188,17 +188,17 @@ describe('OpenTasksClient CRUD', () => {
       client.disconnect()
     })
 
-    it('should create a spec with content and priority', async () => {
+    it('should create a context with content and priority', async () => {
       const client = new OpenTasksClient({ socketPath })
 
       const result = await client.createNode({
-        type: 'spec',
-        title: 'Auth Spec',
+        type: 'context',
+        title: 'Auth Context',
         content: '## Requirements',
         priority: 1,
       }) as any
 
-      expect(result.id).toMatch(/^s-/)
+      expect(result.id).toMatch(/^c-/)
       expect(result.content).toBe('## Requirements')
       expect(result.priority).toBe(1)
 
@@ -209,7 +209,7 @@ describe('OpenTasksClient CRUD', () => {
       const client = new OpenTasksClient({ socketPath })
 
       await client.createNode({
-        type: 'issue',
+        type: 'task',
         title: 'Test',
         status: 'open',
         tags: ['a', 'b'],
@@ -218,7 +218,7 @@ describe('OpenTasksClient CRUD', () => {
 
       expect(mockStore.createNode).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'issue',
+          type: 'task',
           title: 'Test',
           status: 'open',
           tags: ['a', 'b'],
@@ -238,11 +238,11 @@ describe('OpenTasksClient CRUD', () => {
     it('should get an existing node', async () => {
       const client = new OpenTasksClient({ socketPath })
 
-      const result = await client.getNode('s-test1') as any
+      const result = await client.getNode('c-test1') as any
 
-      expect(result.id).toBe('s-test1')
-      expect(result.type).toBe('spec')
-      expect(result.title).toBe('Test Spec')
+      expect(result.id).toBe('c-test1')
+      expect(result.type).toBe('context')
+      expect(result.title).toBe('Test Context')
 
       client.disconnect()
     })
@@ -260,9 +260,9 @@ describe('OpenTasksClient CRUD', () => {
     it('should call store.getNode with the ID', async () => {
       const client = new OpenTasksClient({ socketPath })
 
-      await client.getNode('i-test1')
+      await client.getNode('t-test1')
 
-      expect(mockStore.getNode).toHaveBeenCalledWith('i-test1')
+      expect(mockStore.getNode).toHaveBeenCalledWith('t-test1')
 
       client.disconnect()
     })
@@ -276,11 +276,11 @@ describe('OpenTasksClient CRUD', () => {
     it('should update and return the node', async () => {
       const client = new OpenTasksClient({ socketPath })
 
-      const result = await client.updateNode('i-test1', {
+      const result = await client.updateNode('t-test1', {
         status: 'closed',
       }) as any
 
-      expect(result.id).toBe('i-test1')
+      expect(result.id).toBe('t-test1')
       expect(result.status).toBe('closed')
 
       client.disconnect()
@@ -289,7 +289,7 @@ describe('OpenTasksClient CRUD', () => {
     it('should update title', async () => {
       const client = new OpenTasksClient({ socketPath })
 
-      const result = await client.updateNode('s-test1', {
+      const result = await client.updateNode('c-test1', {
         title: 'Updated Title',
       }) as any
 
@@ -301,7 +301,7 @@ describe('OpenTasksClient CRUD', () => {
     it('should update archived flag', async () => {
       const client = new OpenTasksClient({ socketPath })
 
-      const result = await client.updateNode('i-test1', {
+      const result = await client.updateNode('t-test1', {
         archived: true,
       }) as any
 
@@ -313,7 +313,7 @@ describe('OpenTasksClient CRUD', () => {
     it('should update metadata', async () => {
       const client = new OpenTasksClient({ socketPath })
 
-      const result = await client.updateNode('i-test1', {
+      const result = await client.updateNode('t-test1', {
         metadata: { reviewed: true },
       }) as any
 
@@ -335,10 +335,10 @@ describe('OpenTasksClient CRUD', () => {
     it('should call store.updateNode with correct params', async () => {
       const client = new OpenTasksClient({ socketPath })
 
-      await client.updateNode('i-test1', { status: 'in_progress' })
+      await client.updateNode('t-test1', { status: 'in_progress' })
 
       expect(mockStore.updateNode).toHaveBeenCalledWith(
-        'i-test1',
+        't-test1',
         expect.objectContaining({ status: 'in_progress' })
       )
 
@@ -354,9 +354,9 @@ describe('OpenTasksClient CRUD', () => {
     it('should soft delete a node', async () => {
       const client = new OpenTasksClient({ socketPath })
 
-      await client.deleteNode('i-test1')
+      await client.deleteNode('t-test1')
 
-      expect(mockStore.deleteNode).toHaveBeenCalledWith('i-test1', undefined)
+      expect(mockStore.deleteNode).toHaveBeenCalledWith('t-test1', undefined)
 
       client.disconnect()
     })
@@ -364,7 +364,7 @@ describe('OpenTasksClient CRUD', () => {
     it('should hard delete with options', async () => {
       const client = new OpenTasksClient({ socketPath })
 
-      await client.deleteNode('i-test1', { hard: true })
+      await client.deleteNode('t-test1', { hard: true })
 
       // The handler passes { id, options } where options is { hard: true }
       expect(mockStore.deleteNode).toHaveBeenCalled()
@@ -375,7 +375,7 @@ describe('OpenTasksClient CRUD', () => {
     it('should return void', async () => {
       const client = new OpenTasksClient({ socketPath })
 
-      const result = await client.deleteNode('i-test1')
+      const result = await client.deleteNode('t-test1')
 
       expect(result).toBeUndefined()
 
@@ -401,10 +401,10 @@ describe('OpenTasksClient CRUD', () => {
     it('should call graph.get by method name', async () => {
       const client = new OpenTasksClient({ socketPath })
 
-      const result = await client.call<any>('graph.get', { id: 's-test1' })
+      const result = await client.call<any>('graph.get', { id: 'c-test1' })
 
-      expect(result.id).toBe('s-test1')
-      expect(result.type).toBe('spec')
+      expect(result.id).toBe('c-test1')
+      expect(result.type).toBe('context')
 
       client.disconnect()
     })
@@ -413,7 +413,7 @@ describe('OpenTasksClient CRUD', () => {
       const client = new OpenTasksClient({ socketPath })
 
       const result = await client.call<any>('graph.create', {
-        type: 'issue',
+        type: 'task',
         title: 'Via call()',
         status: 'open',
       })
@@ -439,7 +439,7 @@ describe('OpenTasksClient CRUD', () => {
 
       expect(client.connected).toBe(false)
 
-      await client.call('graph.get', { id: 's-test1' })
+      await client.call('graph.get', { id: 'c-test1' })
 
       expect(client.connected).toBe(true)
 
@@ -450,11 +450,11 @@ describe('OpenTasksClient CRUD', () => {
       const client = new OpenTasksClient({ socketPath, autoConnect: false })
 
       await expect(
-        client.call('graph.get', { id: 's-test1' })
+        client.call('graph.get', { id: 'c-test1' })
       ).rejects.toThrow(ClientError)
 
       await expect(
-        client.call('graph.get', { id: 's-test1' })
+        client.call('graph.get', { id: 'c-test1' })
       ).rejects.toMatchObject({ code: 'NOT_CONNECTED' })
     })
   })
@@ -468,7 +468,7 @@ describe('OpenTasksClient CRUD', () => {
       const client = new OpenTasksClient({ socketPath })
 
       const created = await client.createNode({
-        type: 'issue',
+        type: 'task',
         title: 'Roundtrip Test',
         status: 'open',
         priority: 2,
@@ -487,7 +487,7 @@ describe('OpenTasksClient CRUD', () => {
       const client = new OpenTasksClient({ socketPath })
 
       const created = await client.createNode({
-        type: 'issue',
+        type: 'task',
         title: 'Lifecycle',
         status: 'open',
       }) as any
@@ -509,7 +509,7 @@ describe('OpenTasksClient CRUD', () => {
       const client = new OpenTasksClient({ socketPath })
 
       const created = await client.createNode({
-        type: 'issue',
+        type: 'task',
         title: 'To Delete',
         status: 'open',
       }) as any
@@ -526,7 +526,7 @@ describe('OpenTasksClient CRUD', () => {
       const client = new OpenTasksClient({ socketPath })
 
       const created = await client.createNode({
-        type: 'issue',
+        type: 'task',
         title: 'To Hard Delete',
         status: 'open',
       }) as any

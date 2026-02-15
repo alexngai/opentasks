@@ -45,7 +45,7 @@ export interface ToolsMethodsOptions {
 /**
  * Check if an ID is a local node ID (not a provider URI)
  */
-const LOCAL_ID_PATTERN = /^[sifex]-[a-z0-9]+$/
+const LOCAL_ID_PATTERN = /^[ctfex]-[a-z0-9]+$/
 
 function isLocalId(id: string): boolean {
   return LOCAL_ID_PATTERN.test(id)

@@ -175,7 +175,7 @@ export function createLocationProvider(
     async ready(): Promise<ProviderNode[]> {
       try {
         const database = getDb()
-        const rows = database.prepare('SELECT * FROM ready_issues').all() as Record<string, unknown>[]
+        const rows = database.prepare('SELECT * FROM ready_tasks').all() as Record<string, unknown>[]
         return rows.map((r) => toProviderNode(r, connection))
       } catch {
         return []

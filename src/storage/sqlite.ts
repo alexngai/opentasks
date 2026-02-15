@@ -459,7 +459,7 @@ export class SQLitePersister implements Storage {
   // === Queries ===
 
   async getReady(): Promise<StoredNode[]> {
-    const stmt = this.db.prepare('SELECT * FROM ready_issues')
+    const stmt = this.db.prepare('SELECT * FROM ready_tasks')
     const rows = stmt.all() as Record<string, unknown>[]
     return rows.map(rowToNode)
   }

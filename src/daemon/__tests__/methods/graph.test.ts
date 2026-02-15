@@ -306,7 +306,7 @@ describe('Graph Methods', () => {
     it('should mark deletion and schedule flush', async () => {
       await client.request('graph.delete', { id: 'c-test1' })
 
-      expect(flushManager.getDirtyNodes()).toContain('__deleted__:s-test1')
+      expect(flushManager.getDirtyNodes()).toContain('__deleted__:c-test1')
     })
   })
 

@@ -31,6 +31,105 @@ import type { FileWatcher } from '../watcher.js'
 import type { Node, Edge } from '../../schema/index.js'
 
 // ============================================================================
+// Module Mocks
+// ============================================================================
+
+// Mock createLocationState so multi-location daemon can initialize without
+// real SQLite/JSONL infrastructure. The real createSingleLocationResolver,
+// createMultiLocationResolver, and destroyLocationState are preserved.
+vi.mock('../location-state.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../location-state.js')>()
+  const { existsSync } = await import('node:fs')
+  return {
+    ...actual,
+    createLocationState: vi.fn().mockImplementation(
+      async (opentasksPath: string, hash: string, primary: boolean = false) => {
+        // Verify the path actually exists (so "unreachable" tests still fail correctly)
+        if (!existsSync(opentasksPath)) {
+          throw new Error(`Location path does not exist: ${opentasksPath}`)
+        }
+        const mockStore = {
+          initialize: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined),
+          flush: vi.fn().mockResolvedValue(undefined),
+          createNode: vi.fn().mockImplementation(async (input: Record<string, unknown>) => ({
+            id: `t-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+            uuid: '550e8400-e29b-41d4-a716-446655440000',
+            type: input.type || 'task',
+            title: input.title,
+            status: input.status || 'open',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            ...input,
+          })),
+          getNode: vi.fn().mockResolvedValue(null),
+          updateNode: vi.fn().mockResolvedValue(null),
+          deleteNode: vi.fn().mockResolvedValue(undefined),
+          restoreNode: vi.fn(),
+          createEdge: vi.fn().mockResolvedValue({
+            id: `x-${Date.now().toString(36)}`,
+            uuid: '550e8400-e29b-41d4-a716-446655440001',
+            from_id: '', to_id: '', type: 'blocks',
+            created_at: new Date().toISOString(),
+          }),
+          getEdge: vi.fn().mockResolvedValue(null),
+          deleteEdge: vi.fn().mockResolvedValue(undefined),
+          addTags: vi.fn(),
+          removeTags: vi.fn(),
+          setTags: vi.fn(),
+          query: {
+            nodes: vi.fn().mockResolvedValue([]),
+            edges: vi.fn().mockResolvedValue([]),
+            edgesFrom: vi.fn().mockResolvedValue([]),
+            edgesTo: vi.fn().mockResolvedValue([]),
+            edgesFor: vi.fn().mockResolvedValue([]),
+            blockers: vi.fn().mockResolvedValue([]),
+            blocking: vi.fn().mockResolvedValue([]),
+            isBlocking: vi.fn().mockResolvedValue(false),
+            tasks: vi.fn().mockResolvedValue([]),
+            context: vi.fn().mockResolvedValue([]),
+            children: vi.fn().mockResolvedValue([]),
+            parent: vi.fn().mockResolvedValue(null),
+            ancestors: vi.fn().mockResolvedValue([]),
+            descendants: vi.fn().mockResolvedValue([]),
+            ready: vi.fn().mockResolvedValue([]),
+            feedback: vi.fn().mockResolvedValue([]),
+            unresolvedFeedback: vi.fn().mockResolvedValue([]),
+          },
+          transaction: vi.fn(),
+        }
+        return {
+          hash,
+          opentasksPath,
+          store: mockStore,
+          flushManager: {
+            markDirty: vi.fn(),
+            schedule: vi.fn(),
+            flush: vi.fn().mockResolvedValue(undefined),
+            pause: vi.fn(),
+            resume: vi.fn(),
+            finalFlush: vi.fn().mockResolvedValue(undefined),
+            hasPendingChanges: vi.fn().mockReturnValue(false),
+            getDirtyNodes: vi.fn().mockReturnValue([]),
+            paused: false,
+          },
+          watcher: {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined),
+            pause: vi.fn(),
+            resume: vi.fn(),
+            onchange: vi.fn(),
+            paused: false,
+          },
+          primary,
+          healthy: true,
+        }
+      }
+    ),
+  }
+})
+
+// ============================================================================
 // Mock Helpers
 // ============================================================================
 

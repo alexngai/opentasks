@@ -604,7 +604,7 @@ const blockers = await queryEngine.blockers('t-abc123')
 ```
 
 **How resolution works:**
-1. Local IDs (matching `/^[sifex]-[a-z0-9]+$/`) use storage directly
+1. Local IDs (matching `/^[ctfex]-[a-z0-9]+$/`) use storage directly
 2. External URIs (e.g., `beads://./bd-123`) go through the resolver
 
 ### HydratingFederatedGraph

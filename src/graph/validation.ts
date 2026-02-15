@@ -339,7 +339,7 @@ async function validateEdge(
 
   // Verify nodes exist (for local IDs)
   const isLocalId = (id: string) =>
-    id.match(/^[sifex]-[a-z0-9]+$/) && !id.includes('://')
+    id.match(/^[ctfex]-[a-z0-9]+$/) && !id.includes('://')
 
   if (isLocalId(input.from_id)) {
     const fromNode = await getNode(input.from_id)

@@ -93,7 +93,7 @@ describe('ProviderRegistry', () => {
       registry.register(nativeProvider)
       registry.unregister('native')
 
-      expect(registry.resolveProvider('native://s-abc1')).toBeNull()
+      expect(registry.resolveProvider('native://c-abc1')).toBeNull()
     })
   })
 
@@ -117,8 +117,8 @@ describe('ProviderRegistry', () => {
     })
 
     it('should resolve local IDs to native provider', () => {
-      expect(registry.resolveProvider('s-abc1')).toBe(nativeProvider)
-      expect(registry.resolveProvider('i-xyz2')).toBe(nativeProvider)
+      expect(registry.resolveProvider('c-abc1')).toBe(nativeProvider)
+      expect(registry.resolveProvider('t-xyz2')).toBe(nativeProvider)
       expect(registry.resolveProvider('f-def3')).toBe(nativeProvider)
       expect(registry.resolveProvider('e-ghi4')).toBe(nativeProvider)
       expect(registry.resolveProvider('x-jkl5')).toBe(nativeProvider)
@@ -143,8 +143,8 @@ describe('ProviderRegistry', () => {
     })
 
     it('should resolve native:// URIs to native provider', () => {
-      expect(registry.resolveProvider('native://s-abc1')).toBe(nativeProvider)
-      expect(registry.resolveProvider('opentasks://i-xyz2')).toBe(nativeProvider)
+      expect(registry.resolveProvider('native://c-abc1')).toBe(nativeProvider)
+      expect(registry.resolveProvider('opentasks://t-xyz2')).toBe(nativeProvider)
     })
 
     it('should return null for unknown schemes', () => {
@@ -164,7 +164,7 @@ describe('ProviderRegistry', () => {
 
     it('should return null when native provider not registered', () => {
       const emptyRegistry = createProviderRegistry()
-      expect(emptyRegistry.resolveProvider('s-abc1')).toBeNull()
+      expect(emptyRegistry.resolveProvider('c-abc1')).toBeNull()
     })
   })
 
@@ -191,7 +191,7 @@ describe('ProviderRegistry', () => {
     })
 
     it('should return true for resolvable IDs', () => {
-      expect(registry.canResolve('s-abc1')).toBe(true)
+      expect(registry.canResolve('c-abc1')).toBe(true)
       expect(registry.canResolve('beads://./bd-123')).toBe(true)
     })
 

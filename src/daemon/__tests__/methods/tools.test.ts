@@ -30,11 +30,11 @@ describe('Tools Methods', () => {
   let edgeCounter: number
 
   // Sample nodes for testing
-  const sampleSpec = {
-    id: 's-test1',
+  const sampleContext = {
+    id: 'c-test1',
     uuid: 'uuid-1',
-    type: 'spec' as const,
-    title: 'Test Spec',
+    type: 'context' as const,
+    title: 'Test Context',
     content: 'Test content',
     priority: 2,
     archived: false,
@@ -42,11 +42,11 @@ describe('Tools Methods', () => {
     updated_at: '2024-01-01T00:00:00Z',
   }
 
-  const sampleIssue = {
-    id: 'i-test1',
+  const sampleTask = {
+    id: 't-test1',
     uuid: 'uuid-2',
-    type: 'issue' as const,
-    title: 'Test Issue',
+    type: 'task' as const,
+    title: 'Test Task',
     status: 'open' as const,
     priority: 1,
     archived: false,
@@ -59,7 +59,7 @@ describe('Tools Methods', () => {
     uuid: 'uuid-3',
     type: 'feedback' as const,
     title: 'Test Feedback',
-    targetId: 's-test1',
+    targetId: 'c-test1',
     feedback_type: 'comment' as const,
     resolved: false,
     dismissed: false,
@@ -73,8 +73,8 @@ describe('Tools Methods', () => {
   const sampleEdge = {
     id: 'x-test1',
     uuid: 'uuid-4',
-    fromId: 'i-test1',
-    toId: 's-test1',
+    fromId: 't-test1',
+    toId: 'c-test1',
     type: 'implements' as const,
     created_at: '2024-01-01T00:00:00Z',
   }
@@ -88,8 +88,8 @@ describe('Tools Methods', () => {
 
     // Create mock store
     const nodes = new Map<string, any>()
-    nodes.set(sampleSpec.id, { ...sampleSpec })
-    nodes.set(sampleIssue.id, { ...sampleIssue })
+    nodes.set(sampleContext.id, { ...sampleContext })
+    nodes.set(sampleTask.id, { ...sampleTask })
     nodes.set(sampleFeedback.id, { ...sampleFeedback })
 
     const edges = new Map<string, any>()
@@ -134,11 +134,11 @@ describe('Tools Methods', () => {
         return edges.get(id) || null
       }),
       query: {
-        nodes: vi.fn().mockResolvedValue([sampleSpec, sampleIssue]),
+        nodes: vi.fn().mockResolvedValue([sampleContext, sampleTask]),
         edges: vi.fn().mockResolvedValue([sampleEdge]),
-        ready: vi.fn().mockResolvedValue([sampleIssue]),
-        blockers: vi.fn().mockResolvedValue([sampleSpec]),
-        blocking: vi.fn().mockResolvedValue([sampleIssue]),
+        ready: vi.fn().mockResolvedValue([sampleTask]),
+        blockers: vi.fn().mockResolvedValue([sampleContext]),
+        blocking: vi.fn().mockResolvedValue([sampleTask]),
         feedback: vi.fn().mockResolvedValue([sampleFeedback]),
       },
     } as unknown as GraphStore
@@ -202,8 +202,8 @@ describe('Tools Methods', () => {
   describe('tools.link', () => {
     it('should create an edge between nodes', async () => {
       const result = await client.request<LinkResult>('tools.link', {
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'implements',
       })
 
@@ -214,20 +214,20 @@ describe('Tools Methods', () => {
 
     it('should mark both nodes dirty on success', async () => {
       await client.request<LinkResult>('tools.link', {
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'implements',
       })
 
       const dirty = flushManager.getDirtyNodes()
-      expect(dirty).toContain('i-test1')
-      expect(dirty).toContain('s-test1')
+      expect(dirty).toContain('t-test1')
+      expect(dirty).toContain('c-test1')
     })
 
     it('should remove an edge when remove=true', async () => {
       const result = await client.request<LinkResult>('tools.link', {
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'implements',
         remove: true,
       })
@@ -238,7 +238,7 @@ describe('Tools Methods', () => {
     it('should return error when from_id is missing', async () => {
       const result = await client.request<LinkResult>('tools.link', {
         fromId: '',
-        toId: 's-test1',
+        toId: 'c-test1',
         type: 'implements',
       })
 
@@ -250,20 +250,20 @@ describe('Tools Methods', () => {
       // Use a provider URI format
       await client.request<LinkResult>('tools.link', {
         fromId: 'github://owner/repo/issues/123',
-        toId: 's-test1',
+        toId: 'c-test1',
         type: 'references',
       })
 
       const dirty = flushManager.getDirtyNodes()
       expect(dirty).not.toContain('github://owner/repo/issues/123')
-      expect(dirty).toContain('s-test1')
+      expect(dirty).toContain('c-test1')
     })
   })
 
   describe('tools.query', () => {
     it('should query nodes', async () => {
       const result = await client.request<QueryResult>('tools.query', {
-        nodes: { type: 'spec' },
+        nodes: { type: 'context' },
       })
 
       expect(result.items).toBeDefined()
@@ -272,14 +272,14 @@ describe('Tools Methods', () => {
 
     it('should query edges', async () => {
       const result = await client.request<QueryResult>('tools.query', {
-        edges: { fromId: 'i-test1' },
+        edges: { fromId: 't-test1' },
       })
 
       expect(result.items).toBeDefined()
       expect(mockStore.query.edges).toHaveBeenCalled()
     })
 
-    it('should query ready issues', async () => {
+    it('should query ready tasks', async () => {
       const result = await client.request<QueryResult>('tools.query', {
         ready: {},
       })
@@ -290,7 +290,7 @@ describe('Tools Methods', () => {
 
     it('should query blockers', async () => {
       const result = await client.request<QueryResult>('tools.query', {
-        blockers: { nodeId: 'i-test1' },
+        blockers: { nodeId: 't-test1' },
       })
 
       expect(result.items).toBeDefined()
@@ -299,7 +299,7 @@ describe('Tools Methods', () => {
 
     it('should query feedback', async () => {
       const result = await client.request<QueryResult>('tools.query', {
-        feedback: { nodeId: 's-test1' },
+        feedback: { nodeId: 'c-test1' },
       })
 
       expect(result.items).toBeDefined()
@@ -357,7 +357,7 @@ describe('Tools Methods', () => {
   describe('tools.annotate', () => {
     it('should create feedback', async () => {
       const result = await client.request<AnnotateResult>('tools.annotate', {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         create: { content: 'New feedback content' },
       })
 
@@ -367,25 +367,25 @@ describe('Tools Methods', () => {
         expect.objectContaining({
           type: 'feedback',
           content: 'New feedback content',
-          target_id: 's-test1',
+          target_id: 'c-test1',
         })
       )
     })
 
     it('should mark target and feedback nodes dirty', async () => {
       const result = await client.request<AnnotateResult>('tools.annotate', {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         create: { content: 'New feedback' },
       })
 
       const dirty = flushManager.getDirtyNodes()
-      expect(dirty).toContain('s-test1')
+      expect(dirty).toContain('c-test1')
       expect(dirty).toContain(result.feedbackId)
     })
 
     it('should resolve feedback', async () => {
       const result = await client.request<AnnotateResult>('tools.annotate', {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         resolve: 'f-test1',
       })
 
@@ -396,7 +396,7 @@ describe('Tools Methods', () => {
 
     it('should dismiss feedback', async () => {
       const result = await client.request<AnnotateResult>('tools.annotate', {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         dismiss: 'f-test1',
       })
 
@@ -406,7 +406,7 @@ describe('Tools Methods', () => {
 
     it('should return error when target not found', async () => {
       const result = await client.request<AnnotateResult>('tools.annotate', {
-        targetId: 's-nonexistent',
+        targetId: 'c-nonexistent',
         create: { content: 'Test' },
       })
 
@@ -416,7 +416,7 @@ describe('Tools Methods', () => {
 
     it('should return error when no operation specified', async () => {
       const result = await client.request<AnnotateResult>('tools.annotate', {
-        targetId: 's-test1',
+        targetId: 'c-test1',
       })
 
       expect(result.success).toBe(false)
@@ -425,14 +425,14 @@ describe('Tools Methods', () => {
 
     it('should create edge when fromId provided', async () => {
       await client.request<AnnotateResult>('tools.annotate', {
-        targetId: 's-test1',
-        fromId: 'i-test1',
-        create: { content: 'Feedback from issue' },
+        targetId: 'c-test1',
+        fromId: 't-test1',
+        create: { content: 'Feedback from task' },
       })
 
       expect(mockStore.createEdge).toHaveBeenCalledWith(
         expect.objectContaining({
-          from_id: 'i-test1',
+          from_id: 't-test1',
           type: 'discovered-from',
         })
       )
@@ -440,13 +440,13 @@ describe('Tools Methods', () => {
 
     it('should mark fromId dirty when provided', async () => {
       await client.request<AnnotateResult>('tools.annotate', {
-        targetId: 's-test1',
-        fromId: 'i-test1',
-        create: { content: 'Feedback from issue' },
+        targetId: 'c-test1',
+        fromId: 't-test1',
+        create: { content: 'Feedback from task' },
       })
 
       const dirty = flushManager.getDirtyNodes()
-      expect(dirty).toContain('i-test1')
+      expect(dirty).toContain('t-test1')
     })
   })
 

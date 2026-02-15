@@ -255,7 +255,7 @@ describe('registerGraphMethods', () => {
       await server.call('graph.delete', { id: 't-1' })
 
       expect(store.deleteNode).toHaveBeenCalledWith('t-1', undefined)
-      expect(flushManager.markDirty).toHaveBeenCalledWith('__deleted__:i-1')
+      expect(flushManager.markDirty).toHaveBeenCalledWith('__deleted__:t-1')
       expect(flushManager.schedule).toHaveBeenCalled()
     })
 

@@ -334,21 +334,21 @@ describe('registerToolsMethods', () => {
     it('should mark fromId dirty when provided', async () => {
       // Set up nodes
       store._nodes.set('c-1', { id: 'c-1', type: 'context', title: 'Test Context' })
-      store._nodes.set('i-1', { id: 'i-1', type: 'issue', title: 'Test Issue' })
+      store._nodes.set('t-1', { id: 't-1', type: 'task', title: 'Test Task' })
       store.getNode = vi.fn((id: string) => Promise.resolve(store._nodes.get(id) ?? null)) as any
 
       const result = await server.call('tools.annotate', {
         targetId: 'c-1',
-        fromId: 'i-1',
+        fromId: 't-1',
         create: {
-          content: 'Feedback from issue',
+          content: 'Feedback from task',
           type: 'suggestion',
         },
       })
 
       expect(result).toHaveProperty('success', true)
       expect(flushManager.markDirty).toHaveBeenCalledWith('c-1')
-      expect(flushManager.markDirty).toHaveBeenCalledWith('i-1')
+      expect(flushManager.markDirty).toHaveBeenCalledWith('t-1')
     })
   })
 })

@@ -49,9 +49,9 @@ import { ProviderError as ProviderErrorClass } from './types.js'
 // ============================================================================
 
 /**
- * Pattern for local node IDs (s-, i-, f-, e-, x-)
+ * Pattern for local node IDs (c-, t-, f-, e-, x-)
  */
-const LOCAL_ID_PATTERN = /^[sifex]-[a-z0-9]+$/
+const LOCAL_ID_PATTERN = /^[ctfex]-[a-z0-9]+$/
 
 /**
  * Pattern for native:// or opentasks:// URIs
@@ -350,7 +350,7 @@ export function createNativeProvider(
         }
       }
 
-      // Check for local ID (s-abc1, i-xyz2, etc.)
+      // Check for local ID (c-abc1, t-xyz2, etc.)
       if (LOCAL_ID_PATTERN.test(uri)) {
         return {
           scheme: 'native',

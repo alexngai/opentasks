@@ -238,7 +238,7 @@ describe('NativeProvider', () => {
       expect(mockStore.getNode).toHaveBeenCalledWith('c-abc1')
       expect(result).toMatchObject({
         id: 'c-abc1',
-        type: 'context',
+        type: 'spec',
         title: 'Test Context',
         content: 'Context content',
         priority: 1,
@@ -284,9 +284,9 @@ describe('NativeProvider', () => {
     it('should list nodes with type filter', async () => {
       vi.mocked(mockStore.query.nodes).mockResolvedValue([mockContext])
 
-      const result = await provider.list({ type: 'context' })
+      const result = await provider.list({ type: 'spec' })
 
-      expect(mockStore.query.nodes).toHaveBeenCalledWith({ type: 'context' })
+      expect(mockStore.query.nodes).toHaveBeenCalledWith({ type: 'spec' })
       expect(result).toHaveLength(1)
     })
 
@@ -316,7 +316,7 @@ describe('NativeProvider', () => {
       vi.mocked(mockStore.createNode).mockResolvedValue(mockContext)
 
       const result = await provider.create({
-        type: 'context',
+        type: 'spec',
         title: 'New Context',
         content: 'New context content',
       })
@@ -329,14 +329,14 @@ describe('NativeProvider', () => {
         priority: undefined,
         metadata: undefined,
       })
-      expect(result.type).toBe('context')
+      expect(result.type).toBe('spec')
     })
 
     it('should create a task', async () => {
       vi.mocked(mockStore.createNode).mockResolvedValue(mockTask)
 
       const result = await provider.create({
-        type: 'task',
+        type: 'issue',
         title: 'New Task',
         status: 'open',
         priority: 2,
@@ -350,15 +350,15 @@ describe('NativeProvider', () => {
         priority: 2,
         metadata: undefined,
       })
-      expect(result.type).toBe('task')
+      expect(result.type).toBe('issue')
       expect(result.status).toBe('open')
     })
 
-    it('should map task type to task', async () => {
+    it('should map issue type to task', async () => {
       vi.mocked(mockStore.createNode).mockResolvedValue(mockTask)
 
       await provider.create({
-        type: 'task',
+        type: 'issue',
         title: 'New Task',
       })
 
@@ -458,12 +458,12 @@ describe('NativeProvider', () => {
     it('should search with type filter', async () => {
       vi.mocked(mockStore.query.nodes).mockResolvedValue([mockTask])
 
-      await provider.search!('test', { type: 'task' })
+      await provider.search!('test', { type: 'issue' })
 
       expect(mockStore.query.nodes).toHaveBeenCalledWith({
         search: 'test',
         limit: undefined,
-        type: 'task',
+        type: 'issue',
       })
     })
   })
@@ -477,7 +477,7 @@ describe('NativeProvider', () => {
       expect(result).toMatchObject({
         id: 'c-abc1',
         uri: 'native://c-abc1',
-        type: 'context',
+        type: 'spec',
         title: 'Test Context',
         content: 'Context content',
         priority: 1,
@@ -497,7 +497,7 @@ describe('NativeProvider', () => {
       expect(result).toMatchObject({
         id: 't-xyz2',
         uri: 'native://t-xyz2',
-        type: 'task',
+        type: 'issue',
         title: 'Test Task',
         status: 'open',
         priority: 2,
