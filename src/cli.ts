@@ -62,6 +62,14 @@ Setup commands:
   discover [options]            Find nearby opentasks locations
   merge-driver <O> <A> <B>     JSONL merge driver (for git)
 
+Archive commands (require running daemon with archival enabled):
+  archive list [--graph <id>] [--source <src>]   List archived sessions
+  archive restore <uri>                          Restore a node from archive
+  archive restore --all                          Restore all missing nodes
+  archive push                                   Push archive to remote
+  archive status                                 Show archive status
+  archive node <uri>                             Manually archive a node
+
 All tool commands output JSON to stdout.
 `);
 }
@@ -626,6 +634,92 @@ export async function cmdDelete(args: string[]): Promise<void> {
   })
 }
 
+// ============================================================================
+// Archive Commands
+// ============================================================================
+
+export async function cmdArchive(args: string[]): Promise<void> {
+  const subCmd = args[0]
+  const client = new OpenTasksClient()
+
+  switch (subCmd) {
+    case 'list': {
+      const graphId = getFlag(args.slice(1), '--graph')
+      const source = getFlag(args.slice(1), '--source')
+      const filter: Record<string, unknown> = {}
+      if (graphId) filter.graphId = graphId
+      if (source) filter.source = source
+
+      await runToolCommand(async () => {
+        const result = await client.call('archive.list', { filter })
+        client.disconnect()
+        return result
+      })
+      break
+    }
+
+    case 'restore': {
+      if (hasFlag(args, '--all')) {
+        await runToolCommand(async () => {
+          const result = await client.call('archive.rematerializeAll', {})
+          client.disconnect()
+          return result
+        })
+      } else {
+        const uri = args[1]
+        if (!uri || uri.startsWith('--')) {
+          console.error('Usage: opentasks archive restore <uri>')
+          console.error('       opentasks archive restore --all')
+          process.exit(1)
+        }
+        await runToolCommand(async () => {
+          const result = await client.call('archive.rematerialize', { uri })
+          client.disconnect()
+          return result
+        })
+      }
+      break
+    }
+
+    case 'push': {
+      await runToolCommand(async () => {
+        const result = await client.call('archive.push', {})
+        client.disconnect()
+        return result
+      })
+      break
+    }
+
+    case 'status': {
+      await runToolCommand(async () => {
+        const result = await client.call('archive.status', {})
+        client.disconnect()
+        return result
+      })
+      break
+    }
+
+    case 'node': {
+      const uri = args[1]
+      if (!uri) {
+        console.error('Usage: opentasks archive node <uri>')
+        process.exit(1)
+      }
+      await runToolCommand(async () => {
+        const result = await client.call('archive.node', { uri })
+        client.disconnect()
+        return result
+      })
+      break
+    }
+
+    default:
+      console.error(`Unknown archive command: ${subCmd}`)
+      console.error('Available: list, restore, push, status, node')
+      process.exit(1)
+  }
+}
+
 function padRight(str: string, len: number): string {
   return str.length >= len ? str + '  ' : str + ' '.repeat(len - str.length)
 }
@@ -700,6 +794,9 @@ async function main() {
             process.exit(1)
         }
       }
+      break;
+    case 'archive':
+      await cmdArchive(args.slice(1));
       break;
     case 'discover':
       cmdDiscover(args.slice(1));

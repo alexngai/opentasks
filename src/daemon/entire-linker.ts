@@ -9,6 +9,7 @@
 import type { GraphStore } from '../graph/store.js'
 import type { DaemonFlushManager } from './flush.js'
 import type { EntireSessionEvent, EntireSessionState } from './entire-watcher.js'
+import type { MaterializationArchiver } from '../materialization/types.js'
 
 // ============================================================================
 // Types
@@ -58,6 +59,9 @@ export interface EntireAutoLinkerConfig {
 
   /** Minimum confidence for auto-linking (default: 'medium') */
   minConfidence?: CorrelationConfidence
+
+  /** Optional archiver for durable session snapshots */
+  archiver?: MaterializationArchiver
 }
 
 /**
@@ -99,7 +103,7 @@ function meetsConfidenceThreshold(
  * Create an Entire auto-linker
  */
 export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAutoLinker {
-  const { store, flushManager } = config
+  const { store, flushManager, archiver } = config
   const minConfidence = config.minConfidence ?? 'medium'
 
   // Track which sessions have been linked to avoid duplicates
@@ -410,6 +414,12 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
             strategy: matchedForResult[0]?.matchReason ?? 'none',
             timestamp: new Date().toISOString(),
           })
+
+          // Archive if configured
+          if (archiver) {
+            const sessionUri = `entire://session/${session.id}`
+            void archiver.onSessionEvent('started', sessionUri, store).catch(() => {})
+          }
           break
         }
 
@@ -459,6 +469,12 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
             existing.edgesCreated.push(...edgesCreated)
             existing.nodesCreated.push(checkpointNodeId)
           }
+
+          // Archive checkpoint if configured
+          if (archiver) {
+            const sessionUri = `entire://session/${session.id}`
+            void archiver.onSessionEvent('checkpoint', sessionUri, store).catch(() => {})
+          }
           break
         }
 
@@ -478,6 +494,12 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
               })
               flushManager.markDirty(nodes[0].id)
               flushManager.schedule()
+
+              // Archive final session state if configured
+              if (archiver) {
+                const sessionUri = `entire://session/${sessionId}`
+                void archiver.onSessionEvent('ended', sessionUri, store).catch(() => {})
+              }
             }
           } catch {
             // Best-effort update

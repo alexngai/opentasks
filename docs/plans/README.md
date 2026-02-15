@@ -27,6 +27,7 @@ CORE-ARCHITECTURE.md (s-9jju)
 | [PHASE-2.md](./PHASE-2.md) | v2: Cross-location, daemon | Planned |
 | [PHASE-3.md](./PHASE-3.md) | v3: Discovery, expansion | Planned |
 | [ENTIRE-INTEGRATION.md](./ENTIRE-INTEGRATION.md) | Entire intent-tracking provider + auto-linker | Planned |
+| [MATERIALIZATION-STORES.md](./MATERIALIZATION-STORES.md) | Git-native archival & rematerialization stores | Planned |
 
 ## Key Design Decisions
 

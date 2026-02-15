@@ -21,6 +21,12 @@ import {
   type EntireAutoLinker,
 } from "./entire-linker.js";
 import { DaemonError, type LocationInfo } from "./types.js";
+import type { MaterializationArchiver } from "../materialization/types.js";
+import { createGitArchiveStore } from "../materialization/git-archive-store.js";
+import { createMaterializationArchiver } from "../materialization/archiver.js";
+import { resolveGraphId } from "../materialization/graph-id.js";
+import { createRemoteStoresFromConfig } from "../materialization/remote-store-factory.js";
+import { loadConfig } from "../config/index.js";
 
 // ============================================================================
 // Types
@@ -59,6 +65,9 @@ export interface LocationState {
 
   /** Entire auto-linker (if enabled) */
   entireLinker?: EntireAutoLinker;
+
+  /** Materialization archiver (if enabled) */
+  archiver?: MaterializationArchiver;
 }
 
 /**
@@ -159,6 +168,56 @@ export async function createLocationState(
     // External changes detected. Full reload deferred.
   });
 
+  // Initialize materialization archiver (if configured)
+  let archiver: MaterializationArchiver | undefined;
+
+  try {
+    const config = await loadConfig(opentasksPath);
+    if (config.materialization?.git?.enabled) {
+      const graphId = resolveGraphId({
+        explicitGraphId: config.materialization.graphId,
+        locationName: config.location?.name,
+        opentasksPath,
+      });
+
+      const gitStore = createGitArchiveStore({
+        branch: config.materialization.git.branch,
+        remote: config.materialization.git.remote,
+        repoPath: config.materialization.git.repoPath,
+        pushPolicy: config.materialization.git.pushPolicy,
+        sourceRepoPath: opentasksPath,
+      });
+
+      const remoteStores = createRemoteStoresFromConfig(
+        (config.materialization.remoteStores ?? []).map((rs: Record<string, unknown>) => ({
+          type: rs.type as string,
+          name: rs.name as string,
+          enabled: rs.enabled as boolean ?? true,
+          config: (rs.config as Record<string, unknown>) ?? {},
+          events: (rs.events as string[]) ?? [],
+        }))
+      );
+
+      archiver = createMaterializationArchiver({
+        gitStore,
+        remoteStores,
+        policy: config.materialization.policy,
+        graphId,
+        graphPath: opentasksPath,
+      });
+
+      await archiver.initialize();
+
+      // Rematerialize missing nodes on startup if configured
+      if (config.materialization.rematerializeOnStartup) {
+        void archiver.rematerializeAll(store).catch(() => {});
+      }
+    }
+  } catch {
+    // Materialization is optional — continue without it
+    archiver = undefined;
+  }
+
   // Initialize Entire integration (watcher + auto-linker)
   let entireWatcher: EntireWatcher | undefined;
   let entireLinker: EntireAutoLinker | undefined;
@@ -171,6 +230,7 @@ export async function createLocationState(
     entireLinker = createEntireAutoLinker({
       store,
       flushManager,
+      archiver,
     });
 
     entireWatcher.onSessionEvent((event) => {
@@ -194,6 +254,7 @@ export async function createLocationState(
     healthy: true,
     entireWatcher,
     entireLinker,
+    archiver,
   };
 }
 
@@ -238,6 +299,14 @@ export async function destroyLocationState(
     await state.store.close();
   } catch {
     /* ignore */
+  }
+  // Shut down archiver (flushes pending pushes)
+  if (state.archiver) {
+    try {
+      await state.archiver.close();
+    } catch {
+      /* ignore */
+    }
   }
 }
 
