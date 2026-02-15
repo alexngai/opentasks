@@ -258,6 +258,27 @@ export interface MaterializationStore {
   status(): Promise<StoreStatus>
 }
 
+/**
+ * Extended interface for git archive stores with point-in-time queries.
+ */
+export interface GitArchiveStoreExtended extends MaterializationStore {
+  /** Find a checkpoint by its associated code commit SHA */
+  findByCodeCommit(commitSha: string): Promise<CheckpointSnapshot | null>
+
+  /** Get the session state at a specific checkpoint */
+  getSessionAt(sessionId: string, options: { afterCheckpoint: string }): Promise<SessionSnapshot | null>
+
+  /** List all graphId namespaces in the archive */
+  listGraphs(): Promise<string[]>
+
+  /** Get the git log for a specific session's archive history */
+  getSessionHistory(sessionId: string, graphId: string): Promise<Array<{
+    commitSha: string
+    message: string
+    timestamp: string
+  }>>
+}
+
 // ============================================================================
 // Remote Store Interface
 // ============================================================================
@@ -340,11 +361,22 @@ export interface MaterializationArchiver {
   /** List all archived sessions */
   listArchived(filter?: ArchiveFilter): Promise<ArchiveListEntry[]>
 
+  /** Set the materialization provider (for materializeBeforeArchive) */
+  setMaterializationProvider(provider: MaterializationProvider): void
+
   /** Initialize all stores */
   initialize(): Promise<void>
 
   /** Shut down all stores */
   close(): Promise<void>
+}
+
+/**
+ * Interface for triggering full materialization (fetching from provider).
+ * Matches the materializeNode method on ProviderAwareStore.
+ */
+export interface MaterializationProvider {
+  materializeNode(uri: string): Promise<import('../schema/nodes.js').ExternalNode>
 }
 
 /**
@@ -365,4 +397,11 @@ export interface MaterializationArchiverConfig {
 
   /** Path to .opentasks/ directory */
   graphPath: string
+
+  /**
+   * Optional materialization provider for materializeBeforeArchive.
+   * When set and policy.materializeBeforeArchive is true, the archiver
+   * will fetch fresh data from the provider before building snapshots.
+   */
+  materializationProvider?: MaterializationProvider
 }

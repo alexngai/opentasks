@@ -14,7 +14,6 @@ import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import type {
-  MaterializationStore,
   MaterializationSnapshot,
   SessionSnapshot,
   CheckpointSnapshot,
@@ -24,6 +23,7 @@ import type {
   ArchiveListEntry,
   StoreStatus,
   GitArchiveStoreConfig,
+  GitArchiveStoreExtended,
 } from './types.js'
 
 // ============================================================================
@@ -70,7 +70,7 @@ function extractCheckpointId(uri: string): string | null {
 /**
  * Create a git archive store
  */
-export function createGitArchiveStore(config: GitArchiveStoreConfig): MaterializationStore {
+export function createGitArchiveStore(config: GitArchiveStoreConfig): GitArchiveStoreExtended {
   const {
     branch,
     remote,
@@ -449,6 +449,117 @@ export function createGitArchiveStore(config: GitArchiveStoreConfig): Materializ
         message: initialized ? 'Git archive store initialized' : 'Not initialized',
         lastArchiveAt,
         lastError,
+      }
+    },
+
+    // ========================================================================
+    // Extended: Point-in-time queries
+    // ========================================================================
+
+    async findByCodeCommit(commitSha: string): Promise<CheckpointSnapshot | null> {
+      try {
+        const topLevel = git(repoPath, `ls-tree --name-only ${branch}`, { allowFailure: true })
+        if (!topLevel) return null
+
+        for (const graphId of topLevel.split('\n').filter(Boolean)) {
+          // Find all checkpoint files
+          const cpFiles = listFiles(`${graphId}/sessions/`)
+            .filter(f => f.includes('/checkpoints/') && f.endsWith('.json'))
+
+          for (const cpFile of cpFiles) {
+            const content = readFile(cpFile)
+            if (!content) continue
+
+            try {
+              const snapshot = JSON.parse(content) as CheckpointSnapshot
+              if (snapshot.codeCommit === commitSha) {
+                return snapshot
+              }
+            } catch {
+              continue
+            }
+          }
+        }
+      } catch {
+        return null
+      }
+
+      return null
+    },
+
+    async getSessionAt(
+      sessionId: string,
+      options: { afterCheckpoint: string }
+    ): Promise<SessionSnapshot | null> {
+      try {
+        const topLevel = git(repoPath, `ls-tree --name-only ${branch}`, { allowFailure: true })
+        if (!topLevel) return null
+
+        for (const graphId of topLevel.split('\n').filter(Boolean)) {
+          const sessionPath = `${graphId}/sessions/${sessionId}/session.json`
+          const cpPath = `${graphId}/sessions/${sessionId}/checkpoints/${options.afterCheckpoint}.json`
+
+          // Find the commit that added this checkpoint
+          const logOutput = git(
+            repoPath,
+            `log --format="%H" ${branch} -- "${cpPath}"`,
+            { allowFailure: true }
+          )
+          if (!logOutput) continue
+
+          const archiveCommit = logOutput.split('\n')[0]?.trim()
+          if (!archiveCommit) continue
+
+          // Read session.json from that specific commit
+          try {
+            const sessionContent = git(
+              repoPath,
+              `show ${archiveCommit}:"${sessionPath}"`,
+              { allowFailure: true }
+            )
+            if (sessionContent) {
+              return JSON.parse(sessionContent) as SessionSnapshot
+            }
+          } catch {
+            continue
+          }
+        }
+      } catch {
+        return null
+      }
+
+      return null
+    },
+
+    async listGraphs(): Promise<string[]> {
+      try {
+        const topLevel = git(repoPath, `ls-tree --name-only ${branch}`, { allowFailure: true })
+        if (!topLevel) return []
+        return topLevel.split('\n').filter(Boolean)
+      } catch {
+        return []
+      }
+    },
+
+    async getSessionHistory(
+      sessionId: string,
+      graphId: string
+    ): Promise<Array<{ commitSha: string; message: string; timestamp: string }>> {
+      try {
+        const sessionDir = `${graphId}/sessions/${sessionId}/`
+        const logOutput = git(
+          repoPath,
+          `log --format="%H|%s|%aI" ${branch} -- "${sessionDir}"`,
+          { allowFailure: true }
+        )
+        if (!logOutput) return []
+
+        return logOutput.split('\n').filter(Boolean).map(line => {
+          const [commitSha, message, timestamp] = line.split('|')
+          return { commitSha, message, timestamp }
+        })
+      } catch {
+        return []
       }
     },
   }

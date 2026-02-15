@@ -25,6 +25,7 @@ import type { MaterializationArchiver } from "../materialization/types.js";
 import { createGitArchiveStore } from "../materialization/git-archive-store.js";
 import { createMaterializationArchiver } from "../materialization/archiver.js";
 import { resolveGraphId } from "../materialization/graph-id.js";
+import { createRemoteStoresFromConfig } from "../materialization/remote-store-factory.js";
 import { loadConfig } from "../config/index.js";
 
 // ============================================================================
@@ -187,15 +188,30 @@ export async function createLocationState(
         sourceRepoPath: opentasksPath,
       });
 
+      const remoteStores = createRemoteStoresFromConfig(
+        (config.materialization.remoteStores ?? []).map((rs: Record<string, unknown>) => ({
+          type: rs.type as string,
+          name: rs.name as string,
+          enabled: rs.enabled as boolean ?? true,
+          config: (rs.config as Record<string, unknown>) ?? {},
+          events: (rs.events as string[]) ?? [],
+        }))
+      );
+
       archiver = createMaterializationArchiver({
         gitStore,
-        remoteStores: [],
+        remoteStores,
         policy: config.materialization.policy,
         graphId,
         graphPath: opentasksPath,
       });
 
       await archiver.initialize();
+
+      // Rematerialize missing nodes on startup if configured
+      if (config.materialization.rematerializeOnStartup) {
+        void archiver.rematerializeAll(store).catch(() => {});
+      }
     }
   } catch {
     // Materialization is optional — continue without it

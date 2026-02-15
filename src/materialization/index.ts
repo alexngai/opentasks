@@ -25,6 +25,8 @@ export type {
   ArchiveEventResult,
   RematerializeAllResult,
   StoreStatus,
+  GitArchiveStoreExtended,
+  MaterializationProvider,
 } from './types.js'
 
 export { DEFAULT_ARCHIVE_POLICY, DEFAULT_GIT_ARCHIVE_CONFIG } from './types.js'
@@ -32,6 +34,8 @@ export { DEFAULT_ARCHIVE_POLICY, DEFAULT_GIT_ARCHIVE_CONFIG } from './types.js'
 // Factories
 export { createGitArchiveStore } from './git-archive-store.js'
 export { createMaterializationArchiver } from './archiver.js'
+export { createHttpRemoteStore } from './http-remote-store.js'
+export { createRemoteStoresFromConfig, registerRemoteStoreFactory } from './remote-store-factory.js'
 
 // Snapshot assembly
 export {

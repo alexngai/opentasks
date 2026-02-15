@@ -30,6 +30,7 @@ export function createMaterializationArchiver(
   config: MaterializationArchiverConfig
 ): MaterializationArchiver {
   const { gitStore, remoteStores, policy, graphId, graphPath } = config
+  let materializationProvider = config.materializationProvider
   const provenance = buildProvenance({ graphId, opentasksPath: graphPath })
 
   /**
@@ -113,11 +114,20 @@ export function createMaterializationArchiver(
       }
 
       // Find the node in the graph
-      const node = await findNodeByUri(sessionUri, store)
+      let node = await findNodeByUri(sessionUri, store)
       if (!node) {
         return {
           uri: sessionUri,
           stores: [{ storeName: 'all', stored: false, error: 'Node not found in graph' }],
+        }
+      }
+
+      // Materialize before archive if configured
+      if (policy.materializeBeforeArchive && materializationProvider) {
+        try {
+          node = await materializationProvider.materializeNode(sessionUri)
+        } catch {
+          // Fall through — use existing node data
         }
       }
 
@@ -132,11 +142,20 @@ export function createMaterializationArchiver(
       uri: string,
       store: GraphStore
     ): Promise<ArchiveEventResult> {
-      const node = await findNodeByUri(uri, store)
+      let node = await findNodeByUri(uri, store)
       if (!node) {
         return {
           uri,
           stores: [{ storeName: 'all', stored: false, error: 'Node not found in graph' }],
+        }
+      }
+
+      // Materialize before archive if configured
+      if (policy.materializeBeforeArchive && materializationProvider) {
+        try {
+          node = await materializationProvider.materializeNode(uri)
+        } catch {
+          // Fall through — use existing node data
         }
       }
 
@@ -241,6 +260,10 @@ export function createMaterializationArchiver(
         seen.add(entry.uri)
         return true
       })
+    },
+
+    setMaterializationProvider(provider: import('./types.js').MaterializationProvider): void {
+      materializationProvider = provider
     },
 
     async initialize(): Promise<void> {

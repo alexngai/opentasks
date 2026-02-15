@@ -35,6 +35,7 @@ import {
   type ProviderAwareStore,
 } from "../graph/provider-store.js";
 import { registerProviderMethods } from "./methods/provider.js";
+import { registerArchiveMethods } from "./methods/archive.js";
 import type { PartialOpenTasksConfig } from "../config/index.js";
 import { loadConfigFile } from "../config/loader.js";
 import { createBeadsProvider } from "../providers/beads.js";
@@ -438,6 +439,11 @@ function createSingleLocationDaemon(
         });
 
         registerProviderMethods({
+          server: ipcServer,
+          locationResolver,
+        });
+
+        registerArchiveMethods({
           server: ipcServer,
           locationResolver,
         });
