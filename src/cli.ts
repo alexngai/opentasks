@@ -36,7 +36,7 @@ Tool commands (require running daemon):
   delete  <id> [--hard]         Delete a node
 
 Create options:
-  --status <s>                  Status (required for issues)
+  --status <s>                  Status (required for tasks)
   --content <text>              Markdown content
   --uri <uri>                   External URI (for external nodes)
   --source <src>                Source system (for external nodes)

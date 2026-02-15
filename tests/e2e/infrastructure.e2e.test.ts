@@ -19,11 +19,11 @@ import {
   expectBlocks,
   expectBlockers,
   // Fixtures
-  createTestSpec,
-  createTestIssue,
+  createTestContext,
+  createTestTask,
   createBlockingChain,
   createDiamondDependency,
-  createSpecWithIssues,
+  createContextWithTasks,
   resetFixtureCounter,
   type E2ESystemContext,
   type TestAgent,
@@ -164,50 +164,50 @@ describe.skipIf(!AGENT_TESTS)('E2E Infrastructure', () => {
       await system.stop()
     })
 
-    it('should create spec via provider', async () => {
-      const spec = await agent.createSpec('Test Spec', {
-        content: 'This is the spec content',
+    it('should create context via provider', async () => {
+      const context = await agent.createContext('Test Context', {
+        content: 'This is the context content',
         priority: 2,
       })
 
-      expect(spec.id).toMatch(/^s-/)
-      expect(spec.title).toBe('Test Spec')
-      expect(spec.type).toBe('spec')
-      expect(spec.content).toBe('This is the spec content')
-      expect(spec.priority).toBe(2)
+      expect(context.id).toMatch(/^c-/)
+      expect(context.title).toBe('Test Context')
+      expect(context.type).toBe('context')
+      expect(context.content).toBe('This is the context content')
+      expect(context.priority).toBe(2)
     })
 
-    it('should create issue via provider with default status', async () => {
-      const issue = await agent.createIssue('Test Issue')
+    it('should create task via provider with default status', async () => {
+      const task = await agent.createTask('Test Task')
 
-      expect(issue.id).toMatch(/^i-/)
-      expect(issue.title).toBe('Test Issue')
-      expect(issue.type).toBe('issue')
-      expect(issue.status).toBe('open')
+      expect(task.id).toMatch(/^t-/)
+      expect(task.title).toBe('Test Task')
+      expect(task.type).toBe('task')
+      expect(task.status).toBe('open')
     })
 
-    it('should create issue with custom status', async () => {
-      const issue = await agent.createIssue('In Progress Issue', {
+    it('should create task with custom status', async () => {
+      const task = await agent.createTask('In Progress Task', {
         status: 'in_progress',
         priority: 1,
       })
 
-      expect(issue.status).toBe('in_progress')
-      expect(issue.priority).toBe(1)
+      expect(task.status).toBe('in_progress')
+      expect(task.priority).toBe(1)
     })
 
     it('should get node by ID', async () => {
-      const created = await agent.createSpec('Get Test Spec')
+      const created = await agent.createContext('Get Test Context')
       const retrieved = await agent.getNode(created.id)
 
       expect(retrieved).not.toBeNull()
       expect(retrieved!.id).toBe(created.id)
-      expect(retrieved!.title).toBe('Get Test Spec')
+      expect(retrieved!.title).toBe('Get Test Context')
     })
 
     it('should update node via provider', async () => {
-      const spec = await agent.createSpec('Original Title')
-      const updated = await agent.updateNode(spec.id, {
+      const context = await agent.createContext('Original Title')
+      const updated = await agent.updateNode(context.id, {
         title: 'Updated Title',
         content: 'New content',
       })
@@ -216,18 +216,18 @@ describe.skipIf(!AGENT_TESTS)('E2E Infrastructure', () => {
       expect(updated.content).toBe('New content')
     })
 
-    it('should close issue via convenience method', async () => {
-      const issue = await agent.createIssue('Issue to Close')
-      expect(issue.status).toBe('open')
+    it('should close task via convenience method', async () => {
+      const task = await agent.createTask('Task to Close')
+      expect(task.status).toBe('open')
 
-      const closed = await agent.closeIssue(issue.id)
+      const closed = await agent.closeTask(task.id)
       expect(closed.status).toBe('closed')
     })
 
     it('should throw error when provider not configured', async () => {
       const agentWithoutProvider = createTestAgent(system.client, { name: 'no-provider' })
 
-      await expect(agentWithoutProvider.createSpec('Should Fail')).rejects.toThrow(
+      await expect(agentWithoutProvider.createContext('Should Fail')).rejects.toThrow(
         "Agent 'no-provider' requires a provider for node operations"
       )
     })
@@ -337,42 +337,42 @@ describe.skipIf(!AGENT_TESTS)('E2E Infrastructure', () => {
     })
 
     it('should resolve native IDs via registry', () => {
-      const provider = system.providerRegistry.resolveProvider('s-test1')
+      const provider = system.providerRegistry.resolveProvider('c-test1')
       expect(provider).toBe(system.nativeProvider)
     })
 
-    it('should create specs via native provider', async () => {
-      const spec = await system.nativeProvider.create({
-        type: 'spec',
-        title: 'Test Spec',
+    it('should create contexts via native provider', async () => {
+      const context = await system.nativeProvider.create({
+        type: 'context',
+        title: 'Test Context',
         content: 'Test content',
       })
 
-      expect(spec.id).toMatch(/^s-/)
-      expect(spec.title).toBe('Test Spec')
-      expect(spec.type).toBe('spec')
+      expect(context.id).toMatch(/^c-/)
+      expect(context.title).toBe('Test Context')
+      expect(context.type).toBe('context')
     })
 
-    it('should create issues via native provider', async () => {
-      const issue = await system.nativeProvider.create({
-        type: 'issue',
-        title: 'Test Issue',
+    it('should create tasks via native provider', async () => {
+      const task = await system.nativeProvider.create({
+        type: 'task',
+        title: 'Test Task',
         status: 'open',
       })
 
-      expect(issue.id).toMatch(/^i-/)
-      expect(issue.title).toBe('Test Issue')
-      expect(issue.type).toBe('issue')
+      expect(task.id).toMatch(/^t-/)
+      expect(task.title).toBe('Test Task')
+      expect(task.type).toBe('task')
     })
 
     it('should update nodes via native provider', async () => {
-      const issue = await system.nativeProvider.create({
-        type: 'issue',
+      const task = await system.nativeProvider.create({
+        type: 'task',
         title: 'Original Title',
         status: 'open',
       })
 
-      const updated = await system.nativeProvider.update(issue.id, {
+      const updated = await system.nativeProvider.update(task.id, {
         title: 'Updated Title',
         status: 'closed',
       })
@@ -383,7 +383,7 @@ describe.skipIf(!AGENT_TESTS)('E2E Infrastructure', () => {
 
     it('should get nodes via native provider', async () => {
       const created = await system.nativeProvider.create({
-        type: 'spec',
+        type: 'context',
         title: 'Get Test',
       })
 
@@ -411,21 +411,21 @@ describe.skipIf(!AGENT_TESTS)('E2E Infrastructure', () => {
       await system.stop()
     })
 
-    it('should create test spec with unique name', async () => {
-      const spec1 = await createTestSpec(agent, 'Feature A')
-      const spec2 = await createTestSpec(agent, 'Feature B')
+    it('should create test context with unique name', async () => {
+      const context1 = await createTestContext(agent, 'Feature A')
+      const context2 = await createTestContext(agent, 'Feature B')
 
-      expect(spec1.title).toContain('Feature A')
-      expect(spec2.title).toContain('Feature B')
-      expect(spec1.id).not.toBe(spec2.id)
+      expect(context1.title).toContain('Feature A')
+      expect(context2.title).toContain('Feature B')
+      expect(context1.id).not.toBe(context2.id)
     })
 
-    it('should create test issue with unique name', async () => {
-      const issue1 = await createTestIssue(agent)
-      const issue2 = await createTestIssue(agent)
+    it('should create test task with unique name', async () => {
+      const task1 = await createTestTask(agent)
+      const task2 = await createTestTask(agent)
 
-      expect(issue1.id).not.toBe(issue2.id)
-      expect(issue1.status).toBe('open')
+      expect(task1.id).not.toBe(task2.id)
+      expect(task1.status).toBe('open')
     })
 
     it('should create blocking chain', async () => {
@@ -450,11 +450,11 @@ describe.skipIf(!AGENT_TESTS)('E2E Infrastructure', () => {
       expect(bottomBlockers.length).toBe(2)
     })
 
-    it('should create spec with implementing issues', async () => {
-      const { spec, issues } = await createSpecWithIssues(agent, 3, 'Auth')
+    it('should create context with implementing tasks', async () => {
+      const { context, tasks } = await createContextWithTasks(agent, 3, 'Auth')
 
-      expect(spec.title).toContain('Auth')
-      expect(issues).toHaveLength(3)
+      expect(context.title).toContain('Auth')
+      expect(tasks).toHaveLength(3)
     })
   })
 
@@ -475,17 +475,17 @@ describe.skipIf(!AGENT_TESTS)('E2E Infrastructure', () => {
       await system.stop()
     })
 
-    it('should pass expectReady for unblocked issue', async () => {
-      const issue = await createTestIssue(agent)
-      await expectReady(agent, issue.id)
+    it('should pass expectReady for unblocked task', async () => {
+      const task = await createTestTask(agent)
+      await expectReady(agent, task.id)
     })
 
-    it('should pass expectNotReady for blocked issue', async () => {
+    it('should pass expectNotReady for blocked task', async () => {
       const [blocker, blocked] = await createBlockingChain(agent, 2)
       await expectNotReady(agent, blocked.id)
     })
 
-    it('should fail expectReady for blocked issue', async () => {
+    it('should fail expectReady for blocked task', async () => {
       const [_, blocked] = await createBlockingChain(agent, 2)
 
       await expect(expectReady(agent, blocked.id)).rejects.toThrow(
@@ -504,9 +504,9 @@ describe.skipIf(!AGENT_TESTS)('E2E Infrastructure', () => {
     })
 
     it('should fail expectBlockers for wrong blockers', async () => {
-      const issue = await createTestIssue(agent)
+      const task = await createTestTask(agent)
 
-      await expect(expectBlockers(agent, issue.id, ['s-fake'])).rejects.toThrow(
+      await expect(expectBlockers(agent, task.id, ['c-fake'])).rejects.toThrow(
         /Missing blockers/
       )
     })

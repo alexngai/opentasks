@@ -15,21 +15,21 @@ describe('GraphologyAdapter', () => {
   })
 
   // Test fixtures
-  const testSpec: StoredNode = {
-    id: 's-a2b3',
+  const testContext: StoredNode = {
+    id: 'c-a2b3',
     uuid: '550e8400-e29b-41d4-a716-446655440000',
-    type: 'spec',
-    title: 'Test Spec',
-    content: 'Some specification content',
+    type: 'context',
+    title: 'Test Context',
+    content: 'Some context content',
     created_at: '2025-01-26T10:00:00Z',
     updated_at: '2025-01-26T10:00:00Z',
   }
 
-  const testIssue: StoredNode = {
-    id: 'i-x7k9',
+  const testTask: StoredNode = {
+    id: 't-x7k9',
     uuid: '550e8400-e29b-41d4-a716-446655440001',
-    type: 'issue',
-    title: 'Test Issue',
+    type: 'task',
+    title: 'Test Task',
     status: 'open',
     priority: 1,
     created_at: '2025-01-26T10:00:00Z',
@@ -49,8 +49,8 @@ describe('GraphologyAdapter', () => {
   const testEdge: StoredEdge = {
     id: 'x-r8s9',
     uuid: '550e8400-e29b-41d4-a716-446655440010',
-    from_id: 'i-x7k9',
-    to_id: 's-a2b3',
+    from_id: 't-x7k9',
+    to_id: 'c-a2b3',
     type: 'implements',
     created_at: '2025-01-26T10:00:00Z',
   }
@@ -58,17 +58,17 @@ describe('GraphologyAdapter', () => {
   const testBlocksEdge: StoredEdge = {
     id: 'x-b1c2',
     uuid: '550e8400-e29b-41d4-a716-446655440011',
-    from_id: 's-a2b3',
-    to_id: 'i-x7k9',
+    from_id: 'c-a2b3',
+    to_id: 't-x7k9',
     type: 'blocks',
     created_at: '2025-01-26T09:30:00Z',
-    metadata: { reason: 'spec incomplete' },
+    metadata: { reason: 'context incomplete' },
   }
 
   describe('nodeToUri', () => {
     it('converts native nodes to native:// URI', () => {
-      expect(adapter.nodeToUri(testSpec)).toBe('native://s-a2b3')
-      expect(adapter.nodeToUri(testIssue)).toBe('native://i-x7k9')
+      expect(adapter.nodeToUri(testContext)).toBe('native://c-a2b3')
+      expect(adapter.nodeToUri(testTask)).toBe('native://t-x7k9')
     })
 
     it('uses existing URI for external nodes', () => {
@@ -86,25 +86,25 @@ describe('GraphologyAdapter', () => {
 
   describe('onNodeCreated', () => {
     it('adds node to graph', () => {
-      adapter.onNodeCreated(testSpec)
+      adapter.onNodeCreated(testContext)
 
-      expect(adapter.hasNode('native://s-a2b3')).toBe(true)
-      const attrs = adapter.getNode('native://s-a2b3')
-      expect(attrs?.title).toBe('Test Spec')
-      expect(attrs?.type).toBe('spec')
+      expect(adapter.hasNode('native://c-a2b3')).toBe(true)
+      const attrs = adapter.getNode('native://c-a2b3')
+      expect(attrs?.title).toBe('Test Context')
+      expect(attrs?.type).toBe('context')
     })
 
     it('stores full node data', () => {
-      adapter.onNodeCreated(testIssue)
+      adapter.onNodeCreated(testTask)
 
-      const attrs = adapter.getNode('native://i-x7k9')
+      const attrs = adapter.getNode('native://t-x7k9')
       expect(attrs?.data.status).toBe('open')
       expect(attrs?.data.priority).toBe(1)
     })
 
     it('does not duplicate nodes', () => {
-      adapter.onNodeCreated(testSpec)
-      adapter.onNodeCreated(testSpec)
+      adapter.onNodeCreated(testContext)
+      adapter.onNodeCreated(testContext)
 
       expect(adapter.graph.order).toBe(1)
     })
@@ -112,22 +112,22 @@ describe('GraphologyAdapter', () => {
 
   describe('onNodeUpdated', () => {
     beforeEach(() => {
-      adapter.onNodeCreated(testIssue)
+      adapter.onNodeCreated(testTask)
     })
 
     it('updates node attributes', () => {
-      adapter.onNodeUpdated('i-x7k9', { status: 'closed', title: 'Updated' })
+      adapter.onNodeUpdated('t-x7k9', { status: 'closed', title: 'Updated' })
 
-      const attrs = adapter.getNode('native://i-x7k9')
+      const attrs = adapter.getNode('native://t-x7k9')
       expect(attrs?.status).toBe('closed')
       expect(attrs?.title).toBe('Updated')
     })
 
     it('preserves unchanged attributes', () => {
-      adapter.onNodeUpdated('i-x7k9', { status: 'closed' })
+      adapter.onNodeUpdated('t-x7k9', { status: 'closed' })
 
-      const attrs = adapter.getNode('native://i-x7k9')
-      expect(attrs?.title).toBe('Test Issue')
+      const attrs = adapter.getNode('native://t-x7k9')
+      expect(attrs?.title).toBe('Test Task')
       expect(attrs?.priority).toBe(1)
     })
 
@@ -139,19 +139,19 @@ describe('GraphologyAdapter', () => {
 
   describe('onNodeDeleted', () => {
     beforeEach(() => {
-      adapter.onNodeCreated(testSpec)
-      adapter.onNodeCreated(testIssue)
+      adapter.onNodeCreated(testContext)
+      adapter.onNodeCreated(testTask)
       adapter.onEdgeCreated(testEdge)
     })
 
     it('removes node from graph', () => {
-      adapter.onNodeDeleted('s-a2b3')
+      adapter.onNodeDeleted('c-a2b3')
 
-      expect(adapter.hasNode('native://s-a2b3')).toBe(false)
+      expect(adapter.hasNode('native://c-a2b3')).toBe(false)
     })
 
     it('removes connected edges', () => {
-      adapter.onNodeDeleted('s-a2b3')
+      adapter.onNodeDeleted('c-a2b3')
 
       expect(adapter.graph.size).toBe(0)
     })
@@ -164,8 +164,8 @@ describe('GraphologyAdapter', () => {
 
   describe('onEdgeCreated', () => {
     beforeEach(() => {
-      adapter.onNodeCreated(testSpec)
-      adapter.onNodeCreated(testIssue)
+      adapter.onNodeCreated(testContext)
+      adapter.onNodeCreated(testTask)
     })
 
     it('adds edge to graph', () => {
@@ -177,23 +177,23 @@ describe('GraphologyAdapter', () => {
     it('stores edge attributes', () => {
       adapter.onEdgeCreated(testBlocksEdge)
 
-      const edges = adapter.getEdges('native://s-a2b3', 'out')
+      const edges = adapter.getEdges('native://c-a2b3', 'out')
       expect(edges).toHaveLength(1)
       expect(edges[0].type).toBe('blocks')
-      expect(edges[0].metadata?.reason).toBe('spec incomplete')
+      expect(edges[0].metadata?.reason).toBe('context incomplete')
     })
 
     it('creates placeholder nodes for missing endpoints', () => {
       const edgeWithMissing: StoredEdge = {
         ...testEdge,
         id: 'x-miss',
-        from_id: 'i-missing',
-        to_id: 's-a2b3',
+        from_id: 't-missing',
+        to_id: 'c-a2b3',
       }
       adapter.onEdgeCreated(edgeWithMissing)
 
-      expect(adapter.hasNode('native://i-missing')).toBe(true)
-      const attrs = adapter.getNode('native://i-missing')
+      expect(adapter.hasNode('native://t-missing')).toBe(true)
+      const attrs = adapter.getNode('native://t-missing')
       expect(attrs?.type).toBe('external')
       expect(attrs?.title).toContain('Unresolved')
     })
@@ -203,7 +203,7 @@ describe('GraphologyAdapter', () => {
         id: 'x-ext-edge',
         uuid: 'ext-uuid',
         from_id: 'beads://./bd-123',
-        to_id: 's-a2b3',
+        to_id: 'c-a2b3',
         type: 'blocks',
         created_at: new Date().toISOString(),
       }
@@ -216,8 +216,8 @@ describe('GraphologyAdapter', () => {
 
   describe('onEdgeDeleted', () => {
     beforeEach(() => {
-      adapter.onNodeCreated(testSpec)
-      adapter.onNodeCreated(testIssue)
+      adapter.onNodeCreated(testContext)
+      adapter.onNodeCreated(testTask)
       adapter.onEdgeCreated(testEdge)
     })
 
@@ -230,8 +230,8 @@ describe('GraphologyAdapter', () => {
     it('preserves nodes after edge deletion', () => {
       adapter.onEdgeDeleted('x-r8s9')
 
-      expect(adapter.hasNode('native://s-a2b3')).toBe(true)
-      expect(adapter.hasNode('native://i-x7k9')).toBe(true)
+      expect(adapter.hasNode('native://c-a2b3')).toBe(true)
+      expect(adapter.hasNode('native://t-x7k9')).toBe(true)
     })
 
     it('ignores deletion of non-existent edges', () => {
@@ -264,19 +264,19 @@ describe('GraphologyAdapter', () => {
 
   describe('hydrateEdges', () => {
     beforeEach(() => {
-      adapter.onNodeCreated(testSpec)
-      adapter.onNodeCreated(testIssue)
+      adapter.onNodeCreated(testContext)
+      adapter.onNodeCreated(testTask)
     })
 
     it('adds multiple edges', () => {
-      adapter.hydrateEdges('native://i-x7k9', [testEdge, testBlocksEdge])
+      adapter.hydrateEdges('native://t-x7k9', [testEdge, testBlocksEdge])
 
       expect(adapter.graph.size).toBe(2)
     })
 
     it('skips existing edges', () => {
       adapter.onEdgeCreated(testEdge)
-      adapter.hydrateEdges('native://i-x7k9', [testEdge, testBlocksEdge])
+      adapter.hydrateEdges('native://t-x7k9', [testEdge, testBlocksEdge])
 
       expect(adapter.graph.size).toBe(2)
     })
@@ -284,34 +284,34 @@ describe('GraphologyAdapter', () => {
 
   describe('getEdges', () => {
     beforeEach(() => {
-      adapter.onNodeCreated(testSpec)
-      adapter.onNodeCreated(testIssue)
+      adapter.onNodeCreated(testContext)
+      adapter.onNodeCreated(testTask)
       adapter.onEdgeCreated(testEdge)
       adapter.onEdgeCreated(testBlocksEdge)
     })
 
     it('returns incoming edges', () => {
-      const edges = adapter.getEdges('native://s-a2b3', 'in')
+      const edges = adapter.getEdges('native://c-a2b3', 'in')
 
       expect(edges).toHaveLength(1)
       expect(edges[0].type).toBe('implements')
     })
 
     it('returns outgoing edges', () => {
-      const edges = adapter.getEdges('native://s-a2b3', 'out')
+      const edges = adapter.getEdges('native://c-a2b3', 'out')
 
       expect(edges).toHaveLength(1)
       expect(edges[0].type).toBe('blocks')
     })
 
     it('returns all edges with direction both', () => {
-      const edges = adapter.getEdges('native://s-a2b3', 'both')
+      const edges = adapter.getEdges('native://c-a2b3', 'both')
 
       expect(edges).toHaveLength(2)
     })
 
     it('defaults to both direction', () => {
-      const edges = adapter.getEdges('native://s-a2b3')
+      const edges = adapter.getEdges('native://c-a2b3')
 
       expect(edges).toHaveLength(2)
     })
@@ -326,39 +326,39 @@ describe('GraphologyAdapter', () => {
   describe('loadFromStorage', () => {
     it('loads nodes and edges from storage', async () => {
       const mockStorage: Partial<Storage> = {
-        queryNodes: vi.fn().mockResolvedValue([testSpec, testIssue]),
+        queryNodes: vi.fn().mockResolvedValue([testContext, testTask]),
         getEdgesFrom: vi.fn().mockImplementation((id: string) => {
-          if (id === 's-a2b3') return Promise.resolve([testBlocksEdge])
-          if (id === 'i-x7k9') return Promise.resolve([testEdge])
+          if (id === 'c-a2b3') return Promise.resolve([testBlocksEdge])
+          if (id === 't-x7k9') return Promise.resolve([testEdge])
           return Promise.resolve([])
         }),
       }
 
       await adapter.loadFromStorage(mockStorage as Storage)
 
-      expect(adapter.hasNode('native://s-a2b3')).toBe(true)
-      expect(adapter.hasNode('native://i-x7k9')).toBe(true)
+      expect(adapter.hasNode('native://c-a2b3')).toBe(true)
+      expect(adapter.hasNode('native://t-x7k9')).toBe(true)
       expect(adapter.graph.size).toBe(2)
     })
 
     it('clears existing data before loading', async () => {
-      adapter.onNodeCreated(testSpec)
+      adapter.onNodeCreated(testContext)
 
       const mockStorage: Partial<Storage> = {
-        queryNodes: vi.fn().mockResolvedValue([testIssue]),
+        queryNodes: vi.fn().mockResolvedValue([testTask]),
         getEdgesFrom: vi.fn().mockResolvedValue([]),
       }
 
       await adapter.loadFromStorage(mockStorage as Storage)
 
-      expect(adapter.hasNode('native://s-a2b3')).toBe(false)
-      expect(adapter.hasNode('native://i-x7k9')).toBe(true)
+      expect(adapter.hasNode('native://c-a2b3')).toBe(false)
+      expect(adapter.hasNode('native://t-x7k9')).toBe(true)
       expect(adapter.graph.order).toBe(1)
     })
 
     it('deduplicates edges', async () => {
       const mockStorage: Partial<Storage> = {
-        queryNodes: vi.fn().mockResolvedValue([testSpec, testIssue]),
+        queryNodes: vi.fn().mockResolvedValue([testContext, testTask]),
         getEdgesFrom: vi.fn().mockImplementation((id: string) => {
           // Both nodes return the same edge (from different perspectives)
           return Promise.resolve([testEdge])
@@ -374,8 +374,8 @@ describe('GraphologyAdapter', () => {
 
   describe('clear', () => {
     it('removes all nodes and edges', () => {
-      adapter.onNodeCreated(testSpec)
-      adapter.onNodeCreated(testIssue)
+      adapter.onNodeCreated(testContext)
+      adapter.onNodeCreated(testTask)
       adapter.onEdgeCreated(testEdge)
 
       adapter.clear()
@@ -392,8 +392,8 @@ describe('GraphologyAdapter', () => {
     })
 
     it('allows multiple edges between same nodes', () => {
-      adapter.onNodeCreated(testSpec)
-      adapter.onNodeCreated(testIssue)
+      adapter.onNodeCreated(testContext)
+      adapter.onNodeCreated(testTask)
       adapter.onEdgeCreated(testEdge)
       adapter.onEdgeCreated({
         ...testEdge,

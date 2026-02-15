@@ -117,13 +117,13 @@ export const CREATE_INDEXES = [
 ]
 
 /**
- * Create ready_issues view
- * Shows issues that are open, not archived, and have no open blockers
+ * Create ready_tasks view
+ * Shows tasks that are open, not archived, and have no open blockers
  */
 export const CREATE_READY_VIEW = `
-CREATE VIEW IF NOT EXISTS ready_issues AS
+CREATE VIEW IF NOT EXISTS ready_tasks AS
 SELECT n.* FROM nodes n
-WHERE n.type = 'issue'
+WHERE n.type = 'task'
   AND n.status = 'open'
   AND n.archived = 0
   AND NOT EXISTS (

@@ -67,7 +67,7 @@ export const BUILTIN_EDGE_TYPES: EdgeTypeDefinition[] = [
   },
   {
     name: 'implements',
-    description: 'Issue implements a spec',
+    description: 'Task implements a context',
     affectsReady: false,
     direction: 'directed',
     providers: ['native'],

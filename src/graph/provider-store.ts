@@ -297,7 +297,7 @@ export interface ProviderAwareStore extends GraphStore {
 /**
  * Pattern for local node IDs (s-, i-, f-, e-, x-)
  */
-const LOCAL_ID_PATTERN = /^[sifex]-[a-z0-9]+$/
+const LOCAL_ID_PATTERN = /^[ctfex]-[a-z0-9]+$/
 
 // ============================================================================
 // Helper Functions
@@ -325,7 +325,7 @@ function toProviderCreateInput(input: CreateNodeInput): ProviderCreateInput {
   }
 
   return {
-    type: input.type === 'issue' || input.type === 'spec' ? input.type : 'issue',
+    type: input.type === 'task' ? 'issue' : input.type === 'context' ? 'spec' : 'issue',
     title: input.title,
     content: input.content,
     status: input.status,

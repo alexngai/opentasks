@@ -67,9 +67,9 @@ const NATIVE_URI_PATTERN = /^(native|opentasks):\/\/(.+)$/i
  */
 function mapNodeType(nodeType: string): ProviderNodeType {
   switch (nodeType) {
-    case 'spec':
+    case 'context':
       return 'spec'
-    case 'issue':
+    case 'task':
       return 'issue'
     case 'feedback':
       return 'feedback'
@@ -83,13 +83,13 @@ function mapNodeType(nodeType: string): ProviderNodeType {
 /**
  * Map provider node types to OpenTasks node types
  */
-function mapProviderType(providerType: string): 'spec' | 'issue' | 'feedback' | 'external' {
+function mapProviderType(providerType: string): 'context' | 'task' | 'feedback' | 'external' {
   switch (providerType) {
     case 'spec':
-      return 'spec'
+      return 'context'
     case 'issue':
     case 'task':
-      return 'issue'
+      return 'task'
     case 'feedback':
       return 'feedback'
     default:

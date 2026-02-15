@@ -5,15 +5,15 @@ This directory contains the implementation specifications for OpenTasks, mirrore
 ## Spec Hierarchy
 
 ```
-CORE-ARCHITECTURE.md (s-9jju)
-├── PHASE-1.md (s-9hf5) — Single-Location + Provider URIs [v1]
+CORE-ARCHITECTURE.md (c-9jju)
+├── PHASE-1.md (c-9hf5) — Single-Location + Provider URIs [v1]
 │   └── Deliverables: core types, storage, 3-tool interface, providers
 │
-├── PHASE-2.md (s-7es6) — Cross-Location References [v2]
+├── PHASE-2.md (c-7es6) — Cross-Location References [v2]
 │   ├── depends-on: PHASE-1
 │   └── Deliverables: daemon, registry, opentasks:// URIs, redirects
 │
-└── PHASE-3.md (s-2qms) — Multi-Location Queries [v3]
+└── PHASE-3.md (c-2qms) — Multi-Location Queries [v3]
     ├── depends-on: PHASE-2
     └── Deliverables: discovery, expansion modes, conditional redirects
 ```
@@ -43,13 +43,13 @@ CORE-ARCHITECTURE.md (s-9jju)
 
 These plans are mirrored from sudocode specs:
 
-- `s-9jju` — OpenTasks Core Architecture
-- `s-9hf5` — Phase 1: Single-Location + Provider URIs
-- `s-7es6` — Phase 2: Cross-Location References
-- `s-2qms` — Phase 3: Multi-Location Queries
+- `c-9jju` — OpenTasks Core Architecture
+- `c-9hf5` — Phase 1: Single-Location + Provider URIs
+- `c-7es6` — Phase 2: Cross-Location References
+- `c-2qms` — Phase 3: Multi-Location Queries
 
 To view specs with relationships and feedback, use:
 ```bash
-sudocode show s-9jju
+sudocode show c-9jju
 sudocode list --search "opentasks"
 ```

@@ -6,8 +6,8 @@
 
 import type { Storage } from '../storage/interface.js'
 import type { StoredNode, StoredEdge } from '../schema/storage.js'
-import type { Node, Issue, Spec, Feedback, Edge, EdgeType } from '../schema/index.js'
-import { parseNode, isIssue, isSpec, isFeedback } from '../schema/validation.js'
+import type { Node, Task, Context, Feedback, Edge, EdgeType } from '../schema/index.js'
+import { parseNode, isTask, isContext, isFeedback } from '../schema/validation.js'
 import type {
   NodeFilter,
   EdgeFilter,
@@ -22,9 +22,9 @@ import type { NodeFilter as StorageNodeFilter } from '../storage/interface.js'
 // ============================================================================
 
 /**
- * Pattern for local node IDs (s-, i-, f-, e-, x-)
+ * Pattern for local node IDs (c-, t-, f-, e-, x-)
  */
-const LOCAL_ID_PATTERN = /^[sifex]-[a-z0-9]+$/
+const LOCAL_ID_PATTERN = /^[ctfex]-[a-z0-9]+$/
 
 /**
  * Node resolver function for resolving external URIs
@@ -88,13 +88,13 @@ export interface QueryEngine {
   /** Is there a path from A blocking B? */
   isBlocking(fromId: string, toId: string): Promise<boolean>
 
-  // === Spec/Issue Queries ===
+  // === Context/Task Queries ===
 
-  /** Issues that implement a spec */
-  implementers(specId: string): Promise<Issue[]>
+  /** Tasks that implement a context */
+  tasks(contextId: string): Promise<Task[]>
 
-  /** Specs that an issue implements */
-  specs(issueId: string): Promise<Spec[]>
+  /** Context nodes that a task implements */
+  context(taskId: string): Promise<Context[]>
 
   // === Hierarchy Queries ===
 
@@ -112,8 +112,8 @@ export interface QueryEngine {
 
   // === Ready Query ===
 
-  /** Get issues ready to work on (no active blockers) */
-  ready(options?: ReadyOptions): Promise<Issue[]>
+  /** Get tasks ready to work on (no active blockers) */
+  ready(options?: ReadyOptions): Promise<Task[]>
 
   // === Feedback Queries ===
 
@@ -415,45 +415,45 @@ export function createQueryEngine(options: QueryEngineOptions | Storage): QueryE
     },
 
     // =========================================================================
-    // Spec/Issue Queries
+    // Context/Task Queries
     // =========================================================================
 
-    async implementers(specId: string): Promise<Issue[]> {
-      // Get incoming 'implements' edges to the spec
-      const edges = await storage.getEdgesTo(specId, 'implements')
+    async tasks(contextId: string): Promise<Task[]> {
+      // Get incoming 'implements' edges to the context
+      const edges = await storage.getEdgesTo(contextId, 'implements')
 
-      const issues: Issue[] = []
+      const tasks: Task[] = []
       for (const edge of edges) {
         // Use resolveNode to support cross-provider resolution
         const node = await resolveNode(edge.from_id)
         if (node) {
           const parsed = safeParseNode(node)
-          if (parsed && isIssue(parsed)) {
-            issues.push(parsed)
+          if (parsed && isTask(parsed)) {
+            tasks.push(parsed)
           }
         }
       }
 
-      return issues
+      return tasks
     },
 
-    async specs(issueId: string): Promise<Spec[]> {
-      // Get outgoing 'implements' edges from the issue
-      const edges = await storage.getEdgesFrom(issueId, 'implements')
+    async context(taskId: string): Promise<Context[]> {
+      // Get outgoing 'implements' edges from the task
+      const edges = await storage.getEdgesFrom(taskId, 'implements')
 
-      const specs: Spec[] = []
+      const contextNodes: Context[] = []
       for (const edge of edges) {
         // Use resolveNode to support cross-provider resolution
         const node = await resolveNode(edge.to_id)
         if (node) {
           const parsed = safeParseNode(node)
-          if (parsed && isSpec(parsed)) {
-            specs.push(parsed)
+          if (parsed && isContext(parsed)) {
+            contextNodes.push(parsed)
           }
         }
       }
 
-      return specs
+      return contextNodes
     },
 
     // =========================================================================
@@ -525,30 +525,30 @@ export function createQueryEngine(options: QueryEngineOptions | Storage): QueryE
     // Ready Query
     // =========================================================================
 
-    async ready(options?: ReadyOptions): Promise<Issue[]> {
-      // Get all open, non-archived issues
-      const issues = await storage.queryNodes({
-        type: 'issue',
+    async ready(options?: ReadyOptions): Promise<Task[]> {
+      // Get all open, non-archived tasks
+      const taskNodes = await storage.queryNodes({
+        type: 'task',
         status: 'open',
         archived: false,
       })
 
-      const readyIssues: Issue[] = []
+      const readyTasks: Task[] = []
 
-      for (const issue of issues) {
+      for (const task of taskNodes) {
         // Apply additional filters
         if (options?.tags) {
-          const nodeTags = issue.tags || []
+          const nodeTags = task.tags || []
           const hasAllTags = options.tags.every((t) => nodeTags.includes(t))
           if (!hasAllTags) continue
         }
 
-        if (!matchesPriority(issue, options?.priority)) continue
+        if (!matchesPriority(task, options?.priority)) continue
 
-        if (options?.assignee && issue.assignee !== options.assignee) continue
+        if (options?.assignee && task.assignee !== options.assignee) continue
 
         // Check for active blockers
-        const blockerEdges = await storage.getEdgesTo(issue.id, 'blocks')
+        const blockerEdges = await storage.getEdgesTo(task.id, 'blocks')
 
         let hasActiveBlocker = false
         for (const edge of blockerEdges) {
@@ -561,16 +561,16 @@ export function createQueryEngine(options: QueryEngineOptions | Storage): QueryE
         }
 
         if (!hasActiveBlocker) {
-          const parsed = safeParseNode(issue)
-          if (parsed && isIssue(parsed)) {
-            readyIssues.push(parsed)
+          const parsed = safeParseNode(task)
+          if (parsed && isTask(parsed)) {
+            readyTasks.push(parsed)
           }
         }
       }
 
       // Sort by priority (lower priority number = higher priority)
       // Items without priority come after items with priority
-      readyIssues.sort((a, b) => {
+      readyTasks.sort((a, b) => {
         const aPriority = a.priority ?? Infinity
         const bPriority = b.priority ?? Infinity
         return aPriority - bPriority
@@ -578,10 +578,10 @@ export function createQueryEngine(options: QueryEngineOptions | Storage): QueryE
 
       // Apply limit
       if (options?.limit !== undefined) {
-        return readyIssues.slice(0, options.limit)
+        return readyTasks.slice(0, options.limit)
       }
 
-      return readyIssues
+      return readyTasks
     },
 
     // =========================================================================

@@ -22,8 +22,8 @@ OpenTasks has four primary node types:
 
 | Type | Purpose | Example |
 |------|---------|---------|
-| `spec` | User intent, requirements, context | "Authentication should use OAuth2" |
-| `issue` | Actionable work items | "Implement login endpoint" |
+| `context` | User intent, requirements, context | "Authentication should use OAuth2" |
+| `task` | Actionable work items | "Implement login endpoint" |
 | `feedback` | Comments, suggestions, anchored discussion | "This approach won't scale" |
 | `external` | References to external systems | Jira ticket, GitHub issue |
 
@@ -41,8 +41,8 @@ All nodes and edges are stored in a unified format within `.opentasks/graph.json
 ├── tombstones.jsonl      # Soft deletes (configurable gitignore)
 ├── cache.db              # SQLite (queries, external cache, snapshots)
 ├── config.json           # Configuration
-├── specs/                # Optional: markdown expansion
-├── issues/               # Optional: markdown expansion
+├── context/              # Optional: markdown expansion
+├── tasks/                # Optional: markdown expansion
 └── daemon.sock           # Daemon socket (when running)
 ```
 
@@ -57,9 +57,9 @@ See [PERSISTENCE.md](./PERSISTENCE.md) for detailed storage and sync design.
  */
 interface StoredNode {
   // === CORE (required) ===
-  id: string                    // hash-based: "i-x7k9", "s-a2b3"
+  id: string                    // hash-based: "t-x7k9", "c-a2b3"
   uuid: string                  // UUID v4 for distributed sync
-  type: string                  // "spec" | "issue" | "feedback" | "external" | custom
+  type: string                  // "context" | "task" | "feedback" | "external" | custom
   title: string                 // human-readable title
   created_at: string            // ISO 8601
   updated_at: string            // ISO 8601
@@ -89,7 +89,7 @@ interface StoredNode {
   deleted_by?: string           // who deleted
 
   // === TYPE-SPECIFIC (optional at storage level) ===
-  // Issue fields
+  // Task fields
   status?: string               // workflow status
   assignee?: string             // assigned to
   closed_at?: string            // when closed
@@ -166,17 +166,17 @@ interface BaseNode {
 }
 ```
 
-### Spec
+### Context
 
 ```typescript
 /**
  * Captures user intent, requirements, and context
  */
-interface Spec extends BaseNode {
-  type: 'spec'
+interface Context extends BaseNode {
+  type: 'context'
 
   /**
-   * Optional status for specs
+   * Optional status for context nodes
    * - draft: work in progress, not ready for implementation
    * - active: current, ready for implementation
    * - archived: superseded or no longer relevant
@@ -185,24 +185,24 @@ interface Spec extends BaseNode {
 }
 ```
 
-**Spec characteristics:**
+**Context characteristics:**
 - Represents "what" and "why", not "how"
 - Content is primary (requirements, context, decisions)
-- Status is optional (specs can simply exist)
-- Issues implement specs (via edges)
+- Status is optional (context nodes can simply exist)
+- Tasks implement context (via edges)
 - Receives feedback from implementation
 
-### Issue
+### Task
 
 ```typescript
 /**
  * Actionable work item with status workflow
  */
-interface Issue extends BaseNode {
-  type: 'issue'
+interface Task extends BaseNode {
+  type: 'task'
 
   /**
-   * Workflow status (required for issues)
+   * Workflow status (required for tasks)
    * - open: not started
    * - in_progress: actively being worked on
    * - blocked: waiting on dependency
@@ -210,21 +210,21 @@ interface Issue extends BaseNode {
    */
   status: 'open' | 'in_progress' | 'blocked' | 'closed' | string
 
-  /** Who is responsible for this issue */
+  /** Who is responsible for this task */
   assignee?: string
 
-  /** When the issue was closed */
+  /** When the task was closed */
   closed_at?: string
 }
 ```
 
-**Issue characteristics:**
+**Task characteristics:**
 - Represents actionable work
 - Always has a status
 - Can be assigned
-- Implements specs (via edges)
-- Can provide feedback on specs
-- Can block/be blocked by other issues
+- Implements context (via edges)
+- Can provide feedback on context
+- Can block/be blocked by other tasks
 
 ### Feedback
 
@@ -237,7 +237,7 @@ interface Feedback extends BaseNode {
 
   /**
    * What this feedback is about
-   * Can be a spec, issue, or another feedback (for threading)
+   * Can be a context, task, or another feedback (for threading)
    */
   target_id: string
 
@@ -297,11 +297,11 @@ interface Anchor {
 ```
 
 **Feedback characteristics:**
-- Always targets something (spec, issue, or another feedback)
+- Always targets something (context, task, or another feedback)
 - Can be anchored to specific location in content
 - Supports threading via `thread_id` and `reply_to_id`
 - Has resolution lifecycle (open → resolved/dismissed)
-- Created by issues (implementation feedback) or users/agents directly
+- Created by tasks (implementation feedback) or users/agents directly
 
 ### External Node
 
@@ -350,17 +350,17 @@ interface ExternalNode extends BaseNode {
 /**
  * Discriminated union of all node types
  */
-type Node = Spec | Issue | Feedback | ExternalNode
+type Node = Context | Task | Feedback | ExternalNode
 
 /**
  * Type guard helpers
  */
-function isSpec(node: Node): node is Spec {
-  return node.type === 'spec'
+function isContext(node: Node): node is Context {
+  return node.type === 'context'
 }
 
-function isIssue(node: Node): node is Issue {
-  return node.type === 'issue'
+function isTask(node: Node): node is Task {
+  return node.type === 'task'
 }
 
 function isFeedback(node: Node): node is Feedback {
@@ -407,7 +407,7 @@ interface Edge {
  */
 type CoreEdgeType =
   | 'blocks'                    // from blocks to (dependency)
-  | 'implements'                // issue implements spec
+  | 'implements'                // task implements context
   | 'references'                // general reference
   | 'related'                   // loose association
 
@@ -432,15 +432,15 @@ type EdgeType = CoreEdgeType | ExtendedEdgeType | string
 
 | Type | Meaning | Example |
 |------|---------|---------|
-| `blocks` | `from` must complete before `to` can start | i-123 blocks i-456 |
-| `implements` | `from` (issue) implements `to` (spec) | i-123 implements s-789 |
-| `references` | `from` mentions/links to `to` | s-abc references s-def |
-| `related` | Loose association | i-123 related i-789 |
-| `parent-of` | Hierarchical containment | s-parent parent-of s-child |
-| `duplicates` | `from` is duplicate of `to` | i-dup duplicates i-original |
-| `supersedes` | `from` replaces `to` | s-v2 supersedes s-v1 |
-| `depends-on` | Softer dependency (informational) | i-123 depends-on i-456 |
-| `discovered-from` | `from` was found while working on `to` | i-new discovered-from i-original |
+| `blocks` | `from` must complete before `to` can start | t-123 blocks t-456 |
+| `implements` | `from` (task) implements `to` (context) | t-123 implements c-789 |
+| `references` | `from` mentions/links to `to` | c-abc references c-def |
+| `related` | Loose association | t-123 related t-789 |
+| `parent-of` | Hierarchical containment | c-parent parent-of c-child |
+| `duplicates` | `from` is duplicate of `to` | t-dup duplicates t-original |
+| `supersedes` | `from` replaces `to` | c-v2 supersedes c-v1 |
+| `depends-on` | Softer dependency (informational) | t-123 depends-on t-456 |
+| `discovered-from` | `from` was found while working on `to` | t-new discovered-from t-original |
 
 ### External Edge Targets
 
@@ -448,10 +448,10 @@ Edges can target external URIs directly:
 
 ```typescript
 // Edge to local node
-{ from_id: "i-x7k9", to_id: "s-a2b3", type: "implements" }
+{ from_id: "t-x7k9", to_id: "c-a2b3", type: "implements" }
 
 // Edge to external URI (creates phantom node on traversal)
-{ from_id: "i-x7k9", to_id: "jira://PROJ-123", type: "references" }
+{ from_id: "t-x7k9", to_id: "jira://PROJ-123", type: "references" }
 ```
 
 ---
@@ -465,7 +465,7 @@ IDs are generated using a hash-based approach for collision resistance:
 ```typescript
 interface IDConfig {
   /** Prefix for the node type */
-  prefix: 'i' | 's' | 'f' | 'e' | 'x'  // issue, spec, feedback, external, edge
+  prefix: 't' | 'c' | 'f' | 'e' | 'x'  // task, context, feedback, external, edge
 
   /** Minimum hash length (adaptive based on entity count) */
   minLength: number
@@ -482,7 +482,7 @@ interface IDConfig {
  * 4. Take adaptive length based on entity count
  * 5. Prepend type prefix
  *
- * Result: "i-x7k9", "s-a2b3f", "f-m4n5p", etc.
+ * Result: "t-x7k9", "c-a2b3f", "f-m4n5p", etc.
  */
 function generateId(type: NodeType, existingCount: number): string {
   const uuid = generateUUID()
@@ -498,11 +498,11 @@ function generateId(type: NodeType, existingCount: number): string {
  * Target: <1% collision probability
  */
 function adaptiveLength(count: number): number {
-  if (count < 980) return 4        // i-x7k9
-  if (count < 5900) return 5       // i-x7k9p
-  if (count < 35000) return 6      // i-x7k9pm
-  if (count < 212000) return 7     // i-x7k9pmq
-  return 8                          // i-x7k9pmqr
+  if (count < 980) return 4        // t-x7k9
+  if (count < 5900) return 5       // t-x7k9p
+  if (count < 35000) return 6      // t-x7k9pm
+  if (count < 212000) return 7     // t-x7k9pmq
+  return 8                          // t-x7k9pmqr
 }
 ```
 
@@ -510,8 +510,8 @@ function adaptiveLength(count: number): number {
 
 | Prefix | Type | Example |
 |--------|------|---------|
-| `s-` | Spec | `s-a2b3` |
-| `i-` | Issue | `i-x7k9` |
+| `c-` | Context | `c-a2b3` |
+| `t-` | Task | `t-x7k9` |
 | `f-` | Feedback | `f-m4n5` |
 | `e-` | External | `e-p6q7` |
 | `x-` | Edge | `x-r8s9` |
@@ -537,7 +537,7 @@ function computeContentHash(node: StoredNode): string {
     tags: node.tags?.sort(),
     parent_id: node.parent_id,
     // Type-specific substantive fields
-    ...(node.type === 'issue' && { assignee: node.assignee }),
+    ...(node.type === 'task' && { assignee: node.assignee }),
     ...(node.type === 'feedback' && {
       target_id: node.target_id,
       target_anchor: node.target_anchor,
@@ -623,9 +623,9 @@ function validateNode(stored: StoredNode): ValidationResult {
 
   // Type-specific validation
   switch (stored.type) {
-    case 'issue':
+    case 'task':
       if (!stored.status) {
-        errors.push({ field: 'status', message: 'Required for issues', code: 'REQUIRED' })
+        errors.push({ field: 'status', message: 'Required for tasks', code: 'REQUIRED' })
       }
       break
 
@@ -647,7 +647,7 @@ function validateNode(stored: StoredNode): ValidationResult {
       }
       break
 
-    case 'spec':
+    case 'context':
       // No additional required fields
       break
 
@@ -714,13 +714,13 @@ interface Migration {
 
 ## Examples
 
-### Minimal Spec
+### Minimal Context
 
 ```json
 {
-  "id": "s-a2b3",
+  "id": "c-a2b3",
   "uuid": "550e8400-e29b-41d4-a716-446655440000",
-  "type": "spec",
+  "type": "context",
   "title": "User authentication requirements",
   "content": "## Overview\n\nUsers should be able to log in with OAuth2...",
   "created_at": "2025-01-26T10:00:00Z",
@@ -728,13 +728,13 @@ interface Migration {
 }
 ```
 
-### Issue with Assignment
+### Task with Assignment
 
 ```json
 {
-  "id": "i-x7k9",
+  "id": "t-x7k9",
   "uuid": "550e8400-e29b-41d4-a716-446655440001",
-  "type": "issue",
+  "type": "task",
   "title": "Implement OAuth2 login endpoint",
   "content": "Create POST /auth/login endpoint...",
   "status": "in_progress",
@@ -757,7 +757,7 @@ interface Migration {
   "type": "feedback",
   "title": "Consider rate limiting",
   "content": "The login endpoint should include rate limiting to prevent brute force attacks.",
-  "target_id": "s-a2b3",
+  "target_id": "c-a2b3",
   "target_anchor": {
     "line": 15,
     "text": "Users should be able to log in",
@@ -798,15 +798,15 @@ interface Migration {
   {
     "id": "x-r8s9",
     "uuid": "550e8400-e29b-41d4-a716-446655440010",
-    "from_id": "i-x7k9",
-    "to_id": "s-a2b3",
+    "from_id": "t-x7k9",
+    "to_id": "c-a2b3",
     "type": "implements",
     "created_at": "2025-01-26T10:30:00Z"
   },
   {
     "id": "x-t1u2",
     "uuid": "550e8400-e29b-41d4-a716-446655440011",
-    "from_id": "i-x7k9",
+    "from_id": "t-x7k9",
     "to_id": "jira://PROJ-123",
     "type": "references",
     "created_at": "2025-01-26T10:30:00Z"

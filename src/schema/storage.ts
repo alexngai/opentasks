@@ -47,7 +47,7 @@ export interface StoredNode {
   deleted_at?: string
   deleted_by?: string
 
-  // === ISSUE FIELDS (optional) ===
+  // === TASK FIELDS (optional) ===
   status?: string
   assignee?: string
   closed_at?: string

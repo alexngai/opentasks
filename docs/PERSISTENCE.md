@@ -44,7 +44,7 @@ This document describes the persistence architecture for OpenTasks. The design e
 └─────────────────┘ └─────────────────┘ └─────────────────────────┘
           ↓                   ↓                   ↓
 ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────────────┐
-│  graph.jsonl    │ │   cache.db      │ │  specs/*.md, issues/*.md│
+│  graph.jsonl    │ │   cache.db      │ │  context/*.md, tasks/*.md│
 │  (git-tracked)  │ │  (gitignored)   │ │  (git-tracked)          │
 └─────────────────┘ └─────────────────┘ └─────────────────────────┘
 ```
@@ -154,7 +154,7 @@ interface JSONLPersisterConfig {
   }
 
   /** Whether to split by node type */
-  splitByType?: boolean   // specs.jsonl, issues.jsonl, etc.
+  splitByType?: boolean   // context.jsonl, tasks.jsonl, etc.
 
   /** Atomic write strategy */
   atomicWrite?: 'rename' | 'write-sync' | 'none'
@@ -179,9 +179,9 @@ const jsonlPersister = createJSONLPersister({
 
 **File Format:**
 ```jsonl
-{"id":"s-a2b3","type":"spec","title":"Auth requirements",...}
-{"id":"i-x7k9","type":"issue","title":"Implement login",...}
-{"id":"x-r8s9","type":"edge","from_id":"i-x7k9","to_id":"s-a2b3",...}
+{"id":"c-a2b3","type":"context","title":"Auth requirements",...}
+{"id":"t-x7k9","type":"task","title":"Implement login",...}
+{"id":"x-r8s9","type":"edge","from_id":"t-x7k9","to_id":"c-a2b3",...}
 ```
 
 ### 2. SQLite Persister (Query Cache)
@@ -285,8 +285,8 @@ interface MarkdownPersisterConfig {
 
   /** Directory structure */
   structure: {
-    specs?: string          // e.g., "specs/" → .opentasks/specs/*.md
-    issues?: string         // e.g., "issues/"
+    context?: string        // e.g., "context/" → .opentasks/context/*.md
+    tasks?: string          // e.g., "tasks/"
     feedback?: string       // e.g., "feedback/"
   }
 
@@ -306,8 +306,8 @@ interface MarkdownPersisterConfig {
 const markdownPersister = createMarkdownPersister({
   basePath: '.opentasks/',
   structure: {
-    specs: 'specs/',
-    issues: 'issues/',
+    context: 'context/',
+    tasks: 'tasks/',
   },
   filenamePattern: 'id-title',
   frontmatter: 'yaml',
@@ -325,8 +325,8 @@ const markdownPersister = createMarkdownPersister({
 **File Format:**
 ```markdown
 ---
-id: s-a2b3
-type: spec
+id: c-a2b3
+type: context
 title: Authentication Requirements
 status: active
 priority: 1
@@ -853,8 +853,8 @@ const withMarkdownConfig: PersistenceManagerConfig = {
     createMarkdownPersister({
       basePath: '.opentasks/',
       structure: {
-        specs: 'specs/',
-        issues: 'issues/',
+        context: 'context/',
+        tasks: 'tasks/',
       },
       watchFiles: true,
     }),
@@ -894,11 +894,11 @@ const withBeadsConfig: PersistenceManagerConfig = {
 ├── cache.db              # SQLite cache in WAL mode (gitignored, can be rebuilt)
 ├── config.json           # Configuration, connections, role, redirects
 ├── write.lock            # Advisory lock for JSONL writes (gitignored)
-├── specs/                # Optional: markdown expansion
-│   ├── s-a2b3-auth-requirements.md
-│   └── s-c4d5-api-design.md
-└── issues/               # Optional: markdown expansion
-    ├── i-x7k9-implement-login.md
+├── context/                # Optional: markdown expansion
+│   ├── c-a2b3-auth-requirements.md
+│   └── c-c4d5-api-design.md
+└── tasks/               # Optional: markdown expansion
+    ├── t-x7k9-implement-login.md
     └── i-y8z0-add-tests.md
 
 .git/opentasks/           # Shared across all worktrees (Phase 3)
@@ -954,7 +954,7 @@ Bidirectional sync between JSONL (source of truth) and Markdown files (agent-edi
                     └────────┬────────┘
                              ↓
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  graph.jsonl    │←──→│     Daemon      │←──→│  specs/*.md     │
+│  graph.jsonl    │←──→│     Daemon      │←──→│  context/*.md     │
 │  (git-tracked)  │    │   (mediator)    │    │  (git-tracked)  │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
         ↑                                              ↑

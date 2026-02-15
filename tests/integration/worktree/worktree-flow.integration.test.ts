@@ -151,11 +151,11 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
       }]
 
       // Parse hash-based URI
-      const uri1 = buildOpentasksUri(workerHash, 'i-test123')
+      const uri1 = buildOpentasksUri(workerHash, 't-test123')
       expect(isOpentasksUri(uri1)).toBe(true)
       const parsed1 = parseOpentasksUri(uri1)
       expect(parsed1?.locationHash).toBe(workerHash)
-      expect(parsed1?.nodeId).toBe('i-test123')
+      expect(parsed1?.nodeId).toBe('t-test123')
 
       // Resolve to connected location
       const resolved1 = resolveOpentasksUri(uri1, connections, currentLocation, managerDir)
@@ -163,13 +163,13 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
       expect(resolved1.isLocal).toBe(false)
 
       // Parse and resolve local URI
-      const localUri = buildLocalUri('s-spec1')
+      const localUri = buildLocalUri('c-context1')
       const resolved2 = resolveOpentasksUri(localUri, connections, currentLocation, managerDir)
       expect(resolved2.hash).toBe(managerHash)
       expect(resolved2.isLocal).toBe(true)
 
       // Parse absolute path URI
-      const absUri = `opentasks://${managerDir}/i-abs1`
+      const absUri = `opentasks://${managerDir}/t-abs1`
       const parsed3 = parseOpentasksUri(absUri)
       expect(parsed3?.absolutePath).toBe(managerDir)
       const resolved3 = resolveOpentasksUri(absUri, connections, currentLocation, managerDir)
@@ -194,7 +194,7 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
       const rules: RedirectRule[] = [
         {
           operations: ['read', 'write'],
-          pattern: 's-*',
+          pattern: 'c-*',
           target: `opentasks://${managerHash}/`,
           priority: 10,
           fallback: 'error',
@@ -208,22 +208,22 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
         },
       ]
 
-      // Write to spec → redirected to manager
+      // Write to context -> redirected to manager
       const result1 = resolveOperationRedirect(
-        'write', 's-spec1', rules, connections, currentLocation, workerDir
+        'write', 'c-context1', rules, connections, currentLocation, workerDir
       )
       expect(result1.redirected).toBe(true)
       expect(result1.targetLocation?.hash).toBe(managerHash)
 
-      // Read anything → redirected to manager
+      // Read anything -> redirected to manager
       const result2 = resolveOperationRedirect(
-        'read', 'i-issue1', rules, connections, currentLocation, workerDir
+        'read', 't-task1', rules, connections, currentLocation, workerDir
       )
       expect(result2.redirected).toBe(true)
 
-      // Write non-spec → no redirect (no matching rule)
+      // Write non-context -> no redirect (no matching rule)
       const result3 = resolveOperationRedirect(
-        'write', 'i-issue1', rules, connections, currentLocation, workerDir
+        'write', 't-task1', rules, connections, currentLocation, workerDir
       )
       expect(result3.redirected).toBe(false)
     })
@@ -315,30 +315,30 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
 
   describe('Phase 3: JSONL three-way merge', () => {
     it('handles full merge scenario: additions, modifications, and deletions', () => {
-      // Base has 3 issues
+      // Base has 3 tasks
       const basePath = tempDir.resolve('base.jsonl')
       const oursPath = tempDir.resolve('ours.jsonl')
       const theirsPath = tempDir.resolve('theirs.jsonl')
 
       const baseEntries = [
-        { id: 'i-1', title: 'Issue 1', status: 'open', priority: 1, updated_at: '2025-01-01T00:00:00Z' },
-        { id: 'i-2', title: 'Issue 2', status: 'open', priority: 2, updated_at: '2025-01-01T00:00:00Z' },
-        { id: 'i-3', title: 'Issue 3', status: 'open', priority: 3, updated_at: '2025-01-01T00:00:00Z' },
+        { id: 't-1', title: 'Task 1', status: 'open', priority: 1, updated_at: '2025-01-01T00:00:00Z' },
+        { id: 't-2', title: 'Task 2', status: 'open', priority: 2, updated_at: '2025-01-01T00:00:00Z' },
+        { id: 't-3', title: 'Task 3', status: 'open', priority: 3, updated_at: '2025-01-01T00:00:00Z' },
       ]
 
-      // Ours: changed i-1 status to closed, added i-4, deleted i-3
+      // Ours: changed t-1 status to closed, added t-4, deleted t-3
       const oursEntries = [
-        { id: 'i-1', title: 'Issue 1', status: 'closed', priority: 1, updated_at: '2025-01-01T02:00:00Z' },
-        { id: 'i-2', title: 'Issue 2', status: 'open', priority: 2, updated_at: '2025-01-01T00:00:00Z' },
-        { id: 'i-4', title: 'New Our Issue', status: 'open', priority: 1, updated_at: '2025-01-01T01:00:00Z' },
+        { id: 't-1', title: 'Task 1', status: 'closed', priority: 1, updated_at: '2025-01-01T02:00:00Z' },
+        { id: 't-2', title: 'Task 2', status: 'open', priority: 2, updated_at: '2025-01-01T00:00:00Z' },
+        { id: 't-4', title: 'New Our Task', status: 'open', priority: 1, updated_at: '2025-01-01T01:00:00Z' },
       ]
 
-      // Theirs: changed i-2 title, added i-5, changed i-3 priority
+      // Theirs: changed t-2 title, added t-5, changed t-3 priority
       const theirsEntries = [
-        { id: 'i-1', title: 'Issue 1', status: 'open', priority: 1, updated_at: '2025-01-01T00:00:00Z' },
-        { id: 'i-2', title: 'Updated Issue 2', status: 'open', priority: 2, updated_at: '2025-01-01T01:00:00Z' },
-        { id: 'i-3', title: 'Issue 3', status: 'open', priority: 5, updated_at: '2025-01-01T01:00:00Z' },
-        { id: 'i-5', title: 'New Their Issue', status: 'open', priority: 1, updated_at: '2025-01-01T01:00:00Z' },
+        { id: 't-1', title: 'Task 1', status: 'open', priority: 1, updated_at: '2025-01-01T00:00:00Z' },
+        { id: 't-2', title: 'Updated Task 2', status: 'open', priority: 2, updated_at: '2025-01-01T01:00:00Z' },
+        { id: 't-3', title: 'Task 3', status: 'open', priority: 5, updated_at: '2025-01-01T01:00:00Z' },
+        { id: 't-5', title: 'New Their Task', status: 'open', priority: 1, updated_at: '2025-01-01T01:00:00Z' },
       ]
 
       fs.writeFileSync(basePath, baseEntries.map(e => JSON.stringify(e)).join('\n') + '\n')
@@ -350,28 +350,28 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
 
       const result = parseJsonlToMap(oursPath)
 
-      // i-1: ours changed status to closed, theirs didn't → closed
-      expect(result.get('i-1')?.status).toBe('closed')
+      // t-1: ours changed status to closed, theirs didn't → closed
+      expect(result.get('t-1')?.status).toBe('closed')
 
-      // i-2: theirs changed title → Updated Issue 2
-      expect(result.get('i-2')?.title).toBe('Updated Issue 2')
+      // t-2: theirs changed title → Updated Task 2
+      expect(result.get('t-2')?.title).toBe('Updated Task 2')
 
-      // i-3: ours deleted but theirs modified → keep theirs' modification
-      expect(result.has('i-3')).toBe(true)
-      expect(result.get('i-3')?.priority).toBe(5)
+      // t-3: ours deleted but theirs modified → keep theirs' modification
+      expect(result.has('t-3')).toBe(true)
+      expect(result.get('t-3')?.priority).toBe(5)
 
-      // i-4: added by ours → present
-      expect(result.has('i-4')).toBe(true)
-      expect(result.get('i-4')?.title).toBe('New Our Issue')
+      // t-4: added by ours → present
+      expect(result.has('t-4')).toBe(true)
+      expect(result.get('t-4')?.title).toBe('New Our Task')
 
-      // i-5: added by theirs → present
-      expect(result.has('i-5')).toBe(true)
-      expect(result.get('i-5')?.title).toBe('New Their Issue')
+      // t-5: added by theirs → present
+      expect(result.has('t-5')).toBe(true)
+      expect(result.get('t-5')?.title).toBe('New Their Task')
     })
 
     it('field-level merge resolves concurrent edits on same node', () => {
       const base = {
-        id: 'i-conflict',
+        id: 't-conflict',
         title: 'Original',
         status: 'open',
         priority: 1,
@@ -379,7 +379,7 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
         updated_at: '2025-01-01T00:00:00Z',
       }
       const ours = {
-        id: 'i-conflict',
+        id: 't-conflict',
         title: 'Original',
         status: 'closed',
         priority: 1,
@@ -387,7 +387,7 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
         updated_at: '2025-01-01T01:00:00Z',
       }
       const theirs = {
-        id: 'i-conflict',
+        id: 't-conflict',
         title: 'Updated Title',
         status: 'open',
         priority: 3,
@@ -412,11 +412,11 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
 
     it('writeJsonlFromMap orders nodes before edges', () => {
       const map = new Map<string, Record<string, unknown>>()
-      map.set('x-edge1', { id: 'x-edge1', from_id: 'i-1', to_id: 'i-2', type: 'blocks' })
-      map.set('i-1', { id: 'i-1', title: 'Issue 1' })
-      map.set('s-spec1', { id: 's-spec1', title: 'Spec 1' })
-      map.set('x-edge2', { id: 'x-edge2', from_id: 'i-2', to_id: 's-spec1', type: 'implements' })
-      map.set('i-2', { id: 'i-2', title: 'Issue 2' })
+      map.set('x-edge1', { id: 'x-edge1', from_id: 't-1', to_id: 't-2', type: 'blocks' })
+      map.set('t-1', { id: 't-1', title: 'Task 1' })
+      map.set('c-ctx1', { id: 'c-ctx1', title: 'Context 1' })
+      map.set('x-edge2', { id: 'x-edge2', from_id: 't-2', to_id: 'c-ctx1', type: 'implements' })
+      map.set('t-2', { id: 't-2', title: 'Task 2' })
 
       const outputPath = tempDir.resolve('output.jsonl')
       writeJsonlFromMap(outputPath, map)
@@ -465,8 +465,8 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
       const rules: ConditionalRedirectRule[] = [
         {
           operations: ['write'],
-          pattern: 's-*',
-          target: 'opentasks://specs/',
+          pattern: 'c-*',
+          target: 'opentasks://context/',
           priority: 50,
           fallback: 'error',
           when: { role: 'worker' },
@@ -480,12 +480,12 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
         },
       ]
 
-      // Worker writing spec → matches first rule
-      const rule1 = findConditionalRedirectRule('write', 's-abc', rules, { role: 'worker' })
-      expect(rule1?.target).toBe('opentasks://specs/')
+      // Worker writing context -> matches first rule
+      const rule1 = findConditionalRedirectRule('write', 'c-abc', rules, { role: 'worker' })
+      expect(rule1?.target).toBe('opentasks://context/')
 
-      // Manager writing spec → skips first rule (role mismatch), matches fallback
-      const rule2 = findConditionalRedirectRule('write', 's-abc', rules, { role: 'manager' })
+      // Manager writing context -> skips first rule (role mismatch), matches fallback
+      const rule2 = findConditionalRedirectRule('write', 'c-abc', rules, { role: 'manager' })
       expect(rule2?.target).toBe('opentasks://default/')
     })
   })
@@ -580,19 +580,19 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
 
       // Resolve redirect: worker writes get redirected to manager
       const redirectResult = resolveOperationRedirect(
-        'write', 'i-task1', workerRedirects, workerConnections, workerLocation, workerOpentasks
+        'write', 't-task1', workerRedirects, workerConnections, workerLocation, workerOpentasks
       )
       expect(redirectResult.redirected).toBe(true)
       expect(redirectResult.targetLocation?.hash).toBe(managerHash)
 
       // 8. Build cross-location URI from manager context
-      const crossUri = buildOpentasksUri(workerHash, 'i-worker-issue')
+      const crossUri = buildOpentasksUri(workerHash, 't-worker-task')
       const managerLocation = { hash: managerHash, uuid: 'uuid-mgr', name: 'manager' }
       const managerConnections: Connection[] = [mgrToWkr]
 
       const resolved = resolveOpentasksUri(crossUri, managerConnections, managerLocation, managerOpentasks)
       expect(resolved.hash).toBe(workerHash)
-      expect(resolved.nodeId).toBe('i-worker-issue')
+      expect(resolved.nodeId).toBe('t-worker-task')
       expect(resolved.isLocal).toBe(false)
 
       // 9. Register both in worktree registry
@@ -626,15 +626,15 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
       const wkrPath = tempDir.resolve('graph-wkr.jsonl')
 
       const baseGraph = [
-        { id: 'i-shared', title: 'Shared Issue', status: 'open', updated_at: '2025-01-01T00:00:00Z' },
+        { id: 't-shared', title: 'Shared Task', status: 'open', updated_at: '2025-01-01T00:00:00Z' },
       ]
       const mgrGraph = [
-        { id: 'i-shared', title: 'Shared Issue', status: 'closed', updated_at: '2025-01-01T02:00:00Z' },
-        { id: 'i-mgr-new', title: 'Manager Added', status: 'open', updated_at: '2025-01-01T01:00:00Z' },
+        { id: 't-shared', title: 'Shared Task', status: 'closed', updated_at: '2025-01-01T02:00:00Z' },
+        { id: 't-mgr-new', title: 'Manager Added', status: 'open', updated_at: '2025-01-01T01:00:00Z' },
       ]
       const wkrGraph = [
-        { id: 'i-shared', title: 'Updated by Worker', status: 'open', updated_at: '2025-01-01T01:00:00Z' },
-        { id: 'i-wkr-new', title: 'Worker Added', status: 'open', updated_at: '2025-01-01T01:00:00Z' },
+        { id: 't-shared', title: 'Updated by Worker', status: 'open', updated_at: '2025-01-01T01:00:00Z' },
+        { id: 't-wkr-new', title: 'Worker Added', status: 'open', updated_at: '2025-01-01T01:00:00Z' },
       ]
 
       fs.writeFileSync(basePath, baseGraph.map(e => JSON.stringify(e)).join('\n') + '\n')
@@ -645,12 +645,12 @@ describe.skipIf(!SLOW_TESTS)('Worktree Flow Integration', () => {
       expect(mergeResult).toBe(0)
 
       const merged = parseJsonlToMap(mgrPath)
-      // i-shared: manager changed status to closed, worker changed title
-      expect(merged.get('i-shared')?.status).toBe('closed')
-      expect(merged.get('i-shared')?.title).toBe('Updated by Worker')
+      // t-shared: manager changed status to closed, worker changed title
+      expect(merged.get('t-shared')?.status).toBe('closed')
+      expect(merged.get('t-shared')?.title).toBe('Updated by Worker')
       // Both additions present
-      expect(merged.has('i-mgr-new')).toBe(true)
-      expect(merged.has('i-wkr-new')).toBe(true)
+      expect(merged.has('t-mgr-new')).toBe(true)
+      expect(merged.has('t-wkr-new')).toBe(true)
     })
   })
 })

@@ -63,14 +63,14 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
   })
 
   describe('Native to External Edges', () => {
-    it('should create edge from native issue to external Beads task', async ({ skip }) => {
+    it('should create edge from native task to external Beads task', async ({ skip }) => {
       if (!system.beadsAvailable) {
         skip()
         return
       }
 
-      // Create native issue
-      const nativeIssue = await agent.createIssue('Native Blocker')
+      // Create native task
+      const nativeTask = await agent.createTask('Native Blocker')
 
       // Create Beads task
       const beadsTask = await createBeadsTask(system.beadsWorkspace!, 'Blocked by Native')
@@ -80,7 +80,7 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
 
       // Create blocking edge: native blocks beads
       const result = await agent.link({
-        from_id: nativeIssue.id,
+        from_id: nativeTask.id,
         to_id: beadsTask.uri,
         type: 'blocks',
       })
@@ -95,8 +95,8 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
         return
       }
 
-      // Create native issue
-      const nativeIssue = await agent.createIssue('Native Blocker for Query')
+      // Create native task
+      const nativeTask = await agent.createTask('Native Blocker for Query')
 
       // Create Beads task
       const beadsTask = await createBeadsTask(system.beadsWorkspace!, 'Beads Blocked')
@@ -104,7 +104,7 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
       // Hydrate and create edge
       await system.hydratingGraph.hydrate(beadsTask.uri)
       await agent.link({
-        from_id: nativeIssue.id,
+        from_id: nativeTask.id,
         to_id: beadsTask.uri,
         type: 'blocks',
       })
@@ -113,12 +113,12 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
       const blockers = await agent.blockers(beadsTask.uri)
 
       expect(blockers.length).toBeGreaterThanOrEqual(1)
-      expect(blockers.some((b) => b.id === nativeIssue.id)).toBe(true)
+      expect(blockers.some((b) => b.id === nativeTask.id)).toBe(true)
     })
   })
 
   describe('External to Native Edges', () => {
-    it('should create edge from external Beads task to native issue', async ({ skip }) => {
+    it('should create edge from external Beads task to native task', async ({ skip }) => {
       if (!system.beadsAvailable) {
         skip()
         return
@@ -130,13 +130,13 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
       // Hydrate the Beads task
       await system.hydratingGraph.hydrate(beadsTask.uri)
 
-      // Create native issue
-      const nativeIssue = await agent.createIssue('Blocked by Beads')
+      // Create native task
+      const nativeTask = await agent.createTask('Blocked by Beads')
 
       // Create blocking edge: beads blocks native
       const result = await agent.link({
         from_id: beadsTask.uri,
-        to_id: nativeIssue.id,
+        to_id: nativeTask.id,
         type: 'blocks',
       })
 
@@ -155,13 +155,13 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
       // Hydrate
       await system.hydratingGraph.hydrate(beadsTask.uri)
 
-      // Create native issue
-      const nativeIssue = await agent.createIssue('Native Blocked')
+      // Create native task
+      const nativeTask = await agent.createTask('Native Blocked')
 
       // Create edge: beads blocks native
       await agent.link({
         from_id: beadsTask.uri,
-        to_id: nativeIssue.id,
+        to_id: nativeTask.id,
         type: 'blocks',
       })
 
@@ -169,7 +169,7 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
       const blocking = await agent.blocking(beadsTask.uri)
 
       expect(blocking.length).toBeGreaterThanOrEqual(1)
-      expect(blocking.some((b) => b.id === nativeIssue.id)).toBe(true)
+      expect(blocking.some((b) => b.id === nativeTask.id)).toBe(true)
     })
   })
 
@@ -180,16 +180,16 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
         return
       }
 
-      // Create native issue
-      const nativeIssue = await agent.createIssue('Native in Chain')
-      const nativeUri = `native://${nativeIssue.id}`
+      // Create native task
+      const nativeTask = await agent.createTask('Native in Chain')
+      const nativeUri = `native://${nativeTask.id}`
 
-      // Add native issue to graphology adapter (daemon doesn't sync to in-memory graph)
+      // Add native task to graphology adapter (daemon doesn't sync to in-memory graph)
       system.graphologyAdapter.hydrateNode(nativeUri, {
-        id: nativeIssue.id,
+        id: nativeTask.id,
         uuid: '',
-        type: 'issue',
-        title: nativeIssue.title,
+        type: 'task',
+        title: nativeTask.title,
         status: 'open',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -201,7 +201,7 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
 
       // Create edge: native blocks beads (stored in SQLite)
       const linkResult = await agent.link({
-        from_id: nativeIssue.id,
+        from_id: nativeTask.id,
         to_id: beadsTask.uri,
         type: 'blocks',
       })
@@ -243,18 +243,18 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
       }
 
       // Create chain: Native A → Beads B → Native C
-      const nativeA = await agent.createIssue('Native A')
+      const nativeA = await agent.createTask('Native A')
       const nativeAUri = `native://${nativeA.id}`
       const beadsB = await createBeadsTask(system.beadsWorkspace!, 'Beads B')
       await system.hydratingGraph.hydrate(beadsB.uri)
-      const nativeC = await agent.createIssue('Native C')
+      const nativeC = await agent.createTask('Native C')
       const nativeCUri = `native://${nativeC.id}`
 
       // Add native nodes to graphology adapter
       system.graphologyAdapter.hydrateNode(nativeAUri, {
         id: nativeA.id,
         uuid: '',
-        type: 'issue',
+        type: 'task',
         title: nativeA.title,
         status: 'open',
         created_at: new Date().toISOString(),
@@ -263,7 +263,7 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
       system.graphologyAdapter.hydrateNode(nativeCUri, {
         id: nativeC.id,
         uuid: '',
-        type: 'issue',
+        type: 'task',
         title: nativeC.title,
         status: 'open',
         created_at: new Date().toISOString(),
@@ -326,16 +326,16 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
       })
       await system.hydratingGraph.hydrate(beadsBlocker.uri)
 
-      // Create native issue blocked by Beads
-      const nativeIssue = await agent.createIssue('Blocked Native')
-      const nativeUri = `native://${nativeIssue.id}`
+      // Create native task blocked by Beads
+      const nativeTask = await agent.createTask('Blocked Native')
+      const nativeUri = `native://${nativeTask.id}`
 
-      // Add native issue to graphology adapter
+      // Add native task to graphology adapter
       system.graphologyAdapter.hydrateNode(nativeUri, {
-        id: nativeIssue.id,
+        id: nativeTask.id,
         uuid: '',
-        type: 'issue',
-        title: nativeIssue.title,
+        type: 'task',
+        title: nativeTask.title,
         status: 'open',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -343,7 +343,7 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
 
       const linkResult = await agent.link({
         from_id: beadsBlocker.uri,
-        to_id: nativeIssue.id,
+        to_id: nativeTask.id,
         type: 'blocks',
       })
       expect(linkResult.success).toBe(true)
@@ -360,7 +360,7 @@ describe.skipIf(!AGENT_TESTS)('Cross-Provider Edges', () => {
         },
       ])
 
-      // Query ready using federated graph - native issue should NOT be ready
+      // Query ready using federated graph - native task should NOT be ready
       const readyUris = await system.hydratingGraph.ready()
       const isReady = readyUris.includes(nativeUri)
       expect(isReady).toBe(false)

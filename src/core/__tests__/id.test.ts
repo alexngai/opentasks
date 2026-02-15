@@ -11,8 +11,8 @@ import {
 
 describe('typePrefix', () => {
   it('returns correct prefix for each type', () => {
-    expect(typePrefix('spec')).toBe('s')
-    expect(typePrefix('issue')).toBe('i')
+    expect(typePrefix('context')).toBe('c')
+    expect(typePrefix('task')).toBe('t')
     expect(typePrefix('feedback')).toBe('f')
     expect(typePrefix('external')).toBe('e')
     expect(typePrefix('edge')).toBe('x')
@@ -72,17 +72,17 @@ describe('hexToBase36', () => {
 })
 
 describe('generateId', () => {
-  it('generates id with correct prefix for spec', () => {
-    const { id, uuid } = generateId('spec')
-    expect(id).toMatch(/^s-[a-z0-9]{4,}$/)
+  it('generates id with correct prefix for context', () => {
+    const { id, uuid } = generateId('context')
+    expect(id).toMatch(/^c-[a-z0-9]{4,}$/)
     expect(uuid).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
     )
   })
 
-  it('generates id with correct prefix for issue', () => {
-    const { id } = generateId('issue')
-    expect(id).toMatch(/^i-[a-z0-9]{4,}$/)
+  it('generates id with correct prefix for task', () => {
+    const { id } = generateId('task')
+    expect(id).toMatch(/^t-[a-z0-9]{4,}$/)
   })
 
   it('generates id with correct prefix for feedback', () => {
@@ -103,15 +103,15 @@ describe('generateId', () => {
   it('generates unique UUIDs', () => {
     const uuids = new Set<string>()
     for (let i = 0; i < 100; i++) {
-      const { uuid } = generateId('issue')
+      const { uuid } = generateId('task')
       uuids.add(uuid)
     }
     expect(uuids.size).toBe(100)
   })
 
   it('respects existingCount for adaptive length', () => {
-    const { id: small } = generateId('issue', 0)
-    const { id: large } = generateId('issue', 10000)
+    const { id: small } = generateId('task', 0)
+    const { id: large } = generateId('task', 10000)
 
     // Small count should have shorter hash part
     const smallHash = small.split('-')[1]
@@ -125,8 +125,8 @@ describe('generateId', () => {
 describe('generateIdFromUuid', () => {
   it('generates deterministic id from uuid', () => {
     const uuid = '550e8400-e29b-41d4-a716-446655440000'
-    const result1 = generateIdFromUuid('issue', uuid)
-    const result2 = generateIdFromUuid('issue', uuid)
+    const result1 = generateIdFromUuid('task', uuid)
+    const result2 = generateIdFromUuid('task', uuid)
 
     expect(result1.id).toBe(result2.id)
     expect(result1.uuid).toBe(uuid)
@@ -134,20 +134,20 @@ describe('generateIdFromUuid', () => {
 
   it('same uuid produces same hash part', () => {
     const uuid = '550e8400-e29b-41d4-a716-446655440000'
-    const spec = generateIdFromUuid('spec', uuid)
-    const issue = generateIdFromUuid('issue', uuid)
+    const context = generateIdFromUuid('context', uuid)
+    const task = generateIdFromUuid('task', uuid)
 
     // Same hash, different prefix
-    expect(spec.id.slice(2)).toBe(issue.id.slice(2))
-    expect(spec.id[0]).toBe('s')
-    expect(issue.id[0]).toBe('i')
+    expect(context.id.slice(2)).toBe(task.id.slice(2))
+    expect(context.id[0]).toBe('c')
+    expect(task.id[0]).toBe('t')
   })
 })
 
 describe('parseIdPrefix', () => {
   it('extracts prefix from valid ids', () => {
-    expect(parseIdPrefix('s-a2b3')).toBe('s')
-    expect(parseIdPrefix('i-x7k9pm')).toBe('i')
+    expect(parseIdPrefix('c-a2b3')).toBe('c')
+    expect(parseIdPrefix('t-x7k9pm')).toBe('t')
     expect(parseIdPrefix('f-123')).toBe('f')
     expect(parseIdPrefix('e-abc')).toBe('e')
     expect(parseIdPrefix('x-xyz')).toBe('x')
@@ -163,8 +163,8 @@ describe('parseIdPrefix', () => {
 
 describe('inferTypeFromId', () => {
   it('infers correct type from id', () => {
-    expect(inferTypeFromId('s-a2b3')).toBe('spec')
-    expect(inferTypeFromId('i-x7k9')).toBe('issue')
+    expect(inferTypeFromId('c-a2b3')).toBe('context')
+    expect(inferTypeFromId('t-x7k9')).toBe('task')
     expect(inferTypeFromId('f-m4n5')).toBe('feedback')
     expect(inferTypeFromId('e-p6q7')).toBe('external')
     expect(inferTypeFromId('x-r8s9')).toBe('edge')

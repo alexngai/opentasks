@@ -62,7 +62,7 @@ All provider tests use mocks. No tests verify actual integration with:
 #### Gap 2: End-to-End Agent Workflows
 
 No tests verify complete agent workflows:
-- Agent creates spec → links issues → provides feedback
+- Agent creates context → links tasks → provides feedback
 - Multi-agent coordination with blocking dependencies
 - Full daemon lifecycle with real IPC communication
 
@@ -268,7 +268,7 @@ describe.skipIf(!SLOW_TESTS)('Daemon Lifecycle', () => {
       // Make some writes via IPC
       const client = createIPCClient(socketPath)
       await client.connect()
-      await client.createNode({ type: 'spec', title: 'Test' })
+      await client.createNode({ type: 'context', title: 'Test' })
 
       // Send SIGTERM
       daemonProcess.kill('SIGTERM')
@@ -315,7 +315,7 @@ describe.skipIf(!SLOW_TESTS)('Daemon IPC', () => {
 
   describe('round-trip', () => {
     it('should handle create → get → update → delete cycle', async () => {
-      const created = await client.createNode({ type: 'spec', title: 'Test' })
+      const created = await client.createNode({ type: 'context', title: 'Test' })
       expect(created.id).toMatch(/^s-/)
 
       const fetched = await client.getNode(created.id)
@@ -342,7 +342,7 @@ describe.skipIf(!SLOW_TESTS)('Daemon IPC', () => {
 
       // All clients create nodes concurrently
       const results = await Promise.all(
-        clients.map((c, i) => c.createNode({ type: 'issue', title: `Issue ${i}` }))
+        clients.map((c, i) => c.createNode({ type: 'task', title: `Issue ${i}` }))
       )
 
       expect(results).toHaveLength(10)
@@ -360,13 +360,13 @@ describe.skipIf(!SLOW_TESTS)('Daemon IPC', () => {
     it('should recover from client disconnect', async () => {
       const tempClient = createIPCClient(socketPath)
       await tempClient.connect()
-      await tempClient.createNode({ type: 'spec', title: 'Before disconnect' })
+      await tempClient.createNode({ type: 'context', title: 'Before disconnect' })
 
       // Abrupt disconnect (no graceful close)
       tempClient.socket.destroy()
 
       // Original client should still work
-      const result = await client.createNode({ type: 'spec', title: 'After disconnect' })
+      const result = await client.createNode({ type: 'context', title: 'After disconnect' })
       expect(result.id).toBeDefined()
     })
   })
@@ -529,27 +529,27 @@ function createTestAgent(client: OpenTasksClient): TestAgent
 
 **Test Cases:**
 ```typescript
-// tests/e2e/workflows/spec-driven-development.e2e.test.ts
+// tests/e2e/workflows/context-driven-development.e2e.test.ts
 
 const AGENT_TESTS = process.env.RUN_FULL_AGENT_TESTS === '1'
 
-describe.skipIf(!AGENT_TESTS)('Spec-Driven Development Workflow', () => {
+describe.skipIf(!AGENT_TESTS)('Context-Driven Development Workflow', () => {
   let agent: TestAgent
 
-  it('should complete full spec→issue→implementation cycle', async () => {
-    // 1. Create spec
-    const specResult = await agent.link({
+  it('should complete full context→task→implementation cycle', async () => {
+    // 1. Create context
+    const contextResult = await agent.link({
       action: 'create',
-      type: 'spec',
+      type: 'context',
       title: 'Test Feature',
       content: 'Feature requirements...',
     })
-    expect(specResult.id).toMatch(/^s-/)
+    expect(contextResult.id).toMatch(/^c-/)
 
     // 2. Create implementing issue
     const issueResult = await agent.link({
       action: 'create',
-      type: 'issue',
+      type: 'task',
       title: 'Implement Test Feature',
       implements: specResult.id,
     })
@@ -598,14 +598,14 @@ describe.skipIf(!AGENT_TESTS)('Multi-Agent Coordination', () => {
     // Agent 1 creates foundation issue
     const foundationIssue = await agent1.link({
       action: 'create',
-      type: 'issue',
+      type: 'task',
       title: 'Foundation Work',
     })
 
     // Agent 1 creates dependent issue
     const dependentIssue = await agent1.link({
       action: 'create',
-      type: 'issue',
+      type: 'task',
       title: 'Dependent Work',
       blocked_by: [foundationIssue.id],
     })
@@ -884,29 +884,29 @@ jobs:
 - ✅ `tests/e2e/helpers/system-setup.ts` - Full system setup (IPC server, SQLite storage, graph store, tool handlers, provider registry)
 - ✅ `tests/e2e/helpers/test-agent.ts` - TestAgent wrapper with 3-tool interface + provider operations + convenience methods
 - ✅ `tests/e2e/helpers/assertions.ts` - Assertion helpers (expectReady, expectNotReady, expectBlocks, expectBlockers, expectFeedback)
-- ✅ `tests/e2e/helpers/fixtures.ts` - Fixture helpers (createTestSpec, createTestIssue, createBlockingChain, createDiamondDependency)
+- ✅ `tests/e2e/helpers/fixtures.ts` - Fixture helpers (createTestContext, createTestTask, createBlockingChain, createDiamondDependency)
 - ✅ `tests/e2e/helpers/index.ts` - Exports
 - ✅ `tests/e2e/infrastructure.e2e.test.ts` - 39 infrastructure tests
 - ✅ `vitest.e2e.config.ts` - E2E-specific configuration
 
 **Infrastructure Features:**
 - `setupE2ESystem()` / `withE2ESystem()` - Create isolated test environment with storage, IPC, client, and provider registry
-- `createTestAgent()` - Wrap client with named agent, logging, and provider operations (createSpec, createIssue, updateNode, closeIssue, getNode)
+- `createTestAgent()` - Wrap client with named agent, logging, and provider operations (createContext, createTask, updateNode, closeTask, getNode)
 - `createMultiAgents()` - Create multiple agents for coordination tests
 - Assertion helpers for common test patterns
-- Fixture helpers for creating test data structures (chains, diamonds, spec+issues)
+- Fixture helpers for creating test data structures (chains, diamonds, context+tasks)
 - Automatic cleanup on teardown
 
 ### Phase 6: Agent Workflow E2E Tests (RUN_FULL_AGENT_TESTS) ✅ COMPLETE
 
 **Priority: High** - Core value proposition validation
 
-1. ✅ Spec-driven development workflow (10 tests)
-   - Full spec→issue→close cycle
-   - Multiple issues implementing one spec
-   - Issue status filtering (open vs in_progress vs closed)
+1. ✅ Context-driven development workflow (10 tests)
+   - Full context→task→close cycle
+   - Multiple tasks implementing one context
+   - Task status filtering (open vs in_progress vs closed)
    - Priority storage and retrieval
-   - Spec content preservation and updates
+   - Context content preservation and updates
 
 2. ✅ Multi-agent coordination (9 tests)
    - Sequential blocking between agents
@@ -926,12 +926,12 @@ jobs:
    - Feedback assertion helper
 
 **Deliverables:**
-- ✅ `tests/e2e/workflows/spec-driven.e2e.test.ts` - 10 tests
+- ✅ `tests/e2e/workflows/context-driven.e2e.test.ts` - 10 tests
 - ✅ `tests/e2e/workflows/multi-agent.e2e.test.ts` - 9 tests
 - ✅ `tests/e2e/workflows/feedback-loop.e2e.test.ts` - 10 tests
 
 **Key Learnings:**
-- Ready query only returns `status: 'open'` issues (not `in_progress`)
+- Ready query only returns `status: 'open'` tasks (not `in_progress`)
 - Ready query doesn't sort by priority
 - LinkResult uses `success` and `edge_id` fields
 
@@ -1073,7 +1073,7 @@ The testing strategy prioritizes system-level tests (storage, daemon) first as t
 | Phase 3: Daemon | ✅ Complete | 40 tests (lifecycle + IPC) |
 | Phase 4: Providers & Graph | ✅ Complete | 43 tests (BeadsProvider + FederatedGraph) |
 | Phase 5: E2E Infrastructure | ✅ Complete | 39 tests (system setup, TestAgent, providers, assertions, fixtures) |
-| Phase 6: Agent Workflows | ✅ Complete | 29 tests (spec-driven, multi-agent, feedback-loop) |
+| Phase 6: Agent Workflows | ✅ Complete | 29 tests (context-driven, multi-agent, feedback-loop) |
 | Phase 7: Provider Sync | ✅ Complete | 56 tests (hydration, cross-provider, federated-ready, materialization, background-sync) |
 
 **Total Tests:** 1177 (926 unit + 127 integration + 124 E2E)

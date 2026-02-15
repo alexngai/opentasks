@@ -14,7 +14,7 @@ export type { EdgeType, Anchor } from '../schema/index.js'
 // ============================================================================
 
 /** Valid node types */
-export type NodeType = 'spec' | 'issue' | 'feedback' | 'external'
+export type NodeType = 'context' | 'task' | 'feedback' | 'external'
 
 // ============================================================================
 // Node Input Types
@@ -42,9 +42,9 @@ export interface CreateNodeInput {
   /** Parent node ID for hierarchy */
   parent_id?: string
 
-  // === Issue-specific ===
+  // === Task-specific ===
 
-  /** Workflow status (required for issues) */
+  /** Workflow status (required for tasks) */
   status?: string
 
   /** Assigned user/agent */
@@ -94,10 +94,10 @@ export interface UpdateNodeInput {
   /** Update priority */
   priority?: number
 
-  /** Update status (issues) */
+  /** Update status (tasks) */
   status?: string
 
-  /** Update assignee (issues) */
+  /** Update assignee (tasks) */
   assignee?: string
 
   /** Update parent */

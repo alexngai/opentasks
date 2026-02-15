@@ -36,8 +36,8 @@ import {
  * Create a test node
  */
 function createTestNode(overrides: Partial<StoredNode> = {}): StoredNode {
-  const nodeType = overrides.type ?? 'issue'
-  const idType = nodeType === 'issue' ? 'issue' : nodeType === 'spec' ? 'spec' : 'external'
+  const nodeType = overrides.type ?? 'task'
+  const idType = nodeType === 'task' ? 'task' : nodeType === 'context' ? 'context' : 'external'
   const generated = overrides.id ? null : generateId(idType)
   const id = overrides.id ?? generated!.id
   const uuid = generated?.uuid ?? `uuid-${id}`
@@ -213,11 +213,11 @@ describe.skipIf(!SLOW_TESTS)('Federated Graph Integration', () => {
 
   describe('Schema Migration', () => {
     it('should have metadata column on edges table', async () => {
-      const edge = createTestEdge('i-1', 'i-2', 'blocks')
+      const edge = createTestEdge('t-1', 't-2', 'blocks')
       edge.metadata = { reason: 'dependency' }
 
-      const node1 = createTestNode({ id: 'i-1', type: 'issue', status: 'open' })
-      const node2 = createTestNode({ id: 'i-2', type: 'issue', status: 'open' })
+      const node1 = createTestNode({ id: 't-1', type: 'task', status: 'open' })
+      const node2 = createTestNode({ id: 't-2', type: 'task', status: 'open' })
 
       await storage.createNode(node1)
       await storage.createNode(node2)
@@ -228,13 +228,13 @@ describe.skipIf(!SLOW_TESTS)('Federated Graph Integration', () => {
     })
 
     it('should have cached_at column on edges table', async () => {
-      const node1 = createTestNode({ id: 'i-cached1', type: 'issue', status: 'open' })
-      const node2 = createTestNode({ id: 'i-cached2', type: 'issue', status: 'open' })
+      const node1 = createTestNode({ id: 't-cached1', type: 'task', status: 'open' })
+      const node2 = createTestNode({ id: 't-cached2', type: 'task', status: 'open' })
 
       await storage.createNode(node1)
       await storage.createNode(node2)
 
-      const edge = createTestEdge('i-cached1', 'i-cached2', 'blocks')
+      const edge = createTestEdge('t-cached1', 't-cached2', 'blocks')
       edge.cached_at = new Date().toISOString()
 
       await storage.createEdge(edge)
@@ -281,22 +281,22 @@ describe.skipIf(!SLOW_TESTS)('Federated Graph Integration', () => {
 
   describe('Graphology Adapter', () => {
     it('should sync nodes from storage to in-memory graph', async () => {
-      const node1 = createTestNode({ id: 'i-sync1', type: 'issue', status: 'open' })
-      const node2 = createTestNode({ id: 'i-sync2', type: 'issue', status: 'open' })
+      const node1 = createTestNode({ id: 't-sync1', type: 'task', status: 'open' })
+      const node2 = createTestNode({ id: 't-sync2', type: 'task', status: 'open' })
 
       await storage.createNode(node1)
       await storage.createNode(node2)
 
       await adapter.loadFromStorage(storage as unknown as Storage)
 
-      expect(adapter.hasNode('native://i-sync1')).toBe(true)
-      expect(adapter.hasNode('native://i-sync2')).toBe(true)
+      expect(adapter.hasNode('native://t-sync1')).toBe(true)
+      expect(adapter.hasNode('native://t-sync2')).toBe(true)
     })
 
     it('should sync edges from storage to in-memory graph', async () => {
-      const node1 = createTestNode({ id: 'i-edge1', type: 'issue', status: 'open' })
-      const node2 = createTestNode({ id: 'i-edge2', type: 'issue', status: 'open' })
-      const edge = createTestEdge('i-edge1', 'i-edge2', 'blocks')
+      const node1 = createTestNode({ id: 't-edge1', type: 'task', status: 'open' })
+      const node2 = createTestNode({ id: 't-edge2', type: 'task', status: 'open' })
+      const edge = createTestEdge('t-edge1', 't-edge2', 'blocks')
 
       await storage.createNode(node1)
       await storage.createNode(node2)
@@ -304,98 +304,98 @@ describe.skipIf(!SLOW_TESTS)('Federated Graph Integration', () => {
 
       await adapter.loadFromStorage(storage as unknown as Storage)
 
-      const edges = adapter.getEdges('native://i-edge1', 'out')
+      const edges = adapter.getEdges('native://t-edge1', 'out')
       expect(edges).toHaveLength(1)
       expect(edges[0].type).toBe('blocks')
     })
 
     it('should track node mutations', () => {
-      const node = createTestNode({ id: 'i-mut1', type: 'issue', status: 'open' })
+      const node = createTestNode({ id: 't-mut1', type: 'task', status: 'open' })
 
       adapter.onNodeCreated(node)
-      expect(adapter.hasNode('native://i-mut1')).toBe(true)
+      expect(adapter.hasNode('native://t-mut1')).toBe(true)
 
       adapter.onNodeDeleted(node.id)
-      expect(adapter.hasNode('native://i-mut1')).toBe(false)
+      expect(adapter.hasNode('native://t-mut1')).toBe(false)
     })
   })
 
   describe('Traversal API', () => {
     beforeEach(async () => {
       // Create a test graph:
-      //   i-1 --blocks--> i-2 --blocks--> i-3
-      //        \--implements--> s-1
-      const issue1 = createTestNode({ id: 'i-1', type: 'issue', status: 'open' })
-      const issue2 = createTestNode({ id: 'i-2', type: 'issue', status: 'open' })
-      const issue3 = createTestNode({ id: 'i-3', type: 'issue', status: 'open' })
-      const spec1 = createTestNode({ id: 's-1', type: 'spec' })
+      //   t-1 --blocks--> t-2 --blocks--> t-3
+      //        \--implements--> c-1
+      const task1 = createTestNode({ id: 't-1', type: 'task', status: 'open' })
+      const task2 = createTestNode({ id: 't-2', type: 'task', status: 'open' })
+      const task3 = createTestNode({ id: 't-3', type: 'task', status: 'open' })
+      const context1 = createTestNode({ id: 'c-1', type: 'context' })
 
-      await storage.createNode(issue1)
-      await storage.createNode(issue2)
-      await storage.createNode(issue3)
-      await storage.createNode(spec1)
+      await storage.createNode(task1)
+      await storage.createNode(task2)
+      await storage.createNode(task3)
+      await storage.createNode(context1)
 
-      await storage.createEdge(createTestEdge('i-1', 'i-2', 'blocks'))
-      await storage.createEdge(createTestEdge('i-2', 'i-3', 'blocks'))
-      await storage.createEdge(createTestEdge('i-1', 's-1', 'implements'))
+      await storage.createEdge(createTestEdge('t-1', 't-2', 'blocks'))
+      await storage.createEdge(createTestEdge('t-2', 't-3', 'blocks'))
+      await storage.createEdge(createTestEdge('t-1', 'c-1', 'implements'))
 
       await adapter.loadFromStorage(storage as unknown as Storage)
     })
 
     it('related() returns direct neighbors', () => {
-      const related = graph.related('native://i-1', { direction: 'out' })
+      const related = graph.related('native://t-1', { direction: 'out' })
 
-      expect(related).toContain('native://i-2')
-      expect(related).toContain('native://s-1')
-      expect(related).not.toContain('native://i-3')
+      expect(related).toContain('native://t-2')
+      expect(related).toContain('native://c-1')
+      expect(related).not.toContain('native://t-3')
     })
 
     it('related() filters by edge type', () => {
-      const blocksOnly = graph.related('native://i-1', {
+      const blocksOnly = graph.related('native://t-1', {
         direction: 'out',
         edgeType: 'blocks',
       })
 
-      expect(blocksOnly).toContain('native://i-2')
-      expect(blocksOnly).not.toContain('native://s-1')
+      expect(blocksOnly).toContain('native://t-2')
+      expect(blocksOnly).not.toContain('native://c-1')
     })
 
     it('reachable() returns transitive closure', () => {
-      const reachable = graph.reachable('native://i-1', {
+      const reachable = graph.reachable('native://t-1', {
         direction: 'out',
         edgeType: 'blocks',
       })
 
-      expect(reachable).toContain('native://i-2')
-      expect(reachable).toContain('native://i-3')
+      expect(reachable).toContain('native://t-2')
+      expect(reachable).toContain('native://t-3')
     })
 
     it('reachable() respects maxDepth', () => {
-      const reachable = graph.reachable('native://i-1', {
+      const reachable = graph.reachable('native://t-1', {
         direction: 'out',
         edgeType: 'blocks',
         maxDepth: 1,
       })
 
-      expect(reachable).toContain('native://i-2')
-      expect(reachable).not.toContain('native://i-3')
+      expect(reachable).toContain('native://t-2')
+      expect(reachable).not.toContain('native://t-3')
     })
 
     it('shortestPath() finds correct path', () => {
-      const path = graph.shortestPath('native://i-1', 'native://i-3')
+      const path = graph.shortestPath('native://t-1', 'native://t-3')
 
       expect(path).toEqual([
-        'native://i-1',
-        'native://i-2',
-        'native://i-3',
+        'native://t-1',
+        'native://t-2',
+        'native://t-3',
       ])
     })
 
     it('shortestPath() returns null for unreachable nodes', () => {
-      const isolatedNode = createTestNode({ id: 'i-isolated', type: 'issue', status: 'open' })
+      const isolatedNode = createTestNode({ id: 't-isolated', type: 'task', status: 'open' })
       adapter.onNodeCreated(isolatedNode)
 
-      const path = graph.shortestPath('native://i-1', 'native://i-isolated')
+      const path = graph.shortestPath('native://t-1', 'native://t-isolated')
       expect(path).toBeNull()
     })
   })
@@ -463,54 +463,54 @@ describe.skipIf(!SLOW_TESTS)('Federated Graph Integration', () => {
   })
 
   describe('Federated Ready Query', () => {
-    it('should return issues with no blockers', async () => {
-      const issue = createTestNode({ id: 'i-ready1', type: 'issue', status: 'open' })
-      await storage.createNode(issue)
-      adapter.onNodeCreated(issue)
+    it('should return tasks with no blockers', async () => {
+      const task = createTestNode({ id: 't-ready1', type: 'task', status: 'open' })
+      await storage.createNode(task)
+      adapter.onNodeCreated(task)
 
       const ready = await graph.ready()
 
-      expect(ready).toContain('native://i-ready1')
+      expect(ready).toContain('native://t-ready1')
     })
 
-    it('should exclude issues blocked by active native blockers', async () => {
-      const blocked = createTestNode({ id: 'i-blocked1', type: 'issue', status: 'open' })
-      const blocker = createTestNode({ id: 'i-blocker1', type: 'issue', status: 'open' })
+    it('should exclude tasks blocked by active native blockers', async () => {
+      const blocked = createTestNode({ id: 't-blocked1', type: 'task', status: 'open' })
+      const blocker = createTestNode({ id: 't-blocker1', type: 'task', status: 'open' })
 
       await storage.createNode(blocked)
       await storage.createNode(blocker)
-      await storage.createEdge(createTestEdge('i-blocker1', 'i-blocked1', 'blocks'))
+      await storage.createEdge(createTestEdge('t-blocker1', 't-blocked1', 'blocks'))
 
       adapter.onNodeCreated(blocked)
       adapter.onNodeCreated(blocker)
-      adapter.onEdgeCreated(createTestEdge('i-blocker1', 'i-blocked1', 'blocks'))
+      adapter.onEdgeCreated(createTestEdge('t-blocker1', 't-blocked1', 'blocks'))
 
       const ready = await graph.ready()
 
-      expect(ready).not.toContain('native://i-blocked1')
-      expect(ready).toContain('native://i-blocker1')
+      expect(ready).not.toContain('native://t-blocked1')
+      expect(ready).toContain('native://t-blocker1')
     })
 
-    it('should include issues when blockers are closed', async () => {
-      const blocked = createTestNode({ id: 'i-unblocked1', type: 'issue', status: 'open' })
-      const closedBlocker = createTestNode({ id: 'i-closed1', type: 'issue', status: 'closed' })
+    it('should include tasks when blockers are closed', async () => {
+      const blocked = createTestNode({ id: 't-unblocked1', type: 'task', status: 'open' })
+      const closedBlocker = createTestNode({ id: 't-closed1', type: 'task', status: 'closed' })
 
       await storage.createNode(blocked)
       await storage.createNode(closedBlocker)
-      await storage.createEdge(createTestEdge('i-closed1', 'i-unblocked1', 'blocks'))
+      await storage.createEdge(createTestEdge('t-closed1', 't-unblocked1', 'blocks'))
 
       adapter.onNodeCreated(blocked)
       adapter.onNodeCreated(closedBlocker)
-      adapter.onEdgeCreated(createTestEdge('i-closed1', 'i-unblocked1', 'blocks'))
+      adapter.onEdgeCreated(createTestEdge('t-closed1', 't-unblocked1', 'blocks'))
 
       const ready = await graph.ready()
 
-      expect(ready).toContain('native://i-unblocked1')
+      expect(ready).toContain('native://t-unblocked1')
     })
 
     it('should consider external blockers', async () => {
-      // Create native issue blocked by external bead
-      const blocked = createTestNode({ id: 'i-extblocked', type: 'issue', status: 'open' })
+      // Create native task blocked by external bead
+      const blocked = createTestNode({ id: 't-extblocked', type: 'task', status: 'open' })
       await storage.createNode(blocked)
       adapter.onNodeCreated(blocked)
 
@@ -529,7 +529,7 @@ describe.skipIf(!SLOW_TESTS)('Federated Graph Integration', () => {
         id: 'e-cross1',
         uuid: 'cross-uuid-1',
         from_id: 'beads://./bd-blocker',
-        to_id: 'i-extblocked',
+        to_id: 't-extblocked',
         type: 'blocks',
         created_at: new Date().toISOString(),
       })
@@ -540,7 +540,7 @@ describe.skipIf(!SLOW_TESTS)('Federated Graph Integration', () => {
       const ready = await graph.ready()
 
       // Should be blocked by external blocker
-      expect(ready).not.toContain('native://i-extblocked')
+      expect(ready).not.toContain('native://t-extblocked')
     })
   })
 
@@ -581,10 +581,10 @@ describe.skipIf(!SLOW_TESTS)('Federated Graph Integration', () => {
 
   describe('Cross-Provider Edges', () => {
     it('should handle edges between native and external nodes', async () => {
-      // Create native spec
-      const spec = createTestNode({ id: 's-cross1', type: 'spec' })
-      await storage.createNode(spec)
-      adapter.onNodeCreated(spec)
+      // Create native context
+      const context = createTestNode({ id: 'c-cross1', type: 'context' })
+      await storage.createNode(context)
+      adapter.onNodeCreated(context)
 
       // Add external issue
       beadsProvider._addNode('bd-impl1', {
@@ -603,47 +603,47 @@ describe.skipIf(!SLOW_TESTS)('Federated Graph Integration', () => {
         id: 'e-impl-cross',
         uuid: 'impl-cross-uuid',
         from_id: 'beads://./bd-impl1',
-        to_id: 's-cross1',
+        to_id: 'c-cross1',
         type: 'implements',
         created_at: new Date().toISOString(),
       })
 
-      // Query implementers of spec
-      const implementers = graph.related('native://s-cross1', {
+      // Query tasks of context
+      const tasks = graph.related('native://c-cross1', {
         direction: 'in',
         edgeType: 'implements',
       })
 
-      expect(implementers).toContain('beads://./bd-impl1')
+      expect(tasks).toContain('beads://./bd-impl1')
     })
   })
 
   describe('Edge Cases', () => {
     it('should handle cycles without infinite loop', async () => {
-      const node1 = createTestNode({ id: 'i-cycle1', type: 'issue', status: 'open' })
-      const node2 = createTestNode({ id: 'i-cycle2', type: 'issue', status: 'open' })
-      const node3 = createTestNode({ id: 'i-cycle3', type: 'issue', status: 'open' })
+      const node1 = createTestNode({ id: 't-cycle1', type: 'task', status: 'open' })
+      const node2 = createTestNode({ id: 't-cycle2', type: 'task', status: 'open' })
+      const node3 = createTestNode({ id: 't-cycle3', type: 'task', status: 'open' })
 
       await storage.createNode(node1)
       await storage.createNode(node2)
       await storage.createNode(node3)
 
       // Create cycle: 1 -> 2 -> 3 -> 1
-      await storage.createEdge(createTestEdge('i-cycle1', 'i-cycle2', 'blocks'))
-      await storage.createEdge(createTestEdge('i-cycle2', 'i-cycle3', 'blocks'))
-      await storage.createEdge(createTestEdge('i-cycle3', 'i-cycle1', 'blocks'))
+      await storage.createEdge(createTestEdge('t-cycle1', 't-cycle2', 'blocks'))
+      await storage.createEdge(createTestEdge('t-cycle2', 't-cycle3', 'blocks'))
+      await storage.createEdge(createTestEdge('t-cycle3', 't-cycle1', 'blocks'))
 
       await adapter.loadFromStorage(storage as unknown as Storage)
 
       // Should not hang - reachable handles cycles
-      const reachable = graph.reachable('native://i-cycle1', {
+      const reachable = graph.reachable('native://t-cycle1', {
         direction: 'out',
         edgeType: 'blocks',
       })
 
       expect(reachable).toHaveLength(2)
-      expect(reachable).toContain('native://i-cycle2')
-      expect(reachable).toContain('native://i-cycle3')
+      expect(reachable).toContain('native://t-cycle2')
+      expect(reachable).toContain('native://t-cycle3')
     })
 
     it('should handle missing nodes gracefully', () => {

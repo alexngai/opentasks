@@ -213,15 +213,15 @@ export interface Storage {
   // === Queries ===
 
   /**
-   * Get issues that are ready to work on (no active blockers)
+   * Get tasks that are ready to work on (no active blockers)
    *
-   * An issue is ready if:
-   * - type = 'issue'
+   * A task is ready if:
+   * - type = 'task'
    * - status = 'open'
    * - not archived
-   * - no blocking issues that are not closed
+   * - no blocking tasks that are not closed
    *
-   * @returns Ready issues
+   * @returns Ready tasks
    */
   getReady(): Promise<StoredNode[]>
 

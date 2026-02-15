@@ -2,7 +2,7 @@
  * Type guards and validation for OpenTasks nodes
  */
 
-import type { Spec, Issue, Feedback, ExternalNode, Node } from './nodes.js'
+import type { Context, Task, Feedback, ExternalNode, Node } from './nodes.js'
 import type { StoredNode } from './storage.js'
 
 /**
@@ -34,17 +34,17 @@ export interface ValidationResult {
 // === Type Guards ===
 
 /**
- * Check if node is a Spec
+ * Check if node is a Context
  */
-export function isSpec(node: Node): node is Spec {
-  return node.type === 'spec'
+export function isContext(node: Node): node is Context {
+  return node.type === 'context'
 }
 
 /**
- * Check if node is an Issue
+ * Check if node is a Task
  */
-export function isIssue(node: Node): node is Issue {
-  return node.type === 'issue'
+export function isTask(node: Node): node is Task {
+  return node.type === 'task'
 }
 
 /**
@@ -92,11 +92,11 @@ export function validateStoredNode(stored: StoredNode): ValidationResult {
 
   // Type-specific validation
   switch (stored.type) {
-    case 'issue':
+    case 'task':
       if (!stored.status) {
         errors.push({
           field: 'status',
-          message: 'Required for issues',
+          message: 'Required for tasks',
           code: 'REQUIRED',
         })
       }
@@ -143,7 +143,7 @@ export function validateStoredNode(stored: StoredNode): ValidationResult {
       }
       break
 
-    case 'spec':
+    case 'context':
       // No additional required fields
       break
 
@@ -174,17 +174,17 @@ export function parseNode(stored: StoredNode): Node {
   // Return as the appropriate type
   // The stored node already has all fields, we just cast based on type
   switch (stored.type) {
-    case 'spec':
-      return stored as unknown as Spec
-    case 'issue':
-      return stored as unknown as Issue
+    case 'context':
+      return stored as unknown as Context
+    case 'task':
+      return stored as unknown as Task
     case 'feedback':
       return stored as unknown as Feedback
     case 'external':
       return stored as unknown as ExternalNode
     default:
-      // For unknown types, treat as Spec (most permissive)
-      return { ...stored, type: 'spec' } as Spec
+      // For unknown types, treat as Context (most permissive)
+      return { ...stored, type: 'context' } as Context
   }
 }
 
@@ -204,6 +204,6 @@ export function tryParseNode(stored: StoredNode): Node | null {
  */
 export function hasKnownType(
   stored: StoredNode
-): stored is StoredNode & { type: 'spec' | 'issue' | 'feedback' | 'external' } {
-  return ['spec', 'issue', 'feedback', 'external'].includes(stored.type)
+): stored is StoredNode & { type: 'context' | 'task' | 'feedback' | 'external' } {
+  return ['context', 'task', 'feedback', 'external'].includes(stored.type)
 }

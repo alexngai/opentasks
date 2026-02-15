@@ -11,22 +11,22 @@ describe('link tool', () => {
   let mockStore: GraphStore
 
   // Sample nodes
-  const specNode = {
-    id: 's-test1',
-    type: 'spec' as const,
-    title: 'Test Spec',
+  const contextNode = {
+    id: 'c-test1',
+    type: 'context' as const,
+    title: 'Test Context',
   }
 
-  const issueNode = {
-    id: 'i-test1',
-    type: 'issue' as const,
-    title: 'Test Issue',
+  const taskNode = {
+    id: 't-test1',
+    type: 'task' as const,
+    title: 'Test Task',
   }
 
   beforeEach(() => {
     const nodes = new Map<string, unknown>()
-    nodes.set(specNode.id, specNode)
-    nodes.set(issueNode.id, issueNode)
+    nodes.set(contextNode.id, contextNode)
+    nodes.set(taskNode.id, taskNode)
 
     const edges = new Map<string, unknown>()
     let edgeCounter = 0
@@ -63,8 +63,8 @@ describe('link tool', () => {
   describe('creating edges', () => {
     it('should create edge between two existing nodes', async () => {
       const params: LinkParams = {
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'implements',
       }
 
@@ -73,8 +73,8 @@ describe('link tool', () => {
       expect(result.success).toBe(true)
       expect(result.edgeId).toBeDefined()
       expect(mockStore.createEdge).toHaveBeenCalledWith({
-        from_id: 'i-test1',
-        to_id: 's-test1',
+        from_id: 't-test1',
+        to_id: 'c-test1',
         type: 'implements',
         metadata: undefined,
       })
@@ -82,8 +82,8 @@ describe('link tool', () => {
 
     it('should return edgeId on successful creation', async () => {
       const params: LinkParams = {
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'blocks',
       }
 
@@ -95,8 +95,8 @@ describe('link tool', () => {
 
     it('should pass metadata to edge', async () => {
       const params: LinkParams = {
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'references',
         metadata: { reason: 'related work' },
       }
@@ -105,8 +105,8 @@ describe('link tool', () => {
 
       expect(result.success).toBe(true)
       expect(mockStore.createEdge).toHaveBeenCalledWith({
-        from_id: 'i-test1',
-        to_id: 's-test1',
+        from_id: 't-test1',
+        to_id: 'c-test1',
         type: 'references',
         metadata: { reason: 'related work' },
       })
@@ -124,8 +124,8 @@ describe('link tool', () => {
 
       for (const type of edgeTypes) {
         const result = await link(mockStore, {
-          fromId: 'i-test1',
-          toId: 's-test1',
+          fromId: 't-test1',
+          toId: 'c-test1',
           type,
         })
 
@@ -137,34 +137,34 @@ describe('link tool', () => {
   describe('node validation', () => {
     it('should validate local fromId exists', async () => {
       const params: LinkParams = {
-        fromId: 'i-nonexistent',
-        toId: 's-test1',
+        fromId: 't-nonexistent',
+        toId: 'c-test1',
         type: 'implements',
       }
 
       const result = await link(mockStore, params)
 
       expect(result.success).toBe(false)
-      expect(result.error).toBe('Node not found: i-nonexistent')
+      expect(result.error).toBe('Node not found: t-nonexistent')
     })
 
     it('should validate local toId exists', async () => {
       const params: LinkParams = {
-        fromId: 'i-test1',
-        toId: 's-nonexistent',
+        fromId: 't-test1',
+        toId: 'c-nonexistent',
         type: 'implements',
       }
 
       const result = await link(mockStore, params)
 
       expect(result.success).toBe(false)
-      expect(result.error).toBe('Node not found: s-nonexistent')
+      expect(result.error).toBe('Node not found: c-nonexistent')
     })
 
     it('should skip validation for provider URIs (fromId)', async () => {
       const params: LinkParams = {
         fromId: 'beads://./bd-123',
-        toId: 's-test1',
+        toId: 'c-test1',
         type: 'implements',
       }
 
@@ -176,7 +176,7 @@ describe('link tool', () => {
 
     it('should skip validation for provider URIs (toId)', async () => {
       const params: LinkParams = {
-        fromId: 'i-test1',
+        fromId: 't-test1',
         toId: 'jira://PROJ-123',
         type: 'references',
       }
@@ -190,7 +190,7 @@ describe('link tool', () => {
     it('should skip validation for claude:// URIs', async () => {
       const params: LinkParams = {
         fromId: 'claude://current/t-abc',
-        toId: 's-test1',
+        toId: 'c-test1',
         type: 'implements',
       }
 
@@ -204,15 +204,15 @@ describe('link tool', () => {
     it('should remove existing edge', async () => {
       // First create an edge
       await link(mockStore, {
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'implements',
       })
 
       // Then remove it
       const result = await link(mockStore, {
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'implements',
         remove: true,
       })
@@ -223,8 +223,8 @@ describe('link tool', () => {
 
     it('should return success when removing non-existent edge (idempotent)', async () => {
       const result = await link(mockStore, {
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'implements',
         remove: true,
       })
@@ -238,7 +238,7 @@ describe('link tool', () => {
     it('should return error when fromId is missing', async () => {
       const result = await link(mockStore, {
         fromId: '',
-        toId: 's-test1',
+        toId: 'c-test1',
         type: 'implements',
       })
 
@@ -248,7 +248,7 @@ describe('link tool', () => {
 
     it('should return error when toId is missing', async () => {
       const result = await link(mockStore, {
-        fromId: 'i-test1',
+        fromId: 't-test1',
         toId: '',
         type: 'implements',
       })
@@ -259,8 +259,8 @@ describe('link tool', () => {
 
     it('should return error when type is missing', async () => {
       const result = await link(mockStore, {
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: '' as any,
       })
 
@@ -274,8 +274,8 @@ describe('link tool', () => {
       mockStore.createEdge = vi.fn().mockRejectedValue(new Error('Would create a cycle'))
 
       const result = await link(mockStore, {
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'blocks',
       })
 
@@ -287,8 +287,8 @@ describe('link tool', () => {
       mockStore.createEdge = vi.fn().mockRejectedValue(new Error('Database error'))
 
       const result = await link(mockStore, {
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'implements',
       })
 

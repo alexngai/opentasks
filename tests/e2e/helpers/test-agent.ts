@@ -39,15 +39,15 @@ export interface TestAgentOptions {
   /** Whether to log operations (default: false) */
   verbose?: boolean
 
-  /** Provider for node CRUD operations (required for createSpec, createIssue, etc.) */
+  /** Provider for node CRUD operations (required for createContext, createTask, etc.) */
   provider?: Provider
 }
 
 /**
- * Options for creating a spec via provider
+ * Options for creating a context via provider
  */
-export interface CreateSpecOptions {
-  /** Spec content/description */
+export interface CreateContextOptions {
+  /** Context content/description */
   content?: string
 
   /** Priority (0-4, where 0 is highest) */
@@ -58,13 +58,13 @@ export interface CreateSpecOptions {
 }
 
 /**
- * Options for creating an issue via provider
+ * Options for creating a task via provider
  */
-export interface CreateIssueOptions {
-  /** Issue description */
+export interface CreateTaskOptions {
+  /** Task description */
   description?: string
 
-  /** Issue status (default: 'open') */
+  /** Task status (default: 'open') */
   status?: string
 
   /** Priority (0-4, where 0 is highest) */
@@ -85,21 +85,21 @@ export interface ExtendedLinkParams extends LinkParams {
  * Quick create parameters for nodes (not yet implemented in daemon)
  * Placeholder for future MCP tool integration
  */
-export interface QuickCreateSpecParams {
+export interface QuickCreateContextParams {
   title: string
   content?: string
   priority?: number
   tags?: string[]
 }
 
-export interface QuickCreateIssueParams {
+export interface QuickCreateTaskParams {
   title: string
   description?: string
   status?: string
   priority?: number
   tags?: string[]
-  implements?: string  // Spec ID to link with 'implements' edge
-  blocked_by?: string[] // Issue IDs that block this issue
+  implements?: string  // Context ID to link with 'implements' edge
+  blocked_by?: string[] // Task IDs that block this task
 }
 
 /**
@@ -138,7 +138,7 @@ export interface TestAgent {
   // ==========================================================================
 
   /**
-   * Get issues ready to work on (no active blockers)
+   * Get tasks ready to work on (no active blockers)
    */
   ready(options?: ReadyOptions): Promise<NodeSummary[]>
 
@@ -165,7 +165,7 @@ export interface TestAgent {
   /**
    * Create an 'implements' edge (from implements to)
    */
-  implements(issueId: string, specId: string): Promise<LinkResult>
+  implements(taskId: string, contextId: string): Promise<LinkResult>
 
   /**
    * Add feedback to a target node
@@ -201,16 +201,16 @@ export interface TestAgent {
   // ==========================================================================
 
   /**
-   * Create a spec via provider
+   * Create a context via provider
    * @throws Error if provider not configured
    */
-  createSpec(title: string, options?: CreateSpecOptions): Promise<ProviderNode>
+  createContext(title: string, options?: CreateContextOptions): Promise<ProviderNode>
 
   /**
-   * Create an issue via provider
+   * Create a task via provider
    * @throws Error if provider not configured
    */
-  createIssue(title: string, options?: CreateIssueOptions): Promise<ProviderNode>
+  createTask(title: string, options?: CreateTaskOptions): Promise<ProviderNode>
 
   /**
    * Update a node via provider
@@ -219,10 +219,10 @@ export interface TestAgent {
   updateNode(id: string, updates: ProviderUpdateInput): Promise<ProviderNode>
 
   /**
-   * Close an issue (convenience for updateNode with status='closed')
+   * Close a task (convenience for updateNode with status='closed')
    * @throws Error if provider not configured
    */
-  closeIssue(id: string): Promise<ProviderNode>
+  closeTask(id: string): Promise<ProviderNode>
 
   /**
    * Get a node by ID via provider
@@ -312,11 +312,11 @@ class TestAgentImpl implements TestAgent {
     })
   }
 
-  async implements(issueId: string, specId: string): Promise<LinkResult> {
-    this.log('implements', { issueId, specId })
+  async implements(taskId: string, contextId: string): Promise<LinkResult> {
+    this.log('implements', { taskId, contextId })
     return this.link({
-      from_id: issueId,
-      to_id: specId,
+      from_id: taskId,
+      to_id: contextId,
       type: 'implements',
     })
   }
@@ -366,11 +366,11 @@ class TestAgentImpl implements TestAgent {
   // Provider Operations
   // ==========================================================================
 
-  async createSpec(title: string, options?: CreateSpecOptions): Promise<ProviderNode> {
+  async createContext(title: string, options?: CreateContextOptions): Promise<ProviderNode> {
     const provider = this.requireProvider()
-    this.log('createSpec', { title, ...options })
+    this.log('createContext', { title, ...options })
     return provider.create({
-      type: 'spec',
+      type: 'context',
       title,
       content: options?.content,
       priority: options?.priority,
@@ -378,11 +378,11 @@ class TestAgentImpl implements TestAgent {
     })
   }
 
-  async createIssue(title: string, options?: CreateIssueOptions): Promise<ProviderNode> {
+  async createTask(title: string, options?: CreateTaskOptions): Promise<ProviderNode> {
     const provider = this.requireProvider()
-    this.log('createIssue', { title, ...options })
+    this.log('createTask', { title, ...options })
     return provider.create({
-      type: 'issue',
+      type: 'task',
       title,
       content: options?.description,
       status: options?.status ?? 'open',
@@ -397,8 +397,8 @@ class TestAgentImpl implements TestAgent {
     return provider.update(id, updates)
   }
 
-  async closeIssue(id: string): Promise<ProviderNode> {
-    this.log('closeIssue', { id })
+  async closeTask(id: string): Promise<ProviderNode> {
+    this.log('closeTask', { id })
     return this.updateNode(id, { status: 'closed' })
   }
 
@@ -422,8 +422,8 @@ class TestAgentImpl implements TestAgent {
  *
  * // Use 3-tool interface
  * const result = await agent.link({
- *   from_id: 'i-abc1',
- *   to_id: 's-def2',
+ *   from_id: 't-abc1',
+ *   to_id: 'c-def2',
  *   type: 'implements'
  * })
  *
@@ -466,8 +466,8 @@ export interface MultiAgentContext {
  * )
  *
  * // Each agent operates independently
- * await get('planner').createSpec('Feature Spec')
- * await get('implementer').createIssue('Implement feature')
+ * await get('planner').createContext('Feature Context')
+ * await get('implementer').createTask('Implement feature')
  *
  * // Clean up
  * disconnectAll()

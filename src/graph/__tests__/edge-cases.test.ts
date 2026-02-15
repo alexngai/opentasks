@@ -76,100 +76,100 @@ describe('Graph Edge Cases', () => {
 
   describe('Circular Dependencies', () => {
     it('should detect direct cycle (A blocks B, B blocks A)', async () => {
-      const issueA = await store.createNode({
-        type: 'issue',
-        title: 'Issue A',
+      const taskA = await store.createNode({
+        type: 'task',
+        title: 'Task A',
         status: 'open',
       })
 
-      const issueB = await store.createNode({
-        type: 'issue',
-        title: 'Issue B',
+      const taskB = await store.createNode({
+        type: 'task',
+        title: 'Task B',
         status: 'open',
       })
 
       // A blocks B
       await store.createEdge({
-        from_id: issueA.id,
-        to_id: issueB.id,
+        from_id: taskA.id,
+        to_id: taskB.id,
         type: 'blocks',
       })
 
       // B blocks A should fail
       await expect(
         store.createEdge({
-          from_id: issueB.id,
-          to_id: issueA.id,
+          from_id: taskB.id,
+          to_id: taskA.id,
           type: 'blocks',
         })
       ).rejects.toThrow(/cycle/i)
     })
 
     it('should detect transitive cycle (A→B→C→A)', async () => {
-      const issueA = await store.createNode({
-        type: 'issue',
-        title: 'Issue A',
+      const taskA = await store.createNode({
+        type: 'task',
+        title: 'Task A',
         status: 'open',
       })
 
-      const issueB = await store.createNode({
-        type: 'issue',
-        title: 'Issue B',
+      const taskB = await store.createNode({
+        type: 'task',
+        title: 'Task B',
         status: 'open',
       })
 
-      const issueC = await store.createNode({
-        type: 'issue',
-        title: 'Issue C',
+      const taskC = await store.createNode({
+        type: 'task',
+        title: 'Task C',
         status: 'open',
       })
 
       // A → B → C
       await store.createEdge({
-        from_id: issueA.id,
-        to_id: issueB.id,
+        from_id: taskA.id,
+        to_id: taskB.id,
         type: 'blocks',
       })
 
       await store.createEdge({
-        from_id: issueB.id,
-        to_id: issueC.id,
+        from_id: taskB.id,
+        to_id: taskC.id,
         type: 'blocks',
       })
 
       // C → A should fail
       await expect(
         store.createEdge({
-          from_id: issueC.id,
-          to_id: issueA.id,
+          from_id: taskC.id,
+          to_id: taskA.id,
           type: 'blocks',
         })
       ).rejects.toThrow(/cycle/i)
     })
 
     it('should allow non-blocking cycles (implements is not checked for cycles)', async () => {
-      const spec = await store.createNode({
-        type: 'spec',
-        title: 'Spec',
+      const context = await store.createNode({
+        type: 'context',
+        title: 'Context',
       })
 
-      const issue = await store.createNode({
-        type: 'issue',
-        title: 'Issue',
+      const task = await store.createNode({
+        type: 'task',
+        title: 'Task',
         status: 'open',
       })
 
-      // Issue implements Spec
+      // Task implements Context
       await store.createEdge({
-        from_id: issue.id,
-        to_id: spec.id,
+        from_id: task.id,
+        to_id: context.id,
         type: 'implements',
       })
 
-      // Spec references Issue (different edge type, should be allowed)
+      // Context references Task (different edge type, should be allowed)
       const edge = await store.createEdge({
-        from_id: spec.id,
-        to_id: issue.id,
+        from_id: context.id,
+        to_id: task.id,
         type: 'references',
       })
 
@@ -184,33 +184,33 @@ describe('Graph Edge Cases', () => {
 
   describe('Self-Referential Edges', () => {
     it('should reject self-referential blocks edge', async () => {
-      const issue = await store.createNode({
-        type: 'issue',
-        title: 'Self-blocking Issue',
+      const task = await store.createNode({
+        type: 'task',
+        title: 'Self-blocking Task',
         status: 'open',
       })
 
-      // Issue blocks itself should fail
+      // Task blocks itself should fail
       await expect(
         store.createEdge({
-          from_id: issue.id,
-          to_id: issue.id,
+          from_id: task.id,
+          to_id: task.id,
           type: 'blocks',
         })
       ).rejects.toThrow() // Either cycle detection or validation should catch this
     })
 
     it('should reject self-referential implements edge', async () => {
-      const spec = await store.createNode({
-        type: 'spec',
-        title: 'Self-implementing Spec',
+      const context = await store.createNode({
+        type: 'context',
+        title: 'Self-implementing Context',
       })
 
-      // Spec implements itself should fail validation
+      // Context implements itself should fail validation
       await expect(
         store.createEdge({
-          from_id: spec.id,
-          to_id: spec.id,
+          from_id: context.id,
+          to_id: context.id,
           type: 'implements',
         })
       ).rejects.toThrow()
@@ -223,29 +223,29 @@ describe('Graph Edge Cases', () => {
 
   describe('Deep Hierarchies', () => {
     it('should handle 10-level blocking chain', async () => {
-      const issues: Awaited<ReturnType<typeof store.createNode>>[] = []
+      const tasks: Awaited<ReturnType<typeof store.createNode>>[] = []
 
-      // Create 10 issues
+      // Create 10 tasks
       for (let i = 0; i < 10; i++) {
-        const issue = await store.createNode({
-          type: 'issue',
-          title: `Issue ${i}`,
+        const task = await store.createNode({
+          type: 'task',
+          title: `Task ${i}`,
           status: 'open',
         })
-        issues.push(issue)
+        tasks.push(task)
       }
 
       // Create chain: 0→1→2→...→9
       for (let i = 0; i < 9; i++) {
         await store.createEdge({
-          from_id: issues[i].id,
-          to_id: issues[i + 1].id,
+          from_id: tasks[i].id,
+          to_id: tasks[i + 1].id,
           type: 'blocks',
         })
       }
 
-      // Query blockers for issue 9 (should include all predecessors transitively)
-      const blockers = await store.query.blockers(issues[9].id, {
+      // Query blockers for task 9 (should include all predecessors transitively)
+      const blockers = await store.query.blockers(tasks[9].id, {
         transitive: true,
       })
 
@@ -258,7 +258,7 @@ describe('Graph Edge Cases', () => {
       // Create deep parent chain
       for (let i = 0; i < 50; i++) {
         const node = await store.createNode({
-          type: 'spec',
+          type: 'context',
           title: `Level ${i}`,
           parent_id: parentId,
         })
@@ -273,14 +273,14 @@ describe('Graph Edge Cases', () => {
 
     it('should query children of a parent', async () => {
       const parent = await store.createNode({
-        type: 'spec',
+        type: 'context',
         title: 'Parent',
       })
 
       // Create 5 children
       for (let i = 0; i < 5; i++) {
         await store.createNode({
-          type: 'spec',
+          type: 'context',
           title: `Child ${i}`,
           parent_id: parent.id,
         })
@@ -301,15 +301,15 @@ describe('Graph Edge Cases', () => {
     it('should allow edge to external URI (non-local ID)', async () => {
       // The system allows edges to non-local IDs (treated as external URIs)
       // This is by design - edges can reference external resources
-      const issue = await store.createNode({
-        type: 'issue',
-        title: 'Real Issue',
+      const task = await store.createNode({
+        type: 'task',
+        title: 'Real Task',
         status: 'open',
       })
 
       // "nonexistent-id" doesn't match local ID pattern (x-xxx) so it's treated as external
       const edge = await store.createEdge({
-        from_id: issue.id,
+        from_id: task.id,
         to_id: 'github://org/repo/issues/123',
         type: 'references',
       })
@@ -319,34 +319,34 @@ describe('Graph Edge Cases', () => {
     })
 
     it('should reject edge to non-existent LOCAL node', async () => {
-      // Local node references (matching pattern like i-xxx) are validated
-      const issue = await store.createNode({
-        type: 'issue',
-        title: 'Real Issue',
+      // Local node references (matching pattern like t-xxx) are validated
+      const task = await store.createNode({
+        type: 'task',
+        title: 'Real Task',
         status: 'open',
       })
 
-      // i-xxxx format is a local ID - should be validated
+      // t-xxxx format is a local ID - should be validated
       await expect(
         store.createEdge({
-          from_id: issue.id,
-          to_id: 'i-nonexistent',
+          from_id: task.id,
+          to_id: 't-nonexistent',
           type: 'blocks',
         })
       ).rejects.toThrow()
     })
 
     it('should reject edge from non-existent LOCAL node', async () => {
-      const issue = await store.createNode({
-        type: 'issue',
-        title: 'Real Issue',
+      const task = await store.createNode({
+        type: 'task',
+        title: 'Real Task',
         status: 'open',
       })
 
       await expect(
         store.createEdge({
-          from_id: 'i-nonexistent',
-          to_id: issue.id,
+          from_id: 't-nonexistent',
+          to_id: task.id,
           type: 'blocks',
         })
       ).rejects.toThrow()
@@ -359,28 +359,28 @@ describe('Graph Edge Cases', () => {
 
   describe('Multiple Edges Between Same Nodes', () => {
     it('should allow different edge types between same nodes', async () => {
-      const spec = await store.createNode({
-        type: 'spec',
-        title: 'Spec',
+      const context = await store.createNode({
+        type: 'context',
+        title: 'Context',
       })
 
-      const issue = await store.createNode({
-        type: 'issue',
-        title: 'Issue',
+      const task = await store.createNode({
+        type: 'task',
+        title: 'Task',
         status: 'open',
       })
 
-      // Issue implements Spec
+      // Task implements Context
       const edge1 = await store.createEdge({
-        from_id: issue.id,
-        to_id: spec.id,
+        from_id: task.id,
+        to_id: context.id,
         type: 'implements',
       })
 
-      // Issue also references Spec
+      // Task also references Context
       const edge2 = await store.createEdge({
-        from_id: issue.id,
-        to_id: spec.id,
+        from_id: task.id,
+        to_id: context.id,
         type: 'references',
       })
 
@@ -390,36 +390,36 @@ describe('Graph Edge Cases', () => {
     })
 
     it('should handle querying multiple edge types', async () => {
-      const spec = await store.createNode({
-        type: 'spec',
-        title: 'Spec',
+      const context = await store.createNode({
+        type: 'context',
+        title: 'Context',
       })
 
-      const issue = await store.createNode({
-        type: 'issue',
-        title: 'Issue',
+      const task = await store.createNode({
+        type: 'task',
+        title: 'Task',
         status: 'open',
       })
 
       await store.createEdge({
-        from_id: issue.id,
-        to_id: spec.id,
+        from_id: task.id,
+        to_id: context.id,
         type: 'implements',
       })
 
       await store.createEdge({
-        from_id: issue.id,
-        to_id: spec.id,
+        from_id: task.id,
+        to_id: context.id,
         type: 'references',
       })
 
-      // Query all edges from issue
-      const allEdges = await store.query.edges({ from_id: issue.id })
+      // Query all edges from task
+      const allEdges = await store.query.edges({ from_id: task.id })
       expect(allEdges.length).toBe(2)
 
       // Query only implements edges
       const implementsEdges = await store.query.edges({
-        from_id: issue.id,
+        from_id: task.id,
         type: 'implements',
       })
       expect(implementsEdges.length).toBe(1)
@@ -435,8 +435,8 @@ describe('Graph Edge Cases', () => {
       // Create 10 nodes concurrently
       const promises = Array.from({ length: 10 }, (_, i) =>
         store.createNode({
-          type: 'issue',
-          title: `Concurrent Issue ${i}`,
+          type: 'task',
+          title: `Concurrent Task ${i}`,
           status: 'open',
         })
       )
@@ -454,8 +454,8 @@ describe('Graph Edge Cases', () => {
       const nodes = await Promise.all(
         Array.from({ length: 5 }, (_, i) =>
           store.createNode({
-            type: 'issue',
-            title: `Issue ${i}`,
+            type: 'task',
+            title: `Task ${i}`,
             status: 'open',
           })
         )
@@ -487,7 +487,7 @@ describe('Graph Edge Cases', () => {
       // Empty title should be rejected by validation
       await expect(
         store.createNode({
-          type: 'issue',
+          type: 'task',
           title: '',
           status: 'open',
         })
@@ -499,7 +499,7 @@ describe('Graph Edge Cases', () => {
       const longTitle = 'A'.repeat(500)
 
       const node = await store.createNode({
-        type: 'issue',
+        type: 'task',
         title: longTitle,
         status: 'open',
       })
@@ -512,7 +512,7 @@ describe('Graph Edge Cases', () => {
 
       await expect(
         store.createNode({
-          type: 'issue',
+          type: 'task',
           title: tooLongTitle,
           status: 'open',
         })
@@ -523,7 +523,7 @@ describe('Graph Edge Cases', () => {
       const specialTitle = '测试 "quotes" <tags> & symbols 🎉'
 
       const node = await store.createNode({
-        type: 'spec',
+        type: 'context',
         title: specialTitle,
       })
 
@@ -532,7 +532,7 @@ describe('Graph Edge Cases', () => {
 
     it('should handle null content', async () => {
       const node = await store.createNode({
-        type: 'spec',
+        type: 'context',
         title: 'No Content',
       })
 
@@ -541,7 +541,7 @@ describe('Graph Edge Cases', () => {
 
     it('should handle empty content', async () => {
       const node = await store.createNode({
-        type: 'spec',
+        type: 'context',
         title: 'Empty Content',
         content: '',
       })
@@ -557,7 +557,7 @@ describe('Graph Edge Cases', () => {
   describe('Priority Edge Cases', () => {
     it('should handle priority 0 (highest)', async () => {
       const node = await store.createNode({
-        type: 'issue',
+        type: 'task',
         title: 'Critical',
         status: 'open',
         priority: 0,
@@ -568,7 +568,7 @@ describe('Graph Edge Cases', () => {
 
     it('should handle priority 4 (lowest)', async () => {
       const node = await store.createNode({
-        type: 'issue',
+        type: 'task',
         title: 'Low Priority',
         status: 'open',
         priority: 4,
@@ -580,7 +580,7 @@ describe('Graph Edge Cases', () => {
     it('should reject priority out of range', async () => {
       await expect(
         store.createNode({
-          type: 'issue',
+          type: 'task',
           title: 'Invalid Priority',
           status: 'open',
           priority: 5,
@@ -589,7 +589,7 @@ describe('Graph Edge Cases', () => {
 
       await expect(
         store.createNode({
-          type: 'issue',
+          type: 'task',
           title: 'Invalid Priority',
           status: 'open',
           priority: -1,

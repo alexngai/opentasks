@@ -67,7 +67,7 @@ OpenTasks supports multiple `.opentasks/` locations at different levels of the f
 | Level | Path Example | Typical Use |
 |-------|--------------|-------------|
 | **User** | `~/.opentasks/` | Personal tasks, cross-project work |
-| **Workspace** | `~/projects/.opentasks/` | Team coordination, shared specs |
+| **Workspace** | `~/projects/.opentasks/` | Team coordination, shared context |
 | **Project** | `~/projects/myapp/.opentasks/` | Project-specific work |
 | **Subproject** | `~/projects/myapp/packages/core/.opentasks/` | Package/module work |
 
@@ -91,13 +91,13 @@ Locations connect through **explicit outbound edges**:
 ```json
 {
   "id": "x-r8s9",
-  "from_id": "i-x7k9",
-  "to_id": "opentasks://~/projects/.opentasks/s-a2b3",
+  "from_id": "t-x7k9",
+  "to_id": "opentasks://~/projects/.opentasks/c-a2b3",
   "type": "implements"
 }
 ```
 
-This edge explicitly connects a local issue to a spec in the parent workspace.
+This edge explicitly connects a local task to a context in the parent workspace.
 
 ### Query Expansion
 
@@ -117,17 +117,17 @@ type ExpansionMode =
 
 ```typescript
 // Default: isolated query
-const issues = await client.query({ type: 'issue' })
+const issues = await client.query({ type: 'task' })
 
 // Expand to follow references
 const issues = await client.query(
-  { type: 'issue' },
+  { type: 'task' },
   { expand: 'follow-refs' }
 )
 
 // Expand to include ancestor locations
-const specs = await client.query(
-  { type: 'spec' },
+const ctx = await client.query(
+  { type: 'context' },
   { expand: 'ancestors' }
 )
 ```
@@ -148,10 +148,10 @@ opentasks://<path>/<node-id>
 
 | Pattern | Meaning | Example |
 |---------|---------|---------|
-| `~` | User home | `opentasks://~/.opentasks/s-a2b3` |
-| `.` | Current location | `opentasks://./i-x7k9` |
-| `..` | Parent directory | `opentasks://../.opentasks/s-c4d5` |
-| `/abs/path` | Absolute path | `opentasks:///home/user/proj/.opentasks/i-e6f7` |
+| `~` | User home | `opentasks://~/.opentasks/c-a2b3` |
+| `.` | Current location | `opentasks://./t-x7k9` |
+| `..` | Parent directory | `opentasks://../.opentasks/c-c4d5` |
+| `/abs/path` | Absolute path | `opentasks:///home/user/proj/.opentasks/t-e6f7` |
 
 ### URI Resolution
 
@@ -194,8 +194,8 @@ interface ResolvedURI {
 - **Across locations**: Full URI is globally unique
 - Same short ID can exist in different locations:
   ```
-  opentasks://~/projects/app-a/.opentasks/i-x7k9  ← unique
-  opentasks://~/projects/app-b/.opentasks/i-x7k9  ← unique (different location)
+  opentasks://~/projects/app-a/.opentasks/t-x7k9  ← unique
+  opentasks://~/projects/app-b/.opentasks/t-x7k9  ← unique (different location)
   ```
 
 ---
@@ -574,7 +574,7 @@ import { createQueryEngine } from './graph/query.js'
 const queryEngine = createQueryEngine(storage)
 
 // Queries resolve local node IDs only
-const blockers = await queryEngine.blockers('i-abc123')
+const blockers = await queryEngine.blockers('t-abc123')
 // External URI blockers (beads://...) are silently skipped
 ```
 
@@ -600,7 +600,7 @@ const queryEngine = createQueryEngine({
 })
 
 // Now queries resolve both local IDs and external URIs
-const blockers = await queryEngine.blockers('i-abc123')
+const blockers = await queryEngine.blockers('t-abc123')
 ```
 
 **How resolution works:**
@@ -620,7 +620,7 @@ const graph = createHydratingFederatedGraph(adapter, {
 
 // Federated ready query - considers blockers from all providers
 const readyIssues = await graph.ready({
-  type: 'issue',
+  type: 'task',
   status: 'open',
   providers: ['native', 'beads']
 })
@@ -629,7 +629,7 @@ const readyIssues = await graph.ready({
 const node = await graph.resolve('beads://./bd-123')
 
 // Traverse relationships across providers
-const blockers = graph.related('native://i-123', {
+const blockers = graph.related('native://t-123', {
   edgeType: 'blocks',
   direction: 'in'
 })
@@ -653,7 +653,7 @@ await graph.invalidateCache('beads')
 
 | Source | URI Format | Example |
 |--------|------------|---------|
-| Native | `native://{id}` | `native://i-abc123` |
+| Native | `native://{id}` | `native://t-abc123` |
 | Beads | `beads://{workspace}/{id}` | `beads://./bd-xyz789` |
 | Jira | `jira://{project}/{key}` | `jira://PROJ/PROJ-123` |
 
@@ -679,8 +679,8 @@ await graph.invalidateCache('beads')
 ├── tombstones.jsonl      # Soft-deleted nodes (TTL-based cleanup)
 ├── cache.db              # SQLite cache (queries, snapshots)
 ├── config.json           # Configuration and retention policies
-├── specs/                # Optional: markdown expansion
-├── issues/               # Optional: markdown expansion
+├── context/                # Optional: markdown expansion
+├── tasks/               # Optional: markdown expansion
 └── daemon.sock           # Daemon socket (when running)
 ```
 
@@ -782,8 +782,8 @@ interface LocationConfig {
 
     /** Markdown config (if enabled) */
     markdown?: {
-      specs: string       // directory
-      issues: string      // directory
+      context: string     // directory
+      tasks: string       // directory
     }
   }
 

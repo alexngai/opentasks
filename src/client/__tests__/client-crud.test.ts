@@ -25,11 +25,11 @@ describe('OpenTasksClient CRUD', () => {
   let edges: Map<string, any>
   let nodeCounter: number
 
-  const sampleSpec = {
-    id: 's-test1',
+  const sampleContext = {
+    id: 'c-test1',
     uuid: 'uuid-1',
-    type: 'spec' as const,
-    title: 'Test Spec',
+    type: 'context' as const,
+    title: 'Test Context',
     content: 'Test content',
     priority: 2,
     archived: false,
@@ -37,11 +37,11 @@ describe('OpenTasksClient CRUD', () => {
     updated_at: '2024-01-01T00:00:00Z',
   }
 
-  const sampleIssue = {
-    id: 'i-test1',
+  const sampleTask = {
+    id: 't-test1',
     uuid: 'uuid-2',
-    type: 'issue' as const,
-    title: 'Test Issue',
+    type: 'task' as const,
+    title: 'Test Task',
     status: 'open' as const,
     priority: 1,
     archived: false,
@@ -57,8 +57,8 @@ describe('OpenTasksClient CRUD', () => {
 
     // Create mock data
     nodes = new Map<string, any>()
-    nodes.set(sampleSpec.id, { ...sampleSpec })
-    nodes.set(sampleIssue.id, { ...sampleIssue })
+    nodes.set(sampleContext.id, { ...sampleContext })
+    nodes.set(sampleTask.id, { ...sampleTask })
 
     edges = new Map<string, any>()
 

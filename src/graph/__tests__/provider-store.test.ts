@@ -8,7 +8,7 @@ import {
   type ProviderAwareStore,
 } from '../provider-store.js'
 import type { GraphStore } from '../store.js'
-import type { Node, ExternalNode, Spec, Issue } from '../../schema/index.js'
+import type { Node, ExternalNode, Context, Task } from '../../schema/index.js'
 import type { Provider, ProviderNode, ProviderRegistry } from '../../providers/types.js'
 import { ProviderError } from '../../providers/types.js'
 import { createProviderRegistry } from '../../providers/registry.js'
@@ -20,12 +20,12 @@ describe('ProviderAwareStore', () => {
   let mockBeadsProvider: Provider
 
   // Mock nodes
-  const mockSpec: Spec = {
-    id: 's-abc1',
+  const mockContext: Context = {
+    id: 'c-abc1',
     uuid: 'uuid-1',
-    type: 'spec',
-    title: 'Test Spec',
-    content: 'Spec content',
+    type: 'context',
+    title: 'Test Context',
+    content: 'Context content',
     created_at: '2024-01-01T00:00:00.000Z',
     updated_at: '2024-01-01T00:00:00.000Z',
   }
@@ -159,26 +159,26 @@ describe('ProviderAwareStore', () => {
   describe('resolveNode', () => {
     describe('local IDs', () => {
       it('should resolve local IDs via getNode', async () => {
-        vi.mocked(baseStore.getNode).mockResolvedValue(mockSpec)
+        vi.mocked(baseStore.getNode).mockResolvedValue(mockContext)
 
-        const result = await providerStore.resolveNode('s-abc1')
+        const result = await providerStore.resolveNode('c-abc1')
 
-        expect(baseStore.getNode).toHaveBeenCalledWith('s-abc1')
-        expect(result).toBe(mockSpec)
+        expect(baseStore.getNode).toHaveBeenCalledWith('c-abc1')
+        expect(result).toBe(mockContext)
       })
 
       it('should return null for non-existent local node', async () => {
         vi.mocked(baseStore.getNode).mockResolvedValue(null)
 
-        const result = await providerStore.resolveNode('s-notfound')
+        const result = await providerStore.resolveNode('c-notfound')
 
         expect(result).toBeNull()
       })
 
       it('should handle all local ID prefixes', async () => {
-        vi.mocked(baseStore.getNode).mockResolvedValue(mockSpec)
+        vi.mocked(baseStore.getNode).mockResolvedValue(mockContext)
 
-        for (const prefix of ['s-', 'i-', 'f-', 'e-', 'x-']) {
+        for (const prefix of ['c-', 't-', 'f-', 'e-', 'x-']) {
           await providerStore.resolveNode(`${prefix}abc1`)
           expect(baseStore.getNode).toHaveBeenCalledWith(`${prefix}abc1`)
         }
@@ -321,9 +321,9 @@ describe('ProviderAwareStore', () => {
     })
 
     it('should throw for non-external node', async () => {
-      vi.mocked(baseStore.getNode).mockResolvedValue(mockSpec)
+      vi.mocked(baseStore.getNode).mockResolvedValue(mockContext)
 
-      await expect(providerStore.refreshNode('s-abc1')).rejects.toThrow(
+      await expect(providerStore.refreshNode('c-abc1')).rejects.toThrow(
         'not external'
       )
     })
@@ -384,33 +384,33 @@ describe('ProviderAwareStore', () => {
 
   describe('base store methods', () => {
     it('should pass through getNode to base store', async () => {
-      vi.mocked(baseStore.getNode).mockResolvedValue(mockSpec)
+      vi.mocked(baseStore.getNode).mockResolvedValue(mockContext)
 
-      const result = await providerStore.getNode('s-abc1')
+      const result = await providerStore.getNode('c-abc1')
 
-      expect(baseStore.getNode).toHaveBeenCalledWith('s-abc1')
-      expect(result).toBe(mockSpec)
+      expect(baseStore.getNode).toHaveBeenCalledWith('c-abc1')
+      expect(result).toBe(mockContext)
     })
 
     it('should pass through createNode to base store', async () => {
-      vi.mocked(baseStore.createNode).mockResolvedValue(mockSpec)
+      vi.mocked(baseStore.createNode).mockResolvedValue(mockContext)
 
       const result = await providerStore.createNode({
-        type: 'spec',
-        title: 'New Spec',
+        type: 'context',
+        title: 'New Context',
       })
 
       expect(baseStore.createNode).toHaveBeenCalled()
-      expect(result).toBe(mockSpec)
+      expect(result).toBe(mockContext)
     })
 
     it('should pass through query to base store', async () => {
-      vi.mocked(baseStore.query.nodes).mockResolvedValue([mockSpec])
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([mockContext])
 
-      const result = await providerStore.query.nodes({ type: 'spec' })
+      const result = await providerStore.query.nodes({ type: 'context' })
 
-      expect(baseStore.query.nodes).toHaveBeenCalledWith({ type: 'spec' })
-      expect(result).toEqual([mockSpec])
+      expect(baseStore.query.nodes).toHaveBeenCalledWith({ type: 'context' })
+      expect(result).toEqual([mockContext])
     })
   })
 
@@ -472,19 +472,19 @@ describe('ProviderAwareStore', () => {
         defaultProvider: 'native',
       })
 
-      const mockNode: Node = { ...mockSpec }
+      const mockNode: Node = { ...mockContext }
       vi.mocked(baseStore.createNode).mockResolvedValue(mockNode)
 
       const result = await store.providerCreate({
-        type: 'spec',
-        title: 'Test Spec',
+        type: 'context',
+        title: 'Test Context',
       })
 
       expect(result.provider).toBe('native')
       expect(result.uri).toBeUndefined()
       expect(baseStore.createNode).toHaveBeenCalledWith({
-        type: 'spec',
-        title: 'Test Spec',
+        type: 'context',
+        title: 'Test Context',
       })
     })
 
@@ -609,12 +609,12 @@ describe('ProviderAwareStore', () => {
 
   describe('providerGet', () => {
     it('should get local node directly', async () => {
-      vi.mocked(baseStore.getNode).mockResolvedValue(mockSpec as unknown as Node)
+      vi.mocked(baseStore.getNode).mockResolvedValue(mockContext as unknown as Node)
 
-      const result = await providerStore.providerGet('s-abc1')
+      const result = await providerStore.providerGet('c-abc1')
 
-      expect(baseStore.getNode).toHaveBeenCalledWith('s-abc1')
-      expect(result).toEqual(mockSpec)
+      expect(baseStore.getNode).toHaveBeenCalledWith('c-abc1')
+      expect(result).toEqual(mockContext)
     })
 
     it('should refresh stale external node', async () => {
@@ -653,7 +653,7 @@ describe('ProviderAwareStore', () => {
     it('should return null for nonexistent local node', async () => {
       vi.mocked(baseStore.getNode).mockResolvedValue(null)
 
-      const result = await providerStore.providerGet('s-nonexist')
+      const result = await providerStore.providerGet('c-nonexist')
 
       expect(result).toBeNull()
     })
@@ -661,13 +661,13 @@ describe('ProviderAwareStore', () => {
 
   describe('providerUpdate', () => {
     it('should update local node directly', async () => {
-      const updatedNode = { ...mockSpec, title: 'Updated' } as unknown as Node
-      vi.mocked(baseStore.getNode).mockResolvedValue(mockSpec as unknown as Node)
+      const updatedNode = { ...mockContext, title: 'Updated' } as unknown as Node
+      vi.mocked(baseStore.getNode).mockResolvedValue(mockContext as unknown as Node)
       vi.mocked(baseStore.updateNode).mockResolvedValue(updatedNode)
 
-      const result = await providerStore.providerUpdate('s-abc1', { title: 'Updated' })
+      const result = await providerStore.providerUpdate('c-abc1', { title: 'Updated' })
 
-      expect(baseStore.updateNode).toHaveBeenCalledWith('s-abc1', { title: 'Updated' })
+      expect(baseStore.updateNode).toHaveBeenCalledWith('c-abc1', { title: 'Updated' })
       expect(result.title).toBe('Updated')
     })
 
@@ -730,7 +730,7 @@ describe('ProviderAwareStore', () => {
       vi.mocked(baseStore.getNode).mockResolvedValue(null)
 
       await expect(
-        providerStore.providerUpdate('s-nonexist', { title: 'Test' })
+        providerStore.providerUpdate('c-nonexist', { title: 'Test' })
       ).rejects.toThrow('not found')
     })
 
@@ -746,12 +746,12 @@ describe('ProviderAwareStore', () => {
 
   describe('providerDelete', () => {
     it('should delete local node directly', async () => {
-      vi.mocked(baseStore.getNode).mockResolvedValue(mockSpec as unknown as Node)
+      vi.mocked(baseStore.getNode).mockResolvedValue(mockContext as unknown as Node)
       vi.mocked(baseStore.deleteNode).mockResolvedValue(undefined)
 
-      await providerStore.providerDelete('s-abc1')
+      await providerStore.providerDelete('c-abc1')
 
-      expect(baseStore.deleteNode).toHaveBeenCalledWith('s-abc1', undefined)
+      expect(baseStore.deleteNode).toHaveBeenCalledWith('c-abc1', undefined)
     })
 
     it('should route delete to external provider and remove local copy', async () => {
@@ -774,7 +774,7 @@ describe('ProviderAwareStore', () => {
       vi.mocked(baseStore.getNode).mockResolvedValue(null)
 
       await expect(
-        providerStore.providerDelete('s-nonexist')
+        providerStore.providerDelete('c-nonexist')
       ).rejects.toThrow('not found')
     })
 
@@ -905,7 +905,7 @@ describe('ProviderAwareStore', () => {
         vi.mocked(baseStore.getNode).mockResolvedValue(null)
 
         await expect(
-          providerStore.taskTransition('s-nonexist', 'start')
+          providerStore.taskTransition('c-nonexist', 'start')
         ).rejects.toThrow('not found')
       })
 

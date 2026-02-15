@@ -13,7 +13,7 @@ import { link, query, annotate } from 'opentasks'
 
 // Connect a Beads issue to a Jira ticket
 await link({
-  fromId: 'i-x7k9',
+  fromId: 't-x7k9',
   toId: 'jira://PROJ-123',
   type: 'blocks',
 })
@@ -21,14 +21,14 @@ await link({
 // What's ready to work on?
 const ready = await query({ ready: {} })
 
-// What blocks this issue?
+// What blocks this task?
 const blockers = await query({
-  blockers: { nodeId: 'i-x7k9', transitive: true },
+  blockers: { nodeId: 't-x7k9', transitive: true },
 })
 
-// Leave feedback on a spec
+// Leave feedback on a context
 await annotate({
-  targetId: 's-a2b3',
+  targetId: 'c-a2b3',
   create: {
     content: 'Needs error handling for token refresh',
     type: 'suggestion',
@@ -83,9 +83,9 @@ You keep using each system's native tools. OpenTasks owns the graph.
 Create or remove edges between any nodes.
 
 ```typescript
-await link({ fromId: 'i-x7k9', toId: 's-a2b3', type: 'implements' })
-await link({ fromId: 'i-setup', toId: 'i-impl', type: 'blocks' })
-await link({ fromId: 'i-setup', toId: 'i-impl', type: 'blocks', remove: true })
+await link({ fromId: 't-x7k9', toId: 'c-a2b3', type: 'implements' })
+await link({ fromId: 't-setup', toId: 't-impl', type: 'blocks' })
+await link({ fromId: 't-setup', toId: 't-impl', type: 'blocks', remove: true })
 ```
 
 Edge types: `blocks` (cycle-checked), `implements`, `references`, `related`, `parent-of`, `depends-on`, `discovered-from`, `duplicates`, `supersedes`. Add custom types as strings.
@@ -95,11 +95,11 @@ Edge types: `blocks` (cycle-checked), `implements`, `references`, `related`, `pa
 Search nodes, edges, and computed views.
 
 ```typescript
-await query({ ready: {} })                                        // Unblocked open issues
-await query({ blockers: { nodeId: 'i-impl' } })                  // Direct blockers
-await query({ blockers: { nodeId: 'i-impl', transitive: true }}) // Full blocker chain
-await query({ nodes: { type: 'issue', status: 'open' } })        // Filter nodes
-await query({ feedback: { nodeId: 's-auth' } })                  // Feedback on a spec
+await query({ ready: {} })                                        // Unblocked open tasks
+await query({ blockers: { nodeId: 't-impl' } })                  // Direct blockers
+await query({ blockers: { nodeId: 't-impl', transitive: true }}) // Full blocker chain
+await query({ nodes: { type: 'task', status: 'open' } })        // Filter nodes
+await query({ feedback: { nodeId: 'c-auth' } })                  // Feedback on a context
 ```
 
 ### annotate()
@@ -109,7 +109,7 @@ Feedback with anchoring, threading, and resolution.
 ```typescript
 // Comment anchored to a line
 await annotate({
-  targetId: 's-spec',
+  targetId: 'c-spec',
   create: {
     content: 'Consider rate limiting here',
     type: 'suggestion',
@@ -118,7 +118,7 @@ await annotate({
 })
 
 // Resolve feedback
-await annotate({ targetId: 's-spec', resolve: 'f-c4d5' })
+await annotate({ targetId: 'c-spec', resolve: 'f-c4d5' })
 ```
 
 Types: `comment`, `suggestion`, `request`. Each can be resolved, dismissed, or reopened.
@@ -130,7 +130,7 @@ Four types, all stored in `.opentasks/graph.jsonl`:
 | Type | Prefix | Purpose |
 |------|--------|---------|
 | Spec | s- | Requirements, context, user intent |
-| Issue | i- | Actionable work with status (open / in_progress / blocked / closed) |
+| Task | i- | Actionable work with status (open / in_progress / blocked / closed) |
 | Feedback | f- | Anchored comments on nodes, with threading |
 | ExternalNode | e- | References to Jira, Beads, Linear, GitHub |
 
@@ -138,8 +138,8 @@ A typical feature graph looks like this:
 
 ```mermaid
 graph LR
-    S["s-a2b3<br/>Auth Spec"]
-    I1["i-x7k9<br/>Implement OAuth"]
+    S["c-a2b3<br/>Auth Spec"]
+    I1["t-x7k9<br/>Implement OAuth"]
     I2["i-m4n5<br/>Add rate limiting"]
     F["f-p8q9<br/>suggestion"]
     EXT["e-jira<br/>PROJ-123"]
@@ -169,13 +169,13 @@ const persister = createJSONLPersister({ path: '.opentasks/graph.jsonl' })
 const store = createGraphStore({ storage: persister })
 
 const spec = await store.create({
-  type: 'spec',
+  type: 'context',
   title: 'OAuth2 authentication',
   content: 'Users authenticate via OAuth2 with PKCE...',
 })
 
 const issue = await store.create({
-  type: 'issue',
+  type: 'task',
   title: 'Implement OAuth2 flow',
   status: 'open',
 })
@@ -198,7 +198,7 @@ Connects to a running daemon via Unix socket:
 import { createClient } from 'opentasks'
 
 const client = createClient({ autoConnect: true })
-await client.link({ fromId: 'i-x7k9', toId: 's-a2b3', type: 'implements' })
+await client.link({ fromId: 't-x7k9', toId: 'c-a2b3', type: 'implements' })
 const result = await client.query({ ready: {} })
 await client.disconnect()
 ```
@@ -213,8 +213,8 @@ await client.disconnect()
 ├── config.json       # Location config, providers, retention
 ├── daemon.lock       # Exclusive lock (gitignored)
 ├── daemon.sock       # IPC socket (gitignored)
-├── specs/            # Optional markdown expansion
-└── issues/           # Optional markdown expansion
+├── context/            # Optional markdown expansion
+└── tasks/           # Optional markdown expansion
 ```
 
 ```mermaid
@@ -222,7 +222,7 @@ graph TB
     A["Agent / CLI"] --> Q["Query Layer<br/><small>SQLite cache.db</small><br/><small>Indexes on status, priority, edges</small>"]
     Q --> P["Persistence Layer<br/><small>graph.jsonl (append-only)</small><br/><small>Git-tracked source of truth</small>"]
     P --> I["Integration Layer<br/><small>Provider resolution</small><br/><small>External node cache</small>"]
-    P --> MD["Markdown Expansion<br/><small>specs/*.md, issues/*.md</small><br/><small>Optional, human-readable</small>"]
+    P --> MD["Markdown Expansion<br/><small>context/*.md, tasks/*.md</small><br/><small>Optional, human-readable</small>"]
 
     style A fill:#f5f5f5,stroke:#333
     style Q fill:#e8f4fd,stroke:#4a90d9
@@ -274,9 +274,9 @@ Multiple `.opentasks/` directories at different filesystem levels. Each is isola
 Cross-location references use `opentasks://` URIs:
 
 ```
-opentasks://./i-x7k9              # Current location
-opentasks://~/i-a2b3              # User global
-opentasks://../other-repo/s-c4d5  # Relative path
+opentasks://./t-x7k9              # Current location
+opentasks://~/t-a2b3              # User global
+opentasks://../other-repo/c-c4d5  # Relative path
 ```
 
 ## Worktrees
@@ -316,9 +316,9 @@ Hash-based, collision-resistant. Generated from UUID v4 through SHA256 and base3
 
 | Entity count | ID length | Example |
 |-------------|-----------|---------|
-| < 1,000 | 4 chars | i-x7k9 |
-| < 6,000 | 5 chars | i-x7k9p |
-| < 35,000 | 6 chars | i-x7k9pm |
+| < 1,000 | 4 chars | t-x7k9 |
+| < 6,000 | 5 chars | t-x7k9p |
+| < 35,000 | 6 chars | t-x7k9pm |
 
 ## What This Is Not
 

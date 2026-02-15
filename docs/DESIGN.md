@@ -6,12 +6,12 @@
 
 ## Vision
 
-OpenTasks is a **graph connector** that links heterogeneous task and spec systems:
+OpenTasks is a **graph connector** that links heterogeneous task and context systems:
 
 1. **A graph layer over existing tools** — connects Claude Tasks, Beads, Taskmaster, and other systems without replacing them
 2. **Cross-system relationships** — edges that span system boundaries (e.g., Claude subtask blocks Beads issue)
 3. **Unified queries** — find blockers, ready items, and dependencies across all connected systems
-4. **Optional native storage** — lightweight specs/issues for simple use cases when external providers aren't needed
+4. **Optional native storage** — lightweight context/tasks for simple use cases when external providers aren't needed
 
 **What OpenTasks is NOT:**
 - Not a replacement for Claude's built-in tasks (use `TaskCreate`/`TaskUpdate` directly)
@@ -47,7 +47,7 @@ The goal is to provide the **relationship layer** that existing tools lack — t
 │                                                                  │
 │  3 Tools: link() | query() | annotate()                         │
 │                                                                  │
-│  Optional: Native specs/issues for lightweight use              │
+│  Optional: Native context/tasks for lightweight use              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -76,7 +76,7 @@ Existing tools are good at what they do:
 - **Cross-system edges** — relationships that span system boundaries
 - **Unified queries** — find blockers/ready items across all connected systems
 - **Feedback routing** — comments that reference nodes in different systems
-- **Optional native storage** — simple specs/issues when you don't need a full-featured tracker
+- **Optional native storage** — simple context/issues when you don't need a full-featured tracker
 
 ### Core Principles
 
@@ -96,8 +96,8 @@ Existing tools are good at what they do:
 ├── cache.db              # SQLite in WAL mode (queries, external cache) — gitignored
 ├── config.json           # Configuration, connections, role, redirects
 ├── write.lock            # Advisory lock for JSONL writes — gitignored
-├── specs/                # Optional: markdown expansion
-└── issues/               # Optional: markdown expansion
+├── context/                # Optional: markdown expansion
+└── tasks/               # Optional: markdown expansion
 
 .git/opentasks/           # Shared across all worktrees (Phase 3)
 ├── daemon.sock           # Single daemon socket
@@ -115,10 +115,10 @@ See [PERSISTENCE.md](./PERSISTENCE.md) for storage details and [plans/CORE-ARCHI
 
 OpenTasks has two primary local node types:
 
-#### Specs (Intent/Requirements)
-Captures user intent, requirements, and context that should persist. Derived from sudocode's spec concept.
+#### Context (Intent/Requirements)
+Captures user intent, requirements, and context that should persist. Derived from sudocode's context concept.
 
-#### Issues (Actionable Work)
+#### Tasks (Actionable Work)
 Trackable units of work with status. The primary entity for task tracking.
 
 #### External Nodes
@@ -127,12 +127,12 @@ References to entities in external systems (Jira, Linear, GitHub, beads, etc.) t
 ### Relationships (Edges)
 
 Edges connect nodes and can target:
-- Local node IDs (`i-x7k9`, `s-a2b3`)
+- Local node IDs (`t-x7k9`, `c-a2b3`)
 - External URIs (`jira://PROJ-123`, `bd://bd-x7k9`, `gh://owner/repo#42`)
 
 Core relationship types (minimal set, extensible):
 - `blocks` — dependency blocking
-- `implements` — issue implements a spec
+- `implements` — task implements a context
 - `references` — general reference
 - `related` — loose association
 
@@ -149,13 +149,13 @@ External references use a progressive materialization approach:
 ```
 Stage 1: URI Reference (Edge Target)
 ┌─────────────┐      ┌─────────────────────┐
-│ Local Issue │─────▶│ "jira://PROJ-123"   │
+│ Local Task │─────▶│ "jira://PROJ-123"   │
 └─────────────┘      └─────────────────────┘
                      (just a URI string)
 
 Stage 2: Phantom Node (Lazy Creation)
 ┌─────────────┐      ┌─────────────────────┐
-│ Local Issue │─────▶│ Phantom Node        │
+│ Local Task │─────▶│ Phantom Node        │
 └─────────────┘      │ id: jira://PROJ-123 │
                      │ materialized: false │
                      └─────────────────────┘
@@ -163,7 +163,7 @@ Stage 2: Phantom Node (Lazy Creation)
 
 Stage 3: Materialized Node (On-Demand Fetch)
 ┌─────────────┐      ┌─────────────────────┐
-│ Local Issue │─────▶│ Materialized Node   │
+│ Local Task │─────▶│ Materialized Node   │
 └─────────────┘      │ id: jira://PROJ-123 │
                      │ title: "Fix bug..." │
                      │ status: "In Progress"│
@@ -292,7 +292,7 @@ interface SyncTarget {
 ### Hybrid: Owned Local + Delegated External
 
 OpenTasks owns storage for:
-- Local nodes (specs, issues)
+- Local nodes (context, tasks)
 - All edges/relationships (including those targeting external URIs)
 - Cached external nodes (materialized phantoms)
 - Integration configuration
@@ -405,11 +405,11 @@ Nodes can reference other nodes across locations via URIs:
 
 ```typescript
 // URI scheme encodes location
-"opentasks://./i-x7k9"                    // same location (relative)
-"opentasks://~/i-a2b3"                    // user global
-"opentasks://../other-repo/s-c4d5"        // relative path to another repo
-"opentasks:///absolute/path/i-e6f7"       // absolute path
-"opentasks://github.com/org/repo/i-g8h9"  // remote repository
+"opentasks://./t-x7k9"                    // same location (relative)
+"opentasks://~/t-a2b3"                    // user global
+"opentasks://../other-repo/c-c4d5"        // relative path to another repo
+"opentasks:///absolute/path/t-e6f7"       // absolute path
+"opentasks://github.com/org/repo/t-g8h9"  // remote repository
 ```
 
 ### Remote Repositories
@@ -559,16 +559,16 @@ Each worktree works independently. Append-only writes + merge driver handle merg
 │  (feature-a) │  │  (feature-b) │  │    (main)    │
 └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
        │                 │                 │
-       │   create i-x1   │   create i-y2   │
-       │   update i-z3   │   update i-z3   │
+       │   create t-x1   │   create t-y2   │
+       │   update t-z3   │   update t-z3   │
        │                 │                 │
        └────────────────┬┴─────────────────┘
                         │ git merge + merge driver
                         ▼
               ┌──────────────────┐
               │  Merged graph    │
-              │  i-x1, i-y2     │  ← new nodes: union
-              │  i-z3           │  ← conflict: field-level merge
+              │  t-x1, t-y2     │  ← new nodes: union
+              │  t-z3           │  ← conflict: field-level merge
               └──────────────────┘
 ```
 
@@ -582,8 +582,8 @@ Workers redirect to manager. Single daemon coordinates. Setup via `opentasks wor
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Manager Agent (main-worktree)                │
 │  .opentasks/ (authoritative) — role: manager                     │
-│  - All specs live here                                           │
-│  - All issues centrally managed                                  │
+│  - All context lives here                                        │
+│  - All tasks centrally managed                                   │
 │  - Single daemon handles all requests                            │
 └─────────────────────────────────────────────────────────────────┘
                               ↑
@@ -629,7 +629,7 @@ With the single-daemon model, claims are atomic (in-process check-and-set). Expi
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Core identity | Graph connector, not task system | Existing tools (Claude Tasks, Beads) handle CRUD; OpenTasks adds relationships |
-| Entity model | Edges + optional native nodes | Edges are primary; native specs/issues for lightweight use |
+| Entity model | Edges + optional native nodes | Edges are primary; native context/tasks for lightweight use |
 | External refs | Phantom nodes with materialization | Flexible, progressive, clear boundaries |
 | Integration model | Provider URIs + native tools | Agents use each system's tools directly; OpenTasks links them |
 | Storage | Edges always local, nodes via providers | OpenTasks owns graph structure, providers own content |
@@ -669,7 +669,7 @@ With the single-daemon model, claims are atomic (in-process check-and-set). Expi
 
 ### Sudocode
 - Repository: `references/sudocode/`
-- Key concepts: Specs, Issues, Relationships, Anchored Feedback
+- Key concepts: Context, Tasks, Relationships, Anchored Feedback
 - Storage: JSONL + SQLite + Markdown (three-layer)
 
 ### Beads

@@ -138,7 +138,7 @@ function buildStoredNode(input: CreateNodeInput, id: string, uuid: string): Stor
 
   // Type-specific fields
   switch (input.type) {
-    case 'issue':
+    case 'task':
       return {
         ...base,
         status: input.status || 'open',

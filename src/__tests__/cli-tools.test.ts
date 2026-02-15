@@ -86,12 +86,12 @@ describe('CLI Tool Commands', () => {
 
   describe('getFlag', () => {
     it('should return flag value', () => {
-      expect(getFlag(['--from', 'i-test1', '--to', 's-test1'], '--from')).toBe('i-test1')
-      expect(getFlag(['--from', 'i-test1', '--to', 's-test1'], '--to')).toBe('s-test1')
+      expect(getFlag(['--from', 't-test1', '--to', 'c-test1'], '--from')).toBe('t-test1')
+      expect(getFlag(['--from', 't-test1', '--to', 'c-test1'], '--to')).toBe('c-test1')
     })
 
     it('should return undefined for missing flag', () => {
-      expect(getFlag(['--from', 'i-test1'], '--to')).toBeUndefined()
+      expect(getFlag(['--from', 't-test1'], '--to')).toBeUndefined()
     })
 
     it('should return undefined for empty args', () => {
@@ -117,11 +117,11 @@ describe('CLI Tool Commands', () => {
     it('should create an edge between nodes', async () => {
       mockClient.link.mockResolvedValueOnce({ success: true, edgeId: 'x-new1' })
 
-      await cmdLink(['--from', 'i-test1', '--to', 's-test1', '--type', 'implements'])
+      await cmdLink(['--from', 't-test1', '--to', 'c-test1', '--type', 'implements'])
 
       expect(mockClient.link).toHaveBeenCalledWith({
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'implements',
       })
 
@@ -133,11 +133,11 @@ describe('CLI Tool Commands', () => {
     it('should remove an edge with --remove', async () => {
       mockClient.link.mockResolvedValueOnce({ success: true })
 
-      await cmdLink(['--from', 'i-test1', '--to', 's-test1', '--type', 'implements', '--remove'])
+      await cmdLink(['--from', 't-test1', '--to', 'c-test1', '--type', 'implements', '--remove'])
 
       expect(mockClient.link).toHaveBeenCalledWith({
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'implements',
         remove: true,
       })
@@ -147,13 +147,13 @@ describe('CLI Tool Commands', () => {
       mockClient.link.mockResolvedValueOnce({ success: true, edgeId: 'x-new2' })
 
       await cmdLink([
-        '--from', 'i-test1', '--to', 's-test1', '--type', 'references',
+        '--from', 't-test1', '--to', 'c-test1', '--type', 'references',
         '--metadata', '{"context":"bug report"}',
       ])
 
       expect(mockClient.link).toHaveBeenCalledWith({
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'references',
         metadata: { context: 'bug report' },
       })
@@ -162,14 +162,14 @@ describe('CLI Tool Commands', () => {
     it('should disconnect after success', async () => {
       mockClient.link.mockResolvedValueOnce({ success: true })
 
-      await cmdLink(['--from', 'i-test1', '--to', 's-test1', '--type', 'implements'])
+      await cmdLink(['--from', 't-test1', '--to', 'c-test1', '--type', 'implements'])
 
       expect(mockClient.disconnect).toHaveBeenCalled()
     })
 
     it('should error on missing --from', async () => {
       await expect(
-        cmdLink(['--to', 's-test1', '--type', 'implements'])
+        cmdLink(['--to', 'c-test1', '--type', 'implements'])
       ).rejects.toThrow('process.exit(1)')
 
       expect(errorOutput.join('')).toContain('Usage:')
@@ -178,7 +178,7 @@ describe('CLI Tool Commands', () => {
 
     it('should error on missing --to', async () => {
       await expect(
-        cmdLink(['--from', 'i-test1', '--type', 'implements'])
+        cmdLink(['--from', 't-test1', '--type', 'implements'])
       ).rejects.toThrow('process.exit(1)')
 
       expect(errorOutput.join('')).toContain('Usage:')
@@ -186,7 +186,7 @@ describe('CLI Tool Commands', () => {
 
     it('should error on missing --type', async () => {
       await expect(
-        cmdLink(['--from', 'i-test1', '--to', 's-test1'])
+        cmdLink(['--from', 't-test1', '--to', 'c-test1'])
       ).rejects.toThrow('process.exit(1)')
 
       expect(errorOutput.join('')).toContain('Usage:')
@@ -196,7 +196,7 @@ describe('CLI Tool Commands', () => {
       mockClient.link.mockRejectedValueOnce(new Error('Connection refused'))
 
       await expect(
-        cmdLink(['--from', 'i-test1', '--to', 's-test1', '--type', 'blocks'])
+        cmdLink(['--from', 't-test1', '--to', 'c-test1', '--type', 'blocks'])
       ).rejects.toThrow('process.exit(1)')
 
       const errorJson = JSON.parse(errorOutput.join(''))
@@ -211,7 +211,7 @@ describe('CLI Tool Commands', () => {
   describe('cmdQuery', () => {
     it('should query ready work', async () => {
       mockClient.query.mockResolvedValueOnce({
-        items: [{ id: 'i-1', title: 'Ready Issue' }],
+        items: [{ id: 't-1', title: 'Ready Task' }],
         hasMore: false,
       })
 
@@ -221,53 +221,53 @@ describe('CLI Tool Commands', () => {
 
       const result = getLoggedJson()
       expect(result.items).toHaveLength(1)
-      expect(result.items[0].id).toBe('i-1')
+      expect(result.items[0].id).toBe('t-1')
     })
 
     it('should query nodes with filter', async () => {
       mockClient.query.mockResolvedValueOnce({
-        items: [{ id: 's-1' }],
+        items: [{ id: 'c-1' }],
         hasMore: false,
       })
 
-      await cmdQuery(['{"nodes":{"type":"spec"}}'])
+      await cmdQuery(['{"nodes":{"type":"context"}}'])
 
-      expect(mockClient.query).toHaveBeenCalledWith({ nodes: { type: 'spec' } })
+      expect(mockClient.query).toHaveBeenCalledWith({ nodes: { type: 'context' } })
     })
 
     it('should query edges', async () => {
       mockClient.query.mockResolvedValueOnce({
-        items: [{ id: 'x-1', from_id: 'i-1', to_id: 's-1' }],
+        items: [{ id: 'x-1', from_id: 't-1', to_id: 'c-1' }],
         hasMore: false,
       })
 
-      await cmdQuery(['{"edges":{"from_id":"i-1"}}'])
+      await cmdQuery(['{"edges":{"from_id":"t-1"}}'])
 
-      expect(mockClient.query).toHaveBeenCalledWith({ edges: { from_id: 'i-1' } })
+      expect(mockClient.query).toHaveBeenCalledWith({ edges: { from_id: 't-1' } })
     })
 
     it('should query blockers with options', async () => {
       mockClient.query.mockResolvedValueOnce({
-        items: [{ id: 's-1', title: 'Blocker' }],
+        items: [{ id: 'c-1', title: 'Blocker' }],
         hasMore: false,
       })
 
-      await cmdQuery(['{"blockers":{"nodeId":"i-1","activeOnly":true,"transitive":true}}'])
+      await cmdQuery(['{"blockers":{"nodeId":"t-1","activeOnly":true,"transitive":true}}'])
 
       expect(mockClient.query).toHaveBeenCalledWith({
-        blockers: { nodeId: 'i-1', activeOnly: true, transitive: true },
+        blockers: { nodeId: 't-1', activeOnly: true, transitive: true },
       })
     })
 
-    it('should query implementers', async () => {
+    it('should query tasks', async () => {
       mockClient.query.mockResolvedValueOnce({
-        items: [{ id: 'i-1' }],
+        items: [{ id: 't-1' }],
         hasMore: false,
       })
 
-      await cmdQuery(['{"implementers":{"specId":"s-1"}}'])
+      await cmdQuery(['{"tasks":{"contextId":"c-1"}}'])
 
-      expect(mockClient.query).toHaveBeenCalledWith({ implementers: { specId: 's-1' } })
+      expect(mockClient.query).toHaveBeenCalledWith({ tasks: { contextId: 'c-1' } })
     })
 
     it('should query feedback', async () => {
@@ -276,10 +276,10 @@ describe('CLI Tool Commands', () => {
         hasMore: false,
       })
 
-      await cmdQuery(['{"feedback":{"nodeId":"s-1","resolved":false}}'])
+      await cmdQuery(['{"feedback":{"nodeId":"c-1","resolved":false}}'])
 
       expect(mockClient.query).toHaveBeenCalledWith({
-        feedback: { nodeId: 's-1', resolved: false },
+        feedback: { nodeId: 'c-1', resolved: false },
       })
     })
 
@@ -324,10 +324,10 @@ describe('CLI Tool Commands', () => {
     it('should create feedback', async () => {
       mockClient.annotate.mockResolvedValueOnce({ success: true, feedbackId: 'f-new1' })
 
-      await cmdAnnotate(['{"targetId":"s-1","create":{"content":"Nice work","type":"comment"}}'])
+      await cmdAnnotate(['{"targetId":"c-1","create":{"content":"Nice work","type":"comment"}}'])
 
       expect(mockClient.annotate).toHaveBeenCalledWith({
-        targetId: 's-1',
+        targetId: 'c-1',
         create: { content: 'Nice work', type: 'comment' },
       })
 
@@ -339,11 +339,11 @@ describe('CLI Tool Commands', () => {
     it('should create feedback with fromId', async () => {
       mockClient.annotate.mockResolvedValueOnce({ success: true, feedbackId: 'f-new2' })
 
-      await cmdAnnotate(['{"targetId":"s-1","fromId":"i-1","create":{"content":"Done","type":"comment"}}'])
+      await cmdAnnotate(['{"targetId":"c-1","fromId":"t-1","create":{"content":"Done","type":"comment"}}'])
 
       expect(mockClient.annotate).toHaveBeenCalledWith({
-        targetId: 's-1',
-        fromId: 'i-1',
+        targetId: 'c-1',
+        fromId: 't-1',
         create: { content: 'Done', type: 'comment' },
       })
     })
@@ -351,10 +351,10 @@ describe('CLI Tool Commands', () => {
     it('should create anchored suggestion', async () => {
       mockClient.annotate.mockResolvedValueOnce({ success: true, feedbackId: 'f-new3' })
 
-      await cmdAnnotate(['{"targetId":"s-1","create":{"content":"Add rate limiting","type":"suggestion","anchor":{"line":15}}}'])
+      await cmdAnnotate(['{"targetId":"c-1","create":{"content":"Add rate limiting","type":"suggestion","anchor":{"line":15}}}'])
 
       expect(mockClient.annotate).toHaveBeenCalledWith({
-        targetId: 's-1',
+        targetId: 'c-1',
         create: { content: 'Add rate limiting', type: 'suggestion', anchor: { line: 15 } },
       })
     })
@@ -362,10 +362,10 @@ describe('CLI Tool Commands', () => {
     it('should resolve feedback', async () => {
       mockClient.annotate.mockResolvedValueOnce({ success: true })
 
-      await cmdAnnotate(['{"targetId":"s-1","resolve":"f-1"}'])
+      await cmdAnnotate(['{"targetId":"c-1","resolve":"f-1"}'])
 
       expect(mockClient.annotate).toHaveBeenCalledWith({
-        targetId: 's-1',
+        targetId: 'c-1',
         resolve: 'f-1',
       })
     })
@@ -373,10 +373,10 @@ describe('CLI Tool Commands', () => {
     it('should dismiss feedback', async () => {
       mockClient.annotate.mockResolvedValueOnce({ success: true })
 
-      await cmdAnnotate(['{"targetId":"s-1","dismiss":"f-1"}'])
+      await cmdAnnotate(['{"targetId":"c-1","dismiss":"f-1"}'])
 
       expect(mockClient.annotate).toHaveBeenCalledWith({
-        targetId: 's-1',
+        targetId: 'c-1',
         dismiss: 'f-1',
       })
     })
@@ -384,10 +384,10 @@ describe('CLI Tool Commands', () => {
     it('should reopen feedback', async () => {
       mockClient.annotate.mockResolvedValueOnce({ success: true })
 
-      await cmdAnnotate(['{"targetId":"s-1","reopen":"f-1"}'])
+      await cmdAnnotate(['{"targetId":"c-1","reopen":"f-1"}'])
 
       expect(mockClient.annotate).toHaveBeenCalledWith({
-        targetId: 's-1',
+        targetId: 'c-1',
         reopen: 'f-1',
       })
     })
@@ -408,7 +408,7 @@ describe('CLI Tool Commands', () => {
       mockClient.annotate.mockRejectedValueOnce(new Error('Target not found'))
 
       await expect(
-        cmdAnnotate(['{"targetId":"s-nonexistent","create":{"content":"x","type":"comment"}}'])
+        cmdAnnotate(['{"targetId":"c-nonexistent","create":{"content":"x","type":"comment"}}'])
       ).rejects.toThrow('process.exit(1)')
 
       const errorJson = JSON.parse(errorOutput.join(''))
@@ -421,34 +421,34 @@ describe('CLI Tool Commands', () => {
   // ==========================================================================
 
   describe('cmdCreate', () => {
-    it('should create an issue node', async () => {
+    it('should create a task node', async () => {
       mockClient.createNode.mockResolvedValueOnce({
-        id: 'i-new1', type: 'issue', title: 'New Issue', status: 'open',
+        id: 't-new1', type: 'task', title: 'New Task', status: 'open',
       })
 
-      await cmdCreate(['--type', 'issue', '--title', 'New Issue', '--status', 'open'])
+      await cmdCreate(['--type', 'task', '--title', 'New Task', '--status', 'open'])
 
       expect(mockClient.createNode).toHaveBeenCalledWith({
-        type: 'issue',
-        title: 'New Issue',
+        type: 'task',
+        title: 'New Task',
         status: 'open',
       })
 
       const result = getLoggedJson()
-      expect(result.id).toBe('i-new1')
-      expect(result.type).toBe('issue')
+      expect(result.id).toBe('t-new1')
+      expect(result.type).toBe('task')
     })
 
-    it('should create a spec node', async () => {
+    it('should create a context node', async () => {
       mockClient.createNode.mockResolvedValueOnce({
-        id: 's-new1', type: 'spec', title: 'Auth Spec', content: '## Reqs',
+        id: 'c-new1', type: 'context', title: 'Auth Context', content: '## Reqs',
       })
 
-      await cmdCreate(['--type', 'spec', '--title', 'Auth Spec', '--content', '## Reqs'])
+      await cmdCreate(['--type', 'context', '--title', 'Auth Context', '--content', '## Reqs'])
 
       expect(mockClient.createNode).toHaveBeenCalledWith({
-        type: 'spec',
-        title: 'Auth Spec',
+        type: 'context',
+        title: 'Auth Context',
         content: '## Reqs',
       })
     })
@@ -473,9 +473,9 @@ describe('CLI Tool Commands', () => {
     })
 
     it('should parse comma-separated tags', async () => {
-      mockClient.createNode.mockResolvedValueOnce({ id: 'i-new1' })
+      mockClient.createNode.mockResolvedValueOnce({ id: 't-new1' })
 
-      await cmdCreate(['--type', 'issue', '--title', 'Tagged', '--tags', 'auth,bug,urgent'])
+      await cmdCreate(['--type', 'task', '--title', 'Tagged', '--tags', 'auth,bug,urgent'])
 
       expect(mockClient.createNode).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -485,9 +485,9 @@ describe('CLI Tool Commands', () => {
     })
 
     it('should trim whitespace from tags', async () => {
-      mockClient.createNode.mockResolvedValueOnce({ id: 'i-new1' })
+      mockClient.createNode.mockResolvedValueOnce({ id: 't-new1' })
 
-      await cmdCreate(['--type', 'issue', '--title', 'Tagged', '--tags', 'auth, bug, urgent'])
+      await cmdCreate(['--type', 'task', '--title', 'Tagged', '--tags', 'auth, bug, urgent'])
 
       expect(mockClient.createNode).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -497,9 +497,9 @@ describe('CLI Tool Commands', () => {
     })
 
     it('should parse priority as number', async () => {
-      mockClient.createNode.mockResolvedValueOnce({ id: 'i-new1' })
+      mockClient.createNode.mockResolvedValueOnce({ id: 't-new1' })
 
-      await cmdCreate(['--type', 'issue', '--title', 'Prio', '--priority', '2'])
+      await cmdCreate(['--type', 'task', '--title', 'Prio', '--priority', '2'])
 
       expect(mockClient.createNode).toHaveBeenCalledWith(
         expect.objectContaining({ priority: 2 })
@@ -507,10 +507,10 @@ describe('CLI Tool Commands', () => {
     })
 
     it('should pass metadata as parsed JSON', async () => {
-      mockClient.createNode.mockResolvedValueOnce({ id: 'i-new1' })
+      mockClient.createNode.mockResolvedValueOnce({ id: 't-new1' })
 
       await cmdCreate([
-        '--type', 'issue', '--title', 'Meta',
+        '--type', 'task', '--title', 'Meta',
         '--metadata', '{"source_url":"https://example.com"}',
       ])
 
@@ -522,22 +522,22 @@ describe('CLI Tool Commands', () => {
     })
 
     it('should pass parent ID', async () => {
-      mockClient.createNode.mockResolvedValueOnce({ id: 'i-new1' })
+      mockClient.createNode.mockResolvedValueOnce({ id: 't-new1' })
 
-      await cmdCreate(['--type', 'issue', '--title', 'Child', '--parent', 's-test1'])
+      await cmdCreate(['--type', 'task', '--title', 'Child', '--parent', 'c-test1'])
 
       expect(mockClient.createNode).toHaveBeenCalledWith(
-        expect.objectContaining({ parent_id: 's-test1' })
+        expect.objectContaining({ parent_id: 'c-test1' })
       )
     })
 
     it('should only include specified options', async () => {
-      mockClient.createNode.mockResolvedValueOnce({ id: 'i-new1' })
+      mockClient.createNode.mockResolvedValueOnce({ id: 't-new1' })
 
-      await cmdCreate(['--type', 'issue', '--title', 'Minimal'])
+      await cmdCreate(['--type', 'task', '--title', 'Minimal'])
 
       expect(mockClient.createNode).toHaveBeenCalledWith({
-        type: 'issue',
+        type: 'task',
         title: 'Minimal',
       })
     })
@@ -553,7 +553,7 @@ describe('CLI Tool Commands', () => {
 
     it('should error on missing --title', async () => {
       await expect(
-        cmdCreate(['--type', 'issue'])
+        cmdCreate(['--type', 'task'])
       ).rejects.toThrow('process.exit(1)')
 
       expect(errorOutput.join('')).toContain('Usage:')
@@ -567,33 +567,33 @@ describe('CLI Tool Commands', () => {
   describe('cmdGet', () => {
     it('should get a node by ID', async () => {
       mockClient.getNode.mockResolvedValueOnce({
-        id: 's-test1', type: 'spec', title: 'Test Spec',
+        id: 'c-test1', type: 'context', title: 'Test Context',
       })
 
-      await cmdGet(['s-test1'])
+      await cmdGet(['c-test1'])
 
-      expect(mockClient.getNode).toHaveBeenCalledWith('s-test1')
+      expect(mockClient.getNode).toHaveBeenCalledWith('c-test1')
 
       const result = getLoggedJson()
-      expect(result.id).toBe('s-test1')
-      expect(result.title).toBe('Test Spec')
+      expect(result.id).toBe('c-test1')
+      expect(result.title).toBe('Test Context')
     })
 
     it('should return null for non-existent node', async () => {
       mockClient.getNode.mockResolvedValueOnce(null)
 
-      await cmdGet(['i-nonexistent'])
+      await cmdGet(['t-nonexistent'])
 
-      expect(mockClient.getNode).toHaveBeenCalledWith('i-nonexistent')
+      expect(mockClient.getNode).toHaveBeenCalledWith('t-nonexistent')
 
       const result = getLoggedJson()
       expect(result).toBeNull()
     })
 
     it('should disconnect after success', async () => {
-      mockClient.getNode.mockResolvedValueOnce({ id: 's-1' })
+      mockClient.getNode.mockResolvedValueOnce({ id: 'c-1' })
 
-      await cmdGet(['s-1'])
+      await cmdGet(['c-1'])
 
       expect(mockClient.disconnect).toHaveBeenCalled()
     })
@@ -613,12 +613,12 @@ describe('CLI Tool Commands', () => {
   describe('cmdUpdate', () => {
     it('should update status', async () => {
       mockClient.updateNode.mockResolvedValueOnce({
-        id: 'i-test1', status: 'closed',
+        id: 't-test1', status: 'closed',
       })
 
-      await cmdUpdate(['i-test1', '--status', 'closed'])
+      await cmdUpdate(['t-test1', '--status', 'closed'])
 
-      expect(mockClient.updateNode).toHaveBeenCalledWith('i-test1', {
+      expect(mockClient.updateNode).toHaveBeenCalledWith('t-test1', {
         status: 'closed',
       })
 
@@ -628,48 +628,48 @@ describe('CLI Tool Commands', () => {
 
     it('should update title', async () => {
       mockClient.updateNode.mockResolvedValueOnce({
-        id: 's-test1', title: 'Updated Title',
+        id: 'c-test1', title: 'Updated Title',
       })
 
-      await cmdUpdate(['s-test1', '--title', 'Updated Title'])
+      await cmdUpdate(['c-test1', '--title', 'Updated Title'])
 
-      expect(mockClient.updateNode).toHaveBeenCalledWith('s-test1', {
+      expect(mockClient.updateNode).toHaveBeenCalledWith('c-test1', {
         title: 'Updated Title',
       })
     })
 
     it('should set archived flag', async () => {
       mockClient.updateNode.mockResolvedValueOnce({
-        id: 'i-test1', archived: true,
+        id: 't-test1', archived: true,
       })
 
-      await cmdUpdate(['i-test1', '--archived'])
+      await cmdUpdate(['t-test1', '--archived'])
 
-      expect(mockClient.updateNode).toHaveBeenCalledWith('i-test1', {
+      expect(mockClient.updateNode).toHaveBeenCalledWith('t-test1', {
         archived: true,
       })
     })
 
     it('should update metadata as parsed JSON', async () => {
       mockClient.updateNode.mockResolvedValueOnce({
-        id: 'i-test1', metadata: { reviewed: true },
+        id: 't-test1', metadata: { reviewed: true },
       })
 
-      await cmdUpdate(['i-test1', '--metadata', '{"reviewed":true}'])
+      await cmdUpdate(['t-test1', '--metadata', '{"reviewed":true}'])
 
-      expect(mockClient.updateNode).toHaveBeenCalledWith('i-test1', {
+      expect(mockClient.updateNode).toHaveBeenCalledWith('t-test1', {
         metadata: { reviewed: true },
       })
     })
 
     it('should update multiple fields at once', async () => {
       mockClient.updateNode.mockResolvedValueOnce({
-        id: 'i-test1', status: 'in_progress', title: 'Renamed',
+        id: 't-test1', status: 'in_progress', title: 'Renamed',
       })
 
-      await cmdUpdate(['i-test1', '--status', 'in_progress', '--title', 'Renamed'])
+      await cmdUpdate(['t-test1', '--status', 'in_progress', '--title', 'Renamed'])
 
-      expect(mockClient.updateNode).toHaveBeenCalledWith('i-test1', {
+      expect(mockClient.updateNode).toHaveBeenCalledWith('t-test1', {
         status: 'in_progress',
         title: 'Renamed',
       })
@@ -683,7 +683,7 @@ describe('CLI Tool Commands', () => {
     })
 
     it('should error when no updates specified', async () => {
-      await expect(cmdUpdate(['i-test1'])).rejects.toThrow('process.exit(1)')
+      await expect(cmdUpdate(['t-test1'])).rejects.toThrow('process.exit(1)')
 
       expect(errorOutput.join('')).toContain('No updates specified')
       expect(mockClient.updateNode).not.toHaveBeenCalled()
@@ -698,22 +698,22 @@ describe('CLI Tool Commands', () => {
     it('should soft delete a node', async () => {
       mockClient.deleteNode.mockResolvedValueOnce(undefined)
 
-      await cmdDelete(['i-test1'])
+      await cmdDelete(['t-test1'])
 
-      expect(mockClient.deleteNode).toHaveBeenCalledWith('i-test1', undefined)
+      expect(mockClient.deleteNode).toHaveBeenCalledWith('t-test1', undefined)
 
       const result = getLoggedJson()
       expect(result.success).toBe(true)
-      expect(result.id).toBe('i-test1')
+      expect(result.id).toBe('t-test1')
       expect(result.hard).toBe(false)
     })
 
     it('should hard delete with --hard', async () => {
       mockClient.deleteNode.mockResolvedValueOnce(undefined)
 
-      await cmdDelete(['i-test1', '--hard'])
+      await cmdDelete(['t-test1', '--hard'])
 
-      expect(mockClient.deleteNode).toHaveBeenCalledWith('i-test1', { hard: true })
+      expect(mockClient.deleteNode).toHaveBeenCalledWith('t-test1', { hard: true })
 
       const result = getLoggedJson()
       expect(result.success).toBe(true)
@@ -723,7 +723,7 @@ describe('CLI Tool Commands', () => {
     it('should disconnect after success', async () => {
       mockClient.deleteNode.mockResolvedValueOnce(undefined)
 
-      await cmdDelete(['i-test1'])
+      await cmdDelete(['t-test1'])
 
       expect(mockClient.disconnect).toHaveBeenCalled()
     })
@@ -739,7 +739,7 @@ describe('CLI Tool Commands', () => {
       mockClient.deleteNode.mockRejectedValueOnce(new Error('Node not found'))
 
       await expect(
-        cmdDelete(['i-nonexistent'])
+        cmdDelete(['t-nonexistent'])
       ).rejects.toThrow('process.exit(1)')
 
       const errorJson = JSON.parse(errorOutput.join(''))
@@ -753,20 +753,20 @@ describe('CLI Tool Commands', () => {
 
   describe('output formatting', () => {
     it('should output pretty-printed JSON to stdout', async () => {
-      mockClient.getNode.mockResolvedValueOnce({ id: 's-1', title: 'Test' })
+      mockClient.getNode.mockResolvedValueOnce({ id: 'c-1', title: 'Test' })
 
-      await cmdGet(['s-1'])
+      await cmdGet(['c-1'])
 
       // runToolCommand uses JSON.stringify with 2-space indent
       const raw = logOutput.join('')
       expect(raw).toContain('{\n')
-      expect(raw).toContain('"id": "s-1"')
+      expect(raw).toContain('"id": "c-1"')
     })
 
     it('should output error JSON to stderr on RPC failure', async () => {
       mockClient.getNode.mockRejectedValueOnce(new Error('Timeout'))
 
-      await expect(cmdGet(['s-1'])).rejects.toThrow('process.exit(1)')
+      await expect(cmdGet(['c-1'])).rejects.toThrow('process.exit(1)')
 
       const errorJson = JSON.parse(errorOutput.join(''))
       expect(errorJson).toEqual({ error: 'Timeout' })

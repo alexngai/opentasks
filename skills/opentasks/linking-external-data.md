@@ -1,6 +1,6 @@
 # Linking External Data
 
-Bind non-task artifacts — Slack messages, Google Docs, Notion pages, emails, URLs — to specs and issues in the graph.
+Bind non-task artifacts — Slack messages, Google Docs, Notion pages, emails, URLs — to context and tasks in the graph.
 
 ## Pattern
 
@@ -20,7 +20,7 @@ opentasks create --type external \
 ### 2. Link to the relevant node
 
 ```bash
-opentasks link --from i-x7k9 --to e-k7m2 --type references \
+opentasks link --from t-x7k9 --to e-k7m2 --type references \
   --metadata '{"context":"Original bug report from #engineering"}'
 ```
 
@@ -75,8 +75,8 @@ An agent with access to the external system can later enrich via `opentasks upda
 ## Querying Linked Data
 
 ```bash
-# All references from an issue
-opentasks query '{"edges": {"from_id": "i-x7k9", "type": "references"}}'
+# All references from a task
+opentasks query '{"edges": {"from_id": "t-x7k9", "type": "references"}}'
 
 # All external nodes from Slack
 opentasks query '{"nodes": {"type": "external", "search": "slack"}}'
@@ -92,12 +92,12 @@ Agent working on "Fix SSO redirect loop":
 2. For each, create ExternalNode:
    opentasks create --type external --title "..." --uri "slack://..." --source slack --metadata '{...}'
 
-3. Link each to the issue:
-   opentasks link --from i-x7k9 --to e-k7m2 --type references
-   opentasks link --from i-x7k9 --to e-k7m3 --type references
-   opentasks link --from i-x7k9 --to e-k7m4 --type discovered-from
+3. Link each to the task:
+   opentasks link --from t-x7k9 --to e-k7m2 --type references
+   opentasks link --from t-x7k9 --to e-k7m3 --type references
+   opentasks link --from t-x7k9 --to e-k7m4 --type discovered-from
 
 4. Later, another agent queries context:
-   opentasks query '{"edges": {"from_id": "i-x7k9", "type": ["references", "discovered-from"]}}'
+   opentasks query '{"edges": {"from_id": "t-x7k9", "type": ["references", "discovered-from"]}}'
    → Gets back ExternalNodes with Slack content in metadata
 ```

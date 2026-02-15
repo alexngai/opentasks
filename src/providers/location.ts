@@ -41,7 +41,7 @@ function toProviderNode(
   return {
     id: row.id as string,
     uri: `opentasks://${connection.hash}/${row.id as string}`,
-    type: (row.type as string) === 'issue' ? 'issue' : 'spec',
+    type: (row.type as string) === 'task' ? 'issue' : 'spec',
     title: row.title as string,
     content: row.content as string | undefined,
     status: row.status as string | undefined,

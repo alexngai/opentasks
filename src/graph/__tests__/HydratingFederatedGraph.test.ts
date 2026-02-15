@@ -321,10 +321,10 @@ describe('HydratingFederatedGraph', () => {
 
       // Add a native node (no source)
       const nativeNode: StoredNode = {
-        id: 'i-native',
+        id: 't-native',
         uuid: 'native-uuid',
-        type: 'issue',
-        title: 'Native Issue',
+        type: 'task',
+        title: 'Native Task',
         status: 'open',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -339,7 +339,7 @@ describe('HydratingFederatedGraph', () => {
       // Only the beads node should have been invalidated
       expect(graph.isStale('beads://./bd-123')).toBe(true)
       // Native node should not be stale (it has no source)
-      expect(graph.isStale('native://i-native')).toBe(false)
+      expect(graph.isStale('native://t-native')).toBe(false)
     })
   })
 
@@ -416,19 +416,19 @@ describe('HydratingFederatedGraph', () => {
     beforeEach(async () => {
       // Setup some nodes
       const node1: StoredNode = {
-        id: 'i-1',
+        id: 't-1',
         uuid: 'uuid-1',
-        type: 'issue',
-        title: 'Issue 1',
+        type: 'task',
+        title: 'Task 1',
         status: 'open',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
       const node2: StoredNode = {
-        id: 'i-2',
+        id: 't-2',
         uuid: 'uuid-2',
-        type: 'issue',
-        title: 'Issue 2',
+        type: 'task',
+        title: 'Task 2',
         status: 'open',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -438,25 +438,25 @@ describe('HydratingFederatedGraph', () => {
       adapter.onEdgeCreated({
         id: 'e-1',
         uuid: 'edge-uuid-1',
-        from_id: 'i-1',
-        to_id: 'i-2',
+        from_id: 't-1',
+        to_id: 't-2',
         type: 'blocks',
         created_at: new Date().toISOString(),
       })
     })
 
     it('related() works', () => {
-      const related = graph.related('native://i-1', { direction: 'out' })
-      expect(related).toContain('native://i-2')
+      const related = graph.related('native://t-1', { direction: 'out' })
+      expect(related).toContain('native://t-2')
     })
 
     it('reachable() works', () => {
-      const reachable = graph.reachable('native://i-1')
-      expect(reachable).toContain('native://i-2')
+      const reachable = graph.reachable('native://t-1')
+      expect(reachable).toContain('native://t-2')
     })
 
     it('hasNode() works', () => {
-      expect(graph.hasNode('native://i-1')).toBe(true)
+      expect(graph.hasNode('native://t-1')).toBe(true)
       expect(graph.hasNode('native://non-existent')).toBe(false)
     })
 
@@ -474,118 +474,118 @@ describe('HydratingFederatedGraph', () => {
     })
 
     it('returns nodes with no blockers', async () => {
-      const openIssue: StoredNode = {
-        id: 'i-ready1',
+      const openTask: StoredNode = {
+        id: 't-ready1',
         uuid: 'ready-uuid-1',
-        type: 'issue',
-        title: 'Ready Issue',
+        type: 'task',
+        title: 'Ready Task',
         status: 'open',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
 
-      ;(mockStorage.queryNodes as Mock).mockResolvedValue([openIssue])
+      ;(mockStorage.queryNodes as Mock).mockResolvedValue([openTask])
 
       // Add to graph
-      adapter.onNodeCreated(openIssue)
+      adapter.onNodeCreated(openTask)
 
       const ready = await graph.ready()
 
-      expect(ready).toContain('native://i-ready1')
+      expect(ready).toContain('native://t-ready1')
     })
 
     it('excludes nodes with active blockers', async () => {
-      const blockedIssue: StoredNode = {
-        id: 'i-blocked',
+      const blockedTask: StoredNode = {
+        id: 't-blocked',
         uuid: 'blocked-uuid',
-        type: 'issue',
-        title: 'Blocked Issue',
+        type: 'task',
+        title: 'Blocked Task',
         status: 'open',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
 
-      const blockerIssue: StoredNode = {
-        id: 'i-blocker',
+      const blockerTask: StoredNode = {
+        id: 't-blocker',
         uuid: 'blocker-uuid',
-        type: 'issue',
-        title: 'Blocker Issue',
+        type: 'task',
+        title: 'Blocker Task',
         status: 'open', // Active blocker
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
 
-      ;(mockStorage.queryNodes as Mock).mockResolvedValue([blockedIssue])
+      ;(mockStorage.queryNodes as Mock).mockResolvedValue([blockedTask])
 
       // Add nodes and blocking edge to graph
-      adapter.onNodeCreated(blockedIssue)
-      adapter.onNodeCreated(blockerIssue)
+      adapter.onNodeCreated(blockedTask)
+      adapter.onNodeCreated(blockerTask)
       adapter.onEdgeCreated({
         id: 'e-block',
         uuid: 'block-edge-uuid',
-        from_id: 'i-blocker',
-        to_id: 'i-blocked',
+        from_id: 't-blocker',
+        to_id: 't-blocked',
         type: 'blocks',
         created_at: new Date().toISOString(),
       })
 
       const ready = await graph.ready()
 
-      expect(ready).not.toContain('native://i-blocked')
+      expect(ready).not.toContain('native://t-blocked')
     })
 
     it('includes nodes with closed blockers', async () => {
-      const blockedIssue: StoredNode = {
-        id: 'i-unblocked',
+      const blockedTask: StoredNode = {
+        id: 't-unblocked',
         uuid: 'unblocked-uuid',
-        type: 'issue',
-        title: 'Unblocked Issue',
+        type: 'task',
+        title: 'Unblocked Task',
         status: 'open',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
 
       const closedBlocker: StoredNode = {
-        id: 'i-closed-blocker',
+        id: 't-closed-blocker',
         uuid: 'closed-blocker-uuid',
-        type: 'issue',
+        type: 'task',
         title: 'Closed Blocker',
         status: 'closed', // Closed - no longer blocking
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
 
-      ;(mockStorage.queryNodes as Mock).mockResolvedValue([blockedIssue])
+      ;(mockStorage.queryNodes as Mock).mockResolvedValue([blockedTask])
 
       // Add nodes and blocking edge to graph
-      adapter.onNodeCreated(blockedIssue)
+      adapter.onNodeCreated(blockedTask)
       adapter.onNodeCreated(closedBlocker)
       adapter.onEdgeCreated({
         id: 'e-closed-block',
         uuid: 'closed-block-edge-uuid',
-        from_id: 'i-closed-blocker',
-        to_id: 'i-unblocked',
+        from_id: 't-closed-blocker',
+        to_id: 't-unblocked',
         type: 'blocks',
         created_at: new Date().toISOString(),
       })
 
       const ready = await graph.ready()
 
-      expect(ready).toContain('native://i-unblocked')
+      expect(ready).toContain('native://t-unblocked')
     })
 
     it('respects limit option', async () => {
-      const issues = [
-        { id: 'i-r1', uuid: 'r1-uuid', type: 'issue' as const, title: 'Issue 1', status: 'open', created_at: '', updated_at: '' },
-        { id: 'i-r2', uuid: 'r2-uuid', type: 'issue' as const, title: 'Issue 2', status: 'open', created_at: '', updated_at: '' },
-        { id: 'i-r3', uuid: 'r3-uuid', type: 'issue' as const, title: 'Issue 3', status: 'open', created_at: '', updated_at: '' },
+      const tasks = [
+        { id: 't-r1', uuid: 'r1-uuid', type: 'task' as const, title: 'Task 1', status: 'open', created_at: '', updated_at: '' },
+        { id: 't-r2', uuid: 'r2-uuid', type: 'task' as const, title: 'Task 2', status: 'open', created_at: '', updated_at: '' },
+        { id: 't-r3', uuid: 'r3-uuid', type: 'task' as const, title: 'Task 3', status: 'open', created_at: '', updated_at: '' },
       ]
 
-      ;(mockStorage.queryNodes as Mock).mockResolvedValue(issues)
+      ;(mockStorage.queryNodes as Mock).mockResolvedValue(tasks)
 
       // Add to graph
-      for (const issue of issues) {
-        adapter.onNodeCreated(issue)
+      for (const task of tasks) {
+        adapter.onNodeCreated(task)
       }
 
       const ready = await graph.ready({ limit: 2 })
@@ -594,19 +594,19 @@ describe('HydratingFederatedGraph', () => {
     })
 
     it('filters by tags', async () => {
-      const taggedIssue: StoredNode = {
-        id: 'i-tagged',
+      const taggedTask: StoredNode = {
+        id: 't-tagged',
         uuid: 'tagged-uuid',
-        type: 'issue',
-        title: 'Tagged Issue',
+        type: 'task',
+        title: 'Tagged Task',
         status: 'open',
         tags: ['important'],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
 
-      ;(mockStorage.queryNodes as Mock).mockResolvedValue([taggedIssue])
-      adapter.onNodeCreated(taggedIssue)
+      ;(mockStorage.queryNodes as Mock).mockResolvedValue([taggedTask])
+      adapter.onNodeCreated(taggedTask)
 
       await graph.ready({ tags: ['important'] })
 
@@ -616,10 +616,10 @@ describe('HydratingFederatedGraph', () => {
     })
 
     it('handles external blockers with external_status', async () => {
-      const blockedIssue: StoredNode = {
-        id: 'i-ext-blocked',
+      const blockedTask: StoredNode = {
+        id: 't-ext-blocked',
         uuid: 'ext-blocked-uuid',
-        type: 'issue',
+        type: 'task',
         title: 'Externally Blocked',
         status: 'open',
         created_at: new Date().toISOString(),
@@ -638,15 +638,15 @@ describe('HydratingFederatedGraph', () => {
         updated_at: new Date().toISOString(),
       }
 
-      ;(mockStorage.queryNodes as Mock).mockResolvedValue([blockedIssue])
+      ;(mockStorage.queryNodes as Mock).mockResolvedValue([blockedTask])
 
-      adapter.onNodeCreated(blockedIssue)
+      adapter.onNodeCreated(blockedTask)
       adapter.hydrateNode('beads://./bd-123', externalBlocker)
       adapter.onEdgeCreated({
         id: 'e-ext-block',
         uuid: 'ext-block-uuid',
         from_id: 'beads://./bd-123',
-        to_id: 'i-ext-blocked',
+        to_id: 't-ext-blocked',
         type: 'blocks',
         created_at: new Date().toISOString(),
       })
@@ -654,14 +654,14 @@ describe('HydratingFederatedGraph', () => {
       const ready = await graph.ready()
 
       // Should be ready because external blocker is done
-      expect(ready).toContain('native://i-ext-blocked')
+      expect(ready).toContain('native://t-ext-blocked')
     })
 
     it('considers various closed statuses', async () => {
-      const issue: StoredNode = {
-        id: 'i-various',
+      const task: StoredNode = {
+        id: 't-various',
         uuid: 'various-uuid',
-        type: 'issue',
+        type: 'task',
         title: 'Various Blocker Test',
         status: 'open',
         created_at: new Date().toISOString(),
@@ -670,32 +670,32 @@ describe('HydratingFederatedGraph', () => {
 
       // Blocker with 'resolved' status
       const resolvedBlocker: StoredNode = {
-        id: 'i-resolved',
+        id: 't-resolved',
         uuid: 'resolved-uuid',
-        type: 'issue',
+        type: 'task',
         title: 'Resolved Blocker',
         status: 'resolved',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
 
-      ;(mockStorage.queryNodes as Mock).mockResolvedValue([issue])
+      ;(mockStorage.queryNodes as Mock).mockResolvedValue([task])
 
-      adapter.onNodeCreated(issue)
+      adapter.onNodeCreated(task)
       adapter.onNodeCreated(resolvedBlocker)
       adapter.onEdgeCreated({
         id: 'e-resolved-block',
         uuid: 'resolved-block-uuid',
-        from_id: 'i-resolved',
-        to_id: 'i-various',
+        from_id: 't-resolved',
+        to_id: 't-various',
         type: 'blocks',
         created_at: new Date().toISOString(),
       })
 
       const ready = await graph.ready()
 
-      // 'resolved' is a closed status, so issue should be ready
-      expect(ready).toContain('native://i-various')
+      // 'resolved' is a closed status, so task should be ready
+      expect(ready).toContain('native://t-various')
     })
   })
 })

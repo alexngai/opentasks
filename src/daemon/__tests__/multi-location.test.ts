@@ -43,9 +43,9 @@ function createMockStore(): GraphStore {
     flush: vi.fn().mockResolvedValue(undefined),
     createNode: vi.fn().mockImplementation(async (input) => {
       const node: Node = {
-        id: `i-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+        id: `t-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
         uuid: '550e8400-e29b-41d4-a716-446655440000',
-        type: input.type || 'issue',
+        type: input.type || 'task',
         title: input.title,
         status: input.status || 'open',
         created_at: new Date().toISOString(),
@@ -92,8 +92,8 @@ function createMockStore(): GraphStore {
       blockers: vi.fn().mockResolvedValue([]),
       blocking: vi.fn().mockResolvedValue([]),
       isBlocking: vi.fn().mockResolvedValue(false),
-      implementers: vi.fn().mockResolvedValue([]),
-      specs: vi.fn().mockResolvedValue([]),
+      tasks: vi.fn().mockResolvedValue([]),
+      context: vi.fn().mockResolvedValue([]),
       children: vi.fn().mockResolvedValue([]),
       parent: vi.fn().mockResolvedValue(null),
       ancestors: vi.fn().mockResolvedValue([]),
@@ -312,10 +312,10 @@ describe('Multi-Location Daemon', () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'opentasks-multi-loc-'))
 
     // Simulated repo structure:
-    // tempDir/repo/.git/         ← gitCommonDir
+    // tempDir/repo/.git/         <- gitCommonDir
     // tempDir/repo/.git/opentasks/worktrees.json
-    // tempDir/repo/.opentasks/   ← primary location
-    // tempDir/worktree1/.opentasks/  ← secondary location
+    // tempDir/repo/.opentasks/   <- primary location
+    // tempDir/worktree1/.opentasks/  <- secondary location
 
     gitCommonDir = path.join(tempDir, 'repo', '.git')
     primaryPath = path.join(tempDir, 'repo', '.opentasks')
@@ -486,12 +486,12 @@ describe('Multi-Location Daemon', () => {
       await client.connect()
 
       const node = await client.request<Node>('graph.create', {
-        type: 'issue',
-        title: 'Test Issue',
+        type: 'task',
+        title: 'Test Task',
         status: 'open',
       })
 
-      expect(node.title).toBe('Test Issue')
+      expect(node.title).toBe('Test Task')
       expect(node.id).toBeTruthy()
     })
 
@@ -504,13 +504,13 @@ describe('Multi-Location Daemon', () => {
 
       // Create on primary location explicitly
       const node = await client.request<Node>('graph.create', {
-        type: 'issue',
-        title: 'Primary Issue',
+        type: 'task',
+        title: 'Primary Task',
         status: 'open',
         location: 'pr1m4ry1',
       })
 
-      expect(node.title).toBe('Primary Issue')
+      expect(node.title).toBe('Primary Task')
     })
 
     it('should route graph operations to specific worktree', async () => {
@@ -522,13 +522,13 @@ describe('Multi-Location Daemon', () => {
 
       // Create on worktree location
       const node = await client.request<Node>('graph.create', {
-        type: 'issue',
-        title: 'Worktree Issue',
+        type: 'task',
+        title: 'Worktree Task',
         status: 'open',
         location: 'w0rktrs1',
       })
 
-      expect(node.title).toBe('Worktree Issue')
+      expect(node.title).toBe('Worktree Task')
     })
 
     it('should return error for unknown location', async () => {
@@ -541,7 +541,7 @@ describe('Multi-Location Daemon', () => {
       // The IPC server wraps DaemonError as JSON-RPC Internal error
       await expect(
         client.request('graph.create', {
-          type: 'issue',
+          type: 'task',
           title: 'Bad Location',
           status: 'open',
           location: 'unknown1',
@@ -783,7 +783,7 @@ describe('Backward Compatibility', () => {
     expect(result.pong).toBe(true)
 
     const node = await client.request<Node>('graph.create', {
-      type: 'issue',
+      type: 'task',
       title: 'Compat Test',
       status: 'open',
     })
@@ -815,7 +815,7 @@ describe('Backward Compatibility', () => {
 
     // Even with a location param, single-location resolves to the only store
     const node = await client.request<Node>('graph.create', {
-      type: 'issue',
+      type: 'task',
       title: 'With Location',
       status: 'open',
       location: 'anyhash1',

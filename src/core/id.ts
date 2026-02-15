@@ -10,14 +10,14 @@ import { createHash, randomUUID } from 'node:crypto'
 /**
  * Node type for ID generation
  */
-export type IdNodeType = 'spec' | 'issue' | 'feedback' | 'external' | 'edge'
+export type IdNodeType = 'context' | 'task' | 'feedback' | 'external' | 'edge'
 
 /**
  * ID prefixes by type
  */
 const TYPE_PREFIXES: Record<IdNodeType, string> = {
-  spec: 's',
-  issue: 'i',
+  context: 'c',
+  task: 't',
   feedback: 'f',
   external: 'e',
   edge: 'x',
@@ -94,8 +94,8 @@ export interface GeneratedId {
  *
  * @example
  * ```ts
- * const { id, uuid } = generateId('issue')
- * // id: "i-x7k9"
+ * const { id, uuid } = generateId('task')
+ * // id: "t-x7k9"
  * // uuid: "550e8400-e29b-41d4-a716-446655440000"
  * ```
  */
@@ -166,8 +166,8 @@ export function inferTypeFromId(id: string): IdNodeType | null {
   if (!prefix) return null
 
   const prefixToType: Record<string, IdNodeType> = {
-    s: 'spec',
-    i: 'issue',
+    c: 'context',
+    t: 'task',
     f: 'feedback',
     e: 'external',
     x: 'edge',

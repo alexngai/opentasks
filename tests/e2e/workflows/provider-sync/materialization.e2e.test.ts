@@ -226,10 +226,10 @@ describe.skipIf(!AGENT_TESTS)('Materialization Strategies', () => {
       expect(shouldMaterialize).toBe(true)
 
       // For native URI, should use default on-demand strategy
-      const nativeStrategy = manager.getStrategyFor('native://i-test123')
+      const nativeStrategy = manager.getStrategyFor('native://t-test123')
       expect(nativeStrategy).toBe('on-demand')
 
-      const nativeShouldMaterialize = manager.shouldMaterialize('native://i-test123', {
+      const nativeShouldMaterialize = manager.shouldMaterialize('native://t-test123', {
         accessType: 'edge-create',
       })
       expect(nativeShouldMaterialize).toBe(false)
@@ -357,7 +357,7 @@ describe.skipIf(!AGENT_TESTS)('Materialization Strategies', () => {
 
       // Unknown URI falls back to default
       expect(manager.getStrategyFor('unknown://something')).toBe('lazy')
-      expect(manager.getStrategyFor('native://i-123')).toBe('lazy')
+      expect(manager.getStrategyFor('native://t-123')).toBe('lazy')
     })
   })
 })

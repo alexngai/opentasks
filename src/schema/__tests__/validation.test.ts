@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  isSpec,
-  isIssue,
+  isContext,
+  isTask,
   isFeedback,
   isExternal,
   validateStoredNode,
@@ -10,27 +10,27 @@ import {
   ValidationError,
 } from '../validation.js'
 import type { StoredNode } from '../storage.js'
-import type { Node, Spec, Issue, Feedback, ExternalNode } from '../nodes.js'
+import type { Node, Context, Task, Feedback, ExternalNode } from '../nodes.js'
 
 // Test fixtures
 const baseFields = {
-  id: 's-a2b3',
+  id: 'c-a2b3',
   uuid: '550e8400-e29b-41d4-a716-446655440000',
   title: 'Test Node',
   created_at: '2025-01-26T10:00:00Z',
   updated_at: '2025-01-26T10:00:00Z',
 }
 
-const validSpec: StoredNode = {
+const validContext: StoredNode = {
   ...baseFields,
-  type: 'spec',
-  content: '## Overview\n\nThis is a spec.',
+  type: 'context',
+  content: '## Overview\n\nThis is a context.',
 }
 
-const validIssue: StoredNode = {
+const validTask: StoredNode = {
   ...baseFields,
-  id: 'i-x7k9',
-  type: 'issue',
+  id: 't-x7k9',
+  type: 'task',
   status: 'open',
 }
 
@@ -38,7 +38,7 @@ const validFeedback: StoredNode = {
   ...baseFields,
   id: 'f-m4n5',
   type: 'feedback',
-  target_id: 's-a2b3',
+  target_id: 'c-a2b3',
   feedback_type: 'suggestion',
 }
 
@@ -52,42 +52,42 @@ const validExternal: StoredNode = {
 }
 
 describe('Type Guards', () => {
-  it('isSpec returns true for spec nodes', () => {
-    const node = parseNode(validSpec)
-    expect(isSpec(node)).toBe(true)
-    expect(isIssue(node)).toBe(false)
+  it('isContext returns true for context nodes', () => {
+    const node = parseNode(validContext)
+    expect(isContext(node)).toBe(true)
+    expect(isTask(node)).toBe(false)
     expect(isFeedback(node)).toBe(false)
     expect(isExternal(node)).toBe(false)
   })
 
-  it('isIssue returns true for issue nodes', () => {
-    const node = parseNode(validIssue)
-    expect(isIssue(node)).toBe(true)
-    expect(isSpec(node)).toBe(false)
+  it('isTask returns true for task nodes', () => {
+    const node = parseNode(validTask)
+    expect(isTask(node)).toBe(true)
+    expect(isContext(node)).toBe(false)
   })
 
   it('isFeedback returns true for feedback nodes', () => {
     const node = parseNode(validFeedback)
     expect(isFeedback(node)).toBe(true)
-    expect(isSpec(node)).toBe(false)
+    expect(isContext(node)).toBe(false)
   })
 
   it('isExternal returns true for external nodes', () => {
     const node = parseNode(validExternal)
     expect(isExternal(node)).toBe(true)
-    expect(isSpec(node)).toBe(false)
+    expect(isContext(node)).toBe(false)
   })
 })
 
 describe('validateStoredNode', () => {
-  it('validates a valid spec', () => {
-    const result = validateStoredNode(validSpec)
+  it('validates a valid context', () => {
+    const result = validateStoredNode(validContext)
     expect(result.valid).toBe(true)
     expect(result.errors).toHaveLength(0)
   })
 
-  it('validates a valid issue', () => {
-    const result = validateStoredNode(validIssue)
+  it('validates a valid task', () => {
+    const result = validateStoredNode(validTask)
     expect(result.valid).toBe(true)
     expect(result.errors).toHaveLength(0)
   })
@@ -106,9 +106,9 @@ describe('validateStoredNode', () => {
 
   it('rejects node missing required core fields', () => {
     const invalid: StoredNode = {
-      id: 's-a2b3',
+      id: 'c-a2b3',
       uuid: '',
-      type: 'spec',
+      type: 'context',
       title: '',
       created_at: '',
       updated_at: '2025-01-26T10:00:00Z',
@@ -120,10 +120,10 @@ describe('validateStoredNode', () => {
     expect(result.errors.some((e) => e.field === 'title')).toBe(true)
   })
 
-  it('rejects issue missing status', () => {
+  it('rejects task missing status', () => {
     const invalid: StoredNode = {
       ...baseFields,
-      type: 'issue',
+      type: 'task',
       // missing status
     }
     const result = validateStoredNode(invalid)
@@ -147,7 +147,7 @@ describe('validateStoredNode', () => {
     const invalid: StoredNode = {
       ...baseFields,
       type: 'feedback',
-      target_id: 's-a2b3',
+      target_id: 'c-a2b3',
       // missing feedback_type
     }
     const result = validateStoredNode(invalid)
@@ -196,17 +196,17 @@ describe('validateStoredNode', () => {
 })
 
 describe('parseNode', () => {
-  it('parses a valid spec', () => {
-    const node = parseNode(validSpec)
-    expect(node.type).toBe('spec')
-    expect(isSpec(node)).toBe(true)
+  it('parses a valid context', () => {
+    const node = parseNode(validContext)
+    expect(node.type).toBe('context')
+    expect(isContext(node)).toBe(true)
   })
 
-  it('parses a valid issue', () => {
-    const node = parseNode(validIssue)
-    expect(node.type).toBe('issue')
-    expect(isIssue(node)).toBe(true)
-    if (isIssue(node)) {
+  it('parses a valid task', () => {
+    const node = parseNode(validTask)
+    expect(node.type).toBe('task')
+    expect(isTask(node)).toBe(true)
+    if (isTask(node)) {
       expect(node.status).toBe('open')
     }
   })
@@ -214,7 +214,7 @@ describe('parseNode', () => {
   it('throws ValidationError for invalid node', () => {
     const invalid: StoredNode = {
       ...baseFields,
-      type: 'issue',
+      type: 'task',
       // missing status
     }
     expect(() => parseNode(invalid)).toThrow(ValidationError)
@@ -222,7 +222,7 @@ describe('parseNode', () => {
 
   it('preserves unknown fields', () => {
     const withExtra: StoredNode = {
-      ...validSpec,
+      ...validContext,
       customField: 'custom value',
       anotherField: 123,
     }
@@ -234,15 +234,15 @@ describe('parseNode', () => {
 
 describe('tryParseNode', () => {
   it('returns node for valid input', () => {
-    const node = tryParseNode(validSpec)
+    const node = tryParseNode(validContext)
     expect(node).not.toBeNull()
-    expect(node?.type).toBe('spec')
+    expect(node?.type).toBe('context')
   })
 
   it('returns null for invalid input', () => {
     const invalid: StoredNode = {
       ...baseFields,
-      type: 'issue',
+      type: 'task',
       // missing status
     }
     const node = tryParseNode(invalid)
@@ -252,12 +252,12 @@ describe('tryParseNode', () => {
 
 describe('Node type narrowing', () => {
   it('allows type-safe access after guard', () => {
-    const node = parseNode(validIssue)
+    const node = parseNode(validTask)
 
-    if (isIssue(node)) {
-      // TypeScript should allow access to issue-specific fields
+    if (isTask(node)) {
+      // TypeScript should allow access to task-specific fields
       expect(node.status).toBe('open')
-      // assignee is optional on issues
+      // assignee is optional on tasks
       expect(node.assignee).toBeUndefined()
     }
   })
@@ -266,7 +266,7 @@ describe('Node type narrowing', () => {
     const node = parseNode(validFeedback)
 
     if (isFeedback(node)) {
-      expect(node.target_id).toBe('s-a2b3')
+      expect(node.target_id).toBe('c-a2b3')
       expect(node.feedback_type).toBe('suggestion')
     }
   })

@@ -5,13 +5,13 @@
 import type { Anchor, BaseNode } from './base.js'
 
 /**
- * Spec - Captures user intent, requirements, and context
+ * Context - Captures user intent, requirements, and context
  */
-export interface Spec extends BaseNode {
-  type: 'spec'
+export interface Context extends BaseNode {
+  type: 'context'
 
   /**
-   * Optional status for specs
+   * Optional status for context nodes
    * - draft: work in progress, not ready for implementation
    * - active: current, ready for implementation
    * - archived: superseded or no longer relevant
@@ -20,13 +20,13 @@ export interface Spec extends BaseNode {
 }
 
 /**
- * Issue - Actionable work item with status workflow
+ * Task - Actionable work item with status workflow
  */
-export interface Issue extends BaseNode {
-  type: 'issue'
+export interface Task extends BaseNode {
+  type: 'task'
 
   /**
-   * Workflow status (required for issues)
+   * Workflow status (required for tasks)
    * - open: not started
    * - in_progress: actively being worked on
    * - blocked: waiting on dependency
@@ -34,10 +34,10 @@ export interface Issue extends BaseNode {
    */
   status: 'open' | 'in_progress' | 'blocked' | 'closed' | string
 
-  /** Who is responsible for this issue */
+  /** Who is responsible for this task */
   assignee?: string
 
-  /** When the issue was closed (ISO 8601) */
+  /** When the task was closed (ISO 8601) */
   closed_at?: string
 }
 
@@ -49,7 +49,7 @@ export interface Feedback extends BaseNode {
 
   /**
    * What this feedback is about (required)
-   * Can be a spec, issue, or another feedback (for threading)
+   * Can be a context, task, or another feedback (for threading)
    */
   target_id: string
 
@@ -111,9 +111,9 @@ export interface ExternalNode extends BaseNode {
 /**
  * Discriminated union of all node types
  */
-export type Node = Spec | Issue | Feedback | ExternalNode
+export type Node = Context | Task | Feedback | ExternalNode
 
 /**
  * Node type literal union
  */
-export type NodeType = 'spec' | 'issue' | 'feedback' | 'external'
+export type NodeType = 'context' | 'task' | 'feedback' | 'external'

@@ -24,10 +24,10 @@ describe('sha256', () => {
 
 describe('computeContentHash', () => {
   const baseNode: StoredNode = {
-    id: 's-a2b3',
+    id: 'c-a2b3',
     uuid: '550e8400-e29b-41d4-a716-446655440000',
-    type: 'spec',
-    title: 'Test Spec',
+    type: 'context',
+    title: 'Test Context',
     content: 'Some content',
     created_at: '2025-01-26T10:00:00Z',
     updated_at: '2025-01-26T10:00:00Z',
@@ -43,7 +43,7 @@ describe('computeContentHash', () => {
     const node1 = { ...baseNode }
     const node2 = {
       ...baseNode,
-      id: 's-different',
+      id: 'c-different',
       uuid: 'different-uuid',
       created_at: '2025-01-27T10:00:00Z',
       updated_at: '2025-01-27T10:00:00Z',
@@ -74,34 +74,34 @@ describe('computeContentHash', () => {
     expect(computeContentHash(node1)).toBe(computeContentHash(node3))
   })
 
-  it('includes issue-specific fields', () => {
-    const issue1: StoredNode = {
+  it('includes task-specific fields', () => {
+    const task1: StoredNode = {
       ...baseNode,
-      type: 'issue',
+      type: 'task',
       status: 'open',
       assignee: 'user1',
     }
-    const issue2: StoredNode = {
+    const task2: StoredNode = {
       ...baseNode,
-      type: 'issue',
+      type: 'task',
       status: 'open',
       assignee: 'user2',
     }
 
-    expect(computeContentHash(issue1)).not.toBe(computeContentHash(issue2))
+    expect(computeContentHash(task1)).not.toBe(computeContentHash(task2))
   })
 
   it('includes feedback-specific fields', () => {
     const feedback1: StoredNode = {
       ...baseNode,
       type: 'feedback',
-      target_id: 's-target1',
+      target_id: 'c-target1',
       feedback_type: 'comment',
     }
     const feedback2: StoredNode = {
       ...baseNode,
       type: 'feedback',
-      target_id: 's-target2',
+      target_id: 'c-target2',
       feedback_type: 'comment',
     }
 
@@ -134,10 +134,10 @@ describe('computeContentHash', () => {
 
 describe('contentEqual', () => {
   const baseNode: StoredNode = {
-    id: 's-a2b3',
+    id: 'c-a2b3',
     uuid: '550e8400-e29b-41d4-a716-446655440000',
-    type: 'spec',
-    title: 'Test Spec',
+    type: 'context',
+    title: 'Test Context',
     content: 'Some content',
     created_at: '2025-01-26T10:00:00Z',
     updated_at: '2025-01-26T10:00:00Z',
@@ -147,7 +147,7 @@ describe('contentEqual', () => {
     const node1 = { ...baseNode }
     const node2 = {
       ...baseNode,
-      id: 's-different',
+      id: 'c-different',
       uuid: 'different',
       created_at: 'different',
       updated_at: 'different',

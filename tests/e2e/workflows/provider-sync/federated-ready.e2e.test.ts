@@ -64,51 +64,51 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
   })
 
   describe('Basic Ready Query', () => {
-    it('should include issue with no blockers in ready list', async () => {
-      // Create a native issue with no blockers
-      const issue = await agent.createIssue('Unblocked Issue')
+    it('should include task with no blockers in ready list', async () => {
+      // Create a native task with no blockers
+      const task = await agent.createTask('Unblocked Task')
 
-      // Query ready issues via daemon (native-only query)
+      // Query ready tasks via daemon (native-only query)
       const ready = await agent.ready()
 
-      // Should find the unblocked issue
-      expect(ready.some((r) => r.id === issue.id)).toBe(true)
+      // Should find the unblocked task
+      expect(ready.some((r) => r.id === task.id)).toBe(true)
     })
 
-    it('should include issue blocked by closed native blocker', async () => {
+    it('should include task blocked by closed native blocker', async () => {
       // Create a closed native blocker
-      const blocker = await agent.createIssue('Closed Blocker')
-      await agent.closeIssue(blocker.id)
+      const blocker = await agent.createTask('Closed Blocker')
+      await agent.closeTask(blocker.id)
 
-      // Create issue blocked by the closed blocker
-      const issue = await agent.createIssue('Blocked Issue')
-      await agent.blocks(blocker.id, issue.id)
+      // Create task blocked by the closed blocker
+      const task = await agent.createTask('Blocked Task')
+      await agent.blocks(blocker.id, task.id)
 
-      // Query ready issues
+      // Query ready tasks
       const ready = await agent.ready()
 
-      // Should find the issue (blocker is closed)
-      expect(ready.some((r) => r.id === issue.id)).toBe(true)
+      // Should find the task (blocker is closed)
+      expect(ready.some((r) => r.id === task.id)).toBe(true)
     })
 
-    it('should exclude issue blocked by open native blocker', async () => {
+    it('should exclude task blocked by open native blocker', async () => {
       // Create an open native blocker
-      const blocker = await agent.createIssue('Open Blocker')
+      const blocker = await agent.createTask('Open Blocker')
 
-      // Create issue blocked by the blocker
-      const issue = await agent.createIssue('Blocked Issue')
-      await agent.blocks(blocker.id, issue.id)
+      // Create task blocked by the blocker
+      const task = await agent.createTask('Blocked Task')
+      await agent.blocks(blocker.id, task.id)
 
-      // Query ready issues
+      // Query ready tasks
       const ready = await agent.ready()
 
-      // Should NOT find the blocked issue
-      expect(ready.some((r) => r.id === issue.id)).toBe(false)
+      // Should NOT find the blocked task
+      expect(ready.some((r) => r.id === task.id)).toBe(false)
     })
   })
 
   describe('Cross-Provider Blockers', () => {
-    it('should exclude issue blocked by open external node', async ({ skip }) => {
+    it('should exclude task blocked by open external node', async ({ skip }) => {
       if (!system.beadsAvailable) {
         skip()
         return
@@ -120,16 +120,16 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       })
       await system.hydratingGraph.hydrate(beadsBlocker.uri)
 
-      // Create native issue
-      const nativeIssue = await agent.createIssue('Blocked by External')
-      const nativeUri = `native://${nativeIssue.id}`
+      // Create native task
+      const nativeTask = await agent.createTask('Blocked by External')
+      const nativeUri = `native://${nativeTask.id}`
 
-      // Add native issue to graphology adapter
+      // Add native task to graphology adapter
       system.graphologyAdapter.hydrateNode(nativeUri, {
-        id: nativeIssue.id,
+        id: nativeTask.id,
         uuid: '',
-        type: 'issue',
-        title: nativeIssue.title,
+        type: 'task',
+        title: nativeTask.title,
         status: 'open',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -138,7 +138,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       // Create blocking edge
       const linkResult = await agent.link({
         from_id: beadsBlocker.uri,
-        to_id: nativeIssue.id,
+        to_id: nativeTask.id,
         type: 'blocks',
       })
       expect(linkResult.success).toBe(true)
@@ -158,11 +158,11 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       // Query ready using federated graph
       const readyUris = await system.hydratingGraph.ready()
 
-      // Should NOT include the blocked issue
+      // Should NOT include the blocked task
       expect(readyUris.includes(nativeUri)).toBe(false)
     })
 
-    it('should include issue with closed external blocker', async ({ skip }) => {
+    it('should include task with closed external blocker', async ({ skip }) => {
       if (!system.beadsAvailable) {
         skip()
         return
@@ -174,16 +174,16 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       })
       await system.hydratingGraph.hydrate(beadsBlocker.uri)
 
-      // Create native issue
-      const nativeIssue = await agent.createIssue('Blocked by Closed External')
-      const nativeUri = `native://${nativeIssue.id}`
+      // Create native task
+      const nativeTask = await agent.createTask('Blocked by Closed External')
+      const nativeUri = `native://${nativeTask.id}`
 
-      // Add native issue to graphology adapter
+      // Add native task to graphology adapter
       system.graphologyAdapter.hydrateNode(nativeUri, {
-        id: nativeIssue.id,
+        id: nativeTask.id,
         uuid: '',
-        type: 'issue',
-        title: nativeIssue.title,
+        type: 'task',
+        title: nativeTask.title,
         status: 'open',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -192,7 +192,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       // Create blocking edge
       const linkResult = await agent.link({
         from_id: beadsBlocker.uri,
-        to_id: nativeIssue.id,
+        to_id: nativeTask.id,
         type: 'blocks',
       })
       expect(linkResult.success).toBe(true)
@@ -212,7 +212,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       // Query ready using federated graph
       const readyUris = await system.hydratingGraph.ready()
 
-      // Should include the issue (blocker is closed)
+      // Should include the task (blocker is closed)
       expect(readyUris.includes(nativeUri)).toBe(true)
     })
   })
@@ -220,31 +220,31 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
   describe('Multiple Blockers', () => {
     it('should require all native blockers to be closed', async () => {
       // Create two blockers
-      const blocker1 = await agent.createIssue('Blocker 1')
-      const blocker2 = await agent.createIssue('Blocker 2')
+      const blocker1 = await agent.createTask('Blocker 1')
+      const blocker2 = await agent.createTask('Blocker 2')
 
-      // Create issue blocked by both
-      const issue = await agent.createIssue('Multi-Blocked Issue')
-      await agent.blocks(blocker1.id, issue.id)
-      await agent.blocks(blocker2.id, issue.id)
+      // Create task blocked by both
+      const task = await agent.createTask('Multi-Blocked Task')
+      await agent.blocks(blocker1.id, task.id)
+      await agent.blocks(blocker2.id, task.id)
 
-      // Query ready - should NOT include issue
+      // Query ready - should NOT include task
       let ready = await agent.ready()
-      expect(ready.some((r) => r.id === issue.id)).toBe(false)
+      expect(ready.some((r) => r.id === task.id)).toBe(false)
 
       // Close first blocker
-      await agent.closeIssue(blocker1.id)
+      await agent.closeTask(blocker1.id)
 
       // Still not ready (second blocker open)
       ready = await agent.ready()
-      expect(ready.some((r) => r.id === issue.id)).toBe(false)
+      expect(ready.some((r) => r.id === task.id)).toBe(false)
 
       // Close second blocker
-      await agent.closeIssue(blocker2.id)
+      await agent.closeTask(blocker2.id)
 
       // Now should be ready
       ready = await agent.ready()
-      expect(ready.some((r) => r.id === issue.id)).toBe(true)
+      expect(ready.some((r) => r.id === task.id)).toBe(true)
     })
 
     it('should require all mixed blockers to be closed', async ({ skip }) => {
@@ -254,22 +254,22 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       }
 
       // Create a native blocker (open) and external blocker (closed)
-      const nativeBlocker = await agent.createIssue('Native Blocker')
+      const nativeBlocker = await agent.createTask('Native Blocker')
       const externalBlocker = await createBeadsTask(system.beadsWorkspace!, 'External Blocker', {
         status: 'closed', // Already closed
       })
       await system.hydratingGraph.hydrate(externalBlocker.uri)
 
-      // Create issue
-      const issue = await agent.createIssue('Mixed Blocked Issue')
-      const issueUri = `native://${issue.id}`
+      // Create task
+      const task = await agent.createTask('Mixed Blocked Task')
+      const taskUri = `native://${task.id}`
 
       // Add nodes to graphology
-      system.graphologyAdapter.hydrateNode(issueUri, {
-        id: issue.id,
+      system.graphologyAdapter.hydrateNode(taskUri, {
+        id: task.id,
         uuid: '',
-        type: 'issue',
-        title: issue.title,
+        type: 'task',
+        title: task.title,
         status: 'open',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -279,7 +279,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       system.graphologyAdapter.hydrateNode(nativeBlockerUri, {
         id: nativeBlocker.id,
         uuid: '',
-        type: 'issue',
+        type: 'task',
         title: nativeBlocker.title,
         status: 'open',
         created_at: new Date().toISOString(),
@@ -287,10 +287,10 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       })
 
       // Create blocking edges
-      const link1 = await agent.blocks(nativeBlocker.id, issue.id)
+      const link1 = await agent.blocks(nativeBlocker.id, task.id)
       const link2 = await agent.link({
         from_id: externalBlocker.uri,
-        to_id: issue.id,
+        to_id: task.id,
         type: 'blocks',
       })
 
@@ -300,7 +300,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
           id: link1.edge_id!,
           uuid: '',
           from_id: nativeBlockerUri,
-          to_id: issueUri,
+          to_id: taskUri,
           type: 'blocks',
           created_at: new Date().toISOString(),
         },
@@ -310,7 +310,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
           id: link2.edge_id!,
           uuid: '',
           from_id: externalBlocker.uri,
-          to_id: issueUri,
+          to_id: taskUri,
           type: 'blocks',
           created_at: new Date().toISOString(),
         },
@@ -318,14 +318,14 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
 
       // Not ready - native blocker still open (even though external is closed)
       let readyUris = await system.hydratingGraph.ready()
-      expect(readyUris.includes(issueUri)).toBe(false)
+      expect(readyUris.includes(taskUri)).toBe(false)
 
       // Close the native blocker (update in storage and graphology)
-      await agent.closeIssue(nativeBlocker.id)
+      await agent.closeTask(nativeBlocker.id)
       system.graphologyAdapter.hydrateNode(nativeBlockerUri, {
         id: nativeBlocker.id,
         uuid: '',
-        type: 'issue',
+        type: 'task',
         title: nativeBlocker.title,
         status: 'closed',
         created_at: new Date().toISOString(),
@@ -334,7 +334,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
 
       // Now should be ready (both blockers closed)
       readyUris = await system.hydratingGraph.ready()
-      expect(readyUris.includes(issueUri)).toBe(true)
+      expect(readyUris.includes(taskUri)).toBe(true)
     })
   })
 
@@ -356,16 +356,16 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       })
       await system.hydratingGraph.hydrate(beadsTask.uri)
 
-      // Create native issue blocked by this task
-      const issue = await agent.createIssue('Blocked by closed')
-      const issueUri = `native://${issue.id}`
+      // Create native task blocked by this Beads task
+      const task = await agent.createTask('Blocked by closed')
+      const taskUri = `native://${task.id}`
 
       // Add to graphology
-      system.graphologyAdapter.hydrateNode(issueUri, {
-        id: issue.id,
+      system.graphologyAdapter.hydrateNode(taskUri, {
+        id: task.id,
         uuid: '',
-        type: 'issue',
-        title: issue.title,
+        type: 'task',
+        title: task.title,
         status: 'open',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -374,7 +374,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       // Create edge
       const linkResult = await agent.link({
         from_id: beadsTask.uri,
-        to_id: issue.id,
+        to_id: task.id,
         type: 'blocks',
       })
 
@@ -383,7 +383,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
           id: linkResult.edge_id!,
           uuid: '',
           from_id: beadsTask.uri,
-          to_id: issueUri,
+          to_id: taskUri,
           type: 'blocks',
           created_at: new Date().toISOString(),
         },
@@ -391,7 +391,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
 
       // Should be ready (blocker has a "closed" status)
       const readyUris = await system.hydratingGraph.ready()
-      expect(readyUris.includes(issueUri)).toBe(true)
+      expect(readyUris.includes(taskUri)).toBe(true)
     })
 
     it('should treat "open" external status as active blocker', async ({ skip }) => {
@@ -406,16 +406,16 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       })
       await system.hydratingGraph.hydrate(beadsTask.uri)
 
-      // Create native issue blocked by this task
-      const issue = await agent.createIssue('Blocked by open')
-      const issueUri = `native://${issue.id}`
+      // Create native task blocked by this Beads task
+      const task = await agent.createTask('Blocked by open')
+      const taskUri = `native://${task.id}`
 
       // Add to graphology
-      system.graphologyAdapter.hydrateNode(issueUri, {
-        id: issue.id,
+      system.graphologyAdapter.hydrateNode(taskUri, {
+        id: task.id,
         uuid: '',
-        type: 'issue',
-        title: issue.title,
+        type: 'task',
+        title: task.title,
         status: 'open',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -424,7 +424,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       // Create edge
       const linkResult = await agent.link({
         from_id: beadsTask.uri,
-        to_id: issue.id,
+        to_id: task.id,
         type: 'blocks',
       })
 
@@ -433,7 +433,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
           id: linkResult.edge_id!,
           uuid: '',
           from_id: beadsTask.uri,
-          to_id: issueUri,
+          to_id: taskUri,
           type: 'blocks',
           created_at: new Date().toISOString(),
         },
@@ -441,7 +441,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
 
       // Should NOT be ready (blocker is open)
       const readyUris = await system.hydratingGraph.ready()
-      expect(readyUris.includes(issueUri)).toBe(false)
+      expect(readyUris.includes(taskUri)).toBe(false)
     })
 
     it('should treat "in_progress" external status as active blocker', async ({ skip }) => {
@@ -456,16 +456,16 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       })
       await system.hydratingGraph.hydrate(beadsTask.uri)
 
-      // Create native issue blocked by this task
-      const issue = await agent.createIssue('Blocked by in_progress')
-      const issueUri = `native://${issue.id}`
+      // Create native task blocked by this Beads task
+      const task = await agent.createTask('Blocked by in_progress')
+      const taskUri = `native://${task.id}`
 
       // Add to graphology
-      system.graphologyAdapter.hydrateNode(issueUri, {
-        id: issue.id,
+      system.graphologyAdapter.hydrateNode(taskUri, {
+        id: task.id,
         uuid: '',
-        type: 'issue',
-        title: issue.title,
+        type: 'task',
+        title: task.title,
         status: 'open',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -474,7 +474,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
       // Create edge
       const linkResult = await agent.link({
         from_id: beadsTask.uri,
-        to_id: issue.id,
+        to_id: task.id,
         type: 'blocks',
       })
 
@@ -483,7 +483,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
           id: linkResult.edge_id!,
           uuid: '',
           from_id: beadsTask.uri,
-          to_id: issueUri,
+          to_id: taskUri,
           type: 'blocks',
           created_at: new Date().toISOString(),
         },
@@ -491,7 +491,7 @@ describe.skipIf(!AGENT_TESTS)('Federated Ready Query', () => {
 
       // Should NOT be ready (blocker is in_progress)
       const readyUris = await system.hydratingGraph.ready()
-      expect(readyUris.includes(issueUri)).toBe(false)
+      expect(readyUris.includes(taskUri)).toBe(false)
     })
   })
 })

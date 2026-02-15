@@ -49,8 +49,8 @@ export { sha256, computeContentHash } from './core/hash.js'
 export type {
   Node,
   NodeType,
-  Spec,
-  Issue,
+  Context,
+  Task,
   Feedback,
   ExternalNode,
   Edge,
@@ -69,8 +69,8 @@ export type {
 
 export {
   ValidationError,
-  isSpec,
-  isIssue,
+  isContext,
+  isTask,
   isFeedback,
   isExternal,
   validateStoredNode,

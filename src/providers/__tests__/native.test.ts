@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createNativeProvider } from '../native.js'
 import type { Provider, ProviderNode } from '../types.js'
 import type { GraphStore } from '../../graph/index.js'
-import type { Node, Spec, Issue, Feedback, Edge } from '../../schema/index.js'
+import type { Node, Context, Task, Feedback, Edge } from '../../schema/index.js'
 import type { RelationshipQueryable } from '../traits/RelationshipQueryable.js'
 import { isRelationshipQueryable } from '../traits/RelationshipQueryable.js'
 
@@ -15,24 +15,24 @@ describe('NativeProvider', () => {
   let mockStore: GraphStore
 
   // Mock nodes for testing
-  const mockSpec: Spec = {
-    id: 's-abc1',
+  const mockContext: Context = {
+    id: 'c-abc1',
     uuid: 'uuid-1',
-    type: 'spec',
-    title: 'Test Spec',
-    content: 'Spec content',
+    type: 'context',
+    title: 'Test Context',
+    content: 'Context content',
     priority: 1,
     tags: ['test'],
     created_at: '2024-01-01T00:00:00.000Z',
     updated_at: '2024-01-01T00:00:00.000Z',
   }
 
-  const mockIssue: Issue = {
-    id: 'i-xyz2',
+  const mockTask: Task = {
+    id: 't-xyz2',
     uuid: 'uuid-2',
-    type: 'issue',
-    title: 'Test Issue',
-    content: 'Issue content',
+    type: 'task',
+    title: 'Test Task',
+    content: 'Task content',
     status: 'open',
     priority: 2,
     assignee: 'user1',
@@ -46,7 +46,7 @@ describe('NativeProvider', () => {
     type: 'feedback',
     title: 'Test Feedback',
     content: 'Feedback content',
-    target_id: 's-abc1',
+    target_id: 'c-abc1',
     feedback_type: 'comment',
     created_at: '2024-01-01T00:00:00.000Z',
     updated_at: '2024-01-01T00:00:00.000Z',
@@ -56,8 +56,8 @@ describe('NativeProvider', () => {
   const mockBlocksEdge: Edge = {
     id: 'e-block1',
     uuid: 'edge-uuid-1',
-    from_id: 'i-xyz2',
-    to_id: 's-abc1',
+    from_id: 't-xyz2',
+    to_id: 'c-abc1',
     type: 'blocks',
     created_at: '2024-01-01T00:00:00.000Z',
   }
@@ -65,8 +65,8 @@ describe('NativeProvider', () => {
   const mockImplementsEdge: Edge = {
     id: 'e-impl1',
     uuid: 'edge-uuid-2',
-    from_id: 'i-xyz2',
-    to_id: 's-abc1',
+    from_id: 't-xyz2',
+    to_id: 'c-abc1',
     type: 'implements',
     created_at: '2024-01-01T00:00:00.000Z',
   }
@@ -90,8 +90,8 @@ describe('NativeProvider', () => {
         descendants: vi.fn(),
         ancestors: vi.fn(),
         parent: vi.fn(),
-        implementers: vi.fn(),
-        specs: vi.fn(),
+        tasks: vi.fn(),
+        context: vi.fn(),
         isBlocking: vi.fn(),
         feedback: vi.fn(),
         unresolvedFeedback: vi.fn(),
@@ -135,32 +135,32 @@ describe('NativeProvider', () => {
 
   describe('parseUri', () => {
     it('should parse native:// URIs', () => {
-      const result = provider.parseUri('native://s-abc1')
+      const result = provider.parseUri('native://c-abc1')
       expect(result).toEqual({
         scheme: 'native',
-        id: 's-abc1',
+        id: 'c-abc1',
         isRelative: false,
       })
     })
 
     it('should parse opentasks:// URIs', () => {
-      const result = provider.parseUri('opentasks://i-xyz2')
+      const result = provider.parseUri('opentasks://t-xyz2')
       expect(result).toEqual({
         scheme: 'opentasks',
-        id: 'i-xyz2',
+        id: 't-xyz2',
         isRelative: false,
       })
     })
 
-    it('should parse local IDs (s-, i-, f-, e-, x-)', () => {
-      expect(provider.parseUri('s-abc1')).toEqual({
+    it('should parse local IDs (c-, t-, f-, e-, x-)', () => {
+      expect(provider.parseUri('c-abc1')).toEqual({
         scheme: 'native',
-        id: 's-abc1',
+        id: 'c-abc1',
         isRelative: true,
       })
-      expect(provider.parseUri('i-xyz2')).toEqual({
+      expect(provider.parseUri('t-xyz2')).toEqual({
         scheme: 'native',
-        id: 'i-xyz2',
+        id: 't-xyz2',
         isRelative: true,
       })
       expect(provider.parseUri('f-def3')).toEqual({
@@ -181,14 +181,14 @@ describe('NativeProvider', () => {
     })
 
     it('should be case-insensitive for schemes', () => {
-      expect(provider.parseUri('NATIVE://s-abc1')).toEqual({
+      expect(provider.parseUri('NATIVE://c-abc1')).toEqual({
         scheme: 'native',
-        id: 's-abc1',
+        id: 'c-abc1',
         isRelative: false,
       })
-      expect(provider.parseUri('Native://i-xyz2')).toEqual({
+      expect(provider.parseUri('Native://t-xyz2')).toEqual({
         scheme: 'native',
-        id: 'i-xyz2',
+        id: 't-xyz2',
         isRelative: false,
       })
     })
@@ -206,21 +206,21 @@ describe('NativeProvider', () => {
 
   describe('buildUri', () => {
     it('should build full URIs by default', () => {
-      expect(provider.buildUri('s-abc1')).toBe('native://s-abc1')
-      expect(provider.buildUri('i-xyz2')).toBe('native://i-xyz2')
+      expect(provider.buildUri('c-abc1')).toBe('native://c-abc1')
+      expect(provider.buildUri('t-xyz2')).toBe('native://t-xyz2')
     })
 
     it('should build relative URIs when requested', () => {
-      expect(provider.buildUri('s-abc1', { relative: true })).toBe('s-abc1')
-      expect(provider.buildUri('i-xyz2', { relative: true })).toBe('i-xyz2')
+      expect(provider.buildUri('c-abc1', { relative: true })).toBe('c-abc1')
+      expect(provider.buildUri('t-xyz2', { relative: true })).toBe('t-xyz2')
     })
   })
 
   describe('isValidUri', () => {
     it('should return true for valid URIs', () => {
-      expect(provider.isValidUri('native://s-abc1')).toBe(true)
-      expect(provider.isValidUri('opentasks://i-xyz2')).toBe(true)
-      expect(provider.isValidUri('s-abc1')).toBe(true)
+      expect(provider.isValidUri('native://c-abc1')).toBe(true)
+      expect(provider.isValidUri('opentasks://t-xyz2')).toBe(true)
+      expect(provider.isValidUri('c-abc1')).toBe(true)
     })
 
     it('should return false for invalid URIs', () => {
@@ -231,41 +231,41 @@ describe('NativeProvider', () => {
 
   describe('get', () => {
     it('should get a node by ID', async () => {
-      vi.mocked(mockStore.getNode).mockResolvedValue(mockSpec)
+      vi.mocked(mockStore.getNode).mockResolvedValue(mockContext)
 
-      const result = await provider.get('s-abc1')
+      const result = await provider.get('c-abc1')
 
-      expect(mockStore.getNode).toHaveBeenCalledWith('s-abc1')
+      expect(mockStore.getNode).toHaveBeenCalledWith('c-abc1')
       expect(result).toMatchObject({
-        id: 's-abc1',
-        type: 'spec',
-        title: 'Test Spec',
-        content: 'Spec content',
+        id: 'c-abc1',
+        type: 'context',
+        title: 'Test Context',
+        content: 'Context content',
         priority: 1,
       })
     })
 
     it('should get a node by full URI', async () => {
-      vi.mocked(mockStore.getNode).mockResolvedValue(mockSpec)
+      vi.mocked(mockStore.getNode).mockResolvedValue(mockContext)
 
-      const result = await provider.get('native://s-abc1')
+      const result = await provider.get('native://c-abc1')
 
-      expect(mockStore.getNode).toHaveBeenCalledWith('s-abc1')
+      expect(mockStore.getNode).toHaveBeenCalledWith('c-abc1')
       expect(result).not.toBeNull()
     })
 
     it('should return null for non-existent node', async () => {
       vi.mocked(mockStore.getNode).mockResolvedValue(null)
 
-      const result = await provider.get('s-notfound')
+      const result = await provider.get('c-notfound')
 
       expect(result).toBeNull()
     })
 
-    it('should include status for issues', async () => {
-      vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+    it('should include status for tasks', async () => {
+      vi.mocked(mockStore.getNode).mockResolvedValue(mockTask)
 
-      const result = await provider.get('i-xyz2')
+      const result = await provider.get('t-xyz2')
 
       expect(result?.status).toBe('open')
     })
@@ -273,7 +273,7 @@ describe('NativeProvider', () => {
 
   describe('list', () => {
     it('should list nodes without filter', async () => {
-      vi.mocked(mockStore.query.nodes).mockResolvedValue([mockSpec, mockIssue])
+      vi.mocked(mockStore.query.nodes).mockResolvedValue([mockContext, mockTask])
 
       const result = await provider.list()
 
@@ -282,16 +282,16 @@ describe('NativeProvider', () => {
     })
 
     it('should list nodes with type filter', async () => {
-      vi.mocked(mockStore.query.nodes).mockResolvedValue([mockSpec])
+      vi.mocked(mockStore.query.nodes).mockResolvedValue([mockContext])
 
-      const result = await provider.list({ type: 'spec' })
+      const result = await provider.list({ type: 'context' })
 
-      expect(mockStore.query.nodes).toHaveBeenCalledWith({ type: 'spec' })
+      expect(mockStore.query.nodes).toHaveBeenCalledWith({ type: 'context' })
       expect(result).toHaveLength(1)
     })
 
     it('should list nodes with status filter', async () => {
-      vi.mocked(mockStore.query.nodes).mockResolvedValue([mockIssue])
+      vi.mocked(mockStore.query.nodes).mockResolvedValue([mockTask])
 
       const result = await provider.list({ status: 'open' })
 
@@ -300,7 +300,7 @@ describe('NativeProvider', () => {
     })
 
     it('should list nodes with limit and offset', async () => {
-      vi.mocked(mockStore.query.nodes).mockResolvedValue([mockSpec])
+      vi.mocked(mockStore.query.nodes).mockResolvedValue([mockContext])
 
       await provider.list({ limit: 10, offset: 5 })
 
@@ -312,58 +312,58 @@ describe('NativeProvider', () => {
   })
 
   describe('create', () => {
-    it('should create a spec', async () => {
-      vi.mocked(mockStore.createNode).mockResolvedValue(mockSpec)
+    it('should create a context', async () => {
+      vi.mocked(mockStore.createNode).mockResolvedValue(mockContext)
 
       const result = await provider.create({
-        type: 'spec',
-        title: 'New Spec',
-        content: 'New spec content',
+        type: 'context',
+        title: 'New Context',
+        content: 'New context content',
       })
 
       expect(mockStore.createNode).toHaveBeenCalledWith({
-        type: 'spec',
-        title: 'New Spec',
-        content: 'New spec content',
+        type: 'context',
+        title: 'New Context',
+        content: 'New context content',
         status: undefined,
         priority: undefined,
         metadata: undefined,
       })
-      expect(result.type).toBe('spec')
+      expect(result.type).toBe('context')
     })
 
-    it('should create an issue', async () => {
-      vi.mocked(mockStore.createNode).mockResolvedValue(mockIssue)
+    it('should create a task', async () => {
+      vi.mocked(mockStore.createNode).mockResolvedValue(mockTask)
 
       const result = await provider.create({
-        type: 'issue',
-        title: 'New Issue',
+        type: 'task',
+        title: 'New Task',
         status: 'open',
         priority: 2,
       })
 
       expect(mockStore.createNode).toHaveBeenCalledWith({
-        type: 'issue',
-        title: 'New Issue',
+        type: 'task',
+        title: 'New Task',
         content: undefined,
         status: 'open',
         priority: 2,
         metadata: undefined,
       })
-      expect(result.type).toBe('issue')
+      expect(result.type).toBe('task')
       expect(result.status).toBe('open')
     })
 
-    it('should map task type to issue', async () => {
-      vi.mocked(mockStore.createNode).mockResolvedValue(mockIssue)
+    it('should map task type to task', async () => {
+      vi.mocked(mockStore.createNode).mockResolvedValue(mockTask)
 
       await provider.create({
-        type: 'issue',
+        type: 'task',
         title: 'New Task',
       })
 
       expect(mockStore.createNode).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'issue' })
+        expect.objectContaining({ type: 'task' })
       )
     })
   })
@@ -371,13 +371,13 @@ describe('NativeProvider', () => {
   describe('update', () => {
     it('should update a node by ID', async () => {
       vi.mocked(mockStore.updateNode).mockResolvedValue({
-        ...mockSpec,
+        ...mockContext,
         title: 'Updated Title',
       })
 
-      const result = await provider.update('s-abc1', { title: 'Updated Title' })
+      const result = await provider.update('c-abc1', { title: 'Updated Title' })
 
-      expect(mockStore.updateNode).toHaveBeenCalledWith('s-abc1', {
+      expect(mockStore.updateNode).toHaveBeenCalledWith('c-abc1', {
         title: 'Updated Title',
         content: undefined,
         status: undefined,
@@ -388,23 +388,23 @@ describe('NativeProvider', () => {
     })
 
     it('should update a node by full URI', async () => {
-      vi.mocked(mockStore.updateNode).mockResolvedValue(mockSpec)
+      vi.mocked(mockStore.updateNode).mockResolvedValue(mockContext)
 
-      await provider.update('native://s-abc1', { title: 'Updated' })
+      await provider.update('native://c-abc1', { title: 'Updated' })
 
-      expect(mockStore.updateNode).toHaveBeenCalledWith('s-abc1', expect.any(Object))
+      expect(mockStore.updateNode).toHaveBeenCalledWith('c-abc1', expect.any(Object))
     })
 
     it('should update status', async () => {
       vi.mocked(mockStore.updateNode).mockResolvedValue({
-        ...mockIssue,
+        ...mockTask,
         status: 'closed',
       })
 
-      const result = await provider.update('i-xyz2', { status: 'closed' })
+      const result = await provider.update('t-xyz2', { status: 'closed' })
 
       expect(mockStore.updateNode).toHaveBeenCalledWith(
-        'i-xyz2',
+        't-xyz2',
         expect.objectContaining({ status: 'closed' })
       )
       expect(result.status).toBe('closed')
@@ -415,23 +415,23 @@ describe('NativeProvider', () => {
     it('should delete a node by ID', async () => {
       vi.mocked(mockStore.deleteNode).mockResolvedValue(undefined)
 
-      await provider.delete('s-abc1')
+      await provider.delete('c-abc1')
 
-      expect(mockStore.deleteNode).toHaveBeenCalledWith('s-abc1')
+      expect(mockStore.deleteNode).toHaveBeenCalledWith('c-abc1')
     })
 
     it('should delete a node by full URI', async () => {
       vi.mocked(mockStore.deleteNode).mockResolvedValue(undefined)
 
-      await provider.delete('native://s-abc1')
+      await provider.delete('native://c-abc1')
 
-      expect(mockStore.deleteNode).toHaveBeenCalledWith('s-abc1')
+      expect(mockStore.deleteNode).toHaveBeenCalledWith('c-abc1')
     })
   })
 
   describe('search', () => {
     it('should search nodes by query', async () => {
-      vi.mocked(mockStore.query.nodes).mockResolvedValue([mockSpec])
+      vi.mocked(mockStore.query.nodes).mockResolvedValue([mockContext])
 
       const result = await provider.search!('test')
 
@@ -444,7 +444,7 @@ describe('NativeProvider', () => {
     })
 
     it('should search with limit', async () => {
-      vi.mocked(mockStore.query.nodes).mockResolvedValue([mockSpec])
+      vi.mocked(mockStore.query.nodes).mockResolvedValue([mockContext])
 
       await provider.search!('test', { limit: 5 })
 
@@ -456,30 +456,30 @@ describe('NativeProvider', () => {
     })
 
     it('should search with type filter', async () => {
-      vi.mocked(mockStore.query.nodes).mockResolvedValue([mockIssue])
+      vi.mocked(mockStore.query.nodes).mockResolvedValue([mockTask])
 
-      await provider.search!('test', { type: 'issue' })
+      await provider.search!('test', { type: 'task' })
 
       expect(mockStore.query.nodes).toHaveBeenCalledWith({
         search: 'test',
         limit: undefined,
-        type: 'issue',
+        type: 'task',
       })
     })
   })
 
   describe('node conversion', () => {
-    it('should convert spec to ProviderNode correctly', async () => {
-      vi.mocked(mockStore.getNode).mockResolvedValue(mockSpec)
+    it('should convert context to ProviderNode correctly', async () => {
+      vi.mocked(mockStore.getNode).mockResolvedValue(mockContext)
 
-      const result = await provider.get('s-abc1')
+      const result = await provider.get('c-abc1')
 
       expect(result).toMatchObject({
-        id: 's-abc1',
-        uri: 'native://s-abc1',
-        type: 'spec',
-        title: 'Test Spec',
-        content: 'Spec content',
+        id: 'c-abc1',
+        uri: 'native://c-abc1',
+        type: 'context',
+        title: 'Test Context',
+        content: 'Context content',
         priority: 1,
       })
       expect(result?.rawData).toMatchObject({
@@ -489,16 +489,16 @@ describe('NativeProvider', () => {
       expect(result?.fetchedAt).toBeDefined()
     })
 
-    it('should convert issue to ProviderNode with status', async () => {
-      vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+    it('should convert task to ProviderNode with status', async () => {
+      vi.mocked(mockStore.getNode).mockResolvedValue(mockTask)
 
-      const result = await provider.get('i-xyz2')
+      const result = await provider.get('t-xyz2')
 
       expect(result).toMatchObject({
-        id: 'i-xyz2',
-        uri: 'native://i-xyz2',
-        type: 'issue',
-        title: 'Test Issue',
+        id: 't-xyz2',
+        uri: 'native://t-xyz2',
+        type: 'task',
+        title: 'Test Task',
         status: 'open',
         priority: 2,
       })
@@ -519,7 +519,7 @@ describe('NativeProvider', () => {
         title: 'Test Feedback',
       })
       expect(result?.rawData).toMatchObject({
-        target_id: 's-abc1',
+        target_id: 'c-abc1',
         feedback_type: 'comment',
       })
     })
@@ -568,54 +568,54 @@ describe('NativeProvider', () => {
       it('should return empty array for non-existent node', async () => {
         vi.mocked(mockStore.getNode).mockResolvedValue(null)
 
-        const edges = await provider.queryEdges('i-notfound')
+        const edges = await provider.queryEdges('t-notfound')
 
         expect(edges).toEqual([])
       })
 
       it('should return outgoing edges', async () => {
-        vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockTask)
         vi.mocked(mockStore.query.edgesFrom).mockResolvedValue([mockBlocksEdge, mockImplementsEdge])
         vi.mocked(mockStore.query.edgesTo).mockResolvedValue([])
 
-        const edges = await provider.queryEdges('i-xyz2', { direction: 'out' })
+        const edges = await provider.queryEdges('t-xyz2', { direction: 'out' })
 
-        expect(mockStore.query.edgesFrom).toHaveBeenCalledWith('i-xyz2', undefined)
+        expect(mockStore.query.edgesFrom).toHaveBeenCalledWith('t-xyz2', undefined)
         expect(edges).toHaveLength(2)
         expect(edges[0]).toMatchObject({
-          from: 'i-xyz2',
-          to: 's-abc1',
+          from: 't-xyz2',
+          to: 'c-abc1',
           type: 'blocks',
         })
         expect(edges[1]).toMatchObject({
-          from: 'i-xyz2',
-          to: 's-abc1',
+          from: 't-xyz2',
+          to: 'c-abc1',
           type: 'implements',
         })
       })
 
       it('should return incoming edges', async () => {
-        vi.mocked(mockStore.getNode).mockResolvedValue(mockSpec)
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockContext)
         vi.mocked(mockStore.query.edgesFrom).mockResolvedValue([])
         vi.mocked(mockStore.query.edgesTo).mockResolvedValue([mockBlocksEdge])
 
-        const edges = await provider.queryEdges('s-abc1', { direction: 'in' })
+        const edges = await provider.queryEdges('c-abc1', { direction: 'in' })
 
-        expect(mockStore.query.edgesTo).toHaveBeenCalledWith('s-abc1', undefined)
+        expect(mockStore.query.edgesTo).toHaveBeenCalledWith('c-abc1', undefined)
         expect(edges).toHaveLength(1)
         expect(edges[0]).toMatchObject({
-          from: 'i-xyz2',
-          to: 's-abc1',
+          from: 't-xyz2',
+          to: 'c-abc1',
           type: 'blocks',
         })
       })
 
       it('should return both directions by default', async () => {
-        vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockTask)
         vi.mocked(mockStore.query.edgesFrom).mockResolvedValue([mockImplementsEdge])
         vi.mocked(mockStore.query.edgesTo).mockResolvedValue([mockBlocksEdge])
 
-        const edges = await provider.queryEdges('i-xyz2')
+        const edges = await provider.queryEdges('t-xyz2')
 
         expect(mockStore.query.edgesFrom).toHaveBeenCalled()
         expect(mockStore.query.edgesTo).toHaveBeenCalled()
@@ -623,26 +623,26 @@ describe('NativeProvider', () => {
       })
 
       it('should filter by edge type', async () => {
-        vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockTask)
         vi.mocked(mockStore.query.edgesFrom).mockResolvedValue([mockBlocksEdge])
 
-        const edges = await provider.queryEdges('i-xyz2', {
+        const edges = await provider.queryEdges('t-xyz2', {
           direction: 'out',
           edgeType: 'blocks',
         })
 
-        expect(mockStore.query.edgesFrom).toHaveBeenCalledWith('i-xyz2', 'blocks')
+        expect(mockStore.query.edgesFrom).toHaveBeenCalledWith('t-xyz2', 'blocks')
         expect(edges).toHaveLength(1)
         expect(edges[0].type).toBe('blocks')
       })
 
       it('should deduplicate edges with both direction', async () => {
         const sameEdge = mockBlocksEdge
-        vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockTask)
         vi.mocked(mockStore.query.edgesFrom).mockResolvedValue([sameEdge])
         vi.mocked(mockStore.query.edgesTo).mockResolvedValue([sameEdge])
 
-        const edges = await provider.queryEdges('i-xyz2', { direction: 'both' })
+        const edges = await provider.queryEdges('t-xyz2', { direction: 'both' })
 
         // Should deduplicate the same edge appearing in both directions
         expect(edges).toHaveLength(1)
@@ -650,28 +650,28 @@ describe('NativeProvider', () => {
 
       it('should apply limit', async () => {
         const edges = [
-          { ...mockBlocksEdge, id: 'e-1', to_id: 's-1' },
-          { ...mockBlocksEdge, id: 'e-2', to_id: 's-2' },
-          { ...mockBlocksEdge, id: 'e-3', to_id: 's-3' },
+          { ...mockBlocksEdge, id: 'e-1', to_id: 'c-1' },
+          { ...mockBlocksEdge, id: 'e-2', to_id: 'c-2' },
+          { ...mockBlocksEdge, id: 'e-3', to_id: 'c-3' },
         ]
-        vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockTask)
         vi.mocked(mockStore.query.edgesFrom).mockResolvedValue(edges)
         vi.mocked(mockStore.query.edgesTo).mockResolvedValue([])
 
-        const result = await provider.queryEdges('i-xyz2', { direction: 'out', limit: 2 })
+        const result = await provider.queryEdges('t-xyz2', { direction: 'out', limit: 2 })
 
         expect(result).toHaveLength(2)
       })
 
       it('should query by full URI', async () => {
-        vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockTask)
         vi.mocked(mockStore.query.edgesFrom).mockResolvedValue([mockBlocksEdge])
         vi.mocked(mockStore.query.edgesTo).mockResolvedValue([])
 
-        await provider.queryEdges('native://i-xyz2', { direction: 'out' })
+        await provider.queryEdges('native://t-xyz2', { direction: 'out' })
 
-        expect(mockStore.getNode).toHaveBeenCalledWith('i-xyz2')
-        expect(mockStore.query.edgesFrom).toHaveBeenCalledWith('i-xyz2', undefined)
+        expect(mockStore.getNode).toHaveBeenCalledWith('t-xyz2')
+        expect(mockStore.query.edgesFrom).toHaveBeenCalledWith('t-xyz2', undefined)
       })
 
       it('should include metadata in returned edges', async () => {
@@ -679,11 +679,11 @@ describe('NativeProvider', () => {
           ...mockBlocksEdge,
           metadata: { reason: 'dependency' },
         }
-        vi.mocked(mockStore.getNode).mockResolvedValue(mockIssue)
+        vi.mocked(mockStore.getNode).mockResolvedValue(mockTask)
         vi.mocked(mockStore.query.edgesFrom).mockResolvedValue([edgeWithMetadata])
         vi.mocked(mockStore.query.edgesTo).mockResolvedValue([])
 
-        const edges = await provider.queryEdges('i-xyz2', { direction: 'out' })
+        const edges = await provider.queryEdges('t-xyz2', { direction: 'out' })
 
         expect(edges[0].metadata).toEqual({ reason: 'dependency' })
       })

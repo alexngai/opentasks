@@ -36,7 +36,7 @@ export function computeContentHash(node: StoredNode): string {
   }
 
   // Add type-specific substantive fields
-  if (node.type === 'issue') {
+  if (node.type === 'task') {
     substantive.assignee = node.assignee
   }
 

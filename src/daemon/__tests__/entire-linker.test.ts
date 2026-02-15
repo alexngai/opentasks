@@ -182,9 +182,9 @@ describe('EntireAutoLinker', () => {
 
     it('should use actual node ID (not URI) for edge creation', async () => {
       // Add a claimed in-progress task
-      store._nodes.set('i-task1', {
-        id: 'i-task1',
-        type: 'issue',
+      store._nodes.set('t-task1', {
+        id: 't-task1',
+        type: 'task',
         status: 'in_progress',
         archived: false,
         claimed_by: 'claude-agent-1',
@@ -203,7 +203,7 @@ describe('EntireAutoLinker', () => {
       // The edge should use the actual node ID, NOT the URI
       expect(store.createEdge).toHaveBeenCalledWith(
         expect.objectContaining({
-          from_id: 'i-task1',
+          from_id: 't-task1',
           to_id: expect.stringMatching(/^x-mock\d+$/), // Should be the graph ID, not a URI
           type: 'worked-on',
         })
@@ -211,9 +211,9 @@ describe('EntireAutoLinker', () => {
     })
 
     it('should create worked-on edge when claimed task exists', async () => {
-      store._nodes.set('i-task1', {
-        id: 'i-task1',
-        type: 'issue',
+      store._nodes.set('t-task1', {
+        id: 't-task1',
+        type: 'task',
         status: 'in_progress',
         archived: false,
         claimed_by: 'claude-agent-1',
@@ -224,16 +224,16 @@ describe('EntireAutoLinker', () => {
 
       expect(store.createEdge).toHaveBeenCalledWith(
         expect.objectContaining({
-          from_id: 'i-task1',
+          from_id: 't-task1',
           type: 'worked-on',
         })
       )
     })
 
     it('should create worked-on edge for in-progress tasks on same branch', async () => {
-      store._nodes.set('i-branch', {
-        id: 'i-branch',
-        type: 'issue',
+      store._nodes.set('t-branch', {
+        id: 't-branch',
+        type: 'task',
         status: 'in_progress',
         archived: false,
         branch: 'feature/auth',
@@ -248,16 +248,16 @@ describe('EntireAutoLinker', () => {
 
       expect(store.createEdge).toHaveBeenCalledWith(
         expect.objectContaining({
-          from_id: 'i-branch',
+          from_id: 't-branch',
           type: 'worked-on',
         })
       )
     })
 
     it('should create worked-on edge for single in-progress task (fallback)', async () => {
-      store._nodes.set('i-only', {
-        id: 'i-only',
-        type: 'issue',
+      store._nodes.set('t-only', {
+        id: 't-only',
+        type: 'task',
         status: 'in_progress',
         archived: false,
       })
@@ -277,7 +277,7 @@ describe('EntireAutoLinker', () => {
 
       expect(store.createEdge).toHaveBeenCalledWith(
         expect.objectContaining({
-          from_id: 'i-only',
+          from_id: 't-only',
           type: 'worked-on',
         })
       )
@@ -285,15 +285,15 @@ describe('EntireAutoLinker', () => {
 
     it('should NOT create edges for ambiguous low-confidence matches', async () => {
       // Two in-progress tasks, no claims, no branch match
-      store._nodes.set('i-one', {
-        id: 'i-one',
-        type: 'issue',
+      store._nodes.set('t-one', {
+        id: 't-one',
+        type: 'task',
         status: 'in_progress',
         archived: false,
       })
-      store._nodes.set('i-two', {
-        id: 'i-two',
-        type: 'issue',
+      store._nodes.set('t-two', {
+        id: 't-two',
+        type: 'task',
         status: 'in_progress',
         archived: false,
       })
@@ -324,9 +324,9 @@ describe('EntireAutoLinker', () => {
 
     it('should respect minimum confidence threshold', async () => {
       // Single in-progress task (low confidence match)
-      store._nodes.set('i-only', {
-        id: 'i-only',
-        type: 'issue',
+      store._nodes.set('t-only', {
+        id: 't-only',
+        type: 'task',
         status: 'in_progress',
         archived: false,
       })
@@ -355,9 +355,9 @@ describe('EntireAutoLinker', () => {
 
     it('should allow medium confidence when threshold is medium', async () => {
       // In-progress task on same branch = medium confidence
-      store._nodes.set('i-branch', {
-        id: 'i-branch',
-        type: 'issue',
+      store._nodes.set('t-branch', {
+        id: 't-branch',
+        type: 'task',
         status: 'in_progress',
         archived: false,
         branch: 'feature/auth',
@@ -380,18 +380,18 @@ describe('EntireAutoLinker', () => {
 
     it('should prefer claimed-task strategy over branch match', async () => {
       // Both a claimed task AND a branch-matching task exist
-      store._nodes.set('i-claimed', {
-        id: 'i-claimed',
-        type: 'issue',
+      store._nodes.set('t-claimed', {
+        id: 't-claimed',
+        type: 'task',
         status: 'in_progress',
         archived: false,
         claimed_by: 'agent-1',
         lock_until: new Date(Date.now() + 60000).toISOString(),
         branch: 'other-branch',
       })
-      store._nodes.set('i-branch', {
-        id: 'i-branch',
-        type: 'issue',
+      store._nodes.set('t-branch', {
+        id: 't-branch',
+        type: 'task',
         status: 'in_progress',
         archived: false,
         branch: 'feature/auth',
@@ -410,14 +410,14 @@ describe('EntireAutoLinker', () => {
         (call: unknown[]) => (call[0] as Record<string, unknown>).type === 'worked-on'
       )
       expect(workedOnEdges).toHaveLength(1)
-      expect((workedOnEdges[0][0] as Record<string, unknown>).from_id).toBe('i-claimed')
+      expect((workedOnEdges[0][0] as Record<string, unknown>).from_id).toBe('t-claimed')
     })
 
     it('should ignore expired lock_until claims', async () => {
       // Claimed task with expired lock
-      store._nodes.set('i-expired', {
-        id: 'i-expired',
-        type: 'issue',
+      store._nodes.set('t-expired', {
+        id: 't-expired',
+        type: 'task',
         status: 'in_progress',
         archived: false,
         claimed_by: 'agent-1',
@@ -425,9 +425,9 @@ describe('EntireAutoLinker', () => {
       })
 
       // Also add a branch-matching task
-      store._nodes.set('i-branch', {
-        id: 'i-branch',
-        type: 'issue',
+      store._nodes.set('t-branch', {
+        id: 't-branch',
+        type: 'task',
         status: 'in_progress',
         archived: false,
         branch: 'feature/auth',
@@ -446,13 +446,13 @@ describe('EntireAutoLinker', () => {
         (call: unknown[]) => (call[0] as Record<string, unknown>).type === 'worked-on'
       )
       expect(workedOnEdges).toHaveLength(1)
-      expect((workedOnEdges[0][0] as Record<string, unknown>).from_id).toBe('i-branch')
+      expect((workedOnEdges[0][0] as Record<string, unknown>).from_id).toBe('t-branch')
     })
 
     it('should store correlation results', async () => {
-      store._nodes.set('i-task1', {
-        id: 'i-task1',
-        type: 'issue',
+      store._nodes.set('t-task1', {
+        id: 't-task1',
+        type: 'task',
         status: 'in_progress',
         archived: false,
         claimed_by: 'agent',
@@ -536,9 +536,9 @@ describe('EntireAutoLinker', () => {
     })
 
     it('should create implemented-by edges for correlated tasks', async () => {
-      store._nodes.set('i-task1', {
-        id: 'i-task1',
-        type: 'issue',
+      store._nodes.set('t-task1', {
+        id: 't-task1',
+        type: 'task',
         status: 'in_progress',
         archived: false,
         claimed_by: 'agent',
@@ -556,7 +556,7 @@ describe('EntireAutoLinker', () => {
       // Should create implemented-by edge
       expect(store.createEdge).toHaveBeenCalledWith(
         expect.objectContaining({
-          from_id: 'i-task1',
+          from_id: 't-task1',
           to_id: expect.stringMatching(/^x-mock\d+$/), // checkpoint node ID
           type: 'implemented-by',
         })
@@ -728,9 +728,9 @@ describe('EntireAutoLinker', () => {
     })
 
     it('should not create duplicate edges', async () => {
-      store._nodes.set('i-task1', {
-        id: 'i-task1',
-        type: 'issue',
+      store._nodes.set('t-task1', {
+        id: 't-task1',
+        type: 'task',
         status: 'in_progress',
         archived: false,
         claimed_by: 'agent',
@@ -791,9 +791,9 @@ describe('EntireAutoLinker', () => {
     })
 
     it('should call markDirty and schedule on edge creation', async () => {
-      store._nodes.set('i-task1', {
-        id: 'i-task1',
-        type: 'issue',
+      store._nodes.set('t-task1', {
+        id: 't-task1',
+        type: 'task',
         status: 'in_progress',
         archived: false,
         claimed_by: 'agent',
@@ -838,9 +838,9 @@ describe('EntireAutoLinker', () => {
     })
 
     it('should track nodes created across started and checkpoint events', async () => {
-      store._nodes.set('i-task1', {
-        id: 'i-task1',
-        type: 'issue',
+      store._nodes.set('t-task1', {
+        id: 't-task1',
+        type: 'task',
         status: 'in_progress',
         archived: false,
         claimed_by: 'agent',
@@ -868,9 +868,9 @@ describe('EntireAutoLinker', () => {
 
   describe('correlate (manual trigger)', () => {
     it('should create session node and correlate with tasks', async () => {
-      store._nodes.set('i-task1', {
-        id: 'i-task1',
-        type: 'issue',
+      store._nodes.set('t-task1', {
+        id: 't-task1',
+        type: 'task',
         status: 'in_progress',
         archived: false,
         claimed_by: 'agent',

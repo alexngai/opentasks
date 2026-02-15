@@ -13,24 +13,24 @@ describe('annotate tool', () => {
   let edgeCounter: number
 
   // Sample nodes
-  const specNode = {
-    id: 's-test1',
-    type: 'spec' as const,
-    title: 'Test Spec',
+  const contextNode = {
+    id: 'c-test1',
+    type: 'context' as const,
+    title: 'Test Context',
     content: 'This is test content',
   }
 
-  const issueNode = {
-    id: 'i-test1',
-    type: 'issue' as const,
-    title: 'Test Issue',
+  const taskNode = {
+    id: 't-test1',
+    type: 'task' as const,
+    title: 'Test Task',
   }
 
   const feedbackNode = {
     id: 'f-test1',
     type: 'feedback' as const,
     title: 'Test Feedback',
-    targetId: 's-test1',
+    targetId: 'c-test1',
     feedback_type: 'comment' as const,
     resolved: false,
     dismissed: false,
@@ -40,7 +40,7 @@ describe('annotate tool', () => {
     id: 'f-resolved',
     type: 'feedback' as const,
     title: 'Resolved Feedback',
-    targetId: 's-test1',
+    targetId: 'c-test1',
     feedback_type: 'comment' as const,
     resolved: true,
     dismissed: false,
@@ -50,7 +50,7 @@ describe('annotate tool', () => {
     id: 'f-dismissed',
     type: 'feedback' as const,
     title: 'Dismissed Feedback',
-    targetId: 's-test1',
+    targetId: 'c-test1',
     feedback_type: 'comment' as const,
     resolved: false,
     dismissed: true,
@@ -61,8 +61,8 @@ describe('annotate tool', () => {
     edgeCounter = 0
 
     const nodes = new Map<string, any>()
-    nodes.set(specNode.id, { ...specNode })
-    nodes.set(issueNode.id, { ...issueNode })
+    nodes.set(contextNode.id, { ...contextNode })
+    nodes.set(taskNode.id, { ...taskNode })
     nodes.set(feedbackNode.id, { ...feedbackNode })
     nodes.set(resolvedFeedback.id, { ...resolvedFeedback })
     nodes.set(dismissedFeedback.id, { ...dismissedFeedback })
@@ -112,7 +112,7 @@ describe('annotate tool', () => {
 
     it('should error when no operation specified', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
       })
 
       expect(result.success).toBe(false)
@@ -121,7 +121,7 @@ describe('annotate tool', () => {
 
     it('should error when multiple operations specified', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         create: { content: 'Test' },
         resolve: 'f-test1',
       })
@@ -134,7 +134,7 @@ describe('annotate tool', () => {
   describe('create feedback', () => {
     it('should create feedback with content', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         create: { content: 'This is test feedback' },
       })
 
@@ -144,7 +144,7 @@ describe('annotate tool', () => {
         expect.objectContaining({
           type: 'feedback',
           content: 'This is test feedback',
-          target_id: 's-test1',
+          target_id: 'c-test1',
           feedback_type: 'comment',
         })
       )
@@ -152,7 +152,7 @@ describe('annotate tool', () => {
 
     it('should create feedback with line anchor', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         create: {
           content: 'Line-specific feedback',
           anchor: { line: 10 },
@@ -169,7 +169,7 @@ describe('annotate tool', () => {
 
     it('should create feedback with text anchor', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         create: {
           content: 'Text-anchored feedback',
           anchor: { text: 'important section' },
@@ -186,7 +186,7 @@ describe('annotate tool', () => {
 
     it('should create feedback without anchor', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         create: { content: 'General feedback' },
       })
 
@@ -201,7 +201,7 @@ describe('annotate tool', () => {
     it('should set feedback_type (defaults to comment)', async () => {
       // Test default
       await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         create: { content: 'Default type' },
       })
 
@@ -211,7 +211,7 @@ describe('annotate tool', () => {
 
       // Test explicit type
       await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         create: { content: 'Suggestion', type: 'suggestion' },
       })
 
@@ -222,14 +222,14 @@ describe('annotate tool', () => {
 
     it('should link feedback to fromId when provided', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
-        fromId: 'i-test1',
-        create: { content: 'Feedback from issue' },
+        targetId: 'c-test1',
+        fromId: 't-test1',
+        create: { content: 'Feedback from task' },
       })
 
       expect(result.success).toBe(true)
       expect(mockStore.createEdge).toHaveBeenCalledWith({
-        from_id: 'i-test1',
+        from_id: 't-test1',
         to_id: expect.stringMatching(/^f-/),
         type: 'discovered-from',
         metadata: undefined,
@@ -239,7 +239,7 @@ describe('annotate tool', () => {
     it('should truncate long content for title', async () => {
       const longContent = 'A'.repeat(100)
       await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         create: { content: longContent },
       })
 
@@ -250,7 +250,7 @@ describe('annotate tool', () => {
 
     it('should error when target not found', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-nonexistent',
+        targetId: 'c-nonexistent',
         create: { content: 'Test' },
       })
 
@@ -260,7 +260,7 @@ describe('annotate tool', () => {
 
     it('should error when content is missing', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         create: { content: '' },
       })
 
@@ -272,7 +272,7 @@ describe('annotate tool', () => {
   describe('resolve feedback', () => {
     it('should resolve existing feedback', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         resolve: 'f-test1',
       })
 
@@ -283,7 +283,7 @@ describe('annotate tool', () => {
 
     it('should error when feedback not found', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         resolve: 'f-nonexistent',
       })
 
@@ -293,8 +293,8 @@ describe('annotate tool', () => {
 
     it('should error when node is not feedback', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
-        resolve: 's-test1', // spec, not feedback
+        targetId: 'c-test1',
+        resolve: 'c-test1', // context, not feedback
       })
 
       expect(result.success).toBe(false)
@@ -305,7 +305,7 @@ describe('annotate tool', () => {
   describe('dismiss feedback', () => {
     it('should dismiss existing feedback', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         dismiss: 'f-test1',
       })
 
@@ -316,7 +316,7 @@ describe('annotate tool', () => {
 
     it('should error when feedback not found', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         dismiss: 'f-nonexistent',
       })
 
@@ -328,7 +328,7 @@ describe('annotate tool', () => {
   describe('reopen feedback', () => {
     it('should reopen resolved feedback', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         reopen: 'f-resolved',
       })
 
@@ -342,7 +342,7 @@ describe('annotate tool', () => {
 
     it('should reopen dismissed feedback', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         reopen: 'f-dismissed',
       })
 
@@ -356,7 +356,7 @@ describe('annotate tool', () => {
 
     it('should error when feedback not found', async () => {
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         reopen: 'f-nonexistent',
       })
 
@@ -370,7 +370,7 @@ describe('annotate tool', () => {
       mockStore.createNode = vi.fn().mockRejectedValue(new Error('Database error'))
 
       const result = await annotate(mockStore, {
-        targetId: 's-test1',
+        targetId: 'c-test1',
         create: { content: 'Test' },
       })
 

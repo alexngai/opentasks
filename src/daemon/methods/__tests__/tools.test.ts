@@ -51,8 +51,8 @@ function createMockStore() {
       blockers: vi.fn().mockResolvedValue([]),
       blocking: vi.fn().mockResolvedValue([]),
       feedback: vi.fn().mockResolvedValue([]),
-      implementers: vi.fn().mockResolvedValue([]),
-      specs: vi.fn().mockResolvedValue([]),
+      tasks: vi.fn().mockResolvedValue([]),
+      context: vi.fn().mockResolvedValue([]),
     },
     getNode: vi.fn((id: string) => Promise.resolve(nodes.get(id) ?? null)),
     getEdge: vi.fn((id: string) => Promise.resolve(edges.get(id) ?? null)),
@@ -143,20 +143,20 @@ describe('registerToolsMethods', () => {
 
     it('should create edge between local nodes', async () => {
       // Set up nodes
-      store._nodes.set('i-1', { id: 'i-1', type: 'issue', title: 'Issue 1' })
-      store._nodes.set('i-2', { id: 'i-2', type: 'issue', title: 'Issue 2' })
+      store._nodes.set('t-1', { id: 't-1', type: 'task', title: 'Task 1' })
+      store._nodes.set('t-2', { id: 't-2', type: 'task', title: 'Task 2' })
       store.getNode = vi.fn((id: string) => Promise.resolve(store._nodes.get(id) ?? null)) as any
 
       const result = await server.call('tools.link', {
-        fromId: 'i-1',
-        toId: 'i-2',
+        fromId: 't-1',
+        toId: 't-2',
         type: 'blocks',
       })
 
       expect(result).toHaveProperty('success', true)
       expect(result).toHaveProperty('edgeId')
-      expect(flushManager.markDirty).toHaveBeenCalledWith('i-1')
-      expect(flushManager.markDirty).toHaveBeenCalledWith('i-2')
+      expect(flushManager.markDirty).toHaveBeenCalledWith('t-1')
+      expect(flushManager.markDirty).toHaveBeenCalledWith('t-2')
       expect(flushManager.schedule).toHaveBeenCalled()
     })
 
@@ -171,7 +171,7 @@ describe('registerToolsMethods', () => {
 
     it('should return error for missing fromId', async () => {
       const result = await server.call('tools.link', {
-        toId: 'i-2',
+        toId: 't-2',
         type: 'blocks',
       })
 
@@ -200,11 +200,11 @@ describe('registerToolsMethods', () => {
 
     it('should query nodes', async () => {
       ;(store.query.nodes as any).mockResolvedValue([
-        { id: 'i-1', type: 'issue', title: 'Test', archived: false },
+        { id: 't-1', type: 'task', title: 'Test', archived: false },
       ])
 
       const result = await server.call('tools.query', {
-        nodes: { type: 'issue' },
+        nodes: { type: 'task' },
       })
 
       expect(result).toHaveProperty('items')
@@ -214,7 +214,7 @@ describe('registerToolsMethods', () => {
 
     it('should query ready items', async () => {
       ;(store.query.ready as any).mockResolvedValue([
-        { id: 'i-1', type: 'issue', title: 'Ready Issue', archived: false },
+        { id: 't-1', type: 'task', title: 'Ready Task', archived: false },
       ])
 
       const result = await server.call('tools.query', {
@@ -245,11 +245,11 @@ describe('registerToolsMethods', () => {
 
     it('should create feedback on target node', async () => {
       // Set up target node
-      store._nodes.set('s-1', { id: 's-1', type: 'spec', title: 'Test Spec' })
+      store._nodes.set('c-1', { id: 'c-1', type: 'context', title: 'Test Context' })
       store.getNode = vi.fn((id: string) => Promise.resolve(store._nodes.get(id) ?? null)) as any
 
       const result = await server.call('tools.annotate', {
-        targetId: 's-1',
+        targetId: 'c-1',
         create: {
           content: 'This is feedback',
           type: 'comment',
@@ -259,7 +259,7 @@ describe('registerToolsMethods', () => {
       expect(result).toHaveProperty('success', true)
       expect(result).toHaveProperty('feedbackId')
       expect(store.createNode).toHaveBeenCalled()
-      expect(flushManager.markDirty).toHaveBeenCalledWith('s-1')
+      expect(flushManager.markDirty).toHaveBeenCalledWith('c-1')
       expect(flushManager.schedule).toHaveBeenCalled()
     })
 
@@ -333,12 +333,12 @@ describe('registerToolsMethods', () => {
 
     it('should mark fromId dirty when provided', async () => {
       // Set up nodes
-      store._nodes.set('s-1', { id: 's-1', type: 'spec', title: 'Test Spec' })
+      store._nodes.set('c-1', { id: 'c-1', type: 'context', title: 'Test Context' })
       store._nodes.set('i-1', { id: 'i-1', type: 'issue', title: 'Test Issue' })
       store.getNode = vi.fn((id: string) => Promise.resolve(store._nodes.get(id) ?? null)) as any
 
       const result = await server.call('tools.annotate', {
-        targetId: 's-1',
+        targetId: 'c-1',
         fromId: 'i-1',
         create: {
           content: 'Feedback from issue',
@@ -347,7 +347,7 @@ describe('registerToolsMethods', () => {
       })
 
       expect(result).toHaveProperty('success', true)
-      expect(flushManager.markDirty).toHaveBeenCalledWith('s-1')
+      expect(flushManager.markDirty).toHaveBeenCalledWith('c-1')
       expect(flushManager.markDirty).toHaveBeenCalledWith('i-1')
     })
   })

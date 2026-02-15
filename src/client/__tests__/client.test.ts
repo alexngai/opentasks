@@ -25,11 +25,11 @@ describe('OpenTasksClient', () => {
   let edgeCounter: number
 
   // Sample data
-  const sampleSpec = {
-    id: 's-test1',
+  const sampleContext = {
+    id: 'c-test1',
     uuid: 'uuid-1',
-    type: 'spec' as const,
-    title: 'Test Spec',
+    type: 'context' as const,
+    title: 'Test Context',
     content: 'Test content',
     priority: 2,
     archived: false,
@@ -37,11 +37,11 @@ describe('OpenTasksClient', () => {
     updated_at: '2024-01-01T00:00:00Z',
   }
 
-  const sampleIssue = {
-    id: 'i-test1',
+  const sampleTask = {
+    id: 't-test1',
     uuid: 'uuid-2',
-    type: 'issue' as const,
-    title: 'Test Issue',
+    type: 'task' as const,
+    title: 'Test Task',
     status: 'open' as const,
     priority: 1,
     archived: false,
@@ -54,7 +54,7 @@ describe('OpenTasksClient', () => {
     uuid: 'uuid-3',
     type: 'feedback' as const,
     title: 'Test Feedback',
-    target_id: 's-test1',
+    target_id: 'c-test1',
     feedback_type: 'comment' as const,
     resolved: false,
     dismissed: false,
@@ -68,8 +68,8 @@ describe('OpenTasksClient', () => {
   const sampleEdge = {
     id: 'x-test1',
     uuid: 'uuid-4',
-    from_id: 'i-test1',
-    to_id: 's-test1',
+    from_id: 't-test1',
+    to_id: 'c-test1',
     type: 'implements' as const,
     created_at: '2024-01-01T00:00:00Z',
   }
@@ -83,8 +83,8 @@ describe('OpenTasksClient', () => {
 
     // Create mock store
     const nodes = new Map<string, any>()
-    nodes.set(sampleSpec.id, { ...sampleSpec })
-    nodes.set(sampleIssue.id, { ...sampleIssue })
+    nodes.set(sampleContext.id, { ...sampleContext })
+    nodes.set(sampleTask.id, { ...sampleTask })
     nodes.set(sampleFeedback.id, { ...sampleFeedback })
 
     const edges = new Map<string, any>()
@@ -129,11 +129,11 @@ describe('OpenTasksClient', () => {
         return edges.get(id) || null
       }),
       query: {
-        nodes: vi.fn().mockResolvedValue([sampleSpec, sampleIssue]),
+        nodes: vi.fn().mockResolvedValue([sampleContext, sampleTask]),
         edges: vi.fn().mockResolvedValue([sampleEdge]),
-        ready: vi.fn().mockResolvedValue([sampleIssue]),
-        blockers: vi.fn().mockResolvedValue([sampleSpec]),
-        blocking: vi.fn().mockResolvedValue([sampleIssue]),
+        ready: vi.fn().mockResolvedValue([sampleTask]),
+        blockers: vi.fn().mockResolvedValue([sampleContext]),
+        blocking: vi.fn().mockResolvedValue([sampleTask]),
         feedback: vi.fn().mockResolvedValue([sampleFeedback]),
       },
     } as unknown as GraphStore
@@ -250,8 +250,8 @@ describe('OpenTasksClient', () => {
       const client = new OpenTasksClient({ socketPath })
 
       const result = await client.link({
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'implements',
       })
 
@@ -265,8 +265,8 @@ describe('OpenTasksClient', () => {
       const client = new OpenTasksClient({ socketPath })
 
       const result = await client.link({
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'implements',
         remove: true,
       })
@@ -327,7 +327,7 @@ describe('OpenTasksClient', () => {
       const client = new OpenTasksClient({ socketPath })
 
       const result = await client.annotate({
-        targetId: 's-test1',
+        targetId: 'c-test1',
         create: { content: 'New feedback' },
       })
 
@@ -341,7 +341,7 @@ describe('OpenTasksClient', () => {
       const client = new OpenTasksClient({ socketPath })
 
       const result = await client.annotate({
-        targetId: 's-test1',
+        targetId: 'c-test1',
         resolve: 'f-test1',
       })
 
@@ -353,7 +353,7 @@ describe('OpenTasksClient', () => {
 
   describe('convenience methods', () => {
     describe('ready()', () => {
-      it('should return ready issues', async () => {
+      it('should return ready tasks', async () => {
         const client = new OpenTasksClient({ socketPath })
 
         const result = await client.ready()
@@ -381,10 +381,10 @@ describe('OpenTasksClient', () => {
       it('should return blocking nodes', async () => {
         const client = new OpenTasksClient({ socketPath })
 
-        const result = await client.blockers('i-test1')
+        const result = await client.blockers('t-test1')
 
         expect(Array.isArray(result)).toBe(true)
-        expect(mockStore.query.blockers).toHaveBeenCalledWith('i-test1', expect.any(Object))
+        expect(mockStore.query.blockers).toHaveBeenCalledWith('t-test1', expect.any(Object))
 
         client.disconnect()
       })
@@ -392,9 +392,9 @@ describe('OpenTasksClient', () => {
       it('should pass options', async () => {
         const client = new OpenTasksClient({ socketPath })
 
-        await client.blockers('i-test1', { transitive: true })
+        await client.blockers('t-test1', { transitive: true })
 
-        expect(mockStore.query.blockers).toHaveBeenCalledWith('i-test1', {
+        expect(mockStore.query.blockers).toHaveBeenCalledWith('t-test1', {
           transitive: true,
           activeOnly: undefined,
         })
@@ -407,10 +407,10 @@ describe('OpenTasksClient', () => {
       it('should return blocked nodes', async () => {
         const client = new OpenTasksClient({ socketPath })
 
-        const result = await client.blocking('s-test1')
+        const result = await client.blocking('c-test1')
 
         expect(Array.isArray(result)).toBe(true)
-        expect(mockStore.query.blocking).toHaveBeenCalledWith('s-test1', expect.any(Object))
+        expect(mockStore.query.blocking).toHaveBeenCalledWith('c-test1', expect.any(Object))
 
         client.disconnect()
       })
@@ -420,10 +420,10 @@ describe('OpenTasksClient', () => {
       it('should return feedback for node', async () => {
         const client = new OpenTasksClient({ socketPath })
 
-        const result = await client.feedback('s-test1')
+        const result = await client.feedback('c-test1')
 
         expect(Array.isArray(result)).toBe(true)
-        expect(mockStore.query.feedback).toHaveBeenCalledWith('s-test1', expect.any(Object))
+        expect(mockStore.query.feedback).toHaveBeenCalledWith('c-test1', expect.any(Object))
 
         client.disconnect()
       })
@@ -431,9 +431,9 @@ describe('OpenTasksClient', () => {
       it('should pass options', async () => {
         const client = new OpenTasksClient({ socketPath })
 
-        await client.feedback('s-test1', { type: 'suggestion', resolved: true })
+        await client.feedback('c-test1', { type: 'suggestion', resolved: true })
 
-        expect(mockStore.query.feedback).toHaveBeenCalledWith('s-test1', {
+        expect(mockStore.query.feedback).toHaveBeenCalledWith('c-test1', {
           type: 'suggestion',
           resolved: true,
           includeDismissed: undefined,

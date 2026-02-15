@@ -101,19 +101,19 @@ export interface UnresolvedFeedbackQueryParams {
 }
 
 /**
- * Parameters for querying implementers of a spec
+ * Parameters for querying tasks that implement a context
  */
-export interface ImplementersQueryParams {
-  /** Spec ID to find implementers for */
-  specId: string
+export interface TasksQueryParams {
+  /** Context ID to find tasks for */
+  contextId: string
 }
 
 /**
- * Parameters for querying specs an issue implements
+ * Parameters for querying context nodes a task implements
  */
-export interface SpecsQueryParams {
-  /** Issue ID to find specs for */
-  issueId: string
+export interface ContextQueryParams {
+  /** Task ID to find context for */
+  taskId: string
 }
 
 /**
@@ -128,7 +128,7 @@ export interface QueryParams {
   /** Query edges with filter */
   edges?: EdgeFilter
 
-  /** Get unblocked issues ready to work on */
+  /** Get unblocked tasks ready to work on */
   ready?: ReadyOptions
 
   /** Get nodes blocking a specific node */
@@ -143,11 +143,11 @@ export interface QueryParams {
   /** Get all unresolved feedback (optionally filtered by target) */
   unresolvedFeedback?: UnresolvedFeedbackQueryParams
 
-  /** Get issues that implement a spec */
-  implementers?: ImplementersQueryParams
+  /** Get tasks that implement a context */
+  tasks?: TasksQueryParams
 
-  /** Get specs that an issue implements */
-  specs?: SpecsQueryParams
+  /** Get context nodes that a task implements */
+  context?: ContextQueryParams
 
   /** Return full objects instead of summaries (default: false) */
   verbose?: boolean
@@ -172,7 +172,7 @@ export interface NodeSummary {
   /** Node title */
   title: string
 
-  /** Issue status (only for issues) */
+  /** Task status (only for tasks) */
   status?: string
 
   /** Priority (0=highest, 4=lowest) */
@@ -291,7 +291,7 @@ export interface AnnotateParams {
   /** Reopen resolved/dismissed feedback by ID */
   reopen?: string
 
-  /** Issue ID providing feedback (creates link) */
+  /** Task ID providing feedback (creates link) */
   fromId?: string
 }
 

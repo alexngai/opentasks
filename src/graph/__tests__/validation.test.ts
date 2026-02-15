@@ -33,7 +33,7 @@ describe('ValidationService', () => {
       })
 
       it('requires title', () => {
-        const input = { type: 'spec' } as CreateNodeInput
+        const input = { type: 'context' } as CreateNodeInput
         const result = service.validateCreateNode(input)
 
         expect(result.valid).toBe(false)
@@ -43,7 +43,7 @@ describe('ValidationService', () => {
       })
 
       it('rejects empty title', () => {
-        const input: CreateNodeInput = { type: 'spec', title: '' }
+        const input: CreateNodeInput = { type: 'context', title: '' }
         const result = service.validateCreateNode(input)
 
         expect(result.valid).toBe(false)
@@ -54,7 +54,7 @@ describe('ValidationService', () => {
 
       it('rejects title exceeding max length', () => {
         const input: CreateNodeInput = {
-          type: 'spec',
+          type: 'context',
           title: 'a'.repeat(501),
         }
         const result = service.validateCreateNode(input)
@@ -67,7 +67,7 @@ describe('ValidationService', () => {
 
       it('rejects content exceeding max length', () => {
         const input: CreateNodeInput = {
-          type: 'spec',
+          type: 'context',
           title: 'Test',
           content: 'a'.repeat(100_001),
         }
@@ -81,7 +81,7 @@ describe('ValidationService', () => {
 
       it('rejects invalid priority (out of range)', () => {
         const input: CreateNodeInput = {
-          type: 'spec',
+          type: 'context',
           title: 'Test',
           priority: 5,
         }
@@ -95,7 +95,7 @@ describe('ValidationService', () => {
 
       it('rejects negative priority', () => {
         const input: CreateNodeInput = {
-          type: 'spec',
+          type: 'context',
           title: 'Test',
           priority: -1,
         }
@@ -109,7 +109,7 @@ describe('ValidationService', () => {
 
       it('accepts valid priority', () => {
         const input: CreateNodeInput = {
-          type: 'spec',
+          type: 'context',
           title: 'Test',
           priority: 2,
         }
@@ -119,11 +119,11 @@ describe('ValidationService', () => {
       })
     })
 
-    describe('spec validation', () => {
-      it('accepts valid spec', () => {
+    describe('context validation', () => {
+      it('accepts valid context', () => {
         const input: CreateNodeInput = {
-          type: 'spec',
-          title: 'Test Spec',
+          type: 'context',
+          title: 'Test Context',
           content: 'Some content',
         }
         const result = service.validateCreateNode(input)
@@ -132,10 +132,10 @@ describe('ValidationService', () => {
         expect(result.errors).toHaveLength(0)
       })
 
-      it('accepts spec with optional status', () => {
+      it('accepts context with optional status', () => {
         const input: CreateNodeInput = {
-          type: 'spec',
-          title: 'Test Spec',
+          type: 'context',
+          title: 'Test Context',
           status: 'draft',
         }
         const result = service.validateCreateNode(input)
@@ -144,11 +144,11 @@ describe('ValidationService', () => {
       })
     })
 
-    describe('issue validation', () => {
-      it('requires status for issues', () => {
+    describe('task validation', () => {
+      it('requires status for tasks', () => {
         const input: CreateNodeInput = {
-          type: 'issue',
-          title: 'Test Issue',
+          type: 'task',
+          title: 'Test Task',
         }
         const result = service.validateCreateNode(input)
 
@@ -158,10 +158,10 @@ describe('ValidationService', () => {
         )
       })
 
-      it('accepts valid issue', () => {
+      it('accepts valid task', () => {
         const input: CreateNodeInput = {
-          type: 'issue',
-          title: 'Test Issue',
+          type: 'task',
+          title: 'Test Task',
           status: 'open',
         }
         const result = service.validateCreateNode(input)
@@ -171,8 +171,8 @@ describe('ValidationService', () => {
 
       it('warns for non-standard status', () => {
         const input: CreateNodeInput = {
-          type: 'issue',
-          title: 'Test Issue',
+          type: 'task',
+          title: 'Test Task',
           status: 'custom_status',
         }
         const result = service.validateCreateNode(input)
@@ -206,7 +206,7 @@ describe('ValidationService', () => {
         const input: CreateNodeInput = {
           type: 'feedback',
           title: 'Test Feedback',
-          target_id: 's-abc123',
+          target_id: 'c-abc123',
         }
         const result = service.validateCreateNode(input)
 
@@ -220,7 +220,7 @@ describe('ValidationService', () => {
         const input: CreateNodeInput = {
           type: 'feedback',
           title: 'Test Feedback',
-          target_id: 's-abc123',
+          target_id: 'c-abc123',
           feedback_type: 'comment',
         }
         const result = service.validateCreateNode(input)
@@ -277,18 +277,18 @@ describe('ValidationService', () => {
   // =========================================================================
 
   describe('validateUpdateNode', () => {
-    const existingIssue: StoredNode = {
-      id: 'i-test',
+    const existingTask: StoredNode = {
+      id: 't-test',
       uuid: 'test-uuid',
-      type: 'issue',
-      title: 'Existing Issue',
+      type: 'task',
+      title: 'Existing Task',
       status: 'open',
       created_at: '2025-01-26T10:00:00Z',
       updated_at: '2025-01-26T10:00:00Z',
     }
 
     it('accepts valid update', () => {
-      const result = service.validateUpdateNode(existingIssue, {
+      const result = service.validateUpdateNode(existingTask, {
         title: 'Updated Title',
       })
 
@@ -296,7 +296,7 @@ describe('ValidationService', () => {
     })
 
     it('rejects title exceeding max length', () => {
-      const result = service.validateUpdateNode(existingIssue, {
+      const result = service.validateUpdateNode(existingTask, {
         title: 'a'.repeat(501),
       })
 
@@ -306,8 +306,8 @@ describe('ValidationService', () => {
       )
     })
 
-    it('warns for non-standard status on issues', () => {
-      const result = service.validateUpdateNode(existingIssue, {
+    it('warns for non-standard status on tasks', () => {
+      const result = service.validateUpdateNode(existingTask, {
         status: 'custom',
       })
 
@@ -325,19 +325,19 @@ describe('ValidationService', () => {
   describe('validateCreateEdge', () => {
     const mockGetNode = async (id: string): Promise<StoredNode | null> => {
       const nodes: Record<string, StoredNode> = {
-        's-spec1': {
-          id: 's-spec1',
-          uuid: 'spec-uuid',
-          type: 'spec',
-          title: 'Test Spec',
+        'c-context1': {
+          id: 'c-context1',
+          uuid: 'context-uuid',
+          type: 'context',
+          title: 'Test Context',
           created_at: '2025-01-26T10:00:00Z',
           updated_at: '2025-01-26T10:00:00Z',
         },
-        'i-issue1': {
-          id: 'i-issue1',
-          uuid: 'issue-uuid',
-          type: 'issue',
-          title: 'Test Issue',
+        't-task1': {
+          id: 't-task1',
+          uuid: 'task-uuid',
+          type: 'task',
+          title: 'Test Task',
           status: 'open',
           created_at: '2025-01-26T10:00:00Z',
           updated_at: '2025-01-26T10:00:00Z',
@@ -347,7 +347,7 @@ describe('ValidationService', () => {
     }
 
     it('requires from_id', async () => {
-      const input = { to_id: 's-spec1', type: 'blocks' } as CreateEdgeInput
+      const input = { to_id: 'c-context1', type: 'blocks' } as CreateEdgeInput
       const result = await service.validateCreateEdge(input, mockGetNode)
 
       expect(result.valid).toBe(false)
@@ -357,7 +357,7 @@ describe('ValidationService', () => {
     })
 
     it('requires to_id', async () => {
-      const input = { from_id: 'i-issue1', type: 'blocks' } as CreateEdgeInput
+      const input = { from_id: 't-task1', type: 'blocks' } as CreateEdgeInput
       const result = await service.validateCreateEdge(input, mockGetNode)
 
       expect(result.valid).toBe(false)
@@ -367,7 +367,7 @@ describe('ValidationService', () => {
     })
 
     it('requires type', async () => {
-      const input = { from_id: 'i-issue1', to_id: 's-spec1' } as CreateEdgeInput
+      const input = { from_id: 't-task1', to_id: 'c-context1' } as CreateEdgeInput
       const result = await service.validateCreateEdge(input, mockGetNode)
 
       expect(result.valid).toBe(false)
@@ -378,8 +378,8 @@ describe('ValidationService', () => {
 
     it('rejects self-reference', async () => {
       const input: CreateEdgeInput = {
-        from_id: 'i-issue1',
-        to_id: 'i-issue1',
+        from_id: 't-task1',
+        to_id: 't-task1',
         type: 'blocks',
       }
       const result = await service.validateCreateEdge(input, mockGetNode)
@@ -392,8 +392,8 @@ describe('ValidationService', () => {
 
     it('errors when source node not found', async () => {
       const input: CreateEdgeInput = {
-        from_id: 'i-nonexistent',
-        to_id: 's-spec1',
+        from_id: 't-nonexistent',
+        to_id: 'c-context1',
         type: 'implements',
       }
       const result = await service.validateCreateEdge(input, mockGetNode)
@@ -406,8 +406,8 @@ describe('ValidationService', () => {
 
     it('errors when target node not found', async () => {
       const input: CreateEdgeInput = {
-        from_id: 'i-issue1',
-        to_id: 's-nonexistent',
+        from_id: 't-task1',
+        to_id: 'c-nonexistent',
         type: 'implements',
       }
       const result = await service.validateCreateEdge(input, mockGetNode)
@@ -420,8 +420,8 @@ describe('ValidationService', () => {
 
     it('accepts valid edge', async () => {
       const input: CreateEdgeInput = {
-        from_id: 'i-issue1',
-        to_id: 's-spec1',
+        from_id: 't-task1',
+        to_id: 'c-context1',
         type: 'implements',
       }
       const result = await service.validateCreateEdge(input, mockGetNode)
@@ -429,45 +429,45 @@ describe('ValidationService', () => {
       expect(result.valid).toBe(true)
     })
 
-    it('warns when implements edge has non-issue source', async () => {
+    it('warns when implements edge has non-task source', async () => {
       const input: CreateEdgeInput = {
-        from_id: 's-spec1',
-        to_id: 'i-issue1',
+        from_id: 'c-context1',
+        to_id: 't-task1',
         type: 'implements',
       }
       const result = await service.validateCreateEdge(input, mockGetNode)
 
       expect(result.valid).toBe(true) // Warning, not error
       expect(result.warnings).toContainEqual(
-        expect.objectContaining({ code: 'IMPLEMENTS_FROM_NON_ISSUE' })
+        expect.objectContaining({ code: 'IMPLEMENTS_FROM_NON_TASK' })
       )
     })
 
-    it('warns when implements edge has non-spec target', async () => {
+    it('warns when implements edge has non-context target', async () => {
       const input: CreateEdgeInput = {
-        from_id: 'i-issue1',
-        to_id: 'i-issue1',
+        from_id: 't-task1',
+        to_id: 't-task1',
         type: 'implements',
       }
       // Note: This will hit self-reference first, so use different nodes
-      const getNodeWithTwoIssues = async (
+      const getNodeWithTwoTasks = async (
         id: string
       ): Promise<StoredNode | null> => {
         const nodes: Record<string, StoredNode> = {
-          'i-issue1': {
-            id: 'i-issue1',
-            uuid: 'issue-uuid-1',
-            type: 'issue',
-            title: 'Test Issue 1',
+          't-task1': {
+            id: 't-task1',
+            uuid: 'task-uuid-1',
+            type: 'task',
+            title: 'Test Task 1',
             status: 'open',
             created_at: '2025-01-26T10:00:00Z',
             updated_at: '2025-01-26T10:00:00Z',
           },
-          'i-issue2': {
-            id: 'i-issue2',
-            uuid: 'issue-uuid-2',
-            type: 'issue',
-            title: 'Test Issue 2',
+          't-task2': {
+            id: 't-task2',
+            uuid: 'task-uuid-2',
+            type: 'task',
+            title: 'Test Task 2',
             status: 'open',
             created_at: '2025-01-26T10:00:00Z',
             updated_at: '2025-01-26T10:00:00Z',
@@ -477,24 +477,24 @@ describe('ValidationService', () => {
       }
 
       const input2: CreateEdgeInput = {
-        from_id: 'i-issue1',
-        to_id: 'i-issue2',
+        from_id: 't-task1',
+        to_id: 't-task2',
         type: 'implements',
       }
       const result = await service.validateCreateEdge(
         input2,
-        getNodeWithTwoIssues
+        getNodeWithTwoTasks
       )
 
       expect(result.valid).toBe(true)
       expect(result.warnings).toContainEqual(
-        expect.objectContaining({ code: 'IMPLEMENTS_TO_NON_SPEC' })
+        expect.objectContaining({ code: 'IMPLEMENTS_TO_NON_CONTEXT' })
       )
     })
 
     it('allows external URIs without node lookup', async () => {
       const input: CreateEdgeInput = {
-        from_id: 'i-issue1',
+        from_id: 't-task1',
         to_id: 'jira://PROJ-123',
         type: 'references',
       }
@@ -512,16 +512,16 @@ describe('ValidationService', () => {
     it('detects simple cycle (A→B, adding B→A)', async () => {
       // A blocks B already exists
       const getBlocksEdges = async (nodeId: string): Promise<StoredEdge[]> => {
-        if (nodeId === 'i-b') {
+        if (nodeId === 't-b') {
           return [] // B doesn't block anything yet
         }
-        if (nodeId === 'i-a') {
+        if (nodeId === 't-a') {
           return [
             {
               id: 'x-1',
               uuid: 'edge-uuid-1',
-              from_id: 'i-a',
-              to_id: 'i-b',
+              from_id: 't-a',
+              to_id: 't-b',
               type: 'blocks',
               created_at: '2025-01-26T10:00:00Z',
             },
@@ -531,60 +531,60 @@ describe('ValidationService', () => {
       }
 
       // Adding B→A would create cycle
-      const result = await service.detectCycle('i-b', 'i-a', getBlocksEdges)
+      const result = await service.detectCycle('t-b', 't-a', getBlocksEdges)
 
       expect(result.hasCycle).toBe(true)
-      expect(result.cycle).toEqual(['i-b', 'i-a'])
+      expect(result.cycle).toEqual(['t-b', 't-a'])
     })
 
     it('detects transitive cycle (A→B→C, adding C→A)', async () => {
       // A→B, B→C exists
       const getBlocksEdges = async (nodeId: string): Promise<StoredEdge[]> => {
         const edges: Record<string, StoredEdge[]> = {
-          'i-a': [
+          't-a': [
             {
               id: 'x-1',
               uuid: 'edge-1',
-              from_id: 'i-a',
-              to_id: 'i-b',
+              from_id: 't-a',
+              to_id: 't-b',
               type: 'blocks',
               created_at: '2025-01-26T10:00:00Z',
             },
           ],
-          'i-b': [
+          't-b': [
             {
               id: 'x-2',
               uuid: 'edge-2',
-              from_id: 'i-b',
-              to_id: 'i-c',
+              from_id: 't-b',
+              to_id: 't-c',
               type: 'blocks',
               created_at: '2025-01-26T10:00:00Z',
             },
           ],
-          'i-c': [],
+          't-c': [],
         }
         return edges[nodeId] || []
       }
 
       // Adding C→A would create cycle
-      const result = await service.detectCycle('i-c', 'i-a', getBlocksEdges)
+      const result = await service.detectCycle('t-c', 't-a', getBlocksEdges)
 
       expect(result.hasCycle).toBe(true)
-      expect(result.cycle).toContain('i-a')
-      expect(result.cycle).toContain('i-b')
-      expect(result.cycle).toContain('i-c')
+      expect(result.cycle).toContain('t-a')
+      expect(result.cycle).toContain('t-b')
+      expect(result.cycle).toContain('t-c')
     })
 
     it('returns no cycle for valid edge', async () => {
       // A→B exists
       const getBlocksEdges = async (nodeId: string): Promise<StoredEdge[]> => {
-        if (nodeId === 'i-a') {
+        if (nodeId === 't-a') {
           return [
             {
               id: 'x-1',
               uuid: 'edge-uuid-1',
-              from_id: 'i-a',
-              to_id: 'i-b',
+              from_id: 't-a',
+              to_id: 't-b',
               type: 'blocks',
               created_at: '2025-01-26T10:00:00Z',
             },
@@ -594,7 +594,7 @@ describe('ValidationService', () => {
       }
 
       // Adding A→C is fine (no cycle)
-      const result = await service.detectCycle('i-a', 'i-c', getBlocksEdges)
+      const result = await service.detectCycle('t-a', 't-c', getBlocksEdges)
 
       expect(result.hasCycle).toBe(false)
       expect(result.cycle).toBeUndefined()
@@ -603,7 +603,7 @@ describe('ValidationService', () => {
     it('handles no existing edges', async () => {
       const getBlocksEdges = async (): Promise<StoredEdge[]> => []
 
-      const result = await service.detectCycle('i-a', 'i-b', getBlocksEdges)
+      const result = await service.detectCycle('t-a', 't-b', getBlocksEdges)
 
       expect(result.hasCycle).toBe(false)
     })
@@ -612,51 +612,51 @@ describe('ValidationService', () => {
       // Diamond: A→B, A→C, B→D, C→D
       const getBlocksEdges = async (nodeId: string): Promise<StoredEdge[]> => {
         const edges: Record<string, StoredEdge[]> = {
-          'i-a': [
+          't-a': [
             {
               id: 'x-1',
               uuid: 'e1',
-              from_id: 'i-a',
-              to_id: 'i-b',
+              from_id: 't-a',
+              to_id: 't-b',
               type: 'blocks',
               created_at: '2025-01-26T10:00:00Z',
             },
             {
               id: 'x-2',
               uuid: 'e2',
-              from_id: 'i-a',
-              to_id: 'i-c',
+              from_id: 't-a',
+              to_id: 't-c',
               type: 'blocks',
               created_at: '2025-01-26T10:00:00Z',
             },
           ],
-          'i-b': [
+          't-b': [
             {
               id: 'x-3',
               uuid: 'e3',
-              from_id: 'i-b',
-              to_id: 'i-d',
+              from_id: 't-b',
+              to_id: 't-d',
               type: 'blocks',
               created_at: '2025-01-26T10:00:00Z',
             },
           ],
-          'i-c': [
+          't-c': [
             {
               id: 'x-4',
               uuid: 'e4',
-              from_id: 'i-c',
-              to_id: 'i-d',
+              from_id: 't-c',
+              to_id: 't-d',
               type: 'blocks',
               created_at: '2025-01-26T10:00:00Z',
             },
           ],
-          'i-d': [],
+          't-d': [],
         }
         return edges[nodeId] || []
       }
 
       // Adding D→E is fine
-      const result = await service.detectCycle('i-d', 'i-e', getBlocksEdges)
+      const result = await service.detectCycle('t-d', 't-e', getBlocksEdges)
 
       expect(result.hasCycle).toBe(false)
     })

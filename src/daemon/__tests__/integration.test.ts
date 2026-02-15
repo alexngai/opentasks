@@ -1,7 +1,7 @@
 /**
  * Integration tests for daemon lifecycle
  *
- * Tests the full start → IPC → operations → stop flow with real components.
+ * Tests the full start -> IPC -> operations -> stop flow with real components.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -27,9 +27,9 @@ function createMockStore(): GraphStore {
     flush: vi.fn().mockResolvedValue(undefined),
     createNode: vi.fn().mockImplementation(async (input) => {
       const node: Node = {
-        id: `i-${Date.now().toString(36)}`,
+        id: `t-${Date.now().toString(36)}`,
         uuid: '550e8400-e29b-41d4-a716-446655440000',
-        type: input.type || 'issue',
+        type: input.type || 'task',
         title: input.title,
         status: input.status || 'open',
         created_at: new Date().toISOString(),
@@ -79,8 +79,8 @@ function createMockStore(): GraphStore {
       blockers: vi.fn().mockResolvedValue([]),
       blocking: vi.fn().mockResolvedValue([]),
       isBlocking: vi.fn().mockResolvedValue(false),
-      implementers: vi.fn().mockResolvedValue([]),
-      specs: vi.fn().mockResolvedValue([]),
+      tasks: vi.fn().mockResolvedValue([]),
+      context: vi.fn().mockResolvedValue([]),
       children: vi.fn().mockResolvedValue([]),
       parent: vi.fn().mockResolvedValue(null),
       ancestors: vi.fn().mockResolvedValue([]),
@@ -137,7 +137,7 @@ describe('Daemon Integration', () => {
     }
   }
 
-  describe('start → connect → operate → stop', () => {
+  describe('start -> connect -> operate -> stop', () => {
     it('full lifecycle: ping via IPC', async () => {
       daemon = createDaemon(createConfig())
       await daemon.start()
@@ -213,12 +213,12 @@ describe('Daemon Integration', () => {
 
       // Create a node
       const created = await client.request<Node>('graph.create', {
-        type: 'issue',
-        title: 'Test Issue',
+        type: 'task',
+        title: 'Test Task',
         status: 'open',
       })
 
-      expect(created.title).toBe('Test Issue')
+      expect(created.title).toBe('Test Task')
       expect(created.id).toBeTruthy()
       expect(store.createNode).toHaveBeenCalledOnce()
     })
@@ -232,13 +232,13 @@ describe('Daemon Integration', () => {
       await client.connect()
 
       const edge = await client.request<Edge>('graph.createEdge', {
-        from_id: 'i-123',
-        to_id: 'i-456',
+        from_id: 't-123',
+        to_id: 't-456',
         type: 'blocks',
       })
 
-      expect(edge.from_id).toBe('i-123')
-      expect(edge.to_id).toBe('i-456')
+      expect(edge.from_id).toBe('t-123')
+      expect(edge.to_id).toBe('t-456')
       expect(store.createEdge).toHaveBeenCalledOnce()
     })
 

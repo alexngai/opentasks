@@ -28,11 +28,11 @@ describe('Graph Methods', () => {
   let flushedNodeIds: string[][]
 
   // Sample nodes for testing
-  const sampleSpec = {
-    id: 's-test1',
-    type: 'spec' as const,
-    title: 'Test Spec',
-    description: 'A test specification',
+  const sampleContext = {
+    id: 'c-test1',
+    type: 'context' as const,
+    title: 'Test Context',
+    description: 'A test context',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     priority: 2,
@@ -40,11 +40,11 @@ describe('Graph Methods', () => {
     tags: [],
   }
 
-  const sampleIssue = {
-    id: 'i-test1',
-    type: 'issue' as const,
-    title: 'Test Issue',
-    description: 'A test issue',
+  const sampleTask = {
+    id: 't-test1',
+    type: 'task' as const,
+    title: 'Test Task',
+    description: 'A test task',
     status: 'open' as const,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -55,8 +55,8 @@ describe('Graph Methods', () => {
 
   const sampleEdge = {
     id: 'e-test1',
-    from_id: 'i-test1',
-    to_id: 's-test1',
+    from_id: 't-test1',
+    to_id: 'c-test1',
     type: 'implements' as const,
     createdAt: new Date().toISOString(),
   }
@@ -67,8 +67,8 @@ describe('Graph Methods', () => {
 
     // Create mock store
     const nodes = new Map<string, unknown>()
-    nodes.set(sampleSpec.id, sampleSpec)
-    nodes.set(sampleIssue.id, sampleIssue)
+    nodes.set(sampleContext.id, sampleContext)
+    nodes.set(sampleTask.id, sampleTask)
 
     const edges = new Map<string, unknown>()
     edges.set(sampleEdge.id, sampleEdge)
@@ -92,7 +92,7 @@ describe('Graph Methods', () => {
       createNode: vi.fn().mockImplementation(async (input: CreateNodeInput) => {
         const node = {
           ...input,
-          id: input.type === 'spec' ? 's-new1' : 'i-new1',
+          id: input.type === 'context' ? 'c-new1' : 't-new1',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }
@@ -185,10 +185,10 @@ describe('Graph Methods', () => {
 
   describe('graph.query', () => {
     it('should query nodes by type', async () => {
-      const result = await client.request<unknown[]>('graph.query', { type: 'spec' })
+      const result = await client.request<unknown[]>('graph.query', { type: 'context' })
 
       expect(mockStore.query.nodes).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'spec' })
+        expect.objectContaining({ type: 'context' })
       )
       expect(result).toHaveLength(1)
     })
@@ -202,7 +202,7 @@ describe('Graph Methods', () => {
 
     it('should pass filter and pagination options', async () => {
       await client.request('graph.query', {
-        type: 'issue',
+        type: 'task',
         filter: { status: 'open' },
         limit: 10,
         offset: 5,
@@ -210,7 +210,7 @@ describe('Graph Methods', () => {
 
       expect(mockStore.query.nodes).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'issue',
+          type: 'task',
           status: 'open',
           limit: 10,
           offset: 5,
@@ -221,10 +221,10 @@ describe('Graph Methods', () => {
 
   describe('graph.get', () => {
     it('should get node by ID', async () => {
-      const result = await client.request('graph.get', { id: 's-test1' })
+      const result = await client.request('graph.get', { id: 'c-test1' })
 
-      expect(mockStore.getNode).toHaveBeenCalledWith('s-test1')
-      expect(result).toEqual(sampleSpec)
+      expect(mockStore.getNode).toHaveBeenCalledWith('c-test1')
+      expect(result).toEqual(sampleContext)
     })
 
     it('should return null for non-existent node', async () => {
@@ -241,26 +241,26 @@ describe('Graph Methods', () => {
   describe('graph.create', () => {
     it('should create a node', async () => {
       const input: CreateNodeInput = {
-        type: 'spec',
-        title: 'New Spec',
+        type: 'context',
+        title: 'New Context',
         content: 'Description',
       }
 
       const result = await client.request<{ id: string }>('graph.create', input)
 
       expect(mockStore.createNode).toHaveBeenCalledWith(input)
-      expect(result.id).toBe('s-new1')
+      expect(result.id).toBe('c-new1')
     })
 
     it('should mark node dirty and schedule flush', async () => {
       const input: CreateNodeInput = {
-        type: 'spec',
-        title: 'New Spec',
+        type: 'context',
+        title: 'New Context',
       }
 
       await client.request('graph.create', input)
 
-      expect(flushManager.getDirtyNodes()).toContain('s-new1')
+      expect(flushManager.getDirtyNodes()).toContain('c-new1')
       expect(flushManager.hasPendingChanges()).toBe(true)
     })
   })
@@ -268,18 +268,18 @@ describe('Graph Methods', () => {
   describe('graph.update', () => {
     it('should update a node', async () => {
       const result = await client.request<{ title: string }>('graph.update', {
-        id: 's-test1',
+        id: 'c-test1',
         title: 'Updated Title',
       })
 
-      expect(mockStore.updateNode).toHaveBeenCalledWith('s-test1', { title: 'Updated Title' })
+      expect(mockStore.updateNode).toHaveBeenCalledWith('c-test1', { title: 'Updated Title' })
       expect(result.title).toBe('Updated Title')
     })
 
     it('should mark node dirty', async () => {
-      await client.request('graph.update', { id: 's-test1', title: 'Updated' })
+      await client.request('graph.update', { id: 'c-test1', title: 'Updated' })
 
-      expect(flushManager.getDirtyNodes()).toContain('s-test1')
+      expect(flushManager.getDirtyNodes()).toContain('c-test1')
     })
 
     it('should throw when id missing', async () => {
@@ -289,22 +289,22 @@ describe('Graph Methods', () => {
 
   describe('graph.delete', () => {
     it('should delete a node', async () => {
-      await client.request('graph.delete', { id: 's-test1' })
+      await client.request('graph.delete', { id: 'c-test1' })
 
-      expect(mockStore.deleteNode).toHaveBeenCalledWith('s-test1', undefined)
+      expect(mockStore.deleteNode).toHaveBeenCalledWith('c-test1', undefined)
     })
 
     it('should pass delete options', async () => {
       await client.request('graph.delete', {
-        id: 's-test1',
+        id: 'c-test1',
         options: { hard: true },
       })
 
-      expect(mockStore.deleteNode).toHaveBeenCalledWith('s-test1', { hard: true })
+      expect(mockStore.deleteNode).toHaveBeenCalledWith('c-test1', { hard: true })
     })
 
     it('should mark deletion and schedule flush', async () => {
-      await client.request('graph.delete', { id: 's-test1' })
+      await client.request('graph.delete', { id: 'c-test1' })
 
       expect(flushManager.getDirtyNodes()).toContain('__deleted__:s-test1')
     })
@@ -313,14 +313,14 @@ describe('Graph Methods', () => {
   describe('graph.createEdge', () => {
     it('should create an edge', async () => {
       await client.request('graph.createEdge', {
-        from_id: 'i-test1',
-        to_id: 's-test1',
+        from_id: 't-test1',
+        to_id: 'c-test1',
         type: 'implements',
       })
 
       expect(mockStore.createEdge).toHaveBeenCalledWith({
-        from_id: 'i-test1',
-        to_id: 's-test1',
+        from_id: 't-test1',
+        to_id: 'c-test1',
         type: 'implements',
         metadata: undefined,
       })
@@ -328,14 +328,14 @@ describe('Graph Methods', () => {
 
     it('should mark both nodes dirty', async () => {
       await client.request('graph.createEdge', {
-        from_id: 'i-test1',
-        to_id: 's-test1',
+        from_id: 't-test1',
+        to_id: 'c-test1',
         type: 'implements',
       })
 
       const dirty = flushManager.getDirtyNodes()
-      expect(dirty).toContain('i-test1')
-      expect(dirty).toContain('s-test1')
+      expect(dirty).toContain('t-test1')
+      expect(dirty).toContain('c-test1')
     })
   })
 
@@ -351,8 +351,8 @@ describe('Graph Methods', () => {
       await client.request('graph.deleteEdge', { id: 'e-test1' })
 
       const dirty = flushManager.getDirtyNodes()
-      expect(dirty).toContain('i-test1')
-      expect(dirty).toContain('s-test1')
+      expect(dirty).toContain('t-test1')
+      expect(dirty).toContain('c-test1')
     })
 
     it('should throw when id missing', async () => {
@@ -365,8 +365,8 @@ describe('Graph Methods', () => {
   describe('flush', () => {
     it('should force immediate flush', async () => {
       // Mark some nodes dirty first
-      flushManager.markDirty('s-test1')
-      flushManager.markDirty('i-test1')
+      flushManager.markDirty('c-test1')
+      flushManager.markDirty('t-test1')
 
       const result = await client.request<{ success: boolean }>('flush')
 

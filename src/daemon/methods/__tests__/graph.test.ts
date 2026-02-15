@@ -132,7 +132,7 @@ describe('registerGraphMethods', () => {
     })
 
     it('should call store.query.nodes with filter', async () => {
-      const filter = { type: 'issue' as const, status: 'open' }
+      const filter = { type: 'task' as const, status: 'open' }
       await server.call('graph.query', { filter, limit: 10, offset: 0 })
 
       expect(store.query.nodes).toHaveBeenCalledWith({
@@ -152,10 +152,10 @@ describe('registerGraphMethods', () => {
     })
 
     it('should add type to filter if provided', async () => {
-      await server.call('graph.query', { type: 'spec' })
+      await server.call('graph.query', { type: 'context' })
 
       expect(store.query.nodes).toHaveBeenCalledWith({
-        type: 'spec',
+        type: 'context',
         limit: undefined,
         offset: undefined,
       })
@@ -168,14 +168,14 @@ describe('registerGraphMethods', () => {
     })
 
     it('should return node by ID', async () => {
-      const node = { id: 'i-1', type: 'issue', title: 'Test' }
-      store._nodes.set('i-1', node)
+      const node = { id: 't-1', type: 'task', title: 'Test' }
+      store._nodes.set('t-1', node)
       store.getNode = vi.fn().mockResolvedValue(node)
 
-      const result = await server.call('graph.get', { id: 'i-1' })
+      const result = await server.call('graph.get', { id: 't-1' })
 
       expect(result).toEqual(node)
-      expect(store.getNode).toHaveBeenCalledWith('i-1')
+      expect(store.getNode).toHaveBeenCalledWith('t-1')
     })
 
     it('should throw error if id is missing', async () => {
@@ -197,7 +197,7 @@ describe('registerGraphMethods', () => {
     })
 
     it('should create node and mark dirty', async () => {
-      const input = { type: 'issue' as const, title: 'Test Issue' }
+      const input = { type: 'task' as const, title: 'Test Task' }
 
       const result = await server.call('graph.create', input)
 
@@ -220,13 +220,13 @@ describe('registerGraphMethods', () => {
     })
 
     it('should update node and mark dirty', async () => {
-      const node = { id: 'i-1', type: 'issue', title: 'Test' }
-      store._nodes.set('i-1', node)
+      const node = { id: 't-1', type: 'task', title: 'Test' }
+      store._nodes.set('t-1', node)
 
-      await server.call('graph.update', { id: 'i-1', title: 'Updated' })
+      await server.call('graph.update', { id: 't-1', title: 'Updated' })
 
-      expect(store.updateNode).toHaveBeenCalledWith('i-1', { title: 'Updated' })
-      expect(flushManager.markDirty).toHaveBeenCalledWith('i-1')
+      expect(store.updateNode).toHaveBeenCalledWith('t-1', { title: 'Updated' })
+      expect(flushManager.markDirty).toHaveBeenCalledWith('t-1')
       expect(flushManager.schedule).toHaveBeenCalled()
     })
 
@@ -249,23 +249,23 @@ describe('registerGraphMethods', () => {
     })
 
     it('should delete node and mark dirty', async () => {
-      const node = { id: 'i-1', type: 'issue', title: 'Test' }
-      store._nodes.set('i-1', node)
+      const node = { id: 't-1', type: 'task', title: 'Test' }
+      store._nodes.set('t-1', node)
 
-      await server.call('graph.delete', { id: 'i-1' })
+      await server.call('graph.delete', { id: 't-1' })
 
-      expect(store.deleteNode).toHaveBeenCalledWith('i-1', undefined)
+      expect(store.deleteNode).toHaveBeenCalledWith('t-1', undefined)
       expect(flushManager.markDirty).toHaveBeenCalledWith('__deleted__:i-1')
       expect(flushManager.schedule).toHaveBeenCalled()
     })
 
     it('should pass options when provided', async () => {
-      const node = { id: 'i-1', type: 'issue', title: 'Test' }
-      store._nodes.set('i-1', node)
+      const node = { id: 't-1', type: 'task', title: 'Test' }
+      store._nodes.set('t-1', node)
 
-      await server.call('graph.delete', { id: 'i-1', options: { hard: true } })
+      await server.call('graph.delete', { id: 't-1', options: { hard: true } })
 
-      expect(store.deleteNode).toHaveBeenCalledWith('i-1', { hard: true })
+      expect(store.deleteNode).toHaveBeenCalledWith('t-1', { hard: true })
     })
 
     it('should throw error if id is missing', async () => {
@@ -281,18 +281,18 @@ describe('registerGraphMethods', () => {
     })
 
     it('should create edge and mark both nodes dirty', async () => {
-      const input = { from_id: 'i-1', to_id: 'i-2', type: 'blocks' as const }
+      const input = { from_id: 't-1', to_id: 't-2', type: 'blocks' as const }
 
       const result = await server.call('graph.createEdge', input)
 
       expect(store.createEdge).toHaveBeenCalledWith({
-        from_id: 'i-1',
-        to_id: 'i-2',
+        from_id: 't-1',
+        to_id: 't-2',
         type: 'blocks',
         metadata: undefined,
       })
-      expect(flushManager.markDirty).toHaveBeenCalledWith('i-1')
-      expect(flushManager.markDirty).toHaveBeenCalledWith('i-2')
+      expect(flushManager.markDirty).toHaveBeenCalledWith('t-1')
+      expect(flushManager.markDirty).toHaveBeenCalledWith('t-2')
       expect(flushManager.schedule).toHaveBeenCalled()
       expect(result).toHaveProperty('id')
     })
@@ -310,15 +310,15 @@ describe('registerGraphMethods', () => {
     })
 
     it('should delete edge and mark both nodes dirty', async () => {
-      const edge = { id: 'e-1', from_id: 'i-1', to_id: 'i-2', type: 'blocks' }
+      const edge = { id: 'e-1', from_id: 't-1', to_id: 't-2', type: 'blocks' }
       store._edges.set('e-1', edge)
       store.getEdge = vi.fn().mockResolvedValue(edge)
 
       await server.call('graph.deleteEdge', { id: 'e-1' })
 
       expect(store.deleteEdge).toHaveBeenCalledWith('e-1')
-      expect(flushManager.markDirty).toHaveBeenCalledWith('i-1')
-      expect(flushManager.markDirty).toHaveBeenCalledWith('i-2')
+      expect(flushManager.markDirty).toHaveBeenCalledWith('t-1')
+      expect(flushManager.markDirty).toHaveBeenCalledWith('t-2')
       expect(flushManager.schedule).toHaveBeenCalled()
     })
 

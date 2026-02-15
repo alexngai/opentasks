@@ -121,7 +121,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
     // Strategy 1: Claimed tasks (high confidence)
     try {
       const allIssues = await store.query.nodes({
-        type: 'issue',
+        type: 'task',
         status: 'in_progress',
         archived: false,
       })
@@ -150,7 +150,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
     if (session.branch) {
       try {
         const allIssues = await store.query.nodes({
-          type: 'issue',
+          type: 'task',
           status: 'in_progress',
           archived: false,
         })
@@ -177,7 +177,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
     // Only if exactly one in-progress task exists (ambiguity guard)
     try {
       const allInProgress = await store.query.nodes({
-        type: 'issue',
+        type: 'task',
         status: 'in_progress',
         archived: false,
       })

@@ -223,10 +223,10 @@ describe('GraphStore', () => {
       jsonlData = {
         nodes: [
           {
-            id: 's-test1',
+            id: 'c-test1',
             uuid: 'uuid-1',
-            type: 'spec',
-            title: 'Test Spec',
+            type: 'context',
+            title: 'Test Context',
             created_at: '2024-01-01T00:00:00Z',
             updated_at: '2024-01-01T00:00:00Z',
             archived: false,
@@ -239,12 +239,12 @@ describe('GraphStore', () => {
       await store.initialize()
 
       // Verify synced to storage
-      const node = await storage.getNode('s-test1')
+      const node = await storage.getNode('c-test1')
       expect(node).not.toBeNull()
-      expect(node?.title).toBe('Test Spec')
+      expect(node?.title).toBe('Test Context')
 
       // Verify tags synced
-      const nodeTags = await storage.getTags('s-test1')
+      const nodeTags = await storage.getTags('c-test1')
       expect(nodeTags).toContain('important')
     })
 
@@ -253,8 +253,8 @@ describe('GraphStore', () => {
 
       // Create a node
       await store.createNode({
-        type: 'spec',
-        title: 'New Spec',
+        type: 'context',
+        title: 'New Context',
       })
 
       // Close should trigger flush
@@ -270,59 +270,59 @@ describe('GraphStore', () => {
       await store.initialize()
     })
 
-    it('should create a spec', async () => {
+    it('should create a context', async () => {
       const node = await store.createNode({
-        type: 'spec',
-        title: 'My Spec',
+        type: 'context',
+        title: 'My Context',
         content: 'Description',
         priority: 1,
       })
 
-      expect(node.type).toBe('spec')
-      expect(node.title).toBe('My Spec')
+      expect(node.type).toBe('context')
+      expect(node.title).toBe('My Context')
       expect(node.content).toBe('Description')
       expect(node.priority).toBe(1)
-      expect(node.id).toMatch(/^s-[a-z0-9]+$/)
+      expect(node.id).toMatch(/^c-[a-z0-9]+$/)
     })
 
-    it('should create an issue with status', async () => {
+    it('should create a task with status', async () => {
       const node = await store.createNode({
-        type: 'issue',
-        title: 'My Issue',
+        type: 'task',
+        title: 'My Task',
         status: 'open',
       })
 
-      expect(node.type).toBe('issue')
-      if (node.type === 'issue') {
+      expect(node.type).toBe('task')
+      if (node.type === 'task') {
         expect(node.status).toBe('open')
       }
     })
 
     it('should create a feedback node', async () => {
-      // First create target spec
-      const spec = await store.createNode({
-        type: 'spec',
-        title: 'Target Spec',
+      // First create target context
+      const context = await store.createNode({
+        type: 'context',
+        title: 'Target Context',
       })
 
       const feedback = await store.createNode({
         type: 'feedback',
         title: 'My Feedback',
-        target_id: spec.id,
+        target_id: context.id,
         feedback_type: 'comment',
       })
 
       expect(feedback.type).toBe('feedback')
       if (feedback.type === 'feedback') {
-        expect(feedback.target_id).toBe(spec.id)
+        expect(feedback.target_id).toBe(context.id)
         expect(feedback.feedback_type).toBe('comment')
       }
     })
 
     it('should handle tags', async () => {
       const node = await store.createNode({
-        type: 'spec',
-        title: 'Tagged Spec',
+        type: 'context',
+        title: 'Tagged Context',
         tags: ['urgent', 'feature'],
       })
 
@@ -333,7 +333,7 @@ describe('GraphStore', () => {
     it('should reject invalid input', async () => {
       await expect(
         store.createNode({
-          type: 'spec',
+          type: 'context',
           title: '', // Empty title
         })
       ).rejects.toThrow(GraphError)
@@ -347,19 +347,19 @@ describe('GraphStore', () => {
 
     it('should get existing node', async () => {
       const created = await store.createNode({
-        type: 'spec',
-        title: 'Test Spec',
+        type: 'context',
+        title: 'Test Context',
       })
 
       const fetched = await store.getNode(created.id)
 
       expect(fetched).not.toBeNull()
       expect(fetched?.id).toBe(created.id)
-      expect(fetched?.title).toBe('Test Spec')
+      expect(fetched?.title).toBe('Test Context')
     })
 
     it('should return null for non-existent node', async () => {
-      const fetched = await store.getNode('s-nonexistent')
+      const fetched = await store.getNode('c-nonexistent')
       expect(fetched).toBeNull()
     })
   })
@@ -371,7 +371,7 @@ describe('GraphStore', () => {
 
     it('should update node fields', async () => {
       const created = await store.createNode({
-        type: 'spec',
+        type: 'context',
         title: 'Original Title',
       })
 
@@ -386,7 +386,7 @@ describe('GraphStore', () => {
 
     it('should throw for non-existent node', async () => {
       await expect(
-        store.updateNode('s-nonexistent', { title: 'New Title' })
+        store.updateNode('c-nonexistent', { title: 'New Title' })
       ).rejects.toThrow(GraphError)
     })
   })
@@ -398,7 +398,7 @@ describe('GraphStore', () => {
 
     it('should soft delete by default', async () => {
       const created = await store.createNode({
-        type: 'spec',
+        type: 'context',
         title: 'To Delete',
       })
 
@@ -412,7 +412,7 @@ describe('GraphStore', () => {
 
     it('should hard delete when requested', async () => {
       const created = await store.createNode({
-        type: 'spec',
+        type: 'context',
         title: 'To Delete Hard',
       })
 
@@ -425,7 +425,7 @@ describe('GraphStore', () => {
 
     it('should throw for non-existent node', async () => {
       await expect(
-        store.deleteNode('s-nonexistent')
+        store.deleteNode('c-nonexistent')
       ).rejects.toThrow(GraphError)
     })
   })
@@ -437,7 +437,7 @@ describe('GraphStore', () => {
 
     it('should restore archived node', async () => {
       const created = await store.createNode({
-        type: 'spec',
+        type: 'context',
         title: 'To Archive',
       })
 
@@ -449,7 +449,7 @@ describe('GraphStore', () => {
 
     it('should throw when restoring non-archived node', async () => {
       const created = await store.createNode({
-        type: 'spec',
+        type: 'context',
         title: 'Not Archived',
       })
 
@@ -465,41 +465,41 @@ describe('GraphStore', () => {
     })
 
     it('should create edge between nodes', async () => {
-      const spec = await store.createNode({ type: 'spec', title: 'Spec' })
-      const issue = await store.createNode({
-        type: 'issue',
-        title: 'Issue',
+      const context = await store.createNode({ type: 'context', title: 'Context' })
+      const task = await store.createNode({
+        type: 'task',
+        title: 'Task',
         status: 'open',
       })
 
       const edge = await store.createEdge({
-        from_id: issue.id,
-        to_id: spec.id,
+        from_id: task.id,
+        to_id: context.id,
         type: 'implements',
       })
 
-      expect(edge.from_id).toBe(issue.id)
-      expect(edge.to_id).toBe(spec.id)
+      expect(edge.from_id).toBe(task.id)
+      expect(edge.to_id).toBe(context.id)
       expect(edge.type).toBe('implements')
       expect(edge.id).toMatch(/^x-[a-z0-9]+$/)
     })
 
     it('should reject self-reference', async () => {
-      const spec = await store.createNode({ type: 'spec', title: 'Spec' })
+      const context = await store.createNode({ type: 'context', title: 'Context' })
 
       await expect(
         store.createEdge({
-          from_id: spec.id,
-          to_id: spec.id,
+          from_id: context.id,
+          to_id: context.id,
           type: 'references',
         })
       ).rejects.toThrow(GraphError)
     })
 
     it('should detect cycles in blocks edges', async () => {
-      const a = await store.createNode({ type: 'issue', title: 'A', status: 'open' })
-      const b = await store.createNode({ type: 'issue', title: 'B', status: 'open' })
-      const c = await store.createNode({ type: 'issue', title: 'C', status: 'open' })
+      const a = await store.createNode({ type: 'task', title: 'A', status: 'open' })
+      const b = await store.createNode({ type: 'task', title: 'B', status: 'open' })
+      const c = await store.createNode({ type: 'task', title: 'C', status: 'open' })
 
       // A blocks B
       await store.createEdge({ from_id: a.id, to_id: b.id, type: 'blocks' })
@@ -519,7 +519,7 @@ describe('GraphStore', () => {
     })
 
     it('should add tags', async () => {
-      const node = await store.createNode({ type: 'spec', title: 'Spec' })
+      const node = await store.createNode({ type: 'context', title: 'Context' })
 
       await store.addTags(node.id, ['tag1', 'tag2'])
 
@@ -530,8 +530,8 @@ describe('GraphStore', () => {
 
     it('should remove tags', async () => {
       const node = await store.createNode({
-        type: 'spec',
-        title: 'Spec',
+        type: 'context',
+        title: 'Context',
         tags: ['keep', 'remove'],
       })
 
@@ -544,8 +544,8 @@ describe('GraphStore', () => {
 
     it('should set tags (replace all)', async () => {
       const node = await store.createNode({
-        type: 'spec',
-        title: 'Spec',
+        type: 'context',
+        title: 'Context',
         tags: ['old1', 'old2'],
       })
 
@@ -571,11 +571,11 @@ describe('GraphStore', () => {
     })
 
     it('should query created nodes', async () => {
-      await store.createNode({ type: 'spec', title: 'Spec 1' })
-      await store.createNode({ type: 'spec', title: 'Spec 2' })
+      await store.createNode({ type: 'context', title: 'Context 1' })
+      await store.createNode({ type: 'context', title: 'Context 2' })
 
-      const specs = await store.query.nodes({ type: 'spec' })
-      expect(specs).toHaveLength(2)
+      const contexts = await store.query.nodes({ type: 'context' })
+      expect(contexts).toHaveLength(2)
     })
   })
 
@@ -586,26 +586,26 @@ describe('GraphStore', () => {
 
     it('should execute operations in transaction', async () => {
       const result = await store.transaction(async (tx) => {
-        const spec = await tx.createNode({ type: 'spec', title: 'Spec' })
-        const issue = await tx.createNode({
-          type: 'issue',
-          title: 'Issue',
+        const context = await tx.createNode({ type: 'context', title: 'Context' })
+        const task = await tx.createNode({
+          type: 'task',
+          title: 'Task',
           status: 'open',
         })
         await tx.createEdge({
-          from_id: issue.id,
-          to_id: spec.id,
+          from_id: task.id,
+          to_id: context.id,
           type: 'implements',
         })
-        return { spec, issue }
+        return { context, task }
       })
 
-      expect(result.spec.type).toBe('spec')
-      expect(result.issue.type).toBe('issue')
+      expect(result.context.type).toBe('context')
+      expect(result.task.type).toBe('task')
 
       // Verify persisted
-      const spec = await store.getNode(result.spec.id)
-      expect(spec).not.toBeNull()
+      const context = await store.getNode(result.context.id)
+      expect(context).not.toBeNull()
     })
   })
 })

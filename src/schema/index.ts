@@ -9,8 +9,8 @@ export type { Anchor, BaseNode } from './base.js'
 
 // Node types
 export type {
-  Spec,
-  Issue,
+  Context,
+  Task,
   Feedback,
   ExternalNode,
   Node,
@@ -38,8 +38,8 @@ export type {
 export {
   ValidationError,
   type ValidationResult,
-  isSpec,
-  isIssue,
+  isContext,
+  isTask,
   isFeedback,
   isExternal,
   validateStoredNode,

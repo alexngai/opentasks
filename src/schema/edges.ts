@@ -3,7 +3,7 @@
  *
  * Edge direction semantics: `from` → `to`
  * - "blocks": from must complete before to can start
- * - "implements": from (issue) implements to (spec)
+ * - "implements": from (task) implements to (context)
  */
 
 /**
@@ -11,7 +11,7 @@
  */
 export type CoreEdgeType =
   | 'blocks'      // from blocks to (dependency)
-  | 'implements'  // issue implements spec
+  | 'implements'  // task implements context
   | 'references'  // general reference
   | 'related'     // loose association
 

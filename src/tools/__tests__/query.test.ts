@@ -5,28 +5,28 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { query } from '../query.js'
 import type { GraphStore } from '../../graph/store.js'
-import type { Node, Edge, Feedback, Issue } from '../../schema/index.js'
+import type { Node, Edge, Feedback, Task } from '../../schema/index.js'
 
 describe('query tool', () => {
   let mockStore: GraphStore
 
   // Sample data
-  const sampleSpec: Node = {
-    id: 's-test1',
+  const sampleContext: Node = {
+    id: 'c-test1',
     uuid: 'uuid-1',
-    type: 'spec',
-    title: 'Test Spec',
+    type: 'context',
+    title: 'Test Context',
     priority: 1,
     archived: false,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
   }
 
-  const sampleIssue: Issue = {
-    id: 'i-test1',
+  const sampleTask: Task = {
+    id: 't-test1',
     uuid: 'uuid-2',
-    type: 'issue',
-    title: 'Test Issue',
+    type: 'task',
+    title: 'Test Task',
     status: 'open',
     priority: 2,
     archived: false,
@@ -39,7 +39,7 @@ describe('query tool', () => {
     uuid: 'uuid-3',
     type: 'feedback',
     title: 'Test Feedback',
-    target_id: 's-test1',
+    target_id: 'c-test1',
     feedback_type: 'comment',
     resolved: false,
     dismissed: false,
@@ -53,8 +53,8 @@ describe('query tool', () => {
   const sampleEdge: Edge = {
     id: 'x-test1',
     uuid: 'uuid-4',
-    from_id: 'i-test1',
-    to_id: 's-test1',
+    from_id: 't-test1',
+    to_id: 'c-test1',
     type: 'implements',
     created_at: '2024-01-01T00:00:00Z',
   }
@@ -62,11 +62,11 @@ describe('query tool', () => {
   beforeEach(() => {
     mockStore = {
       query: {
-        nodes: vi.fn().mockResolvedValue([sampleSpec, sampleIssue]),
+        nodes: vi.fn().mockResolvedValue([sampleContext, sampleTask]),
         edges: vi.fn().mockResolvedValue([sampleEdge]),
-        ready: vi.fn().mockResolvedValue([sampleIssue]),
-        blockers: vi.fn().mockResolvedValue([sampleSpec]),
-        blocking: vi.fn().mockResolvedValue([sampleIssue]),
+        ready: vi.fn().mockResolvedValue([sampleTask]),
+        blockers: vi.fn().mockResolvedValue([sampleContext]),
+        blocking: vi.fn().mockResolvedValue([sampleTask]),
         feedback: vi.fn().mockResolvedValue([sampleFeedback]),
         unresolvedFeedback: vi.fn().mockResolvedValue([sampleFeedback]),
       },
@@ -96,11 +96,11 @@ describe('query tool', () => {
   describe('nodes query', () => {
     it('should query nodes with filter', async () => {
       const result = await query(mockStore, {
-        nodes: { type: 'spec' },
+        nodes: { type: 'context' },
       })
 
       expect(mockStore.query.nodes).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'spec' })
+        expect.objectContaining({ type: 'context' })
       )
       expect(result.items).toHaveLength(2)
     })
@@ -109,9 +109,9 @@ describe('query tool', () => {
       const result = await query(mockStore, { nodes: {} })
 
       const item = result.items[0] as any
-      expect(item.id).toBe('s-test1')
-      expect(item.type).toBe('spec')
-      expect(item.title).toBe('Test Spec')
+      expect(item.id).toBe('c-test1')
+      expect(item.type).toBe('context')
+      expect(item.title).toBe('Test Context')
       // Should NOT have full node properties
       expect(item.uuid).toBeUndefined()
       expect(item.created_at).toBeUndefined()
@@ -121,7 +121,7 @@ describe('query tool', () => {
       const result = await query(mockStore, { nodes: {}, verbose: true })
 
       const item = result.items[0] as any
-      expect(item.id).toBe('s-test1')
+      expect(item.id).toBe('c-test1')
       expect(item.uuid).toBe('uuid-1')
       expect(item.created_at).toBeDefined()
     })
@@ -130,7 +130,7 @@ describe('query tool', () => {
   describe('edges query', () => {
     it('should query edges with filter', async () => {
       const result = await query(mockStore, {
-        edges: { from_id: 'i-test1' },
+        edges: { from_id: 't-test1' },
       })
 
       expect(mockStore.query.edges).toHaveBeenCalled()
@@ -142,8 +142,8 @@ describe('query tool', () => {
 
       const item = result.items[0] as any
       expect(item.id).toBe('x-test1')
-      expect(item.fromId).toBe('i-test1')
-      expect(item.toId).toBe('s-test1')
+      expect(item.fromId).toBe('t-test1')
+      expect(item.toId).toBe('c-test1')
       expect(item.type).toBe('implements')
       // Should NOT have full edge properties
       expect(item.uuid).toBeUndefined()
@@ -152,7 +152,7 @@ describe('query tool', () => {
   })
 
   describe('ready query', () => {
-    it('should return ready issues', async () => {
+    it('should return ready tasks', async () => {
       const result = await query(mockStore, { ready: {} })
 
       expect(mockStore.query.ready).toHaveBeenCalled()
@@ -176,19 +176,19 @@ describe('query tool', () => {
   describe('blockers query', () => {
     it('should return blockers for node', async () => {
       const result = await query(mockStore, {
-        blockers: { nodeId: 'i-test1' },
+        blockers: { nodeId: 't-test1' },
       })
 
-      expect(mockStore.query.blockers).toHaveBeenCalledWith('i-test1', expect.any(Object))
+      expect(mockStore.query.blockers).toHaveBeenCalledWith('t-test1', expect.any(Object))
       expect(result.items).toHaveLength(1)
     })
 
     it('should pass blocker options', async () => {
       await query(mockStore, {
-        blockers: { nodeId: 'i-test1', transitive: true, activeOnly: false },
+        blockers: { nodeId: 't-test1', transitive: true, activeOnly: false },
       })
 
-      expect(mockStore.query.blockers).toHaveBeenCalledWith('i-test1', {
+      expect(mockStore.query.blockers).toHaveBeenCalledWith('t-test1', {
         transitive: true,
         activeOnly: false,
       })
@@ -198,10 +198,10 @@ describe('query tool', () => {
   describe('blocking query', () => {
     it('should return nodes blocked by node', async () => {
       const result = await query(mockStore, {
-        blocking: { nodeId: 's-test1' },
+        blocking: { nodeId: 'c-test1' },
       })
 
-      expect(mockStore.query.blocking).toHaveBeenCalledWith('s-test1', expect.any(Object))
+      expect(mockStore.query.blocking).toHaveBeenCalledWith('c-test1', expect.any(Object))
       expect(result.items).toHaveLength(1)
     })
   })
@@ -209,24 +209,24 @@ describe('query tool', () => {
   describe('feedback query', () => {
     it('should return feedback for node', async () => {
       const result = await query(mockStore, {
-        feedback: { nodeId: 's-test1' },
+        feedback: { nodeId: 'c-test1' },
       })
 
-      expect(mockStore.query.feedback).toHaveBeenCalledWith('s-test1', expect.any(Object))
+      expect(mockStore.query.feedback).toHaveBeenCalledWith('c-test1', expect.any(Object))
       expect(result.items).toHaveLength(1)
     })
 
     it('should pass feedback options', async () => {
       await query(mockStore, {
         feedback: {
-          nodeId: 's-test1',
+          nodeId: 'c-test1',
           type: 'suggestion',
           resolved: true,
           includeDismissed: true,
         },
       })
 
-      expect(mockStore.query.feedback).toHaveBeenCalledWith('s-test1', {
+      expect(mockStore.query.feedback).toHaveBeenCalledWith('c-test1', {
         type: 'suggestion',
         resolved: true,
         includeDismissed: true,
@@ -235,12 +235,12 @@ describe('query tool', () => {
 
     it('should return reduced feedback output by default', async () => {
       const result = await query(mockStore, {
-        feedback: { nodeId: 's-test1' },
+        feedback: { nodeId: 'c-test1' },
       })
 
       const item = result.items[0] as any
       expect(item.id).toBe('f-test1')
-      expect(item.targetId).toBe('s-test1')
+      expect(item.targetId).toBe('c-test1')
       expect(item.feedbackType).toBe('comment')
       expect(item.resolved).toBe(false)
       expect(item.dismissed).toBe(false)
@@ -262,10 +262,10 @@ describe('query tool', () => {
 
     it('should filter by targetId when provided', async () => {
       await query(mockStore, {
-        unresolvedFeedback: { targetId: 's-test1' },
+        unresolvedFeedback: { targetId: 'c-test1' },
       })
 
-      expect(mockStore.query.unresolvedFeedback).toHaveBeenCalledWith('s-test1')
+      expect(mockStore.query.unresolvedFeedback).toHaveBeenCalledWith('c-test1')
     })
 
     it('should return reduced feedback output', async () => {
@@ -275,7 +275,7 @@ describe('query tool', () => {
 
       const item = result.items[0] as any
       expect(item.id).toBe('f-test1')
-      expect(item.targetId).toBe('s-test1')
+      expect(item.targetId).toBe('c-test1')
       expect(item.feedbackType).toBe('comment')
       expect(item.resolved).toBe(false)
       // Should NOT have full feedback properties
@@ -287,9 +287,9 @@ describe('query tool', () => {
     beforeEach(() => {
       // Return many items for pagination tests
       const manyNodes = Array.from({ length: 100 }, (_, i) => ({
-        ...sampleSpec,
-        id: `s-test${i}`,
-        title: `Test Spec ${i}`,
+        ...sampleContext,
+        id: `c-test${i}`,
+        title: `Test Context ${i}`,
       }))
       mockStore.query.nodes = vi.fn().mockResolvedValue(manyNodes)
     })
@@ -311,7 +311,7 @@ describe('query tool', () => {
       })
 
       expect(result.items).toHaveLength(10)
-      expect((result.items[0] as any).id).toBe('s-test5')
+      expect((result.items[0] as any).id).toBe('c-test5')
     })
 
     it('should calculate hasMore correctly when more items exist', async () => {

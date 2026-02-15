@@ -16,7 +16,7 @@ See also:
 OpenTasks uses a **federated graph model** where:
 
 - **OpenTasks owns the graph structure** — edges, relationships, and node references
-- **Providers own node content** — the actual spec and issue data
+- **Providers own node content** — the actual context and task data
 - **Daemon coordinates access** — all provider operations go through the location daemon
 - **Location isolation** — each `.opentasks/` location has its own provider configuration
 
@@ -40,7 +40,7 @@ The Provider interface (described below) is the foundation. Adapters and SyncTar
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────────┐ │
 │  │                    Native Nodes                             │ │
-│  │  Spec (s-a2b3)    Issue (i-x7k9)    Feedback (f-m4n5)      │ │
+│  │  Context (c-a2b3)    Task (t-x7k9)    Feedback (f-m4n5)      │ │
 │  └────────────────────────────────────────────────────────────┘ │
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────────┐ │
@@ -52,8 +52,8 @@ The Provider interface (described below) is the foundation. Adapters and SyncTar
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────────┐ │
 │  │                        Edges                                │ │
-│  │  i-x7k9 ──implements──▶ s-a2b3                             │ │
-│  │  i-x7k9 ──blocks──▶ beads://./bd-456                       │ │
+│  │  t-x7k9 ──implements──▶ c-a2b3                             │ │
+│  │  t-x7k9 ──blocks──▶ beads://./bd-456                       │ │
 │  │  e-bd1 ──discovered-from──▶ e-tm1                          │ │
 │  └────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
@@ -63,7 +63,7 @@ The Provider interface (described below) is the foundation. Adapters and SyncTar
             ┌─────────────────┼─────────────────┐
             ▼                 ▼                 ▼
 ┌───────────────────┐ ┌───────────────┐ ┌───────────────────┐
-│  Issue Providers  │ │ Spec Providers│ │  Other Locations  │
+│  Task Providers  │ │ Context Providers│ │  Other Locations  │
 │                   │ │               │ │                   │
 │  • Beads CLI      │ │ • Taskmaster  │ │  opentasks://~    │
 │  • Linear API     │ │ • spec-kit    │ │  opentasks://../  │
@@ -84,8 +84,8 @@ The Provider interface (described below) is the foundation. Adapters and SyncTar
 | ↳ Native Nodes | OpenTasks | (in graph.jsonl) |
 | ↳ ExternalNodes (cache) | OpenTasks | (in graph.jsonl) |
 | ↳ Feedback | OpenTasks | (in graph.jsonl) |
-| **External Issue Content** | Issue Provider | Provider's storage |
-| **External Spec Content** | Spec Provider | Provider's storage |
+| **External Task Content** | Task Provider | Provider's storage |
+| **External Context Content** | Context Provider | Provider's storage |
 
 See [PERSISTENCE.md](./PERSISTENCE.md) for details on the unified graph storage.
 
@@ -113,14 +113,14 @@ github://[owner]/[repo]/[num]   # GitHub issue
 
 **OpenTasks URIs** — Cross-location references (see [ARCHITECTURE.md](./ARCHITECTURE.md)):
 ```
-opentasks://~/.opentasks/s-a2b3              # User location
-opentasks://./i-x7k9                         # Current location
-opentasks://../.opentasks/s-c4d5             # Parent directory
-opentasks:///abs/path/.opentasks/i-e6f7      # Absolute path
+opentasks://~/.opentasks/c-a2b3              # User location
+opentasks://./t-x7k9                         # Current location
+opentasks://../.opentasks/c-c4d5             # Parent directory
+opentasks:///abs/path/.opentasks/t-e6f7      # Absolute path
 ```
 
 **URI Resolution Priority:**
-1. Local ID lookup (if no scheme prefix, e.g., `s-a2b3`)
+1. Local ID lookup (if no scheme prefix, e.g., `c-a2b3`)
 2. OpenTasks URI resolution (for `opentasks://` scheme)
 3. Provider URI resolution (for provider schemes like `beads://`, `jira://`)
 
@@ -173,7 +173,7 @@ interface ContentProvider {
   readonly schemes: string[]
 
   /** Node types this provider manages */
-  readonly nodeTypes: ('spec' | 'issue')[]
+  readonly nodeTypes: ('context' | 'task')[]
 
   /** Provider capabilities */
   readonly capabilities: ProviderCapabilities
@@ -248,7 +248,7 @@ interface ProviderNode {
   uri: string
 
   /** Node type */
-  type: 'spec' | 'issue'
+  type: 'context' | 'task'
 
   /** Display title */
   title: string
@@ -344,8 +344,8 @@ When an edge references a node in another location:
 ```typescript
 // Edge in ~/projects/app-a/.opentasks/
 {
-  from_id: "i-local",
-  to_id: "opentasks://~/projects/app-b/.opentasks/i-x7k9",
+  from_id: "t-local",
+  to_id: "opentasks://~/projects/app-b/.opentasks/t-x7k9",
   type: "blocks"
 }
 
@@ -363,7 +363,7 @@ opentasks://location-b/e-ext1 → beads://./bd-123 → Beads CLI
 
 ---
 
-## Issue Providers
+## Task Providers
 
 ### Beads Provider
 
@@ -373,7 +373,7 @@ opentasks://location-b/e-ext1 → beads://./bd-123 → Beads CLI
 interface BeadsProvider extends ContentProvider {
   name: 'beads'
   schemes: ['beads']
-  nodeTypes: ['issue']
+  nodeTypes: ['task']
 
   capabilities: {
     read: true,
@@ -497,7 +497,7 @@ class BeadsProvider implements ContentProvider {
     return {
       id: bead.id,
       uri: `beads://${this.workspace}/${bead.id}`,
-      type: 'issue',
+      type: 'task',
       title: bead.title,
       content: contentParts.join('\n\n---\n\n'),
       status: this.mapStatus(bead.status),
@@ -558,7 +558,7 @@ class BeadsProvider implements ContentProvider {
 interface LinearProvider extends ContentProvider {
   name: 'linear'
   schemes: ['linear']
-  nodeTypes: ['issue']
+  nodeTypes: ['task']
 
   capabilities: {
     read: true,
@@ -596,15 +596,15 @@ Examples:
 
 ---
 
-### Native Issue Provider
+### Native Task Provider
 
-Fallback provider when no external issue tracker is configured. Unlike external providers, native nodes are stored directly in `graph.jsonl` as `Issue` type (not `ExternalNode`).
+Fallback provider when no external task tracker is configured. Unlike external providers, native nodes are stored directly in `graph.jsonl` as `Task` type (not `ExternalNode`).
 
 ```typescript
-interface NativeIssueProvider extends ContentProvider {
+interface NativeTaskProvider extends ContentProvider {
   name: 'native'
   schemes: ['native', 'opentasks']
-  nodeTypes: ['issue']
+  nodeTypes: ['task']
 
   capabilities: {
     read: true,
@@ -617,11 +617,11 @@ interface NativeIssueProvider extends ContentProvider {
 }
 ```
 
-**Storage**: Native issues use the `Issue` type directly in `graph.jsonl`:
+**Storage**: Native tasks use the `Task` type directly in `graph.jsonl`:
 ```json
 {
-  "id": "i-x7k9",
-  "type": "issue",
+  "id": "t-x7k9",
+  "type": "task",
   "title": "Implement feature",
   "status": "open",
   ...
@@ -632,7 +632,7 @@ This is different from external providers, which create `ExternalNode` wrappers.
 
 ---
 
-## Spec Providers
+## Context Providers
 
 ### Taskmaster Provider
 
@@ -642,7 +642,7 @@ This is different from external providers, which create `ExternalNode` wrappers.
 interface TaskmasterProvider extends ContentProvider {
   name: 'taskmaster'
   schemes: ['taskmaster', 'tm']
-  nodeTypes: ['spec']
+  nodeTypes: ['context']
 
   capabilities: {
     read: true,
@@ -689,15 +689,15 @@ tasks/
 
 ---
 
-### Native Spec Provider
+### Native Context Provider
 
-Fallback provider for specs when no external spec tool is configured. Like native issues, these are stored directly as `Spec` type in `graph.jsonl`.
+Fallback provider for context when no external context tool is configured. Like native tasks, these are stored directly as `Context` type in `graph.jsonl`.
 
 ```typescript
-interface NativeSpecProvider extends ContentProvider {
+interface NativeContextProvider extends ContentProvider {
   name: 'native'
   schemes: ['native', 'opentasks']
-  nodeTypes: ['spec']
+  nodeTypes: ['context']
 
   capabilities: {
     read: true,
@@ -710,11 +710,11 @@ interface NativeSpecProvider extends ContentProvider {
 }
 ```
 
-**Storage**: Native specs use the `Spec` type directly in `graph.jsonl`:
+**Storage**: Native context use the `Context` type directly in `graph.jsonl`:
 ```json
 {
-  "id": "s-a2b3",
-  "type": "spec",
+  "id": "c-a2b3",
+  "type": "context",
   "title": "Authentication requirements",
   "content": "## Overview\n...",
   ...
@@ -739,10 +739,10 @@ interface ProviderRegistry {
   getByName(name: string): ContentProvider | null
 
   /** Get primary provider for a node type */
-  getPrimary(nodeType: 'spec' | 'issue'): ContentProvider
+  getPrimary(nodeType: 'context' | 'task'): ContentProvider
 
   /** Get fallback provider for a node type */
-  getFallback(nodeType: 'spec' | 'issue'): ContentProvider
+  getFallback(nodeType: 'context' | 'task'): ContentProvider
 
   /** Resolve a URI to a node (with caching) */
   resolve(uri: string, options?: ResolveOptions): Promise<ProviderNode | null>
@@ -954,7 +954,7 @@ The node registry bridges provider URIs to the OpenTasks graph. When an edge ref
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Edge                                      │
-│  { from_id: "i-local", to_id: "beads://./bd-123", type: "..." } │
+│  { from_id: "t-local", to_id: "beads://./bd-123", type: "..." } │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -1160,7 +1160,7 @@ for (const provider of registry.list()) {
         "team": "ENG"
       }
     },
-    "specs": {
+    "context": {
       "primary": "taskmaster",
       "fallback": "native",
       "taskmaster": {
@@ -1208,7 +1208,7 @@ export OPENTASKS_NO_CACHE=1
 Edges can connect nodes from different providers:
 
 ```typescript
-// Spec from Taskmaster implements Issue from Beads
+// Context from Taskmaster implements Task from Beads
 {
   id: "x-abc123",
   from_id: "beads://./bd-x7k9",
@@ -1216,10 +1216,10 @@ Edges can connect nodes from different providers:
   type: "implements"
 }
 
-// Native spec blocks Beads issue
+// Native context blocks Beads issue
 {
   id: "x-def456",
-  from_id: "native://s-local",
+  from_id: "native://c-local",
   to_id: "beads://./bd-y8z9",
   type: "blocks"
 }
@@ -1228,9 +1228,9 @@ Edges can connect nodes from different providers:
 ### Cross-Provider Queries
 
 ```typescript
-// Get all issues implementing a spec (across providers)
+// Get all tasks implementing a context (across providers)
 async function getImplementingIssues(specUri: string): Promise<ProviderNode[]> {
-  // 1. Get edges from this spec
+  // 1. Get edges from this context
   const edges = await edgeStore.query({
     to_id: specUri,
     type: 'implements'
@@ -1242,7 +1242,7 @@ async function getImplementingIssues(specUri: string): Promise<ProviderNode[]> {
   )
 }
 
-// Get blockers for an issue (may include specs and issues)
+// Get blockers for a task (may include context and tasks)
 async function getBlockers(issueUri: string): Promise<ProviderNode[]> {
   const edges = await edgeStore.query({
     to_id: issueUri,
@@ -1263,15 +1263,15 @@ The `ready()` query finds nodes that are ready to work on. This requires checkin
 
 ```typescript
 async function ready(): Promise<ProviderNode[]> {
-  // 1. Get all open issues from primary provider
-  const provider = registry.getPrimary('issue')
+  // 1. Get all open tasks from primary provider
+  const provider = registry.getPrimary('task')
   let candidates: ProviderNode[]
 
   if (provider.capabilities.ready && provider.ready) {
     // Provider has native ready support (e.g., Beads `bd ready`)
     candidates = await provider.ready()
   } else {
-    // Fall back to listing open issues
+    // Fall back to listing open tasks
     candidates = await provider.list({ status: 'open' })
   }
 
@@ -1313,7 +1313,7 @@ To add a new provider:
 class MyProvider implements ContentProvider {
   name = 'myprovider'
   schemes = ['myprovider', 'mp']
-  nodeTypes = ['issue'] // or ['spec'] or both
+  nodeTypes = ['task'] // or ['context'] or both
 
   capabilities = {
     read: true,

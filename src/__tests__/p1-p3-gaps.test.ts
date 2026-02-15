@@ -71,7 +71,7 @@ describe('Gap #6: resolveOperationRedirect with RedirectContext', () => {
     const context: RedirectContext = { role: 'worker', branch: 'main' }
     const result = resolveOperationRedirect(
       'read',
-      'i-x7k9',
+      't-x7k9',
       rules,
       connections,
       currentLocation,
@@ -104,7 +104,7 @@ describe('Gap #6: resolveOperationRedirect with RedirectContext', () => {
     const context: RedirectContext = { role: 'manager', branch: 'main' }
     const result = resolveOperationRedirect(
       'read',
-      'i-x7k9',
+      't-x7k9',
       rules,
       connections,
       currentLocation,
@@ -131,14 +131,14 @@ describe('Gap #6: resolveOperationRedirect with RedirectContext', () => {
     // Branch matches
     const context1: RedirectContext = { role: 'worker', branch: 'feature-login' }
     const result1 = resolveOperationRedirect(
-      'read', 'i-x7k9', rules, connections, currentLocation, currentPath, context1
+      'read', 't-x7k9', rules, connections, currentLocation, currentPath, context1
     )
     expect(result1.redirected).toBe(true)
 
     // Branch doesn't match
     const context2: RedirectContext = { role: 'worker', branch: 'main' }
     const result2 = resolveOperationRedirect(
-      'read', 'i-x7k9', rules, connections, currentLocation, currentPath, context2
+      'read', 't-x7k9', rules, connections, currentLocation, currentPath, context2
     )
     expect(result2.redirected).toBe(false)
   })
@@ -157,7 +157,7 @@ describe('Gap #6: resolveOperationRedirect with RedirectContext', () => {
 
     // Without context, conditional `when` is not evaluated — uses findRedirectRule
     const result = resolveOperationRedirect(
-      'read', 'i-x7k9', rules, connections, currentLocation, currentPath
+      'read', 't-x7k9', rules, connections, currentLocation, currentPath
     )
     // findRedirectRule ignores `when` — rule matches
     expect(result.redirected).toBe(true)
@@ -172,35 +172,35 @@ import { parseOpentasksUri } from '../core/uri.js'
 
 describe('Gap #14: URI hash validation', () => {
   it('rejects invalid hash format (uppercase)', () => {
-    expect(parseOpentasksUri('opentasks://INVALID1/i-x7k9')).toBeNull()
+    expect(parseOpentasksUri('opentasks://INVALID1/t-x7k9')).toBeNull()
   })
 
   it('rejects invalid hash format (too short)', () => {
-    expect(parseOpentasksUri('opentasks://abc/i-x7k9')).toBeNull()
+    expect(parseOpentasksUri('opentasks://abc/t-x7k9')).toBeNull()
   })
 
   it('rejects invalid hash format (too long)', () => {
-    expect(parseOpentasksUri('opentasks://abcdefghij/i-x7k9')).toBeNull()
+    expect(parseOpentasksUri('opentasks://abcdefghij/t-x7k9')).toBeNull()
   })
 
   it('rejects hash with special characters', () => {
-    expect(parseOpentasksUri('opentasks://ab-cd_12/i-x7k9')).toBeNull()
+    expect(parseOpentasksUri('opentasks://ab-cd_12/t-x7k9')).toBeNull()
   })
 
   it('accepts valid 8-char lowercase alphanumeric hash', () => {
-    const result = parseOpentasksUri('opentasks://k7m2x9p4/i-x7k9')
+    const result = parseOpentasksUri('opentasks://k7m2x9p4/t-x7k9')
     expect(result).not.toBeNull()
     expect(result?.locationHash).toBe('k7m2x9p4')
   })
 
   it('still parses current-location URIs (bypass hash validation)', () => {
-    const result = parseOpentasksUri('opentasks://./i-x7k9')
+    const result = parseOpentasksUri('opentasks://./t-x7k9')
     expect(result).not.toBeNull()
     expect(result?.relativePath).toBe('./')
   })
 
   it('still parses absolute-path URIs (bypass hash validation)', () => {
-    const result = parseOpentasksUri('opentasks:///home/user/.opentasks/s-g8h9')
+    const result = parseOpentasksUri('opentasks:///home/user/.opentasks/c-g8h9')
     expect(result).not.toBeNull()
     expect(result?.absolutePath).toBe('/home/user/.opentasks')
   })
@@ -226,31 +226,31 @@ describe('Gap #15: Edge deduplication timestamp logic', () => {
 
   it('keeps the newer edge when both have timestamps', () => {
     const edges: StoredEdge[] = [
-      makeEdge('x-1', 'i-1', 'i-2', '2025-01-01T10:00:00Z'),
-      makeEdge('x-1', 'i-1', 'i-3', '2025-01-01T12:00:00Z'),
+      makeEdge('x-1', 't-1', 't-2', '2025-01-01T10:00:00Z'),
+      makeEdge('x-1', 't-1', 't-3', '2025-01-01T12:00:00Z'),
     ]
 
     const result = deduplicateEdges(edges)
     expect(result).toHaveLength(1)
-    expect(result[0].to_id).toBe('i-3')
+    expect(result[0].to_id).toBe('t-3')
     expect(result[0].created_at).toBe('2025-01-01T12:00:00Z')
   })
 
   it('keeps the first edge when timestamps are identical', () => {
     const edges: StoredEdge[] = [
-      makeEdge('x-1', 'i-1', 'i-2', '2025-01-01T10:00:00Z'),
-      makeEdge('x-1', 'i-1', 'i-3', '2025-01-01T10:00:00Z'),
+      makeEdge('x-1', 't-1', 't-2', '2025-01-01T10:00:00Z'),
+      makeEdge('x-1', 't-1', 't-3', '2025-01-01T10:00:00Z'),
     ]
 
     const result = deduplicateEdges(edges)
     expect(result).toHaveLength(1)
     // First entry wins when timestamps equal
-    expect(result[0].to_id).toBe('i-2')
+    expect(result[0].to_id).toBe('t-2')
   })
 
   it('handles single edge', () => {
     const edges: StoredEdge[] = [
-      makeEdge('x-1', 'i-1', 'i-2', '2025-01-01T10:00:00Z'),
+      makeEdge('x-1', 't-1', 't-2', '2025-01-01T10:00:00Z'),
     ]
     const result = deduplicateEdges(edges)
     expect(result).toHaveLength(1)
@@ -291,7 +291,7 @@ function mockStorage(overrides?: Partial<Storage>): Storage {
     getTagsForNodes: vi.fn().mockResolvedValue(new Map()),
     getNodesByTag: vi.fn().mockResolvedValue([]),
     getReady: vi.fn().mockResolvedValue([
-      { id: 'i-local', uuid: 'uuid1', type: 'issue', title: 'Local', status: 'open', created_at: '2025-01-01', updated_at: '2025-01-01' },
+      { id: 't-local', uuid: 'uuid1', type: 'task', title: 'Local', status: 'open', created_at: '2025-01-01', updated_at: '2025-01-01' },
     ]),
     runInTransaction: vi.fn(),
     markDirty: vi.fn(),
@@ -330,18 +330,18 @@ describe('Gap #2: follow-refs expansion mode', () => {
     const storage = mockStorage({
       getEdgesFrom: vi.fn().mockResolvedValue([
         {
-          id: 'x-1', uuid: 'u1', from_id: 'i-local',
-          to_id: `opentasks://${hash1}/i-ref1`,
+          id: 'x-1', uuid: 'u1', from_id: 't-local',
+          to_id: `opentasks://${hash1}/t-ref1`,
           type: 'blocks', created_at: '2025-01-01',
         },
       ]),
     })
 
     const remote1 = mockProvider(hash1, [
-      { id: 'i-ref1', uri: `opentasks://${hash1}/i-ref1`, type: 'issue', title: 'Ref1', fetchedAt: '2025-01-01' },
+      { id: 't-ref1', uri: `opentasks://${hash1}/t-ref1`, type: 'issue', title: 'Ref1', fetchedAt: '2025-01-01' },
     ])
     const remote2 = mockProvider(hash2, [
-      { id: 'i-ref2', uri: `opentasks://${hash2}/i-ref2`, type: 'issue', title: 'Ref2', fetchedAt: '2025-01-01' },
+      { id: 't-ref2', uri: `opentasks://${hash2}/t-ref2`, type: 'issue', title: 'Ref2', fetchedAt: '2025-01-01' },
     ])
 
     const providers = new Map<string, LocationProvider>()
@@ -361,7 +361,7 @@ describe('Gap #2: follow-refs expansion mode', () => {
   it('returns empty connected when no edges reference other locations', async () => {
     const storage = mockStorage({
       getEdgesFrom: vi.fn().mockResolvedValue([
-        { id: 'x-1', uuid: 'u1', from_id: 'i-local', to_id: 'i-other-local', type: 'blocks', created_at: '2025-01-01' },
+        { id: 'x-1', uuid: 'u1', from_id: 't-local', to_id: 't-other-local', type: 'blocks', created_at: '2025-01-01' },
       ]),
     })
 
@@ -382,13 +382,13 @@ describe('Gap #7: crossLocationEdges in ExpandedResult', () => {
     const localHash = 'l0c4lhs1'
 
     const crossEdge = {
-      id: 'x-1', uuid: 'u1', from_id: 'i-local',
-      to_id: `opentasks://${remoteHash}/i-ref1`,
+      id: 'x-1', uuid: 'u1', from_id: 't-local',
+      to_id: `opentasks://${remoteHash}/t-ref1`,
       type: 'blocks', created_at: '2025-01-01',
     }
     const localEdge = {
-      id: 'x-2', uuid: 'u2', from_id: 'i-local',
-      to_id: 'i-other', type: 'related', created_at: '2025-01-01',
+      id: 'x-2', uuid: 'u2', from_id: 't-local',
+      to_id: 't-other', type: 'related', created_at: '2025-01-01',
     }
 
     const storage = mockStorage({

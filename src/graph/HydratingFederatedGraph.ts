@@ -389,9 +389,9 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
     const readyNodes: NodeURI[] = []
 
     // Query candidate nodes from storage
-    // Default to open issues if no filters specified
+    // Default to open tasks if no filters specified
     const candidateNodes = await this.storage.queryNodes({
-      type: (options.type as 'spec' | 'issue' | 'feedback' | 'external') ?? 'issue',
+      type: (options.type as 'context' | 'task' | 'feedback' | 'external') ?? 'task',
       status: options.status ?? 'open',
       archived: false,
       tags: options.tags,

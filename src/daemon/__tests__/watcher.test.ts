@@ -44,8 +44,8 @@ describe('FileWatcher', () => {
 
     // Create directory structure
     await fs.mkdir(locationPath, { recursive: true })
-    await fs.mkdir(path.join(locationPath, 'specs'), { recursive: true })
-    await fs.mkdir(path.join(locationPath, 'issues'), { recursive: true })
+    await fs.mkdir(path.join(locationPath, 'context'), { recursive: true })
+    await fs.mkdir(path.join(locationPath, 'tasks'), { recursive: true })
 
     // Create initial files
     await fs.writeFile(path.join(locationPath, 'graph.jsonl'), '')
@@ -126,7 +126,7 @@ describe('FileWatcher', () => {
       expect(events[0].category).toBe('config')
     })
 
-    it('should detect new spec files', async () => {
+    it('should detect new context files', async () => {
       watcher = createFileWatcher(createConfig())
       const events: FileChangeEvent[] = []
       watcher.onchange((event) => events.push(event))
@@ -135,16 +135,16 @@ describe('FileWatcher', () => {
       // Give FSEvents time to fully initialize directory watching
       await new Promise((resolve) => setTimeout(resolve, 100))
 
-      await fs.writeFile(path.join(locationPath, 'specs', 'test.md'), '# Test')
+      await fs.writeFile(path.join(locationPath, 'context', 'test.md'), '# Test')
 
       await waitForEvents(events)
 
       expect(events.length).toBeGreaterThan(0)
-      expect(events[0].category).toBe('spec')
+      expect(events[0].category).toBe('context')
       expect(events[0].type).toBe('add')
     })
 
-    it('should detect new issue files', async () => {
+    it('should detect new task files', async () => {
       watcher = createFileWatcher(createConfig())
       const events: FileChangeEvent[] = []
       watcher.onchange((event) => events.push(event))
@@ -153,12 +153,12 @@ describe('FileWatcher', () => {
       // Give FSEvents time to fully initialize directory watching
       await new Promise((resolve) => setTimeout(resolve, 100))
 
-      await fs.writeFile(path.join(locationPath, 'issues', 'test.md'), '# Test')
+      await fs.writeFile(path.join(locationPath, 'tasks', 'test.md'), '# Test')
 
       await waitForEvents(events)
 
       expect(events.length).toBeGreaterThan(0)
-      expect(events[0].category).toBe('issue')
+      expect(events[0].category).toBe('task')
     })
 
     it('should detect file deletion', async () => {
@@ -179,14 +179,14 @@ describe('FileWatcher', () => {
       expect(events[0].category).toBe('graph')
     })
 
-    it('should ignore non-markdown files in specs/issues', async () => {
+    it('should ignore non-markdown files in context/tasks', async () => {
       watcher = createFileWatcher(createConfig())
       const events: FileChangeEvent[] = []
       watcher.onchange((event) => events.push(event))
 
       await watcher.start()
 
-      await fs.writeFile(path.join(locationPath, 'specs', 'test.txt'), 'text')
+      await fs.writeFile(path.join(locationPath, 'context', 'test.txt'), 'text')
 
       await new Promise((resolve) => setTimeout(resolve, 150))
 
@@ -261,13 +261,13 @@ describe('FileWatcher', () => {
 
       await watcher.start()
 
-      await fs.writeFile(path.join(locationPath, 'specs', 'test.md'), '# Test')
+      await fs.writeFile(path.join(locationPath, 'context', 'test.md'), '# Test')
 
       await new Promise((resolve) => setTimeout(resolve, 150))
 
       // Should not detect markdown
       const markdownEvents = events.filter(
-        (e) => e.category === 'spec' || e.category === 'issue'
+        (e) => e.category === 'context' || e.category === 'task'
       )
       expect(markdownEvents.length).toBe(0)
     })

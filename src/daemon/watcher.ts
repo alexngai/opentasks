@@ -20,7 +20,7 @@ export type ChangeType = 'add' | 'change' | 'unlink'
 /**
  * File category for change handling
  */
-export type FileCategory = 'graph' | 'spec' | 'issue' | 'config' | 'unknown'
+export type FileCategory = 'graph' | 'context' | 'task' | 'config' | 'unknown'
 
 /**
  * Change event emitted by watcher
@@ -102,12 +102,12 @@ function categorizeFile(filePath: string, locationPath: string): FileCategory {
     return 'config'
   }
 
-  if (relative.startsWith('specs/') && relative.endsWith('.md')) {
-    return 'spec'
+  if (relative.startsWith('context/') && relative.endsWith('.md')) {
+    return 'context'
   }
 
-  if (relative.startsWith('issues/') && relative.endsWith('.md')) {
-    return 'issue'
+  if (relative.startsWith('tasks/') && relative.endsWith('.md')) {
+    return 'task'
   }
 
   return 'unknown'
@@ -158,7 +158,7 @@ export function createFileWatcher(config: WatcherConfig): FileWatcher {
     if (category === 'unknown') return
 
     // Skip markdown if not watching
-    if (!watchMarkdown && (category === 'spec' || category === 'issue')) {
+    if (!watchMarkdown && (category === 'context' || category === 'task')) {
       return
     }
 
@@ -195,8 +195,8 @@ export function createFileWatcher(config: WatcherConfig): FileWatcher {
 
       if (watchMarkdown) {
         watchPaths.push(
-          path.join(locationPath, 'specs'),
-          path.join(locationPath, 'issues')
+          path.join(locationPath, 'context'),
+          path.join(locationPath, 'tasks')
         )
       }
 

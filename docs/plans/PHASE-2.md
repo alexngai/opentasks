@@ -1,6 +1,6 @@
 # Phase 2: Cross-Location References
 
-> Spec ID: s-7es6 | Tags: phase-2, v2, cross-location, wal
+> Spec ID: c-7es6 | Tags: phase-2, v2, cross-location, wal
 >
 > Implements: [CORE-ARCHITECTURE.md](./CORE-ARCHITECTURE.md)
 > Depends on: [PHASE-1.md](./PHASE-1.md)
@@ -66,9 +66,9 @@ function generateLocationHashFallback(absolutePath: string): string {
 ### 2. opentasks:// URI Scheme
 
 ```
-opentasks://k7m2x9p4/i-x7k9           # By location hash (preferred)
-opentasks://./i-x7k9                    # Current location (convenience)
-opentasks:///abs/path/.opentasks/s-g8h9 # Absolute path (fallback)
+opentasks://k7m2x9p4/t-x7k9           # By location hash (preferred)
+opentasks://./t-x7k9                    # Current location (convenience)
+opentasks:///abs/path/.opentasks/c-g8h9 # Absolute path (fallback)
 ```
 
 #### URI Resolution
@@ -79,7 +79,7 @@ interface ParsedOpentasksUri {
   locationHash?: string           // e.g., "k7m2x9p4"
   relativePath?: string           // e.g., "./" or "../other/"
   absolutePath?: string           // e.g., "/abs/path/.opentasks/"
-  nodeId: string                  // e.g., "i-x7k9"
+  nodeId: string                  // e.g., "t-x7k9"
 }
 
 function resolveOpentasksUri(
@@ -135,7 +135,7 @@ Locations declare their connections in `config.json`:
     },
     {
       "hash": "r7t1v9z3",
-      "path": "../../shared-specs/.opentasks/",
+      "path": "../../shared-context/.opentasks/",
       "role": "parent",
       "name": "shared-specs"
     }
@@ -159,7 +159,7 @@ opentasks disconnect m3p8q2w5
 opentasks connections
 # HASH      NAME          PATH                              ROLE    STATUS
 # m3p8q2w5  other-repo    ../other-repo/.opentasks/         peer    reachable
-# r7t1v9z3  shared-specs  ../../shared-specs/.opentasks/    parent  unreachable
+# r7t1v9z3  shared-specs  ../../shared-context/.opentasks/    parent  unreachable
 ```
 
 #### Connection Health
@@ -385,7 +385,7 @@ async function fetchRemoteNode(
 ### Redirect Resolution Flow
 
 ```
-1. Agent requests operation (e.g., read node i-x7k9)
+1. Agent requests operation (e.g., read node t-x7k9)
 2. Check config.json redirect rules
 3. First matching rule by priority:
    - If redirect found → resolve target via connections

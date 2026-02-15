@@ -89,8 +89,8 @@ function countQueryTypes(params: QueryParams): number {
   if (params.blocking !== undefined) count++
   if (params.feedback !== undefined) count++
   if (params.unresolvedFeedback !== undefined) count++
-  if (params.implementers !== undefined) count++
-  if (params.specs !== undefined) count++
+  if (params.tasks !== undefined) count++
+  if (params.context !== undefined) count++
   return count
 }
 
@@ -105,8 +105,8 @@ function getQueryTypeName(params: QueryParams): string {
   if (params.blocking !== undefined) return 'blocking'
   if (params.feedback !== undefined) return 'feedback'
   if (params.unresolvedFeedback !== undefined) return 'unresolvedFeedback'
-  if (params.implementers !== undefined) return 'implementers'
-  if (params.specs !== undefined) return 'specs'
+  if (params.tasks !== undefined) return 'tasks'
+  if (params.context !== undefined) return 'context'
   return 'unknown'
 }
 
@@ -147,11 +147,11 @@ export async function query(
   const queryTypeCount = countQueryTypes(params)
 
   if (queryTypeCount === 0) {
-    throw new Error('No query type specified. Provide one of: nodes, edges, ready, blockers, blocking, feedback, unresolvedFeedback, implementers, specs')
+    throw new Error('No query type specified. Provide one of: nodes, edges, ready, blockers, blocking, feedback, unresolvedFeedback, tasks, context')
   }
 
   if (queryTypeCount > 1) {
-    throw new Error('Multiple query types specified. Provide exactly one of: nodes, edges, ready, blockers, blocking, feedback, unresolvedFeedback, implementers, specs')
+    throw new Error('Multiple query types specified. Provide exactly one of: nodes, edges, ready, blockers, blocking, feedback, unresolvedFeedback, tasks, context')
   }
 
   const limit = params.limit ?? DEFAULT_LIMIT
@@ -187,12 +187,12 @@ export async function query(
     return queryUnresolvedFeedback(store, params.unresolvedFeedback, limit, offset, verbose)
   }
 
-  if (params.implementers !== undefined) {
-    return queryImplementers(store, params.implementers, limit, offset, verbose)
+  if (params.tasks !== undefined) {
+    return queryTasks(store, params.tasks, limit, offset, verbose)
   }
 
-  if (params.specs !== undefined) {
-    return querySpecs(store, params.specs, limit, offset, verbose)
+  if (params.context !== undefined) {
+    return queryContext(store, params.context, limit, offset, verbose)
   }
 
   // Should never reach here
@@ -407,58 +407,58 @@ async function queryUnresolvedFeedback(
   }
 }
 
-async function queryImplementers(
+async function queryTasks(
   store: GraphStore,
-  params: NonNullable<QueryParams['implementers']>,
+  params: NonNullable<QueryParams['tasks']>,
   limit: number,
   offset: number,
   verbose: boolean
 ): Promise<QueryResult> {
-  const { specId } = params
+  const { contextId } = params
 
-  const allImplementers = await store.query.implementers(specId)
+  const allTasks = await store.query.tasks(contextId)
 
-  const { items: paginatedImplementers, hasMore } = paginate(allImplementers, limit, offset)
+  const { items: paginatedTasks, hasMore } = paginate(allTasks, limit, offset)
 
   if (verbose) {
     return {
-      items: paginatedImplementers,
-      total: allImplementers.length,
+      items: paginatedTasks,
+      total: allTasks.length,
       hasMore,
     }
   }
 
   return {
-    items: paginatedImplementers.map(toNodeSummary),
-    total: allImplementers.length,
+    items: paginatedTasks.map(toNodeSummary),
+    total: allTasks.length,
     hasMore,
   }
 }
 
-async function querySpecs(
+async function queryContext(
   store: GraphStore,
-  params: NonNullable<QueryParams['specs']>,
+  params: NonNullable<QueryParams['context']>,
   limit: number,
   offset: number,
   verbose: boolean
 ): Promise<QueryResult> {
-  const { issueId } = params
+  const { taskId } = params
 
-  const allSpecs = await store.query.specs(issueId)
+  const allContext = await store.query.context(taskId)
 
-  const { items: paginatedSpecs, hasMore } = paginate(allSpecs, limit, offset)
+  const { items: paginatedContext, hasMore } = paginate(allContext, limit, offset)
 
   if (verbose) {
     return {
-      items: paginatedSpecs,
-      total: allSpecs.length,
+      items: paginatedContext,
+      total: allContext.length,
       hasMore,
     }
   }
 
   return {
-    items: paginatedSpecs.map(toNodeSummary),
-    total: allSpecs.length,
+    items: paginatedContext.map(toNodeSummary),
+    total: allContext.length,
     hasMore,
   }
 }

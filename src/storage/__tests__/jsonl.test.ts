@@ -28,21 +28,21 @@ describe('JSONLPersister', () => {
   })
 
   // Test fixtures
-  const testSpec: StoredNode = {
-    id: 's-a2b3',
+  const testContext: StoredNode = {
+    id: 'c-a2b3',
     uuid: '550e8400-e29b-41d4-a716-446655440000',
-    type: 'spec',
-    title: 'Test Spec',
+    type: 'context',
+    title: 'Test Context',
     content: 'Some content',
     created_at: '2025-01-26T10:00:00Z',
     updated_at: '2025-01-26T10:00:00Z',
   }
 
-  const testIssue: StoredNode = {
-    id: 'i-x7k9',
+  const testTask: StoredNode = {
+    id: 't-x7k9',
     uuid: '550e8400-e29b-41d4-a716-446655440001',
-    type: 'issue',
-    title: 'Test Issue',
+    type: 'task',
+    title: 'Test Task',
     status: 'open',
     created_at: '2025-01-26T10:00:00Z',
     updated_at: '2025-01-26T10:00:00Z',
@@ -51,8 +51,8 @@ describe('JSONLPersister', () => {
   const testEdge: StoredEdge = {
     id: 'x-r8s9',
     uuid: '550e8400-e29b-41d4-a716-446655440010',
-    from_id: 'i-x7k9',
-    to_id: 's-a2b3',
+    from_id: 't-x7k9',
+    to_id: 'c-a2b3',
     type: 'implements',
     created_at: '2025-01-26T10:00:00Z',
   }
@@ -77,20 +77,20 @@ describe('JSONLPersister', () => {
     })
 
     it('saves and loads nodes', async () => {
-      await persister.save([testSpec, testIssue], [])
+      await persister.save([testContext, testTask], [])
       const result = await persister.load()
 
       expect(result.nodes).toHaveLength(2)
       expect(result.edges).toHaveLength(0)
 
-      const loadedSpec = result.nodes.find((n) => n.id === 's-a2b3')
+      const loadedSpec = result.nodes.find((n) => n.id === 'c-a2b3')
       expect(loadedSpec).toBeDefined()
-      expect(loadedSpec?.title).toBe('Test Spec')
-      expect(loadedSpec?.type).toBe('spec')
+      expect(loadedSpec?.title).toBe('Test Context')
+      expect(loadedSpec?.type).toBe('context')
     })
 
     it('saves and loads edges', async () => {
-      await persister.save([testSpec, testIssue], [testEdge])
+      await persister.save([testContext, testTask], [testEdge])
       const result = await persister.load()
 
       expect(result.nodes).toHaveLength(2)
@@ -98,14 +98,14 @@ describe('JSONLPersister', () => {
 
       const loadedEdge = result.edges[0]
       expect(loadedEdge.id).toBe('x-r8s9')
-      expect(loadedEdge.from_id).toBe('i-x7k9')
-      expect(loadedEdge.to_id).toBe('s-a2b3')
+      expect(loadedEdge.from_id).toBe('t-x7k9')
+      expect(loadedEdge.to_id).toBe('c-a2b3')
       expect(loadedEdge.type).toBe('implements')
     })
 
     it('preserves unknown fields', async () => {
       const nodeWithExtra: StoredNode = {
-        ...testSpec,
+        ...testContext,
         customField: 'custom value',
         anotherField: { nested: true },
       }
@@ -126,7 +126,7 @@ describe('JSONLPersister', () => {
       const deepPath = path.join(tempDir, 'deep', 'nested', 'graph.jsonl')
       const deepPersister = new JSONLPersister({ path: deepPath })
 
-      await deepPersister.save([testSpec], [])
+      await deepPersister.save([testContext], [])
 
       const result = await deepPersister.load()
       expect(result.nodes).toHaveLength(1)
@@ -135,15 +135,15 @@ describe('JSONLPersister', () => {
 
   describe('append', () => {
     it('appends a single node', async () => {
-      await persister.save([testSpec], [])
-      await persister.append(testIssue)
+      await persister.save([testContext], [])
+      await persister.append(testTask)
 
       const result = await persister.load()
       expect(result.nodes).toHaveLength(2)
     })
 
     it('appends a single edge', async () => {
-      await persister.save([testSpec, testIssue], [])
+      await persister.save([testContext, testTask], [])
       await persister.append(testEdge)
 
       const result = await persister.load()
@@ -152,7 +152,7 @@ describe('JSONLPersister', () => {
     })
 
     it('creates file if it does not exist', async () => {
-      await persister.append(testSpec)
+      await persister.append(testContext)
       const result = await persister.load()
       expect(result.nodes).toHaveLength(1)
     })
@@ -161,7 +161,7 @@ describe('JSONLPersister', () => {
   describe('appendMany', () => {
     it('appends multiple entries', async () => {
       await persister.save([], [])
-      await persister.appendMany([testSpec, testIssue, testEdge])
+      await persister.appendMany([testContext, testTask, testEdge])
 
       const result = await persister.load()
       expect(result.nodes).toHaveLength(2)
@@ -169,7 +169,7 @@ describe('JSONLPersister', () => {
     })
 
     it('handles empty array', async () => {
-      await persister.save([testSpec], [])
+      await persister.save([testContext], [])
       await persister.appendMany([])
 
       const result = await persister.load()
@@ -180,7 +180,7 @@ describe('JSONLPersister', () => {
   describe('atomic write', () => {
     it('uses atomic write by default', async () => {
       // This is hard to test directly, but we can verify no .tmp files remain
-      await persister.save([testSpec, testIssue], [testEdge])
+      await persister.save([testContext, testTask], [testEdge])
 
       const files = await fs.readdir(tempDir)
       const tmpFiles = files.filter((f) => f.endsWith('.tmp'))
@@ -193,7 +193,7 @@ describe('JSONLPersister', () => {
         atomicWrite: false,
       })
 
-      await nonAtomicPersister.save([testSpec], [])
+      await nonAtomicPersister.save([testContext], [])
       const result = await nonAtomicPersister.load()
       expect(result.nodes).toHaveLength(1)
     })
@@ -201,7 +201,7 @@ describe('JSONLPersister', () => {
 
   describe('delete', () => {
     it('deletes the file', async () => {
-      await persister.save([testSpec], [])
+      await persister.save([testContext], [])
       expect(await persister.exists()).toBe(true)
 
       await persister.delete()
@@ -217,7 +217,7 @@ describe('JSONLPersister', () => {
   describe('edge detection', () => {
     it('identifies edges by from_id and to_id', async () => {
       const content = [
-        JSON.stringify(testSpec),
+        JSON.stringify(testContext),
         JSON.stringify(testEdge),
       ].join('\n')
 
@@ -247,9 +247,9 @@ describe('JSONLPersister', () => {
   describe('error handling', () => {
     it('skips invalid JSON lines', async () => {
       const content = [
-        JSON.stringify(testSpec),
+        JSON.stringify(testContext),
         'invalid json {{{',
-        JSON.stringify(testIssue),
+        JSON.stringify(testTask),
       ].join('\n')
 
       await fs.writeFile(persister.filePath, content)
@@ -260,10 +260,10 @@ describe('JSONLPersister', () => {
 
     it('handles empty lines', async () => {
       const content = [
-        JSON.stringify(testSpec),
+        JSON.stringify(testContext),
         '',
         '   ',
-        JSON.stringify(testIssue),
+        JSON.stringify(testTask),
       ].join('\n')
 
       await fs.writeFile(persister.filePath, content)

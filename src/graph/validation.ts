@@ -25,8 +25,8 @@ const MAX_CONTENT_LENGTH = 100_000
 const MIN_PRIORITY = 0
 const MAX_PRIORITY = 4
 
-const VALID_NODE_TYPES = ['spec', 'issue', 'feedback', 'external'] as const
-const VALID_ISSUE_STATUSES = ['open', 'in_progress', 'blocked', 'closed'] as const
+const VALID_NODE_TYPES = ['context', 'task', 'feedback', 'external'] as const
+const VALID_TASK_STATUSES = ['open', 'in_progress', 'blocked', 'closed'] as const
 const VALID_FEEDBACK_TYPES = ['comment', 'suggestion', 'request'] as const
 const VALID_EDGE_TYPES = [
   // Core
@@ -172,15 +172,15 @@ function validateCommonFields(
 }
 
 /**
- * Validate spec-specific fields
+ * Validate context-specific fields
  */
-function validateSpecFields(
+function validateContextFields(
   input: CreateNodeInput,
   errors: ValidationError[],
   _warnings: ValidationWarning[]
 ): void {
-  // Specs have no required fields beyond common fields
-  // Status is optional for specs
+  // Context nodes have no required fields beyond common fields
+  // Status is optional for context nodes
   if (input.status !== undefined) {
     const validStatuses = ['draft', 'active', 'archived']
     if (!validStatuses.includes(input.status) && typeof input.status !== 'string') {
@@ -192,9 +192,9 @@ function validateSpecFields(
 }
 
 /**
- * Validate issue-specific fields
+ * Validate task-specific fields
  */
-function validateIssueFields(
+function validateTaskFields(
   input: CreateNodeInput,
   errors: ValidationError[],
   warnings: ValidationWarning[]
@@ -205,13 +205,13 @@ function validateIssueFields(
   } else if (typeof input.status !== 'string') {
     errors.push(error('INVALID_TYPE', 'Status must be a string', 'status'))
   } else if (
-    !VALID_ISSUE_STATUSES.includes(input.status as (typeof VALID_ISSUE_STATUSES)[number])
+    !VALID_TASK_STATUSES.includes(input.status as (typeof VALID_TASK_STATUSES)[number])
   ) {
     // Warn for non-standard statuses but allow them
     warnings.push(
       warning(
         'NON_STANDARD_STATUS',
-        `Status '${input.status}' is not a standard status. Standard values: ${VALID_ISSUE_STATUSES.join(', ')}`,
+        `Status '${input.status}' is not a standard status. Standard values: ${VALID_TASK_STATUSES.join(', ')}`,
         'status'
       )
     )
@@ -361,28 +361,28 @@ async function validateEdge(
 
   // Type-specific warnings
   if (input.type === 'implements') {
-    // Warn if from is not an issue
+    // Warn if from is not a task
     if (isLocalId(input.from_id)) {
       const fromNode = await getNode(input.from_id)
-      if (fromNode && fromNode.type !== 'issue') {
+      if (fromNode && fromNode.type !== 'task') {
         warnings.push(
           warning(
-            'IMPLEMENTS_FROM_NON_ISSUE',
-            `'implements' edge typically has an issue as source, but found ${fromNode.type}`,
+            'IMPLEMENTS_FROM_NON_TASK',
+            `'implements' edge typically has a task as source, but found ${fromNode.type}`,
             'from_id'
           )
         )
       }
     }
 
-    // Warn if to is not a spec
+    // Warn if to is not a context
     if (isLocalId(input.to_id)) {
       const toNode = await getNode(input.to_id)
-      if (toNode && toNode.type !== 'spec') {
+      if (toNode && toNode.type !== 'context') {
         warnings.push(
           warning(
-            'IMPLEMENTS_TO_NON_SPEC',
-            `'implements' edge typically has a spec as target, but found ${toNode.type}`,
+            'IMPLEMENTS_TO_NON_CONTEXT',
+            `'implements' edge typically has a context as target, but found ${toNode.type}`,
             'to_id'
           )
         )
@@ -485,11 +485,11 @@ export function createValidationService(): ValidationService {
 
       // Type-specific validation
       switch (input.type) {
-        case 'spec':
-          validateSpecFields(input, errors, warnings)
+        case 'context':
+          validateContextFields(input, errors, warnings)
           break
-        case 'issue':
-          validateIssueFields(input, errors, warnings)
+        case 'task':
+          validateTaskFields(input, errors, warnings)
           break
         case 'feedback':
           validateFeedbackFields(input, errors, warnings)
@@ -513,13 +513,13 @@ export function createValidationService(): ValidationService {
       validateCommonFields(updates, errors, warnings, false)
 
       // Type-specific validation for status changes
-      if (existing.type === 'issue' && 'status' in updates) {
+      if (existing.type === 'task' && 'status' in updates) {
         if (updates.status !== undefined && typeof updates.status !== 'string') {
           errors.push(error('INVALID_TYPE', 'Status must be a string', 'status'))
         } else if (
           updates.status &&
-          !VALID_ISSUE_STATUSES.includes(
-            updates.status as (typeof VALID_ISSUE_STATUSES)[number]
+          !VALID_TASK_STATUSES.includes(
+            updates.status as (typeof VALID_TASK_STATUSES)[number]
           )
         ) {
           warnings.push(
