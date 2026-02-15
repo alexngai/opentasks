@@ -314,10 +314,10 @@ describe('MaterializationManager', () => {
 
       expect(mockStore.createNode).toHaveBeenCalledWith(
         expect.objectContaining({
+          materialized: true,
           metadata: expect.objectContaining({
             external_status: 'open',
             external_data: { custom: 'data' },
-            materialized: true,
           }),
         }),
       );

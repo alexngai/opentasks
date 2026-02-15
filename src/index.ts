@@ -139,6 +139,8 @@ export type {
   WatcherConfig,
   DaemonFlushManager,
   FlushManagerConfig,
+  DaemonWithStoreConfig,
+  MultiLocationDaemonFromGitConfig,
 } from './daemon/index.js';
 
 export {
@@ -152,6 +154,8 @@ export {
   registerGraphMethods,
   registerToolsMethods,
   DaemonError,
+  createDaemonWithStore,
+  createMultiLocationDaemonFromGit,
 } from './daemon/index.js';
 
 // =============================================================================

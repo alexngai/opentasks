@@ -203,11 +203,11 @@ export function createMaterializationManager(
         source,
         title: providerNode.title,
         content: providerNode.content,
+        materialized: true,
         metadata: {
           external_status: providerNode.status,
           external_data: providerNode.rawData,
           cached_at: now,
-          materialized: true,
         },
       });
 

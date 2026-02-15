@@ -788,7 +788,16 @@ export function createProviderAwareStore(
 
       const updatedNode = await provider.transitionTask(providerId, action, options?.context);
 
-      // Materialize the result if external
+      // Native provider nodes already exist in the graph store — no materialization needed
+      if (provider.name === 'native') {
+        const node = await baseStore.getNode(updatedNode.id);
+        if (!node) {
+          throw new ProviderError('NOT_FOUND', `Node not found after transition: ${updatedNode.id}`);
+        }
+        return { node, provider: provider.name, action };
+      }
+
+      // Materialize the result for external providers
       const uri = provider.buildUri(updatedNode.id);
       const materialized = await materialization.materialize(uri, updatedNode, baseStore);
 
@@ -816,7 +825,18 @@ export function createProviderAwareStore(
           options?.context,
         );
 
-        // Materialize each ready task so callers get Node objects
+        // Native provider nodes already exist in the graph store — retrieve directly
+        if (provider.name === 'native') {
+          for (const pNode of readyNodes) {
+            const node = await baseStore.getNode(pNode.id);
+            if (node) {
+              results.push(node);
+            }
+          }
+          continue;
+        }
+
+        // Materialize each ready task from external providers so callers get Node objects
         for (const pNode of readyNodes) {
           const uri = provider.buildUri(pNode.id);
           const existing = await findExternalNodeByUri(uri, baseStore);
@@ -853,6 +873,15 @@ export function createProviderAwareStore(
       }
 
       const updatedNode = await provider.assignTask(providerId, assignee, options?.context);
+
+      // Native provider nodes already exist in the graph store — no materialization needed
+      if (provider.name === 'native') {
+        const node = await baseStore.getNode(updatedNode.id);
+        if (!node) {
+          throw new ProviderError('NOT_FOUND', `Node not found after assign: ${updatedNode.id}`);
+        }
+        return node;
+      }
 
       const uri = provider.buildUri(updatedNode.id);
       return materialization.materialize(uri, updatedNode, baseStore) as Promise<Node>;

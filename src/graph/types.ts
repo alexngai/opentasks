@@ -75,6 +75,9 @@ export interface CreateNodeInput {
   /** Source system identifier (required for external nodes) */
   source?: string;
 
+  /** Whether this external node has been materialized from a provider */
+  materialized?: boolean;
+
   // === Extensibility ===
 
   /** Additional metadata */

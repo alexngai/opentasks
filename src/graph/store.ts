@@ -160,6 +160,7 @@ function buildStoredNode(input: CreateNodeInput, id: string, uuid: string): Stor
         ...base,
         uri: input.uri,
         source: input.source,
+        materialized: input.materialized ?? false,
       };
     default:
       return base;
