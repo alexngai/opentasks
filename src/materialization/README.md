@@ -37,6 +37,7 @@ MaterializationArchiver
 | `snapshot.ts` | Snapshot assembly — builds self-contained snapshots from graph nodes/edges |
 | `git-archive-store.ts` | `GitArchiveStore` — git orphan branch archive using plumbing commands |
 | `http-remote-store.ts` | `HttpRemoteStore` — POSTs snapshots to an HTTP endpoint |
+| `git-remote-store.ts` | `GitRemoteStore` — archives to a remote git repo via bare clone |
 | `remote-store-factory.ts` | Factory + registry for creating remote stores from config |
 | `graph-id.ts` | Graph ID resolution with 4-level fallback chain |
 
@@ -77,7 +78,10 @@ Supports pushing to a remote with configurable policy (`immediate`, `on-session-
 
 ### Remote stores
 
-Non-git backends that implement the `RemoteStore` interface (extends `MaterializationStore` with event filtering). The built-in `http` / `webhook` type POSTs snapshot JSON to a URL with configurable headers, timeout, and batch mode.
+Pluggable backends that implement the `RemoteStore` interface (extends `MaterializationStore` with event filtering). Built-in types:
+
+- **`http` / `webhook`** — POSTs snapshot JSON to a URL with configurable headers, timeout, and batch mode. Write-only (no retrieve/list support).
+- **`git-remote`** — Archives to a separate remote git repository. Manages a local bare repo cache, commits using git plumbing, and pushes to the remote. Supports both reads and writes — `retrieve()` and `list()` fetch from the remote before reading.
 
 Custom store types can be registered:
 ```typescript
@@ -142,6 +146,30 @@ With remote push and HTTP webhook:
         "config": {
           "url": "https://analytics.internal/opentasks/ingest",
           "headers": { "Authorization": "Bearer ${OPENTASKS_ANALYTICS_TOKEN}" }
+        },
+        "events": ["session.ended"]
+      }
+    ]
+  }
+}
+```
+
+With a git remote store:
+```json
+{
+  "materialization": {
+    "git": { "enabled": true },
+    "remoteStores": [
+      {
+        "type": "git-remote",
+        "name": "archive-repo",
+        "enabled": true,
+        "config": {
+          "url": "git@github.com:org/opentasks-archive.git",
+          "branch": "opentasks/archive",
+          "cachePath": "/tmp/opentasks/archive-cache",
+          "pushPolicy": "immediate",
+          "fetchBeforeRead": true
         },
         "events": ["session.ended"]
       }
