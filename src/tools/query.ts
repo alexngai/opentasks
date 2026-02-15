@@ -4,8 +4,8 @@
  * Unified query interface for graph traversal.
  */
 
-import type { Node, Edge, Feedback } from '../schema/index.js'
-import type { GraphStore } from '../graph/store.js'
+import type { Node, Edge, Feedback } from '../schema/index.js';
+import type { GraphStore } from '../graph/store.js';
 import type {
   QueryParams,
   QueryResult,
@@ -13,15 +13,15 @@ import type {
   EdgeSummary,
   FeedbackSummary,
   OperationContext,
-} from './types.js'
+} from './types.js';
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const DEFAULT_LIMIT = 50
-const DEFAULT_OFFSET = 0
-const CONTENT_PREVIEW_LENGTH = 100
+const DEFAULT_LIMIT = 50;
+const DEFAULT_OFFSET = 0;
+const CONTENT_PREVIEW_LENGTH = 100;
 
 // ============================================================================
 // Summary Converters
@@ -38,7 +38,7 @@ function toNodeSummary(node: Node): NodeSummary {
     status: 'status' in node ? (node as any).status : undefined,
     priority: node.priority,
     archived: node.archived ?? false,
-  }
+  };
 }
 
 /**
@@ -50,18 +50,18 @@ function toEdgeSummary(edge: Edge): EdgeSummary {
     fromId: edge.from_id,
     toId: edge.to_id,
     type: edge.type,
-  }
+  };
 }
 
 /**
  * Convert a Feedback node to FeedbackSummary (reduced representation)
  */
 function toFeedbackSummary(feedback: Feedback): FeedbackSummary {
-  const content = feedback.content || ''
+  const content = feedback.content || '';
   const preview =
     content.length > CONTENT_PREVIEW_LENGTH
       ? content.substring(0, CONTENT_PREVIEW_LENGTH) + '...'
-      : content
+      : content;
 
   return {
     id: feedback.id,
@@ -70,7 +70,7 @@ function toFeedbackSummary(feedback: Feedback): FeedbackSummary {
     resolved: feedback.resolved ?? false,
     dismissed: feedback.dismissed ?? false,
     contentPreview: preview,
-  }
+  };
 }
 
 // ============================================================================
@@ -81,33 +81,33 @@ function toFeedbackSummary(feedback: Feedback): FeedbackSummary {
  * Count how many query types are specified
  */
 function countQueryTypes(params: QueryParams): number {
-  let count = 0
-  if (params.nodes !== undefined) count++
-  if (params.edges !== undefined) count++
-  if (params.ready !== undefined) count++
-  if (params.blockers !== undefined) count++
-  if (params.blocking !== undefined) count++
-  if (params.feedback !== undefined) count++
-  if (params.unresolvedFeedback !== undefined) count++
-  if (params.implementers !== undefined) count++
-  if (params.specs !== undefined) count++
-  return count
+  let count = 0;
+  if (params.nodes !== undefined) count++;
+  if (params.edges !== undefined) count++;
+  if (params.ready !== undefined) count++;
+  if (params.blockers !== undefined) count++;
+  if (params.blocking !== undefined) count++;
+  if (params.feedback !== undefined) count++;
+  if (params.unresolvedFeedback !== undefined) count++;
+  if (params.tasks !== undefined) count++;
+  if (params.context !== undefined) count++;
+  return count;
 }
 
 /**
  * Get the active query type name
  */
 function getQueryTypeName(params: QueryParams): string {
-  if (params.nodes !== undefined) return 'nodes'
-  if (params.edges !== undefined) return 'edges'
-  if (params.ready !== undefined) return 'ready'
-  if (params.blockers !== undefined) return 'blockers'
-  if (params.blocking !== undefined) return 'blocking'
-  if (params.feedback !== undefined) return 'feedback'
-  if (params.unresolvedFeedback !== undefined) return 'unresolvedFeedback'
-  if (params.implementers !== undefined) return 'implementers'
-  if (params.specs !== undefined) return 'specs'
-  return 'unknown'
+  if (params.nodes !== undefined) return 'nodes';
+  if (params.edges !== undefined) return 'edges';
+  if (params.ready !== undefined) return 'ready';
+  if (params.blockers !== undefined) return 'blockers';
+  if (params.blocking !== undefined) return 'blocking';
+  if (params.feedback !== undefined) return 'feedback';
+  if (params.unresolvedFeedback !== undefined) return 'unresolvedFeedback';
+  if (params.tasks !== undefined) return 'tasks';
+  if (params.context !== undefined) return 'context';
+  return 'unknown';
 }
 
 // ============================================================================
@@ -118,12 +118,12 @@ function getQueryTypeName(params: QueryParams): string {
  * Apply pagination to results
  */
 function paginate<T>(items: T[], limit: number, offset: number): { items: T[]; hasMore: boolean } {
-  const start = offset
-  const end = offset + limit
-  const paginated = items.slice(start, end)
-  const hasMore = items.length > end
+  const start = offset;
+  const end = offset + limit;
+  const paginated = items.slice(start, end);
+  const hasMore = items.length > end;
 
-  return { items: paginated, hasMore }
+  return { items: paginated, hasMore };
 }
 
 // ============================================================================
@@ -141,62 +141,66 @@ function paginate<T>(items: T[], limit: number, offset: number): { items: T[]; h
 export async function query(
   store: GraphStore,
   params: QueryParams,
-  _context?: OperationContext
+  _context?: OperationContext,
 ): Promise<QueryResult> {
   // Validate exactly one query type
-  const queryTypeCount = countQueryTypes(params)
+  const queryTypeCount = countQueryTypes(params);
 
   if (queryTypeCount === 0) {
-    throw new Error('No query type specified. Provide one of: nodes, edges, ready, blockers, blocking, feedback, unresolvedFeedback, implementers, specs')
+    throw new Error(
+      'No query type specified. Provide one of: nodes, edges, ready, blockers, blocking, feedback, unresolvedFeedback, tasks, context',
+    );
   }
 
   if (queryTypeCount > 1) {
-    throw new Error('Multiple query types specified. Provide exactly one of: nodes, edges, ready, blockers, blocking, feedback, unresolvedFeedback, implementers, specs')
+    throw new Error(
+      'Multiple query types specified. Provide exactly one of: nodes, edges, ready, blockers, blocking, feedback, unresolvedFeedback, tasks, context',
+    );
   }
 
-  const limit = params.limit ?? DEFAULT_LIMIT
-  const offset = params.offset ?? DEFAULT_OFFSET
-  const verbose = params.verbose ?? false
+  const limit = params.limit ?? DEFAULT_LIMIT;
+  const offset = params.offset ?? DEFAULT_OFFSET;
+  const verbose = params.verbose ?? false;
 
   // Dispatch to appropriate query handler
   if (params.nodes !== undefined) {
-    return queryNodes(store, params.nodes, limit, offset, verbose)
+    return queryNodes(store, params.nodes, limit, offset, verbose);
   }
 
   if (params.edges !== undefined) {
-    return queryEdges(store, params.edges, limit, offset, verbose)
+    return queryEdges(store, params.edges, limit, offset, verbose);
   }
 
   if (params.ready !== undefined) {
-    return queryReady(store, params.ready, limit, offset, verbose)
+    return queryReady(store, params.ready, limit, offset, verbose);
   }
 
   if (params.blockers !== undefined) {
-    return queryBlockers(store, params.blockers, limit, offset, verbose)
+    return queryBlockers(store, params.blockers, limit, offset, verbose);
   }
 
   if (params.blocking !== undefined) {
-    return queryBlocking(store, params.blocking, limit, offset, verbose)
+    return queryBlocking(store, params.blocking, limit, offset, verbose);
   }
 
   if (params.feedback !== undefined) {
-    return queryFeedback(store, params.feedback, limit, offset, verbose)
+    return queryFeedback(store, params.feedback, limit, offset, verbose);
   }
 
   if (params.unresolvedFeedback !== undefined) {
-    return queryUnresolvedFeedback(store, params.unresolvedFeedback, limit, offset, verbose)
+    return queryUnresolvedFeedback(store, params.unresolvedFeedback, limit, offset, verbose);
   }
 
-  if (params.implementers !== undefined) {
-    return queryImplementers(store, params.implementers, limit, offset, verbose)
+  if (params.tasks !== undefined) {
+    return queryTasks(store, params.tasks, limit, offset, verbose);
   }
 
-  if (params.specs !== undefined) {
-    return querySpecs(store, params.specs, limit, offset, verbose)
+  if (params.context !== undefined) {
+    return queryContext(store, params.context, limit, offset, verbose);
   }
 
   // Should never reach here
-  throw new Error('Unknown query type')
+  throw new Error('Unknown query type');
 }
 
 // ============================================================================
@@ -208,26 +212,26 @@ async function queryNodes(
   filter: QueryParams['nodes'],
   limit: number,
   offset: number,
-  verbose: boolean
+  verbose: boolean,
 ): Promise<QueryResult> {
   // Query without limit/offset first to get total
-  const allNodes = await store.query.nodes({ ...filter, limit: undefined, offset: undefined })
+  const allNodes = await store.query.nodes({ ...filter, limit: undefined, offset: undefined });
 
-  const { items: paginatedNodes, hasMore } = paginate(allNodes, limit, offset)
+  const { items: paginatedNodes, hasMore } = paginate(allNodes, limit, offset);
 
   if (verbose) {
     return {
       items: paginatedNodes,
       total: allNodes.length,
       hasMore,
-    }
+    };
   }
 
   return {
     items: paginatedNodes.map(toNodeSummary),
     total: allNodes.length,
     hasMore,
-  }
+  };
 }
 
 async function queryEdges(
@@ -235,26 +239,26 @@ async function queryEdges(
   filter: QueryParams['edges'],
   limit: number,
   offset: number,
-  verbose: boolean
+  verbose: boolean,
 ): Promise<QueryResult> {
   // Query without limit/offset first to get total
-  const allEdges = await store.query.edges({ ...filter, limit: undefined, offset: undefined })
+  const allEdges = await store.query.edges({ ...filter, limit: undefined, offset: undefined });
 
-  const { items: paginatedEdges, hasMore } = paginate(allEdges, limit, offset)
+  const { items: paginatedEdges, hasMore } = paginate(allEdges, limit, offset);
 
   if (verbose) {
     return {
       items: paginatedEdges,
       total: allEdges.length,
       hasMore,
-    }
+    };
   }
 
   return {
     items: paginatedEdges.map(toEdgeSummary),
     total: allEdges.length,
     hasMore,
-  }
+  };
 }
 
 async function queryReady(
@@ -262,26 +266,26 @@ async function queryReady(
   options: QueryParams['ready'],
   limit: number,
   offset: number,
-  verbose: boolean
+  verbose: boolean,
 ): Promise<QueryResult> {
   // Query without limit first to get total
-  const allReady = await store.query.ready({ ...options, limit: undefined })
+  const allReady = await store.query.ready({ ...options, limit: undefined });
 
-  const { items: paginatedReady, hasMore } = paginate(allReady, limit, offset)
+  const { items: paginatedReady, hasMore } = paginate(allReady, limit, offset);
 
   if (verbose) {
     return {
       items: paginatedReady,
       total: allReady.length,
       hasMore,
-    }
+    };
   }
 
   return {
     items: paginatedReady.map(toNodeSummary),
     total: allReady.length,
     hasMore,
-  }
+  };
 }
 
 async function queryBlockers(
@@ -289,30 +293,30 @@ async function queryBlockers(
   params: NonNullable<QueryParams['blockers']>,
   limit: number,
   offset: number,
-  verbose: boolean
+  verbose: boolean,
 ): Promise<QueryResult> {
-  const { nodeId, transitive, activeOnly } = params
+  const { nodeId, transitive, activeOnly } = params;
 
   const allBlockers = await store.query.blockers(nodeId, {
     transitive,
     activeOnly,
-  })
+  });
 
-  const { items: paginatedBlockers, hasMore } = paginate(allBlockers, limit, offset)
+  const { items: paginatedBlockers, hasMore } = paginate(allBlockers, limit, offset);
 
   if (verbose) {
     return {
       items: paginatedBlockers,
       total: allBlockers.length,
       hasMore,
-    }
+    };
   }
 
   return {
     items: paginatedBlockers.map(toNodeSummary),
     total: allBlockers.length,
     hasMore,
-  }
+  };
 }
 
 async function queryBlocking(
@@ -320,30 +324,30 @@ async function queryBlocking(
   params: NonNullable<QueryParams['blocking']>,
   limit: number,
   offset: number,
-  verbose: boolean
+  verbose: boolean,
 ): Promise<QueryResult> {
-  const { nodeId, transitive, activeOnly } = params
+  const { nodeId, transitive, activeOnly } = params;
 
   const allBlocking = await store.query.blocking(nodeId, {
     transitive,
     activeOnly,
-  })
+  });
 
-  const { items: paginatedBlocking, hasMore } = paginate(allBlocking, limit, offset)
+  const { items: paginatedBlocking, hasMore } = paginate(allBlocking, limit, offset);
 
   if (verbose) {
     return {
       items: paginatedBlocking,
       total: allBlocking.length,
       hasMore,
-    }
+    };
   }
 
   return {
     items: paginatedBlocking.map(toNodeSummary),
     total: allBlocking.length,
     hasMore,
-  }
+  };
 }
 
 async function queryFeedback(
@@ -351,31 +355,31 @@ async function queryFeedback(
   params: NonNullable<QueryParams['feedback']>,
   limit: number,
   offset: number,
-  verbose: boolean
+  verbose: boolean,
 ): Promise<QueryResult> {
-  const { nodeId, type, resolved, includeDismissed } = params
+  const { nodeId, type, resolved, includeDismissed } = params;
 
   const allFeedback = await store.query.feedback(nodeId, {
     type,
     resolved,
     includeDismissed,
-  })
+  });
 
-  const { items: paginatedFeedback, hasMore } = paginate(allFeedback, limit, offset)
+  const { items: paginatedFeedback, hasMore } = paginate(allFeedback, limit, offset);
 
   if (verbose) {
     return {
       items: paginatedFeedback,
       total: allFeedback.length,
       hasMore,
-    }
+    };
   }
 
   return {
     items: paginatedFeedback.map(toFeedbackSummary),
     total: allFeedback.length,
     hasMore,
-  }
+  };
 }
 
 async function queryUnresolvedFeedback(
@@ -383,82 +387,82 @@ async function queryUnresolvedFeedback(
   params: NonNullable<QueryParams['unresolvedFeedback']>,
   limit: number,
   offset: number,
-  verbose: boolean
+  verbose: boolean,
 ): Promise<QueryResult> {
-  const { targetId } = params
+  const { targetId } = params;
 
   // Get all unresolved feedback (optionally filtered by target)
-  const allUnresolved = await store.query.unresolvedFeedback(targetId)
+  const allUnresolved = await store.query.unresolvedFeedback(targetId);
 
-  const { items: paginatedFeedback, hasMore } = paginate(allUnresolved, limit, offset)
+  const { items: paginatedFeedback, hasMore } = paginate(allUnresolved, limit, offset);
 
   if (verbose) {
     return {
       items: paginatedFeedback,
       total: allUnresolved.length,
       hasMore,
-    }
+    };
   }
 
   return {
     items: paginatedFeedback.map(toFeedbackSummary),
     total: allUnresolved.length,
     hasMore,
-  }
+  };
 }
 
-async function queryImplementers(
+async function queryTasks(
   store: GraphStore,
-  params: NonNullable<QueryParams['implementers']>,
+  params: NonNullable<QueryParams['tasks']>,
   limit: number,
   offset: number,
-  verbose: boolean
+  verbose: boolean,
 ): Promise<QueryResult> {
-  const { specId } = params
+  const { contextId } = params;
 
-  const allImplementers = await store.query.implementers(specId)
+  const allTasks = await store.query.tasks(contextId);
 
-  const { items: paginatedImplementers, hasMore } = paginate(allImplementers, limit, offset)
+  const { items: paginatedTasks, hasMore } = paginate(allTasks, limit, offset);
 
   if (verbose) {
     return {
-      items: paginatedImplementers,
-      total: allImplementers.length,
+      items: paginatedTasks,
+      total: allTasks.length,
       hasMore,
-    }
+    };
   }
 
   return {
-    items: paginatedImplementers.map(toNodeSummary),
-    total: allImplementers.length,
+    items: paginatedTasks.map(toNodeSummary),
+    total: allTasks.length,
     hasMore,
-  }
+  };
 }
 
-async function querySpecs(
+async function queryContext(
   store: GraphStore,
-  params: NonNullable<QueryParams['specs']>,
+  params: NonNullable<QueryParams['context']>,
   limit: number,
   offset: number,
-  verbose: boolean
+  verbose: boolean,
 ): Promise<QueryResult> {
-  const { issueId } = params
+  const { taskId } = params;
 
-  const allSpecs = await store.query.specs(issueId)
+  const allContext = await store.query.context(taskId);
 
-  const { items: paginatedSpecs, hasMore } = paginate(allSpecs, limit, offset)
+  const { items: paginatedContext, hasMore } = paginate(allContext, limit, offset);
 
   if (verbose) {
     return {
-      items: paginatedSpecs,
-      total: allSpecs.length,
+      items: paginatedContext,
+      total: allContext.length,
       hasMore,
-    }
+    };
   }
 
   return {
-    items: paginatedSpecs.map(toNodeSummary),
-    total: allSpecs.length,
+    items: paginatedContext.map(toNodeSummary),
+    total: allContext.length,
     hasMore,
-  }
+  };
 }

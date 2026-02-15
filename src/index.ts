@@ -20,7 +20,7 @@ export {
   ConfigParseError,
   ConfigValidationError,
   DEFAULT_CONFIG,
-} from './config/index.js'
+} from './config/index.js';
 
 export type {
   OpenTasksConfig,
@@ -33,14 +33,14 @@ export type {
   LoggingConfig,
   LoggingLevel,
   ValidationResult as ConfigValidationResult,
-} from './config/index.js'
+} from './config/index.js';
 
 // =============================================================================
 // Core
 // =============================================================================
 
-export { generateId, type IdNodeType } from './core/id.js'
-export { sha256, computeContentHash } from './core/hash.js'
+export { generateId, type IdNodeType } from './core/id.js';
+export { sha256, computeContentHash } from './core/hash.js';
 
 // =============================================================================
 // Schema
@@ -49,8 +49,8 @@ export { sha256, computeContentHash } from './core/hash.js'
 export type {
   Node,
   NodeType,
-  Spec,
-  Issue,
+  Context,
+  Task,
   Feedback,
   ExternalNode,
   Edge,
@@ -65,19 +65,19 @@ export type {
   GraphMetadata,
   GraphChanges,
   ValidationResult,
-} from './schema/index.js'
+} from './schema/index.js';
 
 export {
   ValidationError,
-  isSpec,
-  isIssue,
+  isContext,
+  isTask,
   isFeedback,
   isExternal,
   validateStoredNode,
   parseNode,
   tryParseNode,
   hasKnownType,
-} from './schema/index.js'
+} from './schema/index.js';
 
 // =============================================================================
 // Storage
@@ -91,7 +91,7 @@ export type {
   JSONLPersisterConfig,
   LoadResult,
   SQLitePersisterConfig,
-} from './storage/index.js'
+} from './storage/index.js';
 
 export {
   JSONLPersister,
@@ -103,7 +103,7 @@ export {
   appendToFile,
   fileExists,
   readFileOrEmpty,
-} from './storage/index.js'
+} from './storage/index.js';
 
 // =============================================================================
 // Graph
@@ -120,9 +120,9 @@ export type {
   ReadyOptions,
   BlockerOptions,
   FeedbackOptions,
-} from './graph/index.js'
+} from './graph/index.js';
 
-export { createGraphStore } from './graph/index.js'
+export { createGraphStore } from './graph/index.js';
 
 // =============================================================================
 // Daemon
@@ -139,7 +139,7 @@ export type {
   WatcherConfig,
   DaemonFlushManager,
   FlushManagerConfig,
-} from './daemon/index.js'
+} from './daemon/index.js';
 
 export {
   createDaemon,
@@ -152,7 +152,7 @@ export {
   registerGraphMethods,
   registerToolsMethods,
   DaemonError,
-} from './daemon/index.js'
+} from './daemon/index.js';
 
 // =============================================================================
 // Tools (3-Tool Agent Interface)
@@ -174,17 +174,17 @@ export type {
   FeedbackAnchor,
   FeedbackType,
   ToolErrorCode,
-} from './tools/index.js'
+} from './tools/index.js';
 
-export { link, query, annotate, ToolError } from './tools/index.js'
+export { link, query, annotate, ToolError } from './tools/index.js';
 
 // =============================================================================
 // Client
 // =============================================================================
 
-export type { ClientOptions } from './client/index.js'
+export type { ClientOptions } from './client/index.js';
 
-export { OpenTasksClient, ClientError, createClient } from './client/index.js'
+export { OpenTasksClient, ClientError, createClient } from './client/index.js';
 
 // =============================================================================
 // Providers
@@ -223,7 +223,7 @@ export type {
   ProviderChangeEvent,
   ProviderNodeChangeEvent,
   ProviderEdgeChangeEvent,
-} from './providers/index.js'
+} from './providers/index.js';
 
 export {
   ProviderError,
@@ -235,13 +235,9 @@ export {
   createInMemoryTaskStore,
   createMaterializationManager,
   isWatchable,
-} from './providers/index.js'
+} from './providers/index.js';
 
 // Provider-Aware Store
-export type {
-  ProviderAwareStore,
-  ProviderStoreConfig,
-  ResolveOptions,
-} from './graph/index.js'
+export type { ProviderAwareStore, ProviderStoreConfig, ResolveOptions } from './graph/index.js';
 
-export { createProviderAwareStore } from './graph/index.js'
+export { createProviderAwareStore } from './graph/index.js';

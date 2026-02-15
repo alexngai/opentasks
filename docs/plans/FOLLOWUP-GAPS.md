@@ -1,7 +1,7 @@
 # Phase 2 + Phase 3: Implementation Gaps & Weaknesses
 
 Post-implementation review of the worktree/multi-location system.
-Each item includes severity, what the spec requires, what we built, and a proposed fix.
+Each item includes severity, what the context requires, what we built, and a proposed fix.
 
 ---
 

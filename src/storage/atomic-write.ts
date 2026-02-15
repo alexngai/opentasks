@@ -4,8 +4,8 @@
  * Prevents partial writes on crash by writing to temp file then renaming.
  */
 
-import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 
 /**
  * Write content to a file atomically
@@ -15,30 +15,27 @@ import * as path from 'node:path'
  * @param filePath - Target file path
  * @param content - Content to write
  */
-export async function atomicWrite(
-  filePath: string,
-  content: string
-): Promise<void> {
-  const dir = path.dirname(filePath)
-  const tempPath = `${filePath}.${process.pid}.tmp`
+export async function atomicWrite(filePath: string, content: string): Promise<void> {
+  const dir = path.dirname(filePath);
+  const tempPath = `${filePath}.${process.pid}.tmp`;
 
   try {
     // Ensure directory exists
-    await fs.mkdir(dir, { recursive: true })
+    await fs.mkdir(dir, { recursive: true });
 
     // Write to temp file
-    await fs.writeFile(tempPath, content, 'utf-8')
+    await fs.writeFile(tempPath, content, 'utf-8');
 
     // Atomic rename
-    await fs.rename(tempPath, filePath)
+    await fs.rename(tempPath, filePath);
   } catch (error) {
     // Clean up temp file on failure
     try {
-      await fs.unlink(tempPath)
+      await fs.unlink(tempPath);
     } catch {
       // Ignore cleanup errors
     }
-    throw error
+    throw error;
   }
 }
 
@@ -50,13 +47,10 @@ export async function atomicWrite(
  * @param filePath - Target file path
  * @param content - Content to append (should include newline if needed)
  */
-export async function appendToFile(
-  filePath: string,
-  content: string
-): Promise<void> {
-  const dir = path.dirname(filePath)
-  await fs.mkdir(dir, { recursive: true })
-  await fs.appendFile(filePath, content, 'utf-8')
+export async function appendToFile(filePath: string, content: string): Promise<void> {
+  const dir = path.dirname(filePath);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.appendFile(filePath, content, 'utf-8');
 }
 
 /**
@@ -67,10 +61,10 @@ export async function appendToFile(
  */
 export async function fileExists(filePath: string): Promise<boolean> {
   try {
-    await fs.access(filePath)
-    return true
+    await fs.access(filePath);
+    return true;
   } catch {
-    return false
+    return false;
   }
 }
 
@@ -82,11 +76,11 @@ export async function fileExists(filePath: string): Promise<boolean> {
  */
 export async function readFileOrEmpty(filePath: string): Promise<string> {
   try {
-    return await fs.readFile(filePath, 'utf-8')
+    return await fs.readFile(filePath, 'utf-8');
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return ''
+      return '';
     }
-    throw error
+    throw error;
   }
 }

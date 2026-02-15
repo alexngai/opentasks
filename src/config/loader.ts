@@ -1,11 +1,11 @@
 /**
  * Config file loader
  */
-import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
-import { z } from 'zod'
-import { LoggingLevelSchema, type PartialOpenTasksConfig } from './schema.js'
-import { ConfigParseError, ConfigValidationError } from './errors.js'
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { z } from 'zod';
+import { LoggingLevelSchema, type PartialOpenTasksConfig } from './schema.js';
+import { ConfigParseError, ConfigValidationError } from './errors.js';
 
 /**
  * Partial schema for validating config files (all fields optional)
@@ -47,7 +47,7 @@ const PartialConfigSchema = z.object({
       file: z.string().nullable().optional(),
     })
     .optional(),
-})
+});
 
 /**
  * Load and parse a config file from a location
@@ -55,36 +55,36 @@ const PartialConfigSchema = z.object({
  * @returns Partial config or null if file doesn't exist
  */
 export async function loadConfigFile(location: string): Promise<PartialOpenTasksConfig | null> {
-  const configPath = path.join(location, '.opentasks', 'config.json')
+  const configPath = path.join(location, '.opentasks', 'config.json');
 
   // Check if file exists
   try {
-    await fs.access(configPath)
+    await fs.access(configPath);
   } catch {
-    return null
+    return null;
   }
 
   // Read file
-  let content: string
+  let content: string;
   try {
-    content = await fs.readFile(configPath, 'utf-8')
+    content = await fs.readFile(configPath, 'utf-8');
   } catch (err) {
-    throw new ConfigParseError(configPath, err as Error)
+    throw new ConfigParseError(configPath, err as Error);
   }
 
   // Parse JSON
-  let json: unknown
+  let json: unknown;
   try {
-    json = JSON.parse(content)
+    json = JSON.parse(content);
   } catch (err) {
-    throw new ConfigParseError(configPath, err as Error)
+    throw new ConfigParseError(configPath, err as Error);
   }
 
   // Validate against partial schema
-  const result = PartialConfigSchema.safeParse(json)
+  const result = PartialConfigSchema.safeParse(json);
   if (!result.success) {
-    throw new ConfigValidationError(configPath, result.error.issues)
+    throw new ConfigValidationError(configPath, result.error.issues);
   }
 
-  return result.data as PartialOpenTasksConfig
+  return result.data as PartialOpenTasksConfig;
 }

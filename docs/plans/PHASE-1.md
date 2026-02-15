@@ -1,6 +1,6 @@
 # Phase 1: Single-Location + Provider URIs
 
-> Spec ID: s-9hf5 | Tags: phase-1, v1, implementation
+> Spec ID: c-9hf5 | Tags: phase-1, v1, implementation
 >
 > Implements: [CORE-ARCHITECTURE.md](./CORE-ARCHITECTURE.md)
 
@@ -9,7 +9,7 @@
 The minimal viable OpenTasks that provides the core graph connector value:
 - One `.opentasks/` directory per working context
 - Edges that reference provider URIs (`beads://`, `claude://`, `jira://`, etc.)
-- Optional native specs/issues for lightweight use
+- Optional native context/tasks for lightweight use
 - Direct file access (no daemon)
 
 ## What's Included
@@ -22,7 +22,7 @@ The minimal viable OpenTasks that provides the core graph connector value:
 
 ### Provider System
 - Provider registry with URI scheme routing
-- Native provider (optional, toggleable) for local specs/issues
+- Native provider (optional, toggleable) for local context/issues
 - Provider interface for external systems
 - Stub implementations for Beads, Claude Tasks
 
@@ -35,10 +35,10 @@ The minimal viable OpenTasks that provides the core graph connector value:
 
 **graph.jsonl** — Nodes and edges:
 ```jsonl
-{"id":"s-a2b3","uuid":"...","type":"spec","title":"Auth requirements","content":"...","created_at":"...","updated_at":"..."}
-{"id":"i-x7k9","uuid":"...","type":"issue","title":"Implement login","status":"open","created_at":"...","updated_at":"..."}
-{"id":"x-r8s9","uuid":"...","from_id":"i-x7k9","to_id":"s-a2b3","type":"implements","created_at":"..."}
-{"id":"x-t1u2","uuid":"...","from_id":"i-x7k9","to_id":"beads://./bd-123","type":"blocks","created_at":"..."}
+{"id":"c-a2b3","uuid":"...","type":"spec","title":"Auth requirements","content":"...","created_at":"...","updated_at":"..."}
+{"id":"t-x7k9","uuid":"...","type":"issue","title":"Implement login","status":"open","created_at":"...","updated_at":"..."}
+{"id":"x-r8s9","uuid":"...","from_id":"t-x7k9","to_id":"c-a2b3","type":"implements","created_at":"..."}
+{"id":"x-t1u2","uuid":"...","from_id":"t-x7k9","to_id":"beads://./bd-123","type":"blocks","created_at":"..."}
 ```
 
 **config.json** — Location configuration:
@@ -101,7 +101,7 @@ Even though we're not implementing cross-location yet, the schema should support
 ### Provider Package (`@opentasks/providers`)
 - [ ] Provider interface
 - [ ] Provider registry
-- [ ] Native provider (specs, issues)
+- [ ] Native provider (context, tasks)
 - [ ] External node management (phantom → materialized)
 - [ ] Beads provider stub
 - [ ] Claude Tasks provider stub
@@ -124,7 +124,7 @@ interface ParsedURI {
 }
 
 function parseURI(uri: string): ParsedURI
-function isLocalId(ref: string): boolean  // "i-x7k9" vs "beads://..."
+function isLocalId(ref: string): boolean  // "t-x7k9" vs "beads://..."
 function toCanonicalURI(ref: string, location: string): string
 ```
 
@@ -135,8 +135,8 @@ type QueryType =
   | 'blockers'       // What blocks this node?
   | 'blocking'       // What does this node block?
   | 'ready'          // What's ready to work on?
-  | 'implementers'   // Issues implementing a spec
-  | 'specs'          // Specs that an issue implements
+  | 'tasks'   // Tasks implementing a context
+  | 'context'          // Specs that a task implements
   | 'children'       // Child nodes
   | 'parents'        // Parent nodes
   | 'resolve'        // Get node metadata by URI
@@ -160,7 +160,7 @@ interface Provider {
 
 Phase 1 is complete when:
 1. Can initialize `.opentasks/` in a directory
-2. Can create native specs and issues
+2. Can create native context and issues
 3. Can create edges between native nodes
 4. Can create edges to provider URIs (e.g., `beads://./bd-123`)
 5. Can query blockers, ready items across the graph

@@ -32,8 +32,8 @@ function createTestNode(overrides: Partial<{
   status: string
   priority: number
 }> = {}, existingCount = 0): StoredNode {
-  const nodeType = overrides.type ?? 'spec'
-  const idType = nodeType === 'issue' ? 'issue' : nodeType === 'feedback' ? 'feedback' : 'spec'
+  const nodeType = overrides.type ?? 'context'
+  const idType = nodeType === 'task' ? 'task' : nodeType === 'feedback' ? 'feedback' : 'context'
   const generated = overrides.id ? null : generateId(idType, existingCount)
   const id = overrides.id ?? generated!.id
   const uuid = generated?.uuid ?? `uuid-${id}`
@@ -145,7 +145,7 @@ describe.skipIf(!SLOW_TESTS)('SQLite Durability Integration', () => {
     })
 
     it('should rollback failed transactions', async () => {
-      const node1 = createTestNode({ id: 's-rollback1', title: 'Rollback 1' })
+      const node1 = createTestNode({ id: 'c-rollback1', title: 'Rollback 1' })
 
       // First create the node to set up a duplicate
       await persister.createNode(node1)
@@ -164,8 +164,8 @@ describe.skipIf(!SLOW_TESTS)('SQLite Durability Integration', () => {
     })
 
     it('should handle complex transactions with edges', async () => {
-      const node1 = createTestNode({ type: 'spec', title: 'Spec' })
-      const node2 = createTestNode({ type: 'issue', title: 'Issue' })
+      const node1 = createTestNode({ type: 'context', title: 'Context' })
+      const node2 = createTestNode({ type: 'task', title: 'Task' })
       const edge = createTestEdge(node1.id, node2.id, 'implements')
 
       await persister.runInTransaction(async (tx) => {
@@ -185,10 +185,10 @@ describe.skipIf(!SLOW_TESTS)('SQLite Durability Integration', () => {
       const nodeCount = 10000
       // Use explicit unique IDs to avoid any hash collisions
       const nodes = Array.from({ length: nodeCount }, (_, i) => {
-        const prefix = i % 3 === 0 ? 's' : i % 3 === 1 ? 'i' : 'f'
+        const prefix = i % 3 === 0 ? 'c' : i % 3 === 1 ? 't' : 'f'
         return createTestNode({
           id: `${prefix}-perf${i.toString().padStart(5, '0')}`,
-          type: i % 3 === 0 ? 'spec' : i % 3 === 1 ? 'issue' : 'feedback',
+          type: i % 3 === 0 ? 'context' : i % 3 === 1 ? 'task' : 'feedback',
           title: `Node ${i}`,
           content: `Content for node ${i}. `.repeat(10),
           status: i % 2 === 0 ? 'open' : 'closed',
@@ -209,22 +209,22 @@ describe.skipIf(!SLOW_TESTS)('SQLite Durability Integration', () => {
 
       // Measure query time
       const queryStart = performance.now()
-      const result = await persister.queryNodes({ type: 'spec', limit: 10000 })
+      const result = await persister.queryNodes({ type: 'context', limit: 10000 })
       const queryTime = performance.now() - queryStart
 
-      expect(result.length).toBeGreaterThan(3000) // ~1/3 are specs
+      expect(result.length).toBeGreaterThan(3000) // ~1/3 are contexts
       expect(queryTime).toBeLessThan(500) // Under 500ms
-      console.log(`Query specs: ${queryTime.toFixed(0)}ms (${result.length} results)`)
+      console.log(`Query contexts: ${queryTime.toFixed(0)}ms (${result.length} results)`)
     })
 
     it('should handle filtered queries efficiently', async () => {
       // Create 1000 nodes with various properties
       // Use explicit unique IDs to avoid any hash collisions
       const nodes = Array.from({ length: 1000 }, (_, i) => {
-        const prefix = i % 2 === 0 ? 's' : 'i'
+        const prefix = i % 2 === 0 ? 'c' : 't'
         return createTestNode({
           id: `${prefix}-filter${i.toString().padStart(4, '0')}`,
-          type: i % 2 === 0 ? 'spec' : 'issue',
+          type: i % 2 === 0 ? 'context' : 'task',
           title: `Node ${i}`,
           status: i % 4 === 0 ? 'open' : 'closed',
         })
@@ -238,15 +238,15 @@ describe.skipIf(!SLOW_TESTS)('SQLite Durability Integration', () => {
       // Note: default limit is 100, so we need to set higher limits
       const start = performance.now()
 
-      const byType = await persister.queryNodes({ type: 'spec', limit: 1000 })
+      const byType = await persister.queryNodes({ type: 'context', limit: 1000 })
       expect(byType.length).toBe(500)
 
       const byStatus = await persister.queryNodes({ status: 'open', limit: 1000 })
       expect(byStatus.length).toBe(250)
 
-      const byBoth = await persister.queryNodes({ type: 'issue', status: 'closed', limit: 1000 })
-      // All issues have odd indices (1, 3, 5, ...), none of which satisfy i % 4 === 0
-      // So all 500 issues are closed
+      const byBoth = await persister.queryNodes({ type: 'task', status: 'closed', limit: 1000 })
+      // All tasks have odd indices (1, 3, 5, ...), none of which satisfy i % 4 === 0
+      // So all 500 tasks are closed
       expect(byBoth.length).toBe(500)
 
       const elapsed = performance.now() - start
@@ -257,7 +257,7 @@ describe.skipIf(!SLOW_TESTS)('SQLite Durability Integration', () => {
       // Use explicit unique IDs to avoid any hash collisions
       const nodes = Array.from({ length: 500 }, (_, i) =>
         createTestNode({
-          id: `s-search${i.toString().padStart(3, '0')}`,
+          id: `c-search${i.toString().padStart(3, '0')}`,
           title: i % 10 === 0 ? `Important Node ${i}` : `Regular Node ${i}`,
           content: i % 5 === 0 ? 'Contains keyword important info' : 'Normal content',
         })
@@ -281,7 +281,7 @@ describe.skipIf(!SLOW_TESTS)('SQLite Durability Integration', () => {
     it('should handle complex edge traversals', async () => {
       // Create a chain of nodes with explicit IDs to avoid collisions
       const nodes = Array.from({ length: 100 }, (_, i) =>
-        createTestNode({ id: `s-chain${i.toString().padStart(3, '0')}`, title: `Chain ${i}` })
+        createTestNode({ id: `c-chain${i.toString().padStart(3, '0')}`, title: `Chain ${i}` })
       )
 
       for (const node of nodes) {
@@ -299,8 +299,8 @@ describe.skipIf(!SLOW_TESTS)('SQLite Durability Integration', () => {
 
       // Query edges from middle of chain
       const start = performance.now()
-      const edgesFrom = await persister.getEdgesFrom('s-chain050')
-      const edgesTo = await persister.getEdgesTo('s-chain050')
+      const edgesFrom = await persister.getEdgesFrom('c-chain050')
+      const edgesTo = await persister.getEdgesTo('c-chain050')
       const elapsed = performance.now() - start
 
       expect(edgesFrom).toHaveLength(1)
@@ -309,30 +309,30 @@ describe.skipIf(!SLOW_TESTS)('SQLite Durability Integration', () => {
     })
 
     it('should filter edges by type', async () => {
-      const spec = createTestNode({ id: 's-edgetest', type: 'spec' })
-      const issue1 = createTestNode({ id: 'i-edgetest1', type: 'issue' })
-      const issue2 = createTestNode({ id: 'i-edgetest2', type: 'issue' })
+      const context = createTestNode({ id: 'c-edgetest', type: 'context' })
+      const task1 = createTestNode({ id: 't-edgetest1', type: 'task' })
+      const task2 = createTestNode({ id: 't-edgetest2', type: 'task' })
       const feedback = createTestNode({ id: 'f-edgetest', type: 'feedback' })
 
-      await persister.createNode(spec)
-      await persister.createNode(issue1)
-      await persister.createNode(issue2)
+      await persister.createNode(context)
+      await persister.createNode(task1)
+      await persister.createNode(task2)
       await persister.createNode(feedback)
 
       // Create various edge types
-      await persister.createEdge(createTestEdge(issue1.id, spec.id, 'implements'))
-      await persister.createEdge(createTestEdge(issue2.id, spec.id, 'implements'))
-      await persister.createEdge(createTestEdge(feedback.id, spec.id, 'references'))
-      await persister.createEdge(createTestEdge(issue1.id, issue2.id, 'blocks'))
+      await persister.createEdge(createTestEdge(task1.id, context.id, 'implements'))
+      await persister.createEdge(createTestEdge(task2.id, context.id, 'implements'))
+      await persister.createEdge(createTestEdge(feedback.id, context.id, 'references'))
+      await persister.createEdge(createTestEdge(task1.id, task2.id, 'blocks'))
 
       // Query by type
-      const implementsEdges = await persister.getEdgesTo(spec.id, 'implements')
+      const implementsEdges = await persister.getEdgesTo(context.id, 'implements')
       expect(implementsEdges).toHaveLength(2)
 
-      const referencesEdges = await persister.getEdgesTo(spec.id, 'references')
+      const referencesEdges = await persister.getEdgesTo(context.id, 'references')
       expect(referencesEdges).toHaveLength(1)
 
-      const blocksEdges = await persister.getEdgesFrom(issue1.id, 'blocks')
+      const blocksEdges = await persister.getEdgesFrom(task1.id, 'blocks')
       expect(blocksEdges).toHaveLength(1)
     })
   })
@@ -361,7 +361,7 @@ describe.skipIf(!SLOW_TESTS)('SQLite Durability Integration', () => {
     it('should query nodes by tags', async () => {
       // Use explicit unique IDs to avoid any hash collisions
       const nodes = Array.from({ length: 20 }, (_, i) =>
-        createTestNode({ id: `s-tag${i.toString().padStart(2, '0')}`, title: `Node ${i}` })
+        createTestNode({ id: `c-tag${i.toString().padStart(2, '0')}`, title: `Node ${i}` })
       )
 
       for (const node of nodes) {
@@ -386,7 +386,7 @@ describe.skipIf(!SLOW_TESTS)('SQLite Durability Integration', () => {
 
     it('should handle getTagsForNodes batch query', async () => {
       const nodes = Array.from({ length: 5 }, (_, i) =>
-        createTestNode({ id: `s-tagbatch${i}`, title: `Node ${i}` })
+        createTestNode({ id: `c-tagbatch${i}`, title: `Node ${i}` })
       )
 
       for (const node of nodes) {
@@ -409,8 +409,8 @@ describe.skipIf(!SLOW_TESTS)('SQLite Durability Integration', () => {
 
   describe('dirty tracking', () => {
     it('should track dirty nodes', async () => {
-      const node1 = createTestNode({ id: 's-dirty1' })
-      const node2 = createTestNode({ id: 's-dirty2' })
+      const node1 = createTestNode({ id: 'c-dirty1' })
+      const node2 = createTestNode({ id: 'c-dirty2' })
 
       await persister.createNode(node1)
       await persister.createNode(node2)
@@ -432,43 +432,43 @@ describe.skipIf(!SLOW_TESTS)('SQLite Durability Integration', () => {
     })
   })
 
-  describe('ready issues view', () => {
-    it('should return open issues with no blocking dependencies', async () => {
-      // Create issues
-      const issue1 = createTestNode({
-        id: 'i-ready1',
-        type: 'issue',
-        title: 'Ready Issue',
+  describe('ready tasks view', () => {
+    it('should return open tasks with no blocking dependencies', async () => {
+      // Create tasks
+      const task1 = createTestNode({
+        id: 't-ready1',
+        type: 'task',
+        title: 'Ready Task',
         status: 'open',
       })
-      const issue2 = createTestNode({
-        id: 'i-blocked1',
-        type: 'issue',
-        title: 'Blocked Issue',
+      const task2 = createTestNode({
+        id: 't-blocked1',
+        type: 'task',
+        title: 'Blocked Task',
         status: 'open',
       })
       const blocker = createTestNode({
-        id: 'i-blocker1',
-        type: 'issue',
+        id: 't-blocker1',
+        type: 'task',
         title: 'Blocker',
         status: 'open',
       })
 
-      await persister.createNode(issue1)
-      await persister.createNode(issue2)
+      await persister.createNode(task1)
+      await persister.createNode(task2)
       await persister.createNode(blocker)
 
-      // Create blocking edge: blocker blocks issue2
-      const edge = createTestEdge(blocker.id, issue2.id, 'blocks')
+      // Create blocking edge: blocker blocks task2
+      const edge = createTestEdge(blocker.id, task2.id, 'blocks')
       await persister.createEdge(edge)
 
       const ready = await persister.getReady()
 
-      // Only issue1 and blocker should be ready (not blocked by anything)
+      // Only task1 and blocker should be ready (not blocked by anything)
       const readyIds = ready.map(n => n.id)
-      expect(readyIds).toContain('i-ready1')
-      expect(readyIds).toContain('i-blocker1')
-      expect(readyIds).not.toContain('i-blocked1')
+      expect(readyIds).toContain('t-ready1')
+      expect(readyIds).toContain('t-blocker1')
+      expect(readyIds).not.toContain('t-blocked1')
     })
   })
 
@@ -501,9 +501,9 @@ describe.skipIf(!SLOW_TESTS)('SQLite Durability Integration', () => {
     })
 
     it('should cascade delete edges when node is deleted', async () => {
-      const node1 = createTestNode({ id: 's-cascade1' })
-      const node2 = createTestNode({ id: 's-cascade2' })
-      const node3 = createTestNode({ id: 's-cascade3' })
+      const node1 = createTestNode({ id: 'c-cascade1' })
+      const node2 = createTestNode({ id: 'c-cascade2' })
+      const node3 = createTestNode({ id: 'c-cascade3' })
 
       await persister.createNode(node1)
       await persister.createNode(node2)

@@ -1,19 +1,19 @@
 # OpenTasks Core Architecture
 
-> Spec ID: s-9jju | Tags: architecture, core, cross-location, multi-agent
+> Spec ID: c-9jju | Tags: architecture, core, cross-location, multi-agent
 >
 > **Revised**: Incorporates single-daemon model, location hashes, explicit connections,
 > provider-based cross-location queries, append-only JSONL, and custom merge driver.
 
 ## Overview
 
-OpenTasks is a **graph connector** that links heterogeneous task and spec systems. It does not replace existing tools — each keeps its own interface, storage, and semantics. OpenTasks provides the **relationship layer** that existing tools lack.
+OpenTasks is a **graph connector** that links heterogeneous task and context systems. It does not replace existing tools — each keeps its own interface, storage, and semantics. OpenTasks provides the **relationship layer** that existing tools lack.
 
 ### What OpenTasks Is
 - A graph layer over existing tools (Claude Tasks, Beads, Taskmaster, Jira, etc.)
 - Cross-system edges that span system boundaries
 - Unified queries for blockers, ready items, and dependencies across all connected systems
-- Optional native storage for lightweight specs/issues when external providers aren't needed
+- Optional native storage for lightweight context/issues when external providers aren't needed
 
 ### What OpenTasks Is NOT
 - Not a replacement for Claude's built-in tasks (use `TaskCreate`/`TaskUpdate` directly)
@@ -82,9 +82,9 @@ native://[type]/[id]              # OpenTasks native node
 Reference nodes in other OpenTasks locations using deterministic location hashes:
 
 ```
-opentasks://k7m2x9p4/i-x7k9           # By location hash (preferred, stable)
-opentasks://./i-x7k9                    # Current location (relative convenience)
-opentasks:///abs/path/.opentasks/s-g8h9 # Absolute path (fallback)
+opentasks://k7m2x9p4/t-x7k9           # By location hash (preferred, stable)
+opentasks://./t-x7k9                    # Current location (relative convenience)
+opentasks:///abs/path/.opentasks/c-g8h9 # Absolute path (fallback)
 ```
 
 **Location hash**: 8-character base36 derived from `SHA256(git_remote_url + ":" + repo_relative_path)`. Deterministic across machines for the same repo. See [PHASE-2.md](./PHASE-2.md) for details.
@@ -127,7 +127,7 @@ Locations are connected via explicit declarations in `config.json`:
 {
   "connections": [
     { "hash": "m3p8q2w5", "path": "../other-repo/.opentasks/", "role": "peer" },
-    { "hash": "r7t1v9z3", "path": "../../shared-specs/.opentasks/", "role": "parent" }
+    { "hash": "r7t1v9z3", "path": "../../shared-context/.opentasks/", "role": "parent" }
   ]
 }
 ```
@@ -236,8 +236,8 @@ See [PHASE-3.md](./PHASE-3.md) for the merge driver specification.
 ├── cache.db              # SQLite in WAL mode (queries, indexes) — gitignored
 ├── config.json           # Configuration, connections, redirects, role
 ├── write.lock            # Advisory lock for JSONL writes — gitignored
-├── specs/                # Optional: markdown expansion
-└── issues/               # Optional: markdown expansion
+├── context/                # Optional: markdown expansion
+└── tasks/               # Optional: markdown expansion
 
 .git/opentasks/           # Shared across all worktrees (Phase 3)
 ├── daemon.sock           # Single daemon socket
@@ -250,9 +250,9 @@ See [PHASE-3.md](./PHASE-3.md) for the merge driver specification.
 All mutations to `graph.jsonl` are **append-only**. Updates append a new line with the same `id` and a newer `updated_at`. On load, the latest version of each ID wins.
 
 ```jsonl
-{"id":"i-x7k9","status":"open","updated_at":"2025-01-28T10:00:00Z"}
-{"id":"i-x7k9","status":"in_progress","updated_at":"2025-01-28T11:00:00Z"}
-{"id":"i-x7k9","status":"closed","updated_at":"2025-01-28T12:00:00Z"}
+{"id":"t-x7k9","status":"open","updated_at":"2025-01-28T10:00:00Z"}
+{"id":"t-x7k9","status":"in_progress","updated_at":"2025-01-28T11:00:00Z"}
+{"id":"t-x7k9","status":"closed","updated_at":"2025-01-28T12:00:00Z"}
 ```
 
 **Why append-only:**
@@ -266,9 +266,9 @@ All mutations to `graph.jsonl` are **append-only**. Updates append a new line wi
 Short IDs for local nodes, full URIs for external references:
 
 ```jsonl
-{"id":"x-r8s9","from_id":"i-x7k9","to_id":"s-a2b3","type":"implements",...}
-{"id":"x-t1u2","from_id":"i-x7k9","to_id":"beads://./bd-123","type":"blocks",...}
-{"id":"x-v3w4","from_id":"i-x7k9","to_id":"opentasks://m3p8q2w5/i-y8z0","type":"references",...}
+{"id":"x-r8s9","from_id":"t-x7k9","to_id":"c-a2b3","type":"implements",...}
+{"id":"x-t1u2","from_id":"t-x7k9","to_id":"beads://./bd-123","type":"blocks",...}
+{"id":"x-v3w4","from_id":"t-x7k9","to_id":"opentasks://m3p8q2w5/t-y8z0","type":"references",...}
 ```
 
 ### ID Generation
@@ -277,7 +277,7 @@ Hash-based IDs for collision resistance in multi-agent scenarios:
 - Prefix indicates type: `s-` (spec), `i-` (issue), `f-` (feedback), `e-` (external), `x-` (edge)
 - Adaptive length based on entity count (4-8 chars base36)
 - SHA256(UUID v4) -> base36 -> truncated
-- Example: `i-x7k9`, `s-a2b3f`
+- Example: `t-x7k9`, `c-a2b3f`
 
 ---
 
@@ -288,7 +288,7 @@ Hash-based IDs for collision resistance in multi-agent scenarios:
 **Scope**:
 - One `.opentasks/` directory per working context
 - Edges reference provider URIs: `beads://`, `claude://`, `jira://`, etc.
-- Native provider for optional local specs/issues (toggleable)
+- Native provider for optional local context/issues (toggleable)
 - Direct file access (no daemon)
 - No `opentasks://` URIs to other locations
 - No cross-location queries

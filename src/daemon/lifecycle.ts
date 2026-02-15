@@ -7,40 +7,29 @@
  *   - Multi-location: multiple worktrees under one git repo
  */
 
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import { createLockManager, type LockManager } from "./lock.js";
-import { createRegistryManager, type RegistryManager } from "./registry.js";
-import {
-  DaemonError,
-  type DaemonState,
-  type DaemonStatus,
-  type DaemonEntry,
-} from "./types.js";
-import { createIPCServer, type IPCServer } from "./ipc.js";
-import { createFileWatcher, type FileWatcher } from "./watcher.js";
-import { createDaemonFlushManager, type DaemonFlushManager } from "./flush.js";
-import { createEntireWatcher, type EntireWatcher } from "./entire-watcher.js";
-import {
-  createEntireAutoLinker,
-  type EntireAutoLinker,
-} from "./entire-linker.js";
-import { registerLifecycleMethods } from "./methods/lifecycle.js";
-import { registerGraphMethods } from "./methods/graph.js";
-import { registerToolsMethods } from "./methods/tools.js";
-import { registerLocationMethods } from "./methods/location.js";
-import type { GraphStore } from "../graph/store.js";
-import {
-  createProviderAwareStore,
-  type ProviderAwareStore,
-} from "../graph/provider-store.js";
-import { registerProviderMethods } from "./methods/provider.js";
-import { registerArchiveMethods } from "./methods/archive.js";
-import type { PartialOpenTasksConfig } from "../config/index.js";
-import { loadConfigFile } from "../config/loader.js";
-import { createBeadsProvider } from "../providers/beads.js";
-import { createSudocodeProvider } from "../providers/sudocode.js";
-import { createClaudeTasksProvider } from "../providers/claude-tasks.js";
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { createLockManager, type LockManager } from './lock.js';
+import { createRegistryManager, type RegistryManager } from './registry.js';
+import { DaemonError, type DaemonState, type DaemonStatus, type DaemonEntry } from './types.js';
+import { createIPCServer, type IPCServer } from './ipc.js';
+import { createFileWatcher, type FileWatcher } from './watcher.js';
+import { createDaemonFlushManager, type DaemonFlushManager } from './flush.js';
+import { createEntireWatcher, type EntireWatcher } from './entire-watcher.js';
+import { createEntireAutoLinker, type EntireAutoLinker } from './entire-linker.js';
+import { registerLifecycleMethods } from './methods/lifecycle.js';
+import { registerGraphMethods } from './methods/graph.js';
+import { registerToolsMethods } from './methods/tools.js';
+import { registerLocationMethods } from './methods/location.js';
+import type { GraphStore } from '../graph/store.js';
+import { createProviderAwareStore, type ProviderAwareStore } from '../graph/provider-store.js';
+import { registerProviderMethods } from './methods/provider.js';
+import { registerArchiveMethods } from './methods/archive.js';
+import type { PartialOpenTasksConfig } from '../config/index.js';
+import { loadConfigFile } from '../config/loader.js';
+import { createBeadsProvider } from '../providers/beads.js';
+import { createSudocodeProvider } from '../providers/sudocode.js';
+import { createClaudeTasksProvider } from '../providers/claude-tasks.js';
 import {
   createLocationState,
   destroyLocationState,
@@ -48,8 +37,8 @@ import {
   createMultiLocationResolver,
   type LocationState,
   type LocationResolver,
-} from "./location-state.js";
-import { readWorktreeRegistry, type WorktreeEntry } from "../core/worktree.js";
+} from './location-state.js';
+import { readWorktreeRegistry, type WorktreeEntry } from '../core/worktree.js';
 
 // ============================================================================
 // Types
@@ -97,9 +86,7 @@ export interface MultiLocationDaemonConfig extends DaemonConfigBase {
 /**
  * Unified daemon configuration (discriminated by presence of gitCommonDir)
  */
-export type DaemonConfig =
-  | SingleLocationDaemonConfig
-  | MultiLocationDaemonConfig;
+export type DaemonConfig = SingleLocationDaemonConfig | MultiLocationDaemonConfig;
 
 /**
  * Daemon interface
@@ -148,10 +135,8 @@ const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2000;
 /**
  * Check if config is for multi-location mode
  */
-function isMultiLocationConfig(
-  config: DaemonConfig,
-): config is MultiLocationDaemonConfig {
-  return "gitCommonDir" in config;
+function isMultiLocationConfig(config: DaemonConfig): config is MultiLocationDaemonConfig {
+  return 'gitCommonDir' in config;
 }
 
 // ============================================================================
@@ -221,9 +206,7 @@ function registerConfiguredProviders(
 /**
  * Check if a daemon is already running for a location
  */
-export async function checkExistingDaemon(
-  locationPath: string,
-): Promise<ExistingDaemonResult> {
+export async function checkExistingDaemon(locationPath: string): Promise<ExistingDaemonResult> {
   const lockManager = createLockManager(locationPath);
   const isHeld = await lockManager.isHeld();
 
@@ -264,9 +247,7 @@ export function createDaemon(config: DaemonConfig): Daemon {
 // Single-Location Daemon
 // ============================================================================
 
-function createSingleLocationDaemon(
-  config: SingleLocationDaemonConfig,
-): Daemon {
+function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon {
   const {
     locationPath,
     version,
@@ -277,14 +258,14 @@ function createSingleLocationDaemon(
   } = config;
 
   // Use config values for paths, falling back to defaults
-  const socketFileName = openTasksConfig?.daemon?.socketPath ?? "daemon.sock";
-  const databaseFileName = openTasksConfig?.storage?.sqlitePath ?? "cache.db";
+  const socketFileName = openTasksConfig?.daemon?.socketPath ?? 'daemon.sock';
+  const databaseFileName = openTasksConfig?.storage?.sqlitePath ?? 'cache.db';
 
   const socketPath = path.join(locationPath, socketFileName);
   const databasePath = path.join(locationPath, databaseFileName);
 
   // State
-  let state: DaemonState = "stopped";
+  let state: DaemonState = 'stopped';
   let startedAt: string | null = null;
 
   // Managers
@@ -306,7 +287,7 @@ function createSingleLocationDaemon(
     const handler = () => {
       void daemon.stop();
     };
-    const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT"];
+    const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGINT'];
     for (const signal of signals) {
       process.on(signal, handler);
       signalHandlers.push({ signal, handler });
@@ -324,7 +305,7 @@ function createSingleLocationDaemon(
     try {
       await fs.unlink(socketPath);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         throw error;
       }
     }
@@ -335,22 +316,19 @@ function createSingleLocationDaemon(
     locationPath,
 
     async start(): Promise<void> {
-      if (state !== "stopped") {
-        throw new DaemonError(
-          "DAEMON_ALREADY_RUNNING",
-          `Daemon is already ${state}`,
-        );
+      if (state !== 'stopped') {
+        throw new DaemonError('DAEMON_ALREADY_RUNNING', `Daemon is already ${state}`);
       }
 
-      state = "starting";
+      state = 'starting';
 
       try {
         // 1. Check for existing daemon
         const existing = await checkExistingDaemon(locationPath);
         if (existing.running) {
-          state = "stopped";
+          state = 'stopped';
           throw new DaemonError(
-            "DAEMON_ALREADY_RUNNING",
+            'DAEMON_ALREADY_RUNNING',
             `Daemon already running (PID ${existing.pid}) at ${existing.socketPath}`,
           );
         }
@@ -398,7 +376,7 @@ function createSingleLocationDaemon(
 
         // 8. Create single-location resolver wrapping store + flushManager
         const defaultProvider =
-          (openTasksConfig?.defaultProvider as string | undefined) ?? "native";
+          (openTasksConfig?.defaultProvider as string | undefined) ?? 'native';
         const providerStore = createProviderAwareStore(store, {
           defaultProvider,
         });
@@ -408,7 +386,7 @@ function createSingleLocationDaemon(
         activeProviderStore = providerStore;
 
         const locationState: LocationState = {
-          hash: "primary",
+          hash: 'primary',
           opentasksPath: locationPath,
           store,
           providerStore,
@@ -486,10 +464,10 @@ function createSingleLocationDaemon(
         }
 
         // 13. Mark as running
-        state = "running";
+        state = 'running';
       } catch (error) {
         // Cleanup on failure
-        state = "stopped";
+        state = 'stopped';
         startedAt = null;
 
         if (entireWatcher) {
@@ -533,21 +511,18 @@ function createSingleLocationDaemon(
     },
 
     async stop(): Promise<void> {
-      if (state === "stopped" || state === "stopping") {
+      if (state === 'stopped' || state === 'stopping') {
         return;
       }
 
-      if (state === "starting") {
+      if (state === 'starting') {
         await new Promise((resolve) => setTimeout(resolve, 100));
-        if (state === "starting") {
-          throw new DaemonError(
-            "SHUTDOWN_TIMEOUT",
-            "Cannot stop daemon while starting",
-          );
+        if (state === 'starting') {
+          throw new DaemonError('SHUTDOWN_TIMEOUT', 'Cannot stop daemon while starting');
         }
       }
 
-      state = "stopping";
+      state = 'stopping';
 
       const shutdownPromise = (async () => {
         try {
@@ -587,21 +562,21 @@ function createSingleLocationDaemon(
           await removeSocketFile();
           await lockManager.release();
         } finally {
-          state = "stopped";
+          state = 'stopped';
           startedAt = null;
         }
       })();
 
       const timeoutPromise = new Promise<void>((_, reject) => {
         setTimeout(() => {
-          reject(new DaemonError("SHUTDOWN_TIMEOUT", "Shutdown timed out"));
+          reject(new DaemonError('SHUTDOWN_TIMEOUT', 'Shutdown timed out'));
         }, shutdownTimeoutMs);
       });
 
       try {
         await Promise.race([shutdownPromise, timeoutPromise]);
       } catch (error) {
-        state = "stopped";
+        state = 'stopped';
         startedAt = null;
         removeSignalHandlers();
         throw error;
@@ -637,17 +612,17 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
   } = config;
 
   // Daemon home is .git/opentasks/
-  const daemonHomePath = path.join(gitCommonDir, "opentasks");
-  const socketPath = path.join(daemonHomePath, "daemon.sock");
-  const databasePath = path.join(daemonHomePath, "cache.db");
+  const daemonHomePath = path.join(gitCommonDir, 'opentasks');
+  const socketPath = path.join(daemonHomePath, 'daemon.sock');
+  const databasePath = path.join(daemonHomePath, 'cache.db');
 
   // Primary location: override or auto-detect (git root's .opentasks/)
   const gitRoot = path.dirname(gitCommonDir); // /repo/.git → /repo
-  const defaultPrimaryPath = path.join(gitRoot, ".opentasks");
+  const defaultPrimaryPath = path.join(gitRoot, '.opentasks');
   const primaryPath = primaryOverride ?? defaultPrimaryPath;
 
   // State
-  let state: DaemonState = "stopped";
+  let state: DaemonState = 'stopped';
   let startedAt: string | null = null;
 
   // Managers
@@ -665,7 +640,7 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
     const handler = () => {
       void daemon.stop();
     };
-    const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT"];
+    const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGINT'];
     for (const signal of signals) {
       process.on(signal, handler);
       signalHandlers.push({ signal, handler });
@@ -683,7 +658,7 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
     try {
       await fs.unlink(socketPath);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         throw error;
       }
     }
@@ -699,14 +674,9 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
     locationConfig?: PartialOpenTasksConfig,
   ): Promise<LocationState | null> {
     try {
-      const locState = await createLocationState(
-        opentasksPath,
-        hash,
-        isPrimary,
-      );
+      const locState = await createLocationState(opentasksPath, hash, isPrimary);
       // Wrap store with provider-aware dispatch
-      const defaultProvider =
-        (locationConfig?.defaultProvider as string | undefined) ?? "native";
+      const defaultProvider = (locationConfig?.defaultProvider as string | undefined) ?? 'native';
       locState.providerStore = createProviderAwareStore(locState.store, {
         defaultProvider,
       });
@@ -750,7 +720,7 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
       return primaryEntry.hash;
     }
     // Fallback: use 'primary' as the hash
-    return "primary";
+    return 'primary';
   }
 
   const daemon: Daemon = {
@@ -758,14 +728,11 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
     locationPath: daemonHomePath,
 
     async start(): Promise<void> {
-      if (state !== "stopped") {
-        throw new DaemonError(
-          "DAEMON_ALREADY_RUNNING",
-          `Daemon is already ${state}`,
-        );
+      if (state !== 'stopped') {
+        throw new DaemonError('DAEMON_ALREADY_RUNNING', `Daemon is already ${state}`);
       }
 
-      state = "starting";
+      state = 'starting';
 
       try {
         // 1. Ensure daemon home directory exists
@@ -774,9 +741,9 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
         // 2. Check for existing daemon
         const existing = await checkExistingDaemon(daemonHomePath);
         if (existing.running) {
-          state = "stopped";
+          state = 'stopped';
           throw new DaemonError(
-            "DAEMON_ALREADY_RUNNING",
+            'DAEMON_ALREADY_RUNNING',
             `Daemon already running (PID ${existing.pid}) at ${existing.socketPath}`,
           );
         }
@@ -856,10 +823,7 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
 
         // 11. Verify at least one location initialized
         if (locationResolver.list().length === 0) {
-          throw new DaemonError(
-            "LOCATION_INIT_FAILED",
-            "No locations could be initialized",
-          );
+          throw new DaemonError('LOCATION_INIT_FAILED', 'No locations could be initialized');
         }
 
         // 12. Create IPC server
@@ -874,11 +838,11 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
           startedAt: new Date(startedAt),
           checkHealth: () => {
             const locations = locationResolver!.list();
-            if (locations.length === 0) return "unhealthy";
+            if (locations.length === 0) return 'unhealthy';
             const unhealthy = locations.filter((l) => !l.healthy);
-            if (unhealthy.length === locations.length) return "unhealthy";
-            if (unhealthy.length > 0) return "degraded";
-            return "healthy";
+            if (unhealthy.length === locations.length) return 'unhealthy';
+            if (unhealthy.length > 0) return 'degraded';
+            return 'healthy';
           },
         });
 
@@ -907,10 +871,10 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
         await ipcServer.start();
 
         // 15. Mark as running
-        state = "running";
+        state = 'running';
       } catch (error) {
         // Cleanup on failure
-        state = "stopped";
+        state = 'stopped';
         startedAt = null;
 
         if (ipcServer) {
@@ -945,21 +909,18 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
     },
 
     async stop(): Promise<void> {
-      if (state === "stopped" || state === "stopping") {
+      if (state === 'stopped' || state === 'stopping') {
         return;
       }
 
-      if (state === "starting") {
+      if (state === 'starting') {
         await new Promise((resolve) => setTimeout(resolve, 100));
-        if (state === "starting") {
-          throw new DaemonError(
-            "SHUTDOWN_TIMEOUT",
-            "Cannot stop daemon while starting",
-          );
+        if (state === 'starting') {
+          throw new DaemonError('SHUTDOWN_TIMEOUT', 'Cannot stop daemon while starting');
         }
       }
 
-      state = "stopping";
+      state = 'stopping';
 
       const shutdownPromise = (async () => {
         try {
@@ -989,21 +950,21 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
           await removeSocketFile();
           await lockManager.release();
         } finally {
-          state = "stopped";
+          state = 'stopped';
           startedAt = null;
         }
       })();
 
       const timeoutPromise = new Promise<void>((_, reject) => {
         setTimeout(() => {
-          reject(new DaemonError("SHUTDOWN_TIMEOUT", "Shutdown timed out"));
+          reject(new DaemonError('SHUTDOWN_TIMEOUT', 'Shutdown timed out'));
         }, shutdownTimeoutMs);
       });
 
       try {
         await Promise.race([shutdownPromise, timeoutPromise]);
       } catch (error) {
-        state = "stopped";
+        state = 'stopped';
         startedAt = null;
         removeSignalHandlers();
         throw error;

@@ -5,34 +5,34 @@
  * pattern matching and priority.
  */
 
-import type { Connection } from './connections.js'
-import type { LocationIdentity } from './location.js'
-import { resolveLocationTarget, type ResolvedLocationTarget } from './uri.js'
+import type { Connection } from './connections.js';
+import type { LocationIdentity } from './location.js';
+import { resolveLocationTarget, type ResolvedLocationTarget } from './uri.js';
 import {
   type ConditionalRedirectRule,
   type RedirectContext,
   findConditionalRedirectRule,
-} from './conditional-redirects.js'
+} from './conditional-redirects.js';
 
 /**
  * Operations that can be redirected
  */
-export type RedirectOperation = 'read' | 'write'
+export type RedirectOperation = 'read' | 'write';
 
 /**
  * Redirect rule configuration
  */
 export interface RedirectRule {
   /** Operations this rule applies to */
-  operations: RedirectOperation[]
+  operations: RedirectOperation[];
   /** Glob pattern for node IDs (e.g., "*", "i-*", "s-*") */
-  pattern: string
+  pattern: string;
   /** Target location (opentasks:// URI or location hash) */
-  target: string
+  target: string;
   /** Priority: lower = higher priority (default: 100) */
-  priority: number
+  priority: number;
   /** Fallback behavior when target is unreachable */
-  fallback: 'local' | 'error'
+  fallback: 'local' | 'error';
 }
 
 /**
@@ -40,17 +40,17 @@ export interface RedirectRule {
  */
 export interface RedirectResult {
   /** Whether a redirect was found */
-  redirected: boolean
+  redirected: boolean;
   /** The matching rule (if redirected) */
-  rule?: RedirectRule
+  rule?: RedirectRule;
   /** Resolved target location (if redirected) */
-  targetLocation?: ResolvedLocationTarget
+  targetLocation?: ResolvedLocationTarget;
 }
 
 /**
  * Maximum redirect depth to prevent infinite loops
  */
-const MAX_REDIRECT_DEPTH = 3
+const MAX_REDIRECT_DEPTH = 3;
 
 /**
  * Simple glob matcher for node ID patterns
@@ -62,14 +62,14 @@ const MAX_REDIRECT_DEPTH = 3
  *   exact  - exact match
  */
 export function matchPattern(pattern: string, nodeId: string): boolean {
-  if (pattern === '*') return true
+  if (pattern === '*') return true;
 
   if (pattern.endsWith('*')) {
-    const prefix = pattern.slice(0, -1)
-    return nodeId.startsWith(prefix)
+    const prefix = pattern.slice(0, -1);
+    return nodeId.startsWith(prefix);
   }
 
-  return pattern === nodeId
+  return pattern === nodeId;
 }
 
 /**
@@ -86,18 +86,18 @@ export function matchPattern(pattern: string, nodeId: string): boolean {
 export function findRedirectRule(
   operation: RedirectOperation,
   nodeId: string,
-  rules: RedirectRule[]
+  rules: RedirectRule[],
 ): RedirectRule | null {
   // Sort by priority (ascending)
-  const sorted = [...rules].sort((a, b) => a.priority - b.priority)
+  const sorted = [...rules].sort((a, b) => a.priority - b.priority);
 
   for (const rule of sorted) {
-    if (!rule.operations.includes(operation)) continue
-    if (!matchPattern(rule.pattern, nodeId)) continue
-    return rule
+    if (!rule.operations.includes(operation)) continue;
+    if (!matchPattern(rule.pattern, nodeId)) continue;
+    return rule;
   }
 
-  return null
+  return null;
 }
 
 /**
@@ -115,23 +115,16 @@ export function resolveRedirect(
   connections: Connection[],
   currentLocation: LocationIdentity,
   currentOpentasksPath: string,
-  depth: number = 0
+  depth: number = 0,
 ): ResolvedLocationTarget | null {
   if (depth >= MAX_REDIRECT_DEPTH) {
-    throw new Error(
-      `Redirect depth exceeded maximum of ${MAX_REDIRECT_DEPTH} hops`
-    )
+    throw new Error(`Redirect depth exceeded maximum of ${MAX_REDIRECT_DEPTH} hops`);
   }
 
   try {
-    return resolveLocationTarget(
-      rule.target,
-      connections,
-      currentLocation,
-      currentOpentasksPath
-    )
+    return resolveLocationTarget(rule.target, connections, currentLocation, currentOpentasksPath);
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -158,42 +151,32 @@ export function resolveOperationRedirect(
   connections: Connection[],
   currentLocation: LocationIdentity,
   currentOpentasksPath: string,
-  context?: RedirectContext
+  context?: RedirectContext,
 ): RedirectResult {
   const rule = context
-    ? findConditionalRedirectRule(
-        operation,
-        nodeId,
-        rules as ConditionalRedirectRule[],
-        context
-      )
-    : findRedirectRule(operation, nodeId, rules)
+    ? findConditionalRedirectRule(operation, nodeId, rules as ConditionalRedirectRule[], context)
+    : findRedirectRule(operation, nodeId, rules);
 
   if (!rule) {
-    return { redirected: false }
+    return { redirected: false };
   }
 
-  const targetLocation = resolveRedirect(
-    rule,
-    connections,
-    currentLocation,
-    currentOpentasksPath
-  )
+  const targetLocation = resolveRedirect(rule, connections, currentLocation, currentOpentasksPath);
 
   if (!targetLocation) {
     // Target unreachable — apply fallback
     if (rule.fallback === 'error') {
       throw new Error(
-        `Redirect target unreachable for rule (pattern: ${rule.pattern}, target: ${rule.target})`
-      )
+        `Redirect target unreachable for rule (pattern: ${rule.pattern}, target: ${rule.target})`,
+      );
     }
     // fallback === 'local' — operate locally
-    return { redirected: false }
+    return { redirected: false };
   }
 
   return {
     redirected: true,
     rule,
     targetLocation,
-  }
+  };
 }

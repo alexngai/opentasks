@@ -32,7 +32,7 @@ Entire records the full AI session transcript — every prompt, every response, 
 
 ### Why Automatic Linking Matters
 
-Manual linking (`opentasks link --from i-x7k9 --to entire://checkpoint/a3b2`) would work but defeats the purpose. The integration should be zero-friction: work on tasks normally, and the graph builds itself. The daemon watches for Entire session events and correlates them with in-progress tasks automatically.
+Manual linking (`opentasks link --from t-x7k9 --to entire://checkpoint/a3b2`) would work but defeats the purpose. The integration should be zero-friction: work on tasks normally, and the graph builds itself. The daemon watches for Entire session events and correlates them with in-progress tasks automatically.
 
 ---
 
@@ -83,8 +83,8 @@ Three new edge types for Entire integration:
 
 | Edge Type | Direction | Meaning | Example |
 |---|---|---|---|
-| `worked-on` | Task → Session | "This task was worked on during this session" | `i-x7k9 --worked-on→ entire://session/2026-02-13-abc` |
-| `implemented-by` | Task → Checkpoint | "This commit checkpoint implements this task" | `i-x7k9 --implemented-by→ entire://checkpoint/a3b2c4` |
+| `worked-on` | Task → Session | "This task was worked on during this session" | `t-x7k9 --worked-on→ entire://session/2026-02-13-abc` |
+| `implemented-by` | Task → Checkpoint | "This commit checkpoint implements this task" | `t-x7k9 --implemented-by→ entire://checkpoint/a3b2c4` |
 | `contains` | Session → Checkpoint | "This session produced this checkpoint" | `entire://session/... --contains→ entire://checkpoint/...` |
 
 ### ExternalNode Examples
@@ -104,8 +104,8 @@ Three new edge types for Entire integration:
 > **Note:** `from_id` and `to_id` use the graph store's internal node IDs (e.g., `x-en01`), not URIs. The URI is stored on the node itself.
 
 ```jsonl
-{"id":"x-ew01","uuid":"...","from_id":"i-x7k9","to_id":"x-en01","type":"worked-on","created_at":"2026-02-13T15:00:00Z","metadata":{"_context":{"source":"entire-auto-linker","correlation":"claimed-task","confidence":"high"}}}
-{"id":"x-ew02","uuid":"...","from_id":"i-x7k9","to_id":"x-en02","type":"implemented-by","created_at":"2026-02-13T15:35:00Z","metadata":{"_context":{"source":"entire-auto-linker","correlation":"claimed-task","confidence":"high","checkpointId":"a3b2c4d5"}}}
+{"id":"x-ew01","uuid":"...","from_id":"t-x7k9","to_id":"x-en01","type":"worked-on","created_at":"2026-02-13T15:00:00Z","metadata":{"_context":{"source":"entire-auto-linker","correlation":"claimed-task","confidence":"high"}}}
+{"id":"x-ew02","uuid":"...","from_id":"t-x7k9","to_id":"x-en02","type":"implemented-by","created_at":"2026-02-13T15:35:00Z","metadata":{"_context":{"source":"entire-auto-linker","correlation":"claimed-task","confidence":"high","checkpointId":"a3b2c4d5"}}}
 {"id":"x-ew03","uuid":"...","from_id":"x-en01","to_id":"x-en02","type":"contains","created_at":"2026-02-13T15:35:00Z","metadata":{"_context":{"source":"entire-auto-linker"}}}
 ```
 
@@ -155,9 +155,9 @@ Three new edge types for Entire integration:
 ```
 1. Agent claims task
    ┌────────────────────────────────────────────────────────────┐
-   │ opentasks update i-x7k9 --status in_progress              │
-   │ → GraphStore: i-x7k9.status = "in_progress"               │
-   │ → GraphStore: i-x7k9.claimed_by = "claude-agent-1"        │
+   │ opentasks update t-x7k9 --status in_progress              │
+   │ → GraphStore: t-x7k9.status = "in_progress"               │
+   │ → GraphStore: t-x7k9.claimed_by = "claude-agent-1"        │
    └────────────────────────────────────────────────────────────┘
 
 2. Entire SessionStart hook fires
@@ -171,9 +171,9 @@ Three new edge types for Entire integration:
 3. Auto-Linker correlates session with tasks
    ┌────────────────────────────────────────────────────────────┐
    │ → Queries graph for in_progress/claimed tasks              │
-   │ → Finds i-x7k9 (claimed, in_progress, matching branch)    │
+   │ → Finds t-x7k9 (claimed, in_progress, matching branch)    │
    │ → Creates ExternalNode: entire://session/2026-02-13-abc    │
-   │ → Creates edge: i-x7k9 --worked-on→ session               │
+   │ → Creates edge: t-x7k9 --worked-on→ session               │
    │ → Marks dirty, schedules flush                             │
    └────────────────────────────────────────────────────────────┘
 
@@ -190,7 +190,7 @@ Three new edge types for Entire integration:
    ┌────────────────────────────────────────────────────────────┐
    │ → Reads checkpoint ID from session state                   │
    │ → Creates ExternalNode: entire://checkpoint/a3b2c4         │
-   │ → Creates edge: i-x7k9 --implemented-by→ checkpoint       │
+   │ → Creates edge: t-x7k9 --implemented-by→ checkpoint       │
    │ → Creates edge: session --contains→ checkpoint             │
    │ → Fetches metadata via `entire explain` for node content   │
    │ → Marks dirty, schedules flush                             │
@@ -505,7 +505,7 @@ Tasks with `claimed_by` matching the agent identifier from the Entire session. T
 ```typescript
 // Query: find tasks claimed by this agent
 const claimed = await store.query.nodes({
-  type: 'issue',
+  type: 'task',
   filter: (node) =>
     node.claimed_by != null &&
     !isExpired(node.lock_until) &&
@@ -520,7 +520,7 @@ Tasks with `status: 'in_progress'` whose `branch` field matches the current git 
 ```typescript
 // Query: find in-progress tasks on this branch
 const branchTasks = await store.query.nodes({
-  type: 'issue',
+  type: 'task',
   status: 'in_progress',
   filter: (node) => node.branch === session.branch,
 })
@@ -533,7 +533,7 @@ All tasks with `status: 'in_progress'` when no higher-confidence matches exist. 
 ```typescript
 // Only used when strategies 1 and 2 find nothing
 const allInProgress = await store.query.nodes({
-  type: 'issue',
+  type: 'task',
   status: 'in_progress',
 })
 // Only auto-link if there's exactly 1 in-progress task (ambiguity guard)
@@ -735,7 +735,7 @@ If `entire` CLI is not installed but `.git/entire-sessions/` exists, the watcher
 ### What sessions relate to a task?
 
 ```bash
-opentasks query '{"edges": {"fromId": "i-x7k9", "type": "worked-on"}}'
+opentasks query '{"edges": {"fromId": "t-x7k9", "type": "worked-on"}}'
 ```
 
 Returns:
@@ -743,7 +743,7 @@ Returns:
 [
   {
     "id": "x-ew01",
-    "from_id": "i-x7k9",
+    "from_id": "t-x7k9",
     "to_id": "entire://session/2026-02-13-abc",
     "type": "worked-on"
   }
@@ -753,7 +753,7 @@ Returns:
 ### What checkpoints implement a task?
 
 ```bash
-opentasks query '{"edges": {"fromId": "i-x7k9", "type": "implemented-by"}}'
+opentasks query '{"edges": {"fromId": "t-x7k9", "type": "implemented-by"}}'
 ```
 
 ### Get full session details
@@ -775,11 +775,11 @@ Returns the ExternalNode with `external_data` containing commit hash, prompts, f
 ### Full traceability chain
 
 ```bash
-# Spec → Issues implementing it
-opentasks query '{"implementers": {"specId": "s-a2b3"}}'
+# Spec → Tasks implementing it
+opentasks query '{"tasks": {"specId": "c-a2b3"}}'
 
 # Issue → Checkpoints that implemented it
-opentasks query '{"edges": {"fromId": "i-x7k9", "type": "implemented-by"}}'
+opentasks query '{"edges": {"fromId": "t-x7k9", "type": "implemented-by"}}'
 
 # Checkpoint → Session that produced it
 opentasks query '{"edges": {"toId": "entire://checkpoint/a3b2c4d5", "type": "contains"}}'

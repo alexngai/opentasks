@@ -14,22 +14,22 @@
  */
 export interface ProviderCapabilities {
   /** Can read/fetch nodes */
-  read: boolean
+  read: boolean;
 
   /** Can create/update/delete nodes */
-  write: boolean
+  write: boolean;
 
   /** Can search nodes by query */
-  search: boolean
+  search: boolean;
 
   /** Can watch for changes */
-  watch: boolean
+  watch: boolean;
 
   /** Can be used as a CRUD backend through OpenTasks' unified interface */
-  mount: boolean
+  mount: boolean;
 
   /** Supports feedback/annotation natively (else falls back to local graph) */
-  feedback: boolean
+  feedback: boolean;
 }
 
 // ============================================================================
@@ -41,16 +41,16 @@ export interface ProviderCapabilities {
  */
 export interface ParsedUri {
   /** URI scheme (e.g., 'beads', 'claude', 'native') */
-  scheme: string
+  scheme: string;
 
   /** Workspace identifier (e.g., '.', 'current', absolute path) */
-  workspace?: string
+  workspace?: string;
 
   /** Node ID within the provider */
-  id: string
+  id: string;
 
   /** Whether the URI uses relative workspace reference */
-  isRelative: boolean
+  isRelative: boolean;
 }
 
 /**
@@ -58,10 +58,10 @@ export interface ParsedUri {
  */
 export interface UriOptions {
   /** Workspace to include in URI */
-  workspace?: string
+  workspace?: string;
 
   /** Use relative workspace (.) */
-  relative?: boolean
+  relative?: boolean;
 }
 
 // ============================================================================
@@ -71,38 +71,38 @@ export interface UriOptions {
 /**
  * Node type in provider context
  */
-export type ProviderNodeType = 'spec' | 'issue' | 'task' | 'feedback' | 'external'
+export type ProviderNodeType = 'spec' | 'issue' | 'task' | 'feedback' | 'external';
 
 /**
  * Normalized node representation from a provider
  */
 export interface ProviderNode {
   /** ID in provider's format */
-  id: string
+  id: string;
 
   /** Canonical URI */
-  uri: string
+  uri: string;
 
   /** Node type equivalent */
-  type: ProviderNodeType
+  type: ProviderNodeType;
 
   /** Display title */
-  title: string
+  title: string;
 
   /** Content/description */
-  content?: string
+  content?: string;
 
   /** Provider-specific status */
-  status?: string
+  status?: string;
 
   /** Priority (normalized 0-4) */
-  priority?: number
+  priority?: number;
 
   /** Raw data from provider */
-  rawData?: Record<string, unknown>
+  rawData?: Record<string, unknown>;
 
   /** When this data was fetched (ISO 8601) */
-  fetchedAt: string
+  fetchedAt: string;
 }
 
 // ============================================================================
@@ -121,13 +121,13 @@ export interface ProviderNode {
  */
 export interface ProviderOperationContext {
   /** Override the provider's default working directory */
-  cwd?: string
+  cwd?: string;
 
   /** Override the provider's default timeout (ms) */
-  timeout?: number
+  timeout?: number;
 
   /** Provider-specific extension parameters */
-  extensions?: Record<string, unknown>
+  extensions?: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -139,25 +139,25 @@ export interface ProviderOperationContext {
  */
 export interface ProviderCreateInput {
   /** Node type to create */
-  type: 'spec' | 'issue'
+  type: 'spec' | 'issue';
 
   /** Node title */
-  title: string
+  title: string;
 
   /** Node content/description */
-  content?: string
+  content?: string;
 
   /** Initial status */
-  status?: string
+  status?: string;
 
   /** Priority (0-4) */
-  priority?: number
+  priority?: number;
 
   /** Additional metadata */
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>;
 
   /** Provider-specific data extensions (ignored by providers that don't understand them) */
-  extensions?: Record<string, unknown>
+  extensions?: Record<string, unknown>;
 }
 
 /**
@@ -165,22 +165,22 @@ export interface ProviderCreateInput {
  */
 export interface ProviderUpdateInput {
   /** Updated title */
-  title?: string
+  title?: string;
 
   /** Updated content */
-  content?: string
+  content?: string;
 
   /** Updated status */
-  status?: string
+  status?: string;
 
   /** Updated priority */
-  priority?: number
+  priority?: number;
 
   /** Additional metadata to merge */
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>;
 
   /** Provider-specific data extensions (ignored by providers that don't understand them) */
-  extensions?: Record<string, unknown>
+  extensions?: Record<string, unknown>;
 }
 
 /**
@@ -188,19 +188,19 @@ export interface ProviderUpdateInput {
  */
 export interface ProviderFilter {
   /** Filter by node type */
-  type?: string
+  type?: string;
 
   /** Filter by status */
-  status?: string
+  status?: string;
 
   /** Search query */
-  search?: string
+  search?: string;
 
   /** Maximum results */
-  limit?: number
+  limit?: number;
 
   /** Pagination offset */
-  offset?: number
+  offset?: number;
 }
 
 // ============================================================================
@@ -212,24 +212,24 @@ export interface ProviderFilter {
  */
 export interface WatchEvent {
   /** Type of change */
-  type: 'created' | 'updated' | 'deleted'
+  type: 'created' | 'updated' | 'deleted';
 
   /** ID of the affected node */
-  nodeId: string
+  nodeId: string;
 
   /** Node data (not present for deletions) */
-  node?: ProviderNode
+  node?: ProviderNode;
 }
 
 /**
  * Callback for watch events
  */
-export type WatchCallback = (event: WatchEvent) => void
+export type WatchCallback = (event: WatchEvent) => void;
 
 /**
  * Function to unsubscribe from watch
  */
-export type Unsubscribe = () => void
+export type Unsubscribe = () => void;
 
 // ============================================================================
 // Search Types
@@ -240,10 +240,10 @@ export type Unsubscribe = () => void
  */
 export interface SearchOptions {
   /** Maximum results */
-  limit?: number
+  limit?: number;
 
   /** Filter by node type */
-  type?: string
+  type?: string;
 }
 
 // ============================================================================
@@ -258,13 +258,13 @@ export interface SearchOptions {
  */
 export interface Provider {
   /** Provider identifier */
-  readonly name: string
+  readonly name: string;
 
   /** URI schemes this provider handles (e.g., ['beads', 'bd']) */
-  readonly schemes: string[]
+  readonly schemes: string[];
 
   /** What operations this provider supports */
-  readonly capabilities: ProviderCapabilities
+  readonly capabilities: ProviderCapabilities;
 
   // ===========================================================================
   // URI Operations
@@ -274,17 +274,17 @@ export interface Provider {
    * Parse a URI string into its components
    * @returns Parsed URI or null if not valid for this provider
    */
-  parseUri(uri: string): ParsedUri | null
+  parseUri(uri: string): ParsedUri | null;
 
   /**
    * Build a canonical URI for a node ID
    */
-  buildUri(id: string, options?: UriOptions): string
+  buildUri(id: string, options?: UriOptions): string;
 
   /**
    * Check if a URI is valid for this provider
    */
-  isValidUri(uri: string): boolean
+  isValidUri(uri: string): boolean;
 
   // ===========================================================================
   // CRUD Operations
@@ -295,31 +295,35 @@ export interface Provider {
    * @param context - Optional operational context (cwd override, timeout, extensions)
    * @returns Node data or null if not found
    */
-  get(id: string, context?: ProviderOperationContext): Promise<ProviderNode | null>
+  get(id: string, context?: ProviderOperationContext): Promise<ProviderNode | null>;
 
   /**
    * List nodes with optional filtering
    * @param context - Optional operational context (cwd override, timeout, extensions)
    */
-  list(filter?: ProviderFilter, context?: ProviderOperationContext): Promise<ProviderNode[]>
+  list(filter?: ProviderFilter, context?: ProviderOperationContext): Promise<ProviderNode[]>;
 
   /**
    * Create a new node
    * @param context - Optional operational context (cwd override, timeout, extensions)
    */
-  create(input: ProviderCreateInput, context?: ProviderOperationContext): Promise<ProviderNode>
+  create(input: ProviderCreateInput, context?: ProviderOperationContext): Promise<ProviderNode>;
 
   /**
    * Update an existing node
    * @param context - Optional operational context (cwd override, timeout, extensions)
    */
-  update(id: string, updates: ProviderUpdateInput, context?: ProviderOperationContext): Promise<ProviderNode>
+  update(
+    id: string,
+    updates: ProviderUpdateInput,
+    context?: ProviderOperationContext,
+  ): Promise<ProviderNode>;
 
   /**
    * Delete a node
    * @param context - Optional operational context (cwd override, timeout, extensions)
    */
-  delete(id: string, context?: ProviderOperationContext): Promise<void>
+  delete(id: string, context?: ProviderOperationContext): Promise<void>;
 
   // ===========================================================================
   // Optional Operations
@@ -329,13 +333,13 @@ export interface Provider {
    * Search nodes by query string
    * Only available if capabilities.search is true
    */
-  search?(query: string, options?: SearchOptions): Promise<ProviderNode[]>
+  search?(query: string, options?: SearchOptions): Promise<ProviderNode[]>;
 
   /**
    * Watch for changes to nodes
    * Only available if capabilities.watch is true
    */
-  watch?(callback: WatchCallback): Unsubscribe
+  watch?(callback: WatchCallback): Unsubscribe;
 }
 
 // ============================================================================
@@ -349,23 +353,23 @@ export type MaterializationStrategy =
   | 'on-demand' // Only when explicitly requested
   | 'lazy' // On first access
   | 'eager' // When edge is created
-  | 'none' // Never materialize, always fetch
+  | 'none'; // Never materialize, always fetch
 
 /**
  * Configuration for node materialization
  */
 export interface MaterializationConfig {
   /** Default strategy for all providers */
-  default: MaterializationStrategy
+  default: MaterializationStrategy;
 
   /** Per-provider strategy overrides */
-  providers?: Record<string, MaterializationStrategy>
+  providers?: Record<string, MaterializationStrategy>;
 
   /** Background sync interval in ms (0 to disable) */
-  backgroundSyncInterval?: number
+  backgroundSyncInterval?: number;
 
   /** Time in ms before cached data is considered stale */
-  staleAfter?: number
+  staleAfter?: number;
 }
 
 /**
@@ -375,7 +379,7 @@ export const DEFAULT_MATERIALIZATION_CONFIG: MaterializationConfig = {
   default: 'on-demand',
   backgroundSyncInterval: 0,
   staleAfter: 5 * 60 * 1000, // 5 minutes
-}
+};
 
 // ============================================================================
 // Provider Registry Types
@@ -386,22 +390,22 @@ export const DEFAULT_MATERIALIZATION_CONFIG: MaterializationConfig = {
  */
 export interface ProviderRegistry {
   /** Register a provider */
-  register(provider: Provider): void
+  register(provider: Provider): void;
 
   /** Unregister a provider by name */
-  unregister(name: string): void
+  unregister(name: string): void;
 
   /** Get a provider by name */
-  get(name: string): Provider | undefined
+  get(name: string): Provider | undefined;
 
   /** Find provider that can handle a URI or ID */
-  resolveProvider(idOrUri: string): Provider | null
+  resolveProvider(idOrUri: string): Provider | null;
 
   /** List all registered providers */
-  list(): Provider[]
+  list(): Provider[];
 
   /** Check if a URI/ID can be resolved */
-  canResolve(idOrUri: string): boolean
+  canResolve(idOrUri: string): boolean;
 }
 
 // ============================================================================
@@ -417,7 +421,7 @@ export type ProviderErrorCode =
   | 'OPERATION_FAILED'
   | 'NOT_SUPPORTED'
   | 'PROVIDER_ERROR'
-  | 'TIMEOUT'
+  | 'TIMEOUT';
 
 /**
  * Error thrown by provider operations
@@ -427,9 +431,9 @@ export class ProviderError extends Error {
     public readonly code: ProviderErrorCode,
     message: string,
     public readonly provider?: string,
-    public readonly cause?: Error
+    public readonly cause?: Error,
   ) {
-    super(message)
-    this.name = 'ProviderError'
+    super(message);
+    this.name = 'ProviderError';
   }
 }

@@ -5,21 +5,21 @@
  * Used for cross-location references in opentasks:// URIs.
  */
 
-import { createHash, randomUUID } from 'node:crypto'
-import { execSync } from 'node:child_process'
-import * as path from 'node:path'
-import { hexToBase36 } from './id.js'
+import { createHash, randomUUID } from 'node:crypto';
+import { execSync } from 'node:child_process';
+import * as path from 'node:path';
+import { hexToBase36 } from './id.js';
 
 /**
  * Location identity stored in config.json
  */
 export interface LocationIdentity {
   /** 8-char base36 hash (deterministic from git remote + path) */
-  hash: string
+  hash: string;
   /** UUID v4 (uniqueness guarantee) */
-  uuid: string
+  uuid: string;
   /** Human-readable name */
-  name: string
+  name: string;
 }
 
 /**
@@ -34,10 +34,10 @@ export function getGitRemoteUrl(repoRoot: string): string | null {
       cwd: repoRoot,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim()
-    return url || null
+    }).trim();
+    return url || null;
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -53,10 +53,10 @@ export function getGitRoot(cwd: string): string | null {
       cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim()
-    return root || null
+    }).trim();
+    return root || null;
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -70,10 +70,10 @@ export function getGitRoot(cwd: string): string | null {
  * @returns 8-character base36 hash
  */
 export function generateLocationHash(remoteUrl: string, relativePath: string): string {
-  const normalized = relativePath === '.' ? '' : relativePath
-  const input = `${remoteUrl}:${normalized}`
-  const hash = createHash('sha256').update(input).digest('hex')
-  return hexToBase36(hash).slice(0, 8)
+  const normalized = relativePath === '.' ? '' : relativePath;
+  const input = `${remoteUrl}:${normalized}`;
+  const hash = createHash('sha256').update(input).digest('hex');
+  return hexToBase36(hash).slice(0, 8);
 }
 
 /**
@@ -86,8 +86,8 @@ export function generateLocationHash(remoteUrl: string, relativePath: string): s
  * @returns 8-character base36 hash
  */
 export function generateLocationHashFallback(absolutePath: string): string {
-  const hash = createHash('sha256').update(absolutePath).digest('hex')
-  return hexToBase36(hash).slice(0, 8)
+  const hash = createHash('sha256').update(absolutePath).digest('hex');
+  return hexToBase36(hash).slice(0, 8);
 }
 
 /**
@@ -100,35 +100,32 @@ export function generateLocationHashFallback(absolutePath: string): string {
  * @param name - Optional human-readable name (defaults to directory name)
  * @returns Location identity object
  */
-export function generateLocationIdentity(
-  opentasksDir: string,
-  name?: string
-): LocationIdentity {
-  const parentDir = path.dirname(opentasksDir)
-  const resolvedDir = path.resolve(parentDir)
-  const gitRoot = getGitRoot(resolvedDir)
+export function generateLocationIdentity(opentasksDir: string, name?: string): LocationIdentity {
+  const parentDir = path.dirname(opentasksDir);
+  const resolvedDir = path.resolve(parentDir);
+  const gitRoot = getGitRoot(resolvedDir);
 
-  let hash: string
+  let hash: string;
 
   if (gitRoot) {
-    const remoteUrl = getGitRemoteUrl(gitRoot)
+    const remoteUrl = getGitRemoteUrl(gitRoot);
     if (remoteUrl) {
-      const relativePath = path.relative(gitRoot, resolvedDir)
-      hash = generateLocationHash(remoteUrl, relativePath || '.')
+      const relativePath = path.relative(gitRoot, resolvedDir);
+      hash = generateLocationHash(remoteUrl, relativePath || '.');
     } else {
-      hash = generateLocationHashFallback(path.resolve(opentasksDir))
+      hash = generateLocationHashFallback(path.resolve(opentasksDir));
     }
   } else {
-    hash = generateLocationHashFallback(path.resolve(opentasksDir))
+    hash = generateLocationHashFallback(path.resolve(opentasksDir));
   }
 
-  const locationName = name || path.basename(resolvedDir)
+  const locationName = name || path.basename(resolvedDir);
 
   return {
     hash,
     uuid: randomUUID(),
     name: locationName,
-  }
+  };
 }
 
 /**
@@ -138,5 +135,5 @@ export function generateLocationIdentity(
  * @returns true if the hash is a valid 8-char base36 string
  */
 export function isValidLocationHash(hash: string): boolean {
-  return /^[a-z0-9]{8}$/.test(hash)
+  return /^[a-z0-9]{8}$/.test(hash);
 }

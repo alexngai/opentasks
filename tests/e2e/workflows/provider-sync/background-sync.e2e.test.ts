@@ -170,7 +170,7 @@ describe.skipIf(!AGENT_TESTS)('Background Sync', () => {
 
       expect(manager.getStrategyFor('beads://./bd-123')).toBe('eager')
       expect(manager.getStrategyFor('jira://proj/ISSUE-1')).toBe('none')
-      expect(manager.getStrategyFor('native://i-123')).toBe('lazy')
+      expect(manager.getStrategyFor('native://t-123')).toBe('lazy')
     })
   })
 

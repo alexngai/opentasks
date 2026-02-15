@@ -5,54 +5,54 @@
  * in multi-agent/multi-threaded environments.
  */
 
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto';
 
 /**
  * Node type for ID generation
  */
-export type IdNodeType = 'spec' | 'issue' | 'feedback' | 'external' | 'edge'
+export type IdNodeType = 'context' | 'task' | 'feedback' | 'external' | 'edge';
 
 /**
  * ID prefixes by type
  */
 const TYPE_PREFIXES: Record<IdNodeType, string> = {
-  spec: 's',
-  issue: 'i',
+  context: 'c',
+  task: 't',
   feedback: 'f',
   external: 'e',
   edge: 'x',
-}
+};
 
 /**
  * Base36 character set (0-9, a-z)
  */
-const BASE36_CHARS = '0123456789abcdefghijklmnopqrstuvwxyz'
+const BASE36_CHARS = '0123456789abcdefghijklmnopqrstuvwxyz';
 
 /**
  * Convert a hex string to base36
  */
 export function hexToBase36(hex: string): string {
   // Convert hex to BigInt, then to base36
-  const num = BigInt('0x' + hex)
-  let result = ''
-  let remaining = num
+  const num = BigInt('0x' + hex);
+  let result = '';
+  let remaining = num;
 
-  if (remaining === 0n) return '0'
+  if (remaining === 0n) return '0';
 
   while (remaining > 0n) {
-    const digit = Number(remaining % 36n)
-    result = BASE36_CHARS[digit] + result
-    remaining = remaining / 36n
+    const digit = Number(remaining % 36n);
+    result = BASE36_CHARS[digit] + result;
+    remaining = remaining / 36n;
   }
 
-  return result
+  return result;
 }
 
 /**
  * Get the type prefix for a node type
  */
 export function typePrefix(type: IdNodeType | string): string {
-  return TYPE_PREFIXES[type as IdNodeType] || 'n'
+  return TYPE_PREFIXES[type as IdNodeType] || 'n';
 }
 
 /**
@@ -68,11 +68,11 @@ export function typePrefix(type: IdNodeType | string): string {
  * - 8 chars: 36^8 = 2,821,109,907,456 possibilities → safe up to ~1.3M entities
  */
 export function adaptiveLength(count: number): number {
-  if (count < 980) return 4
-  if (count < 5900) return 5
-  if (count < 35000) return 6
-  if (count < 212000) return 7
-  return 8
+  if (count < 980) return 4;
+  if (count < 5900) return 5;
+  if (count < 35000) return 6;
+  if (count < 212000) return 7;
+  return 8;
 }
 
 /**
@@ -80,9 +80,9 @@ export function adaptiveLength(count: number): number {
  */
 export interface GeneratedId {
   /** Short hash-based ID (e.g., "s-a2b3") */
-  id: string
+  id: string;
   /** Full UUID v4 */
-  uuid: string
+  uuid: string;
 }
 
 /**
@@ -94,32 +94,29 @@ export interface GeneratedId {
  *
  * @example
  * ```ts
- * const { id, uuid } = generateId('issue')
- * // id: "i-x7k9"
+ * const { id, uuid } = generateId('task')
+ * // id: "t-x7k9"
  * // uuid: "550e8400-e29b-41d4-a716-446655440000"
  * ```
  */
-export function generateId(
-  type: IdNodeType | string,
-  existingCount: number = 0
-): GeneratedId {
+export function generateId(type: IdNodeType | string, existingCount: number = 0): GeneratedId {
   // 1. Generate UUID v4
-  const uuid = randomUUID()
+  const uuid = randomUUID();
 
   // 2. SHA256 hash the UUID
-  const hash = createHash('sha256').update(uuid).digest('hex')
+  const hash = createHash('sha256').update(uuid).digest('hex');
 
   // 3. Convert to base36
-  const base36 = hexToBase36(hash)
+  const base36 = hexToBase36(hash);
 
   // 4. Get adaptive length
-  const length = adaptiveLength(existingCount)
+  const length = adaptiveLength(existingCount);
 
   // 5. Prepend type prefix
-  const prefix = typePrefix(type)
-  const id = `${prefix}-${base36.slice(0, length)}`
+  const prefix = typePrefix(type);
+  const id = `${prefix}-${base36.slice(0, length)}`;
 
-  return { id, uuid }
+  return { id, uuid };
 }
 
 /**
@@ -133,15 +130,15 @@ export function generateId(
 export function generateIdFromUuid(
   type: IdNodeType | string,
   uuid: string,
-  existingCount: number = 0
+  existingCount: number = 0,
 ): GeneratedId {
-  const hash = createHash('sha256').update(uuid).digest('hex')
-  const base36 = hexToBase36(hash)
-  const length = adaptiveLength(existingCount)
-  const prefix = typePrefix(type)
-  const id = `${prefix}-${base36.slice(0, length)}`
+  const hash = createHash('sha256').update(uuid).digest('hex');
+  const base36 = hexToBase36(hash);
+  const length = adaptiveLength(existingCount);
+  const prefix = typePrefix(type);
+  const id = `${prefix}-${base36.slice(0, length)}`;
 
-  return { id, uuid }
+  return { id, uuid };
 }
 
 /**
@@ -151,8 +148,8 @@ export function generateIdFromUuid(
  * @returns The type prefix or null if invalid format
  */
 export function parseIdPrefix(id: string): string | null {
-  const match = id.match(/^([a-z])-/)
-  return match ? match[1] : null
+  const match = id.match(/^([a-z])-/);
+  return match ? match[1] : null;
 }
 
 /**
@@ -162,16 +159,16 @@ export function parseIdPrefix(id: string): string | null {
  * @returns The inferred node type or null if unknown
  */
 export function inferTypeFromId(id: string): IdNodeType | null {
-  const prefix = parseIdPrefix(id)
-  if (!prefix) return null
+  const prefix = parseIdPrefix(id);
+  if (!prefix) return null;
 
   const prefixToType: Record<string, IdNodeType> = {
-    s: 'spec',
-    i: 'issue',
+    c: 'context',
+    t: 'task',
     f: 'feedback',
     e: 'external',
     x: 'edge',
-  }
+  };
 
-  return prefixToType[prefix] || null
+  return prefixToType[prefix] || null;
 }

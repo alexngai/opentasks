@@ -11,14 +11,14 @@ export type {
   EdgeDirection,
   QueryEdgesOptions,
   EdgeTypeSupport,
-} from './RelationshipQueryable.js'
+} from './RelationshipQueryable.js';
 
 export {
   isRelationshipQueryable,
   filterEdgesByType,
   filterEdgesByDirection,
   getNeighborFromEdge,
-} from './RelationshipQueryable.js'
+} from './RelationshipQueryable.js';
 
 export type {
   Watchable,
@@ -28,15 +28,15 @@ export type {
   ProviderChangeEvent,
   ProviderNodeChangeEvent,
   ProviderEdgeChangeEvent,
-} from './Watchable.js'
+} from './Watchable.js';
 
-export { isWatchable } from './Watchable.js'
+export { isWatchable } from './Watchable.js';
 
 export type {
   TaskManageable,
   TaskAction,
   TaskCapabilities,
   ReadyTaskOptions,
-} from './TaskManageable.js'
+} from './TaskManageable.js';
 
-export { isTaskManageable } from './TaskManageable.js'
+export { isTaskManageable } from './TaskManageable.js';

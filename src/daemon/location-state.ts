@@ -6,27 +6,24 @@
  * multi-location daemon modes.
  */
 
-import * as path from "node:path";
-import { existsSync } from "node:fs";
-import { createGraphStore, type GraphStore } from "../graph/store.js";
-import type { ProviderAwareStore } from "../graph/provider-store.js";
-import { createSQLitePersister } from "../storage/sqlite.js";
-import { JSONLPersister } from "../storage/jsonl.js";
-import type { Storage } from "../storage/interface.js";
-import { createFileWatcher, type FileWatcher } from "./watcher.js";
-import { createDaemonFlushManager, type DaemonFlushManager } from "./flush.js";
-import { createEntireWatcher, type EntireWatcher } from "./entire-watcher.js";
-import {
-  createEntireAutoLinker,
-  type EntireAutoLinker,
-} from "./entire-linker.js";
-import { DaemonError, type LocationInfo } from "./types.js";
-import type { MaterializationArchiver } from "../materialization/types.js";
-import { createGitArchiveStore } from "../materialization/git-archive-store.js";
-import { createMaterializationArchiver } from "../materialization/archiver.js";
-import { resolveGraphId } from "../materialization/graph-id.js";
-import { createRemoteStoresFromConfig } from "../materialization/remote-store-factory.js";
-import { loadConfig } from "../config/index.js";
+import * as path from 'node:path';
+import { existsSync } from 'node:fs';
+import { createGraphStore, type GraphStore } from '../graph/store.js';
+import type { ProviderAwareStore } from '../graph/provider-store.js';
+import { createSQLitePersister } from '../storage/sqlite.js';
+import { JSONLPersister } from '../storage/jsonl.js';
+import type { Storage } from '../storage/interface.js';
+import { createFileWatcher, type FileWatcher } from './watcher.js';
+import { createDaemonFlushManager, type DaemonFlushManager } from './flush.js';
+import { createEntireWatcher, type EntireWatcher } from './entire-watcher.js';
+import { createEntireAutoLinker, type EntireAutoLinker } from './entire-linker.js';
+import { DaemonError, type LocationInfo } from './types.js';
+import type { MaterializationArchiver } from '../materialization/types.js';
+import { createGitArchiveStore } from '../materialization/git-archive-store.js';
+import { createMaterializationArchiver } from '../materialization/archiver.js';
+import { resolveGraphId } from '../materialization/graph-id.js';
+import { createRemoteStoresFromConfig } from '../materialization/remote-store-factory.js';
+import { loadConfig } from '../config/index.js';
 
 // ============================================================================
 // Types
@@ -102,10 +99,8 @@ export interface LocationResolver {
  * Create a GraphStore for a location path.
  * Handles SQLite + JSONL persister creation and initialization.
  */
-export async function createStoreForLocation(
-  opentasksPath: string,
-): Promise<GraphStore> {
-  const jsonlPath = path.join(opentasksPath, "graph.jsonl");
+export async function createStoreForLocation(opentasksPath: string): Promise<GraphStore> {
+  const jsonlPath = path.join(opentasksPath, 'graph.jsonl');
 
   const sqlite = createSQLitePersister(opentasksPath);
   const jsonl = new JSONLPersister({ path: jsonlPath });
@@ -192,10 +187,10 @@ export async function createLocationState(
         (config.materialization.remoteStores ?? []).map((rs: Record<string, unknown>) => ({
           type: rs.type as string,
           name: rs.name as string,
-          enabled: rs.enabled as boolean ?? true,
+          enabled: (rs.enabled as boolean) ?? true,
           config: (rs.config as Record<string, unknown>) ?? {},
           events: (rs.events as string[]) ?? [],
-        }))
+        })),
       );
 
       archiver = createMaterializationArchiver({
@@ -261,9 +256,7 @@ export async function createLocationState(
 /**
  * Tear down a LocationState, releasing all resources.
  */
-export async function destroyLocationState(
-  state: LocationState,
-): Promise<void> {
+export async function destroyLocationState(state: LocationState): Promise<void> {
   // Stop provider watching/sync before tearing down store
   if (state.providerStore) {
     try {
@@ -318,9 +311,7 @@ export async function destroyLocationState(
  * Create a resolver for single-location mode.
  * Always resolves to the single provided LocationState.
  */
-export function createSingleLocationResolver(
-  state: LocationState,
-): LocationResolver {
+export function createSingleLocationResolver(state: LocationState): LocationResolver {
   return {
     resolve(_locationHash?: string): LocationState {
       // Single-location mode ignores the hash, always returns the one state
@@ -347,16 +338,13 @@ export function createSingleLocationResolver(
     },
 
     add(_state: LocationState): void {
-      throw new DaemonError(
-        "LOCATION_INIT_FAILED",
-        "Cannot add locations in single-location mode",
-      );
+      throw new DaemonError('LOCATION_INIT_FAILED', 'Cannot add locations in single-location mode');
     },
 
     async remove(_hash: string): Promise<void> {
       throw new DaemonError(
-        "LOCATION_INIT_FAILED",
-        "Cannot remove locations in single-location mode",
+        'LOCATION_INIT_FAILED',
+        'Cannot remove locations in single-location mode',
       );
     },
   };
@@ -366,9 +354,7 @@ export function createSingleLocationResolver(
  * Create a resolver for multi-location mode.
  * Routes requests to the appropriate LocationState by hash.
  */
-export function createMultiLocationResolver(
-  primaryHash: string,
-): LocationResolver {
+export function createMultiLocationResolver(primaryHash: string): LocationResolver {
   const locations = new Map<string, LocationState>();
 
   return {
@@ -379,10 +365,7 @@ export function createMultiLocationResolver(
 
       const state = locations.get(locationHash);
       if (!state) {
-        throw new DaemonError(
-          "LOCATION_NOT_FOUND",
-          `Location not found: ${locationHash}`,
-        );
+        throw new DaemonError('LOCATION_NOT_FOUND', `Location not found: ${locationHash}`);
       }
       return state;
     },
@@ -393,7 +376,7 @@ export function createMultiLocationResolver(
         // Fallback to first available location
         const first = locations.values().next();
         if (first.done) {
-          throw new DaemonError("LOCATION_NOT_FOUND", "No locations available");
+          throw new DaemonError('LOCATION_NOT_FOUND', 'No locations available');
         }
         return first.value;
       }

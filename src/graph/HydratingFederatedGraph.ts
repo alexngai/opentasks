@@ -5,28 +5,36 @@
  * Fetches missing data on-demand from providers and caches it to SQLite.
  */
 
-import { randomUUID } from 'node:crypto'
-import type { StoredNode, StoredEdge } from '../schema/storage.js'
-import type { Storage } from '../storage/interface.js'
-import type { ProviderRegistry, Provider, ProviderNode } from '../providers/types.js'
-import type { GraphologyAdapter, NodeURI, GraphNodeAttributes } from './GraphologyAdapter.js'
-import type { FederatedGraph, RelatedOptions, ReachableOptions, ShortestPathOptions } from './FederatedGraph.js'
-import { FederatedGraphImpl } from './FederatedGraph.js'
-import { isRelationshipQueryable, type ProviderEdge } from '../providers/traits/RelationshipQueryable.js'
-import { generateIdFromUuid } from '../core/id.js'
+import { randomUUID } from 'node:crypto';
+import type { StoredNode, StoredEdge } from '../schema/storage.js';
+import type { Storage } from '../storage/interface.js';
+import type { ProviderRegistry, Provider, ProviderNode } from '../providers/types.js';
+import type { GraphologyAdapter, NodeURI, GraphNodeAttributes } from './GraphologyAdapter.js';
+import type {
+  FederatedGraph,
+  RelatedOptions,
+  ReachableOptions,
+  ShortestPathOptions,
+} from './FederatedGraph.js';
+import { FederatedGraphImpl } from './FederatedGraph.js';
+import {
+  isRelationshipQueryable,
+  type ProviderEdge,
+} from '../providers/traits/RelationshipQueryable.js';
+import { generateIdFromUuid } from '../core/id.js';
 
 /**
  * Cache configuration
  */
 export interface CacheConfig {
   /** Default TTL in milliseconds (default: 5 minutes) */
-  defaultTTL: number
+  defaultTTL: number;
 
   /** Return stale data while refreshing in background */
-  staleWhileRevalidate: boolean
+  staleWhileRevalidate: boolean;
 
   /** Per-provider TTL overrides in milliseconds */
-  providerTTL: Record<string, number>
+  providerTTL: Record<string, number>;
 }
 
 /**
@@ -36,57 +44,57 @@ export const DEFAULT_CACHE_CONFIG: CacheConfig = {
   defaultTTL: 5 * 60 * 1000, // 5 minutes
   staleWhileRevalidate: true,
   providerTTL: {},
-}
+};
 
 /**
  * Options for federated ready() query
  */
 export interface FederatedReadyOptions {
   /** Filter by node type */
-  type?: string
+  type?: string;
 
   /** Filter by status (default: 'open') */
-  status?: string
+  status?: string;
 
   /** Filter by tags (must have all) */
-  tags?: string[]
+  tags?: string[];
 
   /** Filter by provider (e.g., 'native', 'beads') */
-  providers?: string[]
+  providers?: string[];
 
   /** Maximum number of results */
-  limit?: number
+  limit?: number;
 }
 
 /**
  * Statuses considered "closed" for blocker checking
  */
-const CLOSED_STATUSES = ['closed', 'done', 'resolved', 'completed', 'cancelled']
+const CLOSED_STATUSES = ['closed', 'done', 'resolved', 'completed', 'cancelled'];
 
 /**
  * Resolved node with full data and edges
  */
 export interface ResolvedNode {
   /** Node URI */
-  uri: NodeURI
+  uri: NodeURI;
 
   /** Provider that owns this node */
-  provider: string
+  provider: string;
 
   /** Full node data */
-  data: StoredNode
+  data: StoredNode;
 
   /** Known edges */
   edges: {
-    incoming: StoredEdge[]
-    outgoing: StoredEdge[]
-  }
+    incoming: StoredEdge[];
+    outgoing: StoredEdge[];
+  };
 
   /** Was this data from cache? */
-  cached: boolean
+  cached: boolean;
 
   /** When the data was cached (ISO 8601) */
-  cachedAt?: string
+  cachedAt?: string;
 }
 
 /**
@@ -101,7 +109,7 @@ export interface HydratingFederatedGraph extends FederatedGraph {
    *
    * @param uri - Node URI to hydrate
    */
-  hydrate(uri: NodeURI): Promise<void>
+  hydrate(uri: NodeURI): Promise<void>;
 
   /**
    * Resolve a URI to full node data
@@ -110,7 +118,7 @@ export interface HydratingFederatedGraph extends FederatedGraph {
    * @param uri - Node URI
    * @returns Resolved node or null if not found
    */
-  resolve(uri: NodeURI): Promise<ResolvedNode | null>
+  resolve(uri: NodeURI): Promise<ResolvedNode | null>;
 
   /**
    * Batch resolve multiple URIs
@@ -118,14 +126,14 @@ export interface HydratingFederatedGraph extends FederatedGraph {
    * @param uris - Array of node URIs
    * @returns Map of URI to resolved node
    */
-  resolveAll(uris: NodeURI[]): Promise<Map<NodeURI, ResolvedNode>>
+  resolveAll(uris: NodeURI[]): Promise<Map<NodeURI, ResolvedNode>>;
 
   /**
    * Invalidate cached data for a provider
    *
    * @param providerName - Name of the provider
    */
-  invalidateCache(providerName: string): Promise<void>
+  invalidateCache(providerName: string): Promise<void>;
 
   /**
    * Check if cached data for a node is stale
@@ -133,7 +141,7 @@ export interface HydratingFederatedGraph extends FederatedGraph {
    * @param uri - Node URI
    * @returns True if the node needs refresh
    */
-  isStale(uri: NodeURI): boolean
+  isStale(uri: NodeURI): boolean;
 
   /**
    * Get nodes that are ready to work on (no active blockers)
@@ -144,7 +152,7 @@ export interface HydratingFederatedGraph extends FederatedGraph {
    * @param options - Query options (type, status, tags, providers, limit)
    * @returns Array of ready node URIs
    */
-  ready(options?: FederatedReadyOptions): Promise<NodeURI[]>
+  ready(options?: FederatedReadyOptions): Promise<NodeURI[]>;
 }
 
 /**
@@ -152,96 +160,94 @@ export interface HydratingFederatedGraph extends FederatedGraph {
  */
 export interface HydratingFederatedGraphConfig {
   /** Storage for caching nodes and edges */
-  storage: Storage
+  storage: Storage;
 
   /** Provider registry for resolving URIs */
-  providerRegistry: ProviderRegistry
+  providerRegistry: ProviderRegistry;
 
   /** Cache configuration */
-  cacheConfig?: Partial<CacheConfig>
+  cacheConfig?: Partial<CacheConfig>;
 }
 
 /**
  * Implementation of HydratingFederatedGraph
  */
-export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements HydratingFederatedGraph {
-  private readonly storage: Storage
-  private readonly providerRegistry: ProviderRegistry
-  private readonly cacheConfig: CacheConfig
+export class HydratingFederatedGraphImpl
+  extends FederatedGraphImpl
+  implements HydratingFederatedGraph
+{
+  private readonly storage: Storage;
+  private readonly providerRegistry: ProviderRegistry;
+  private readonly cacheConfig: CacheConfig;
 
-  constructor(
-    adapter: GraphologyAdapter,
-    config: HydratingFederatedGraphConfig
-  ) {
-    super(adapter)
-    this.storage = config.storage
-    this.providerRegistry = config.providerRegistry
+  constructor(adapter: GraphologyAdapter, config: HydratingFederatedGraphConfig) {
+    super(adapter);
+    this.storage = config.storage;
+    this.providerRegistry = config.providerRegistry;
     this.cacheConfig = {
       ...DEFAULT_CACHE_CONFIG,
       ...config.cacheConfig,
-    }
+    };
   }
 
   async hydrate(uri: NodeURI): Promise<void> {
     // Check if node exists and is fresh
     if (this.adapter.hasNode(uri) && !this.isStale(uri)) {
-      return // Already hydrated and fresh
+      return; // Already hydrated and fresh
     }
 
     // Find provider for this URI
-    const provider = this.providerRegistry.resolveProvider(uri)
+    const provider = this.providerRegistry.resolveProvider(uri);
     if (!provider) {
-      return // Unknown provider, can't hydrate
+      return; // Unknown provider, can't hydrate
     }
 
     // Parse URI to get local ID
-    const parsed = provider.parseUri(uri)
+    const parsed = provider.parseUri(uri);
     if (!parsed) {
-      return // Invalid URI
+      return; // Invalid URI
     }
 
     // Fetch node from provider
-    const providerNode = await provider.get(parsed.id)
+    const providerNode = await provider.get(parsed.id);
     if (!providerNode) {
-      return // Node not found
+      return; // Node not found
     }
 
     // Convert to stored node format
-    const now = new Date().toISOString()
-    const storedNode = this.providerNodeToStoredNode(providerNode, provider.name, now)
+    const now = new Date().toISOString();
+    const storedNode = this.providerNodeToStoredNode(providerNode, provider.name, now);
 
     // Cache to SQLite (as external node)
     try {
-      const existing = await this.storage.getNode(storedNode.id)
+      const existing = await this.storage.getNode(storedNode.id);
       if (existing) {
         await this.storage.updateNode(storedNode.id, {
           ...storedNode,
           updated_at: now,
           cached_at: now,
-        })
+        });
       } else {
-        await this.storage.createNode(storedNode)
+        await this.storage.createNode(storedNode);
       }
     } catch {
       // Ignore cache errors, still hydrate graph
     }
 
     // Update in-memory graph
-    this.adapter.hydrateNode(uri, storedNode)
+    this.adapter.hydrateNode(uri, storedNode);
 
     // If provider supports edges, fetch and cache those too
     if (isRelationshipQueryable(provider)) {
-      const edges = await provider.queryEdges(parsed.id)
-      const storedEdges = edges.map((e) =>
-        this.providerEdgeToStoredEdge(e, provider, now)
-      )
+      const edges = await provider.queryEdges(parsed.id);
+      const storedEdges = edges.map((e) => this.providerEdgeToStoredEdge(e, provider, now));
 
       // Cache edges to SQLite
       for (const edge of storedEdges) {
         try {
-          const existing = await this.storage.getEdge(edge.id)
+          const existing = await this.storage.getEdge(edge.id);
           if (!existing) {
-            await this.storage.createEdge(edge)
+            await this.storage.createEdge(edge);
           }
         } catch {
           // Ignore cache errors
@@ -249,33 +255,33 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
       }
 
       // Update in-memory graph
-      this.adapter.hydrateEdges(uri, storedEdges)
+      this.adapter.hydrateEdges(uri, storedEdges);
     }
   }
 
   async resolve(uri: NodeURI): Promise<ResolvedNode | null> {
     // Try to hydrate first
-    await this.hydrate(uri)
+    await this.hydrate(uri);
 
     // Get from graph
-    const nodeAttrs = this.adapter.getNode(uri)
+    const nodeAttrs = this.adapter.getNode(uri);
     if (!nodeAttrs) {
-      return null
+      return null;
     }
 
     // Determine provider
-    const provider = this.providerRegistry.resolveProvider(uri)
-    const providerName = provider?.name ?? 'unknown'
+    const provider = this.providerRegistry.resolveProvider(uri);
+    const providerName = provider?.name ?? 'unknown';
 
     // Get edges
-    const edges = this.adapter.getEdges(uri, 'both')
-    const incoming: StoredEdge[] = []
-    const outgoing: StoredEdge[] = []
+    const edges = this.adapter.getEdges(uri, 'both');
+    const incoming: StoredEdge[] = [];
+    const outgoing: StoredEdge[] = [];
 
-    const graph = this.adapter.graph
-    const now = new Date().toISOString()
+    const graph = this.adapter.graph;
+    const now = new Date().toISOString();
     for (const edgeKey of graph.inEdges(uri)) {
-      const attrs = graph.getEdgeAttributes(edgeKey)
+      const attrs = graph.getEdgeAttributes(edgeKey);
       incoming.push({
         id: attrs.id,
         uuid: randomUUID(), // Generate UUID for edge representation
@@ -286,11 +292,11 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
         source: attrs.source,
         cached_at: attrs.cached_at,
         metadata: attrs.metadata,
-      })
+      });
     }
 
     for (const edgeKey of graph.outEdges(uri)) {
-      const attrs = graph.getEdgeAttributes(edgeKey)
+      const attrs = graph.getEdgeAttributes(edgeKey);
       outgoing.push({
         id: attrs.id,
         uuid: randomUUID(), // Generate UUID for edge representation
@@ -301,7 +307,7 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
         source: attrs.source,
         cached_at: attrs.cached_at,
         metadata: attrs.metadata,
-      })
+      });
     }
 
     return {
@@ -311,51 +317,51 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
       edges: { incoming, outgoing },
       cached: !!nodeAttrs.cached_at,
       cachedAt: nodeAttrs.cached_at,
-    }
+    };
   }
 
   async resolveAll(uris: NodeURI[]): Promise<Map<NodeURI, ResolvedNode>> {
-    const results = new Map<NodeURI, ResolvedNode>()
+    const results = new Map<NodeURI, ResolvedNode>();
 
     // Hydrate all in parallel
-    await Promise.all(uris.map((uri) => this.hydrate(uri)))
+    await Promise.all(uris.map((uri) => this.hydrate(uri)));
 
     // Resolve each
     for (const uri of uris) {
-      const resolved = await this.resolve(uri)
+      const resolved = await this.resolve(uri);
       if (resolved) {
-        results.set(uri, resolved)
+        results.set(uri, resolved);
       }
     }
 
-    return results
+    return results;
   }
 
   async invalidateCache(providerName: string): Promise<void> {
     // Find all nodes from this provider in the graph
-    const nodesToInvalidate: NodeURI[] = []
+    const nodesToInvalidate: NodeURI[] = [];
 
     for (const uri of this.adapter.graph.nodes()) {
-      const attrs = this.adapter.graph.getNodeAttributes(uri)
+      const attrs = this.adapter.graph.getNodeAttributes(uri);
       if (attrs.source === providerName) {
-        nodesToInvalidate.push(uri)
+        nodesToInvalidate.push(uri);
       }
     }
 
     // Mark as stale by clearing cached_at in both graph AND storage
     for (const uri of nodesToInvalidate) {
       // Update in-memory graph
-      this.adapter.graph.setNodeAttribute(uri, 'cached_at', undefined)
+      this.adapter.graph.setNodeAttribute(uri, 'cached_at', undefined);
 
       // Persist to SQLite storage for durability across restarts
-      const attrs = this.adapter.graph.getNodeAttributes(uri)
-      const nodeId = attrs?.data?.id
+      const attrs = this.adapter.graph.getNodeAttributes(uri);
+      const nodeId = attrs?.data?.id;
       if (nodeId) {
         try {
           await this.storage.updateNode(nodeId, {
             cached_at: undefined,
             updated_at: new Date().toISOString(),
-          })
+          });
         } catch {
           // Node may not exist in storage (graph-only placeholder) - continue
         }
@@ -365,84 +371,84 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
 
   isStale(uri: NodeURI): boolean {
     if (!this.adapter.hasNode(uri)) {
-      return true // Not present means stale
+      return true; // Not present means stale
     }
 
-    const attrs = this.adapter.getNode(uri)
+    const attrs = this.adapter.getNode(uri);
     if (!attrs?.cached_at) {
       // Native nodes (no cached_at) are never stale
       // External nodes without cached_at are stale
-      return attrs?.source !== undefined
+      return attrs?.source !== undefined;
     }
 
-    const provider = this.providerRegistry.resolveProvider(uri)
-    const providerName = provider?.name ?? 'default'
-    const ttl = this.cacheConfig.providerTTL[providerName] ?? this.cacheConfig.defaultTTL
+    const provider = this.providerRegistry.resolveProvider(uri);
+    const providerName = provider?.name ?? 'default';
+    const ttl = this.cacheConfig.providerTTL[providerName] ?? this.cacheConfig.defaultTTL;
 
-    const cachedTime = new Date(attrs.cached_at).getTime()
-    const age = Date.now() - cachedTime
+    const cachedTime = new Date(attrs.cached_at).getTime();
+    const age = Date.now() - cachedTime;
 
-    return age > ttl
+    return age > ttl;
   }
 
   async ready(options: FederatedReadyOptions = {}): Promise<NodeURI[]> {
-    const readyNodes: NodeURI[] = []
+    const readyNodes: NodeURI[] = [];
 
     // Query candidate nodes from storage
-    // Default to open issues if no filters specified
+    // Default to open tasks if no filters specified
     const candidateNodes = await this.storage.queryNodes({
-      type: (options.type as 'spec' | 'issue' | 'feedback' | 'external') ?? 'issue',
+      type: (options.type as 'context' | 'task' | 'feedback' | 'external') ?? 'task',
       status: options.status ?? 'open',
       archived: false,
       tags: options.tags,
-    })
+    });
 
     // Process each candidate
     for (const node of candidateNodes) {
-      const uri = this.adapter.nodeToUri(node)
+      const uri = this.adapter.nodeToUri(node);
 
       // Filter by provider if specified
       if (options.providers && options.providers.length > 0) {
-        const provider = this.providerRegistry.resolveProvider(uri)
-        const providerName = provider?.name ?? 'native'
+        const provider = this.providerRegistry.resolveProvider(uri);
+        const providerName = provider?.name ?? 'native';
         if (!options.providers.includes(providerName)) {
-          continue
+          continue;
         }
       }
 
       // Get all blockers (incoming 'blocks' edges)
-      const blockerUris = this.related(uri, { edgeType: 'blocks', direction: 'in' })
+      const blockerUris = this.related(uri, { edgeType: 'blocks', direction: 'in' });
 
       // Check if any blocker is still active
-      let hasActiveBlocker = false
+      let hasActiveBlocker = false;
 
       for (const blockerUri of blockerUris) {
         // Resolve the blocker to get its status
-        const resolved = await this.resolve(blockerUri)
+        const resolved = await this.resolve(blockerUri);
 
         if (resolved) {
           // Check status - use external_status for external nodes
-          const status = resolved.data.external_status ?? resolved.data.status
+          const status = resolved.data.external_status ?? resolved.data.status;
 
           // If status is not in closed statuses, it's an active blocker
           if (status && !CLOSED_STATUSES.includes(status.toLowerCase())) {
-            hasActiveBlocker = true
-            break
+            hasActiveBlocker = true;
+            break;
           }
 
           // If no status at all, consider it active (conservative approach)
           if (!status) {
-            hasActiveBlocker = true
-            break
+            hasActiveBlocker = true;
+            break;
           }
         } else {
           // Can't resolve blocker - try checking the in-memory graph
-          const blockerAttrs = this.adapter.getNode(blockerUri)
+          const blockerAttrs = this.adapter.getNode(blockerUri);
           if (blockerAttrs) {
-            const status = blockerAttrs.data.external_status ?? blockerAttrs.data.status
+            const status = blockerAttrs.data.external_status ?? blockerAttrs.data.status;
             if (!status || !CLOSED_STATUSES.includes(status.toLowerCase())) {
-              hasActiveBlocker = true
-              break
+              hasActiveBlocker = true;
+              break;
             }
           }
           // If we can't resolve and can't find in graph, skip (don't block)
@@ -450,16 +456,16 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
       }
 
       if (!hasActiveBlocker) {
-        readyNodes.push(uri)
+        readyNodes.push(uri);
       }
 
       // Check limit
       if (options.limit && readyNodes.length >= options.limit) {
-        break
+        break;
       }
     }
 
-    return readyNodes
+    return readyNodes;
   }
 
   // === Private Helper Methods ===
@@ -467,9 +473,9 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
   private providerNodeToStoredNode(
     node: ProviderNode,
     providerName: string,
-    cachedAt: string
+    cachedAt: string,
   ): StoredNode {
-    const uuid = randomUUID()
+    const uuid = randomUUID();
     return {
       id: generateIdFromUuid('external', uuid).id,
       uuid,
@@ -485,18 +491,18 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
       external_status: node.status,
       created_at: cachedAt,
       updated_at: cachedAt,
-    }
+    };
   }
 
   private providerEdgeToStoredEdge(
     edge: ProviderEdge,
     provider: Provider,
-    cachedAt: string
+    cachedAt: string,
   ): StoredEdge {
     // Convert local IDs to URIs
-    const fromUri = provider.buildUri(edge.from)
-    const toUri = provider.buildUri(edge.to)
-    const uuid = randomUUID()
+    const fromUri = provider.buildUri(edge.from);
+    const toUri = provider.buildUri(edge.to);
+    const uuid = randomUUID();
 
     return {
       id: generateIdFromUuid('edge', uuid).id,
@@ -508,7 +514,7 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
       source: provider.name,
       cached_at: cachedAt,
       metadata: edge.metadata,
-    }
+    };
   }
 }
 
@@ -521,7 +527,7 @@ export class HydratingFederatedGraphImpl extends FederatedGraphImpl implements H
  */
 export function createHydratingFederatedGraph(
   adapter: GraphologyAdapter,
-  config: HydratingFederatedGraphConfig
+  config: HydratingFederatedGraphConfig,
 ): HydratingFederatedGraph {
-  return new HydratingFederatedGraphImpl(adapter, config)
+  return new HydratingFederatedGraphImpl(adapter, config);
 }

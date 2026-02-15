@@ -1,6 +1,6 @@
 # Phase 3: Multi-Location Queries + Worktrees
 
-> Spec ID: s-2qms | Tags: phase-3, v3, daemon, worktrees, merge-driver
+> Spec ID: c-2qms | Tags: phase-3, v3, daemon, worktrees, merge-driver
 >
 > Implements: [CORE-ARCHITECTURE.md](./CORE-ARCHITECTURE.md)
 > Depends on: [PHASE-2.md](./PHASE-2.md)
@@ -199,7 +199,7 @@ async function initializeLocationProviders(
 
 The existing `HydratingFederatedGraph.ready()` query already resolves blockers via providers. With each connected location as a provider:
 
-1. **`ready()` works across locations for free.** An issue blocked by `opentasks://k7m2x9p4/i-x7k9` resolves through the provider, just like `beads://./bd-123`.
+1. **`ready()` works across locations for free.** An issue blocked by `opentasks://k7m2x9p4/t-x7k9` resolves through the provider, just like `beads://./bd-123`.
 
 2. **Materialization works.** Remote opentasks nodes materialize like any external node — phantom -> cached -> hydrated.
 

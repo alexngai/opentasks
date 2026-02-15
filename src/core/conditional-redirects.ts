@@ -4,17 +4,17 @@
  * Extends Phase 2 redirect rules with role and branch conditions.
  */
 
-import type { RedirectRule, RedirectOperation } from './redirects.js'
-import { matchPattern } from './redirects.js'
+import type { RedirectRule, RedirectOperation } from './redirects.js';
+import { matchPattern } from './redirects.js';
 
 /**
  * Conditions for when a redirect rule applies
  */
 export interface RedirectCondition {
   /** Role condition (exact match) */
-  role?: string
+  role?: string;
   /** Branch condition (glob pattern) */
-  branch?: string
+  branch?: string;
 }
 
 /**
@@ -22,7 +22,7 @@ export interface RedirectCondition {
  */
 export interface ConditionalRedirectRule extends RedirectRule {
   /** Conditions that must be met for this rule to apply */
-  when?: RedirectCondition
+  when?: RedirectCondition;
 }
 
 /**
@@ -30,9 +30,9 @@ export interface ConditionalRedirectRule extends RedirectRule {
  */
 export interface RedirectContext {
   /** Current location role */
-  role: string
+  role: string;
   /** Current git branch (cached) */
-  branch?: string
+  branch?: string;
 }
 
 /**
@@ -41,17 +41,17 @@ export interface RedirectContext {
  * Supports: "feature-*", "main", "*"
  */
 function branchMatch(pattern: string, branch: string): boolean {
-  if (pattern === '*') return true
+  if (pattern === '*') return true;
 
   if (pattern.endsWith('*')) {
-    return branch.startsWith(pattern.slice(0, -1))
+    return branch.startsWith(pattern.slice(0, -1));
   }
 
   if (pattern.startsWith('*')) {
-    return branch.endsWith(pattern.slice(1))
+    return branch.endsWith(pattern.slice(1));
   }
 
-  return pattern === branch
+  return pattern === branch;
 }
 
 /**
@@ -59,20 +59,20 @@ function branchMatch(pattern: string, branch: string): boolean {
  */
 export function evaluateConditions(
   conditions: RedirectCondition | undefined,
-  context: RedirectContext
+  context: RedirectContext,
 ): boolean {
-  if (!conditions) return true
+  if (!conditions) return true;
 
   if (conditions.role && conditions.role !== context.role) {
-    return false
+    return false;
   }
 
   if (conditions.branch) {
-    if (!context.branch) return false
-    if (!branchMatch(conditions.branch, context.branch)) return false
+    if (!context.branch) return false;
+    if (!branchMatch(conditions.branch, context.branch)) return false;
   }
 
-  return true
+  return true;
 }
 
 /**
@@ -84,17 +84,17 @@ export function findConditionalRedirectRule(
   operation: RedirectOperation,
   nodeId: string,
   rules: ConditionalRedirectRule[],
-  context: RedirectContext
+  context: RedirectContext,
 ): ConditionalRedirectRule | null {
   // Sort by priority (ascending — lower = higher priority)
-  const sorted = [...rules].sort((a, b) => a.priority - b.priority)
+  const sorted = [...rules].sort((a, b) => a.priority - b.priority);
 
   for (const rule of sorted) {
-    if (!rule.operations.includes(operation)) continue
-    if (!matchPattern(rule.pattern, nodeId)) continue
-    if (!evaluateConditions(rule.when, context)) continue
-    return rule
+    if (!rule.operations.includes(operation)) continue;
+    if (!matchPattern(rule.pattern, nodeId)) continue;
+    if (!evaluateConditions(rule.when, context)) continue;
+    return rule;
   }
 
-  return null
+  return null;
 }

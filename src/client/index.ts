@@ -7,8 +7,8 @@
  */
 
 // Client
-export type { ClientOptions } from './client.js'
-export { OpenTasksClient, ClientError, createClient } from './client.js'
+export type { ClientOptions } from './client.js';
+export { OpenTasksClient, ClientError, createClient } from './client.js';
 
 // Re-export tool types for convenience
 export type {
@@ -29,4 +29,4 @@ export type {
   ReadyOptions,
   BlockerOptions,
   FeedbackOptions,
-} from '../tools/types.js'
+} from '../tools/types.js';

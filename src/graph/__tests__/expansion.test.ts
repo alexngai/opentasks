@@ -1,11 +1,8 @@
-import { describe, it, expect, vi } from 'vitest'
-import {
-  createQueryExpander,
-  type ExpansionMode,
-} from '../expansion.js'
-import type { Storage } from '../../storage/interface.js'
-import type { LocationProvider } from '../../providers/location.js'
-import type { ProviderNode } from '../../providers/types.js'
+import { describe, it, expect, vi } from 'vitest';
+import { createQueryExpander, type ExpansionMode } from '../expansion.js';
+import type { Storage } from '../../storage/interface.js';
+import type { LocationProvider } from '../../providers/location.js';
+import type { ProviderNode } from '../../providers/types.js';
 
 function mockStorage(): Storage {
   return {
@@ -24,22 +21,39 @@ function mockStorage(): Storage {
     getTags: vi.fn().mockResolvedValue([]),
     getTagsForNodes: vi.fn().mockResolvedValue(new Map()),
     getNodesByTag: vi.fn().mockResolvedValue([]),
-    getReady: vi.fn().mockResolvedValue([
-      { id: 'i-local', uuid: 'uuid1', type: 'issue', title: 'Local Issue', status: 'open', created_at: '2025-01-01', updated_at: '2025-01-01' },
-    ]),
+    getReady: vi
+      .fn()
+      .mockResolvedValue([
+        {
+          id: 't-local',
+          uuid: 'uuid1',
+          type: 'task',
+          title: 'Local Task',
+          status: 'open',
+          created_at: '2025-01-01',
+          updated_at: '2025-01-01',
+        },
+      ]),
     runInTransaction: vi.fn(),
     markDirty: vi.fn(),
     getDirtyNodes: vi.fn().mockResolvedValue([]),
     clearDirty: vi.fn(),
     close: vi.fn(),
-  }
+  };
 }
 
 function mockLocationProvider(hash: string, readyNodes: ProviderNode[] = []): LocationProvider {
   return {
     name: `opentasks-${hash}`,
     schemes: ['opentasks'],
-    capabilities: { read: true, write: false, search: true, watch: false, mount: false, feedback: false },
+    capabilities: {
+      read: true,
+      write: false,
+      search: true,
+      watch: false,
+      mount: false,
+      feedback: false,
+    },
     parseUri: vi.fn().mockReturnValue(null),
     buildUri: vi.fn().mockReturnValue(''),
     isValidUri: vi.fn().mockReturnValue(false),
@@ -50,78 +64,84 @@ function mockLocationProvider(hash: string, readyNodes: ProviderNode[] = []): Lo
     delete: vi.fn(),
     ready: vi.fn().mockResolvedValue(readyNodes),
     close: vi.fn(),
-  }
+  };
 }
 
 describe('createQueryExpander', () => {
   it('returns only local results with mode=none', async () => {
-    const storage = mockStorage()
-    const expander = createQueryExpander(storage, 'local1', new Map())
+    const storage = mockStorage();
+    const expander = createQueryExpander(storage, 'local1', new Map());
 
-    const result = await expander.expandedReady({ expand: 'none' })
-    expect(result.local).toHaveLength(1)
-    expect(result.local[0].id).toBe('i-local')
-    expect(result.connected).toEqual({})
-    expect(result.completeness).toBe('full')
-  })
+    const result = await expander.expandedReady({ expand: 'none' });
+    expect(result.local).toHaveLength(1);
+    expect(result.local[0].id).toBe('t-local');
+    expect(result.connected).toEqual({});
+    expect(result.completeness).toBe('full');
+  });
 
   it('queries connected locations with mode=connections', async () => {
-    const storage = mockStorage()
+    const storage = mockStorage();
     const remoteNodes: ProviderNode[] = [
-      { id: 'i-remote', uri: 'opentasks://remote1/i-remote', type: 'issue', title: 'Remote Issue', fetchedAt: '2025-01-01' },
-    ]
-    const providers = new Map<string, LocationProvider>()
-    providers.set('remote1', mockLocationProvider('remote1', remoteNodes))
+      {
+        id: 't-remote',
+        uri: 'opentasks://remote1/t-remote',
+        type: 'task',
+        title: 'Remote Task',
+        fetchedAt: '2025-01-01',
+      },
+    ];
+    const providers = new Map<string, LocationProvider>();
+    providers.set('remote1', mockLocationProvider('remote1', remoteNodes));
 
-    const expander = createQueryExpander(storage, 'local1', providers)
+    const expander = createQueryExpander(storage, 'local1', providers);
 
-    const result = await expander.expandedReady({ expand: 'connections' })
-    expect(result.local).toHaveLength(1)
-    expect(result.connected['remote1']).toHaveLength(1)
-    expect(result.connected['remote1'][0].id).toBe('i-remote')
-    expect(result.queriedLocations).toContain('local1')
-    expect(result.queriedLocations).toContain('remote1')
-    expect(result.completeness).toBe('full')
-  })
+    const result = await expander.expandedReady({ expand: 'connections' });
+    expect(result.local).toHaveLength(1);
+    expect(result.connected['remote1']).toHaveLength(1);
+    expect(result.connected['remote1'][0].id).toBe('t-remote');
+    expect(result.queriedLocations).toContain('local1');
+    expect(result.queriedLocations).toContain('remote1');
+    expect(result.completeness).toBe('full');
+  });
 
   it('marks partial when providers fail', async () => {
-    const storage = mockStorage()
-    const failingProvider = mockLocationProvider('failing1')
-    ;(failingProvider.ready as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('unreachable'))
+    const storage = mockStorage();
+    const failingProvider = mockLocationProvider('failing1');
+    (failingProvider.ready as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('unreachable'));
 
-    const providers = new Map<string, LocationProvider>()
-    providers.set('failing1', failingProvider)
+    const providers = new Map<string, LocationProvider>();
+    providers.set('failing1', failingProvider);
 
-    const expander = createQueryExpander(storage, 'local1', providers)
+    const expander = createQueryExpander(storage, 'local1', providers);
 
-    const result = await expander.expandedReady({ expand: 'all' })
-    expect(result.unreachableLocations).toContain('failing1')
-    expect(result.completeness).toBe('partial')
-  })
+    const result = await expander.expandedReady({ expand: 'all' });
+    expect(result.unreachableLocations).toContain('failing1');
+    expect(result.completeness).toBe('partial');
+  });
 
   it('expandedQuery uses filter', async () => {
-    const storage = mockStorage()
-    const providers = new Map<string, LocationProvider>()
+    const storage = mockStorage();
+    const providers = new Map<string, LocationProvider>();
 
-    const expander = createQueryExpander(storage, 'local1', providers)
+    const expander = createQueryExpander(storage, 'local1', providers);
 
-    await expander.expandedQuery({ type: 'issue', status: 'open' })
+    await expander.expandedQuery({ type: 'task', status: 'open' });
     expect(storage.queryNodes).toHaveBeenCalledWith({
-      type: 'issue',
+      type: 'task',
       status: 'open',
-    })
-  })
+    });
+  });
 
   it('respects maxLocations', async () => {
-    const storage = mockStorage()
-    const providers = new Map<string, LocationProvider>()
+    const storage = mockStorage();
+    const providers = new Map<string, LocationProvider>();
     for (let i = 0; i < 20; i++) {
-      providers.set(`loc${i}`, mockLocationProvider(`loc${i}`))
+      providers.set(`loc${i}`, mockLocationProvider(`loc${i}`));
     }
 
-    const expander = createQueryExpander(storage, 'local1', providers)
-    const result = await expander.expandedReady({ expand: 'all', maxLocations: 5 })
+    const expander = createQueryExpander(storage, 'local1', providers);
+    const result = await expander.expandedReady({ expand: 'all', maxLocations: 5 });
 
-    expect(result.queriedLocations.length).toBeLessThanOrEqual(6) // local + 5
-  })
-})
+    expect(result.queriedLocations.length).toBeLessThanOrEqual(6); // local + 5
+  });
+});

@@ -41,7 +41,7 @@ OpenTasks is a **graph connector** that adds a relationship layer to existing ta
 │  │                    OpenTasks (Graph Layer)                   ││
 │  │                                                              ││
 │  │  • Links nodes across systems                                ││
-│  │  • Queries relationships (blockers, implementers, ready)     ││
+│  │  • Queries relationships (blockers, tasks, ready)     ││
 │  │  • Stores cross-system feedback                              ││
 │  │  • Maintains node registry with cached metadata              ││
 │  │                                                              ││
@@ -62,7 +62,7 @@ OpenTasks is a **graph connector** that adds a relationship layer to existing ta
 
 | Component | Owner |
 |-----------|-------|
-| **Task/Issue CRUD** | Native systems (Claude Tasks, Beads, Linear, etc.) |
+| **Task/Context CRUD** | Native systems (Claude Tasks, Beads, Linear, etc.) |
 | **Status Workflows** | Each system's semantics |
 | **Content Storage** | Providers own their data |
 | **Same-System Feedback** | Native comment systems (Beads comments, GH comments, etc.) |
@@ -89,7 +89,7 @@ claude://current/t-abc123         # Claude task in current session
 beads://./bd-x7k9                 # Beads issue in current workspace
 taskmaster://./auth-prd           # Taskmaster PRD
 linear://ENG/ENG-123              # Linear issue
-native://s-a2b3                   # Native OpenTasks spec
+native://c-a2b3                   # Native OpenTasks context
 ```
 
 ---
@@ -144,7 +144,7 @@ interface LinkParams {
 
 type EdgeType =
   | 'blocks'           // from must complete before to can start
-  | 'implements'       // issue implements spec
+  | 'implements'       // task implements context
   | 'child-of'         // hierarchical parent-child
   | 'references'       // general reference
   | 'related'          // loose association
@@ -166,7 +166,7 @@ interface LinkResult {
 ### Examples
 
 ```typescript
-// Beads issue implements Taskmaster spec
+// Beads issue implements Taskmaster context
 link({
   from: 'beads://./bd-x7k9',
   to: 'taskmaster://./auth-prd',
@@ -239,8 +239,8 @@ type QueryType =
   | 'blockers'       // What blocks this node?
   | 'blocking'       // What does this node block?
   | 'ready'          // What's ready to work on? (no active blockers)
-  | 'implementers'   // Issues implementing a spec
-  | 'specs'          // Specs that an issue implements
+  | 'tasks'   // Tasks implementing a context
+  | 'context'          // Context that a task implements
   | 'children'       // Child nodes
   | 'parents'        // Parent nodes
   | 'resolve'        // Get node metadata by URI
@@ -257,7 +257,7 @@ interface NodeRef {
   title?: string
   status?: string           // Canonical status
   provider_status?: string  // Provider's actual status
-  type?: 'spec' | 'issue' | 'task' | 'feedback'
+  type?: 'context' | 'task' | 'task' | 'feedback'
   cached_at?: string
   stale?: boolean
 }
@@ -328,17 +328,17 @@ query({ find: 'ready', status: 'open' })
 2. Filters out items with active (non-closed) blockers in OpenTasks graph
 3. Returns unified list with provider metadata
 
-#### `implementers` — Issues implementing a spec
+#### `tasks` — Tasks implementing a context
 
 ```typescript
-query({ find: 'implementers', node: 'taskmaster://./auth-prd' })
+query({ find: 'tasks', node: 'taskmaster://./auth-prd' })
 // Returns: [{ uri: 'beads://./bd-x7k9', title: 'Implement OAuth', ... }]
 ```
 
-#### `specs` — Specs that an issue implements
+#### `context` — Context that a task implements
 
 ```typescript
-query({ find: 'specs', node: 'beads://./bd-x7k9' })
+query({ find: 'context', node: 'beads://./bd-x7k9' })
 // Returns: [{ uri: 'taskmaster://./auth-prd', title: 'Auth PRD', ... }]
 ```
 
@@ -415,14 +415,14 @@ Feedback is automatically routed based on context:
 | Scenario | Destination | Rationale |
 |----------|-------------|-----------|
 | Cross-system feedback (source and target in different systems) | OpenTasks | Native systems can't handle cross-refs |
-| Implementation feedback on spec | OpenTasks | Anchored feedback with relocation |
+| Implementation feedback on context | OpenTasks | Anchored feedback with relocation |
 | Same-system, provider supports comments | Native | Keep feedback where it belongs |
 | Same-system, no comment support | OpenTasks | Fallback |
 
 ### Examples
 
 ```typescript
-// Cross-system feedback: Beads issue commenting on Taskmaster spec
+// Cross-system feedback: Beads issue commenting on Taskmaster context
 annotate({
   target: 'taskmaster://./auth-prd',
   source: 'beads://./bd-x7k9',
@@ -433,7 +433,7 @@ annotate({
 })
 // Stored in: OpenTasks (cross-system)
 
-// Anchored suggestion on a spec
+// Anchored suggestion on a context
 annotate({
   target: 'taskmaster://./auth-prd',
   feedback: {
@@ -491,17 +491,17 @@ An agent implementing a feature using multiple systems:
 // 1. PRD exists in Taskmaster (created via tm CLI)
 const prdUri = 'taskmaster://./auth-feature'
 
-// 2. Check what specs exist for context
-const specs = await query({ find: 'resolve', node: prdUri })
-console.log(specs.node.title)  // "Authentication Feature PRD"
+// 2. Check what context exists
+const ctx = await query({ find: 'resolve', node: prdUri })
+console.log(ctx.node.title)  // "Authentication Feature PRD"
 
-// 3. Create main issue in Beads (using bd CLI)
+// 3. Create main task in Beads (using bd CLI)
 // $ bd new -t "Implement OAuth2 authentication"
-const mainIssue = 'beads://./bd-x7k9'
+const mainTask = 'beads://./bd-x7k9'
 
-// 4. Link issue to spec
+// 4. Link task to context
 await link({
-  from: mainIssue,
+  from: mainTask,
   to: prdUri,
   type: 'implements'
 })
@@ -516,15 +516,15 @@ const subtask2 = TaskCreate({
   description: '...'
 })
 
-// 6. Link subtasks to parent Beads issue
+// 6. Link subtasks to parent Beads task
 await link({
   from: `claude://current/${subtask1.id}`,
-  to: mainIssue,
+  to: mainTask,
   type: 'child-of'
 })
 await link({
   from: `claude://current/${subtask2.id}`,
-  to: mainIssue,
+  to: mainTask,
   type: 'child-of'
 })
 
@@ -548,18 +548,18 @@ TaskUpdate({ taskId: subtask1.id, status: 'completed' })
 const nowReady = await query({ find: 'ready' })
 // Returns subtask2
 
-// 11. Add feedback on the spec after implementation
+// 11. Add feedback on the context after implementation
 await annotate({
   target: prdUri,
-  source: mainIssue,
+  source: mainTask,
   feedback: {
-    content: 'Implemented Google OAuth. GitHub OAuth requires additional scopes - created follow-up issue.',
+    content: 'Implemented Google OAuth. GitHub OAuth requires additional scopes - created follow-up task.',
     type: 'comment',
     anchor: { section: 'OAuth Providers' }
   }
 })
 
-// 12. Update Beads issue status (using bd CLI)
+// 12. Update Beads task status (using bd CLI)
 // $ bd update bd-x7k9 -s closed
 ```
 

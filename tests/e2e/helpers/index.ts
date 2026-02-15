@@ -46,10 +46,10 @@ export type { MaterializationManager } from '../../../src/providers/materializat
 export type {
   TestAgentOptions,
   ExtendedLinkParams,
-  QuickCreateSpecParams,
-  QuickCreateIssueParams,
-  CreateSpecOptions,
-  CreateIssueOptions,
+  QuickCreateContextParams,
+  QuickCreateTaskParams,
+  CreateContextOptions,
+  CreateTaskOptions,
   TestAgent,
   MultiAgentContext,
 } from './test-agent.js'
@@ -77,17 +77,17 @@ export {
 // Fixtures
 export type {
   DiamondDependency,
-  SpecWithIssues,
+  ContextWithTasks,
 } from './fixtures.js'
 
 export {
   resetFixtureCounter,
-  createTestSpec,
-  createTestIssue,
+  createTestContext,
+  createTestTask,
   createBlockingChain,
   createDiamondDependency,
-  createSpecWithIssues,
-  createBlockedIssue,
+  createContextWithTasks,
+  createBlockedTask,
 } from './fixtures.js'
 
 // Re-export integration helpers that are useful for E2E tests

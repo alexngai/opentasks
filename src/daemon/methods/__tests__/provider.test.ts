@@ -2,35 +2,35 @@
  * Tests for Provider Method Handlers
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { registerProviderMethods } from '../provider.js'
-import type { IPCServer } from '../../ipc.js'
-import type { DaemonFlushManager } from '../../flush.js'
-import type { GraphStore } from '../../../graph/store.js'
-import type { LocationResolver, LocationState } from '../../location-state.js'
-import { createProviderAwareStore } from '../../../graph/provider-store.js'
-import type { Provider } from '../../../providers/types.js'
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { registerProviderMethods } from '../provider.js';
+import type { IPCServer } from '../../ipc.js';
+import type { DaemonFlushManager } from '../../flush.js';
+import type { GraphStore } from '../../../graph/store.js';
+import type { LocationResolver, LocationState } from '../../location-state.js';
+import { createProviderAwareStore } from '../../../graph/provider-store.js';
+import type { Provider } from '../../../providers/types.js';
 
 // ============================================================================
 // Mocks
 // ============================================================================
 
 function createMockServer() {
-  const handlers = new Map<string, (params: unknown) => Promise<unknown>>()
+  const handlers = new Map<string, (params: unknown) => Promise<unknown>>();
 
   return {
     handle: vi.fn((method: string, handler: (params: unknown) => Promise<unknown>) => {
-      handlers.set(method, handler)
+      handlers.set(method, handler);
     }),
     call: async (method: string, params?: unknown) => {
-      const handler = handlers.get(method)
+      const handler = handlers.get(method);
       if (!handler) {
-        throw new Error(`Method not found: ${method}`)
+        throw new Error(`Method not found: ${method}`);
       }
-      return handler(params)
+      return handler(params);
     },
     handlers,
-  } as unknown as IPCServer & { call: (method: string, params?: unknown) => Promise<unknown> }
+  } as unknown as IPCServer & { call: (method: string, params?: unknown) => Promise<unknown> };
 }
 
 function createMockStore() {
@@ -54,7 +54,7 @@ function createMockStore() {
     close: vi.fn(),
     flush: vi.fn(),
     transaction: vi.fn(),
-  } as unknown as GraphStore
+  } as unknown as GraphStore;
 }
 
 function createMockFlushManager() {
@@ -62,7 +62,7 @@ function createMockFlushManager() {
     markDirty: vi.fn(),
     schedule: vi.fn(),
     flush: vi.fn().mockResolvedValue(undefined),
-  } as unknown as DaemonFlushManager
+  } as unknown as DaemonFlushManager;
 }
 
 // ============================================================================
@@ -70,20 +70,20 @@ function createMockFlushManager() {
 // ============================================================================
 
 describe('Provider Method Handlers', () => {
-  let server: ReturnType<typeof createMockServer>
-  let baseStore: GraphStore
-  let flushManager: DaemonFlushManager
+  let server: ReturnType<typeof createMockServer>;
+  let baseStore: GraphStore;
+  let flushManager: DaemonFlushManager;
 
   beforeEach(() => {
-    server = createMockServer()
-    baseStore = createMockStore()
-    flushManager = createMockFlushManager()
-  })
+    server = createMockServer();
+    baseStore = createMockStore();
+    flushManager = createMockFlushManager();
+  });
 
   function setupWithProvider(defaultProvider: string = 'native', extraProviders: Provider[] = []) {
-    const providerStore = createProviderAwareStore(baseStore, { defaultProvider })
+    const providerStore = createProviderAwareStore(baseStore, { defaultProvider });
     for (const p of extraProviders) {
-      providerStore.providers.register(p)
+      providerStore.providers.register(p);
     }
 
     const state: LocationState = {
@@ -95,41 +95,50 @@ describe('Provider Method Handlers', () => {
       watcher: null as any,
       primary: true,
       healthy: true,
-    }
+    };
 
     const locationResolver: LocationResolver = {
       resolve: () => state,
       getDefault: () => state,
-      list: () => [{ hash: 'test', opentasksPath: '/test/.opentasks', primary: true, healthy: true }],
+      list: () => [
+        { hash: 'test', opentasksPath: '/test/.opentasks', primary: true, healthy: true },
+      ],
       has: () => true,
       add: vi.fn(),
       remove: vi.fn(),
-    } as unknown as LocationResolver
+    } as unknown as LocationResolver;
 
-    registerProviderMethods({ server: server as unknown as IPCServer, locationResolver })
-    return { state, providerStore }
+    registerProviderMethods({ server: server as unknown as IPCServer, locationResolver });
+    return { state, providerStore };
   }
 
   describe('provider.list', () => {
     it('should list registered providers', async () => {
-      setupWithProvider('native')
+      setupWithProvider('native');
 
-      const result = await server.call('provider.list', {}) as any
-      expect(result.defaultProvider).toBe('native')
-      expect(result.providers).toBeInstanceOf(Array)
+      const result = (await server.call('provider.list', {})) as any;
+      expect(result.defaultProvider).toBe('native');
+      expect(result.providers).toBeInstanceOf(Array);
       // Should at least have the native provider (auto-registered)
-      const native = result.providers.find((p: any) => p.name === 'native')
-      expect(native).toBeDefined()
-      expect(native.capabilities.mount).toBe(true)
-      expect(native.capabilities.feedback).toBe(true)
-      expect(native.isDefault).toBe(true)
-    })
+      const native = result.providers.find((p: any) => p.name === 'native');
+      expect(native).toBeDefined();
+      expect(native.capabilities.mount).toBe(true);
+      expect(native.capabilities.feedback).toBe(true);
+      expect(native.isDefault).toBe(true);
+    });
 
     it('should show external providers', async () => {
       const mockBeads: Provider = {
         name: 'beads',
         schemes: ['beads', 'bd'],
-        capabilities: { read: true, write: true, search: true, watch: false, mount: true, feedback: false },
+        capabilities: {
+          read: true,
+          write: true,
+          search: true,
+          watch: false,
+          mount: true,
+          feedback: false,
+        },
         parseUri: vi.fn(),
         buildUri: vi.fn(),
         isValidUri: vi.fn(),
@@ -138,53 +147,53 @@ describe('Provider Method Handlers', () => {
         create: vi.fn(),
         update: vi.fn(),
         delete: vi.fn(),
-      }
+      };
 
-      setupWithProvider('beads', [mockBeads])
+      setupWithProvider('beads', [mockBeads]);
 
-      const result = await server.call('provider.list', {}) as any
-      expect(result.defaultProvider).toBe('beads')
+      const result = (await server.call('provider.list', {})) as any;
+      expect(result.defaultProvider).toBe('beads');
 
-      const beads = result.providers.find((p: any) => p.name === 'beads')
-      expect(beads).toBeDefined()
-      expect(beads.schemes).toEqual(['beads', 'bd'])
-      expect(beads.capabilities.mount).toBe(true)
-      expect(beads.capabilities.feedback).toBe(false)
-      expect(beads.isDefault).toBe(true)
+      const beads = result.providers.find((p: any) => p.name === 'beads');
+      expect(beads).toBeDefined();
+      expect(beads.schemes).toEqual(['beads', 'bd']);
+      expect(beads.capabilities.mount).toBe(true);
+      expect(beads.capabilities.feedback).toBe(false);
+      expect(beads.isDefault).toBe(true);
 
-      const native = result.providers.find((p: any) => p.name === 'native')
-      expect(native).toBeDefined()
-      expect(native.isDefault).toBe(false)
-    })
-  })
+      const native = result.providers.find((p: any) => p.name === 'native');
+      expect(native).toBeDefined();
+      expect(native.isDefault).toBe(false);
+    });
+  });
 
   describe('provider.info', () => {
     it('should return info for a known provider', async () => {
-      setupWithProvider('native')
+      setupWithProvider('native');
 
-      const result = await server.call('provider.info', { name: 'native' }) as any
-      expect(result.provider).toBeDefined()
-      expect(result.provider.name).toBe('native')
-      expect(result.provider.capabilities.mount).toBe(true)
-      expect(result.error).toBeUndefined()
-    })
+      const result = (await server.call('provider.info', { name: 'native' })) as any;
+      expect(result.provider).toBeDefined();
+      expect(result.provider.name).toBe('native');
+      expect(result.provider.capabilities.mount).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
 
     it('should return error for unknown provider', async () => {
-      setupWithProvider('native')
+      setupWithProvider('native');
 
-      const result = await server.call('provider.info', { name: 'nonexistent' }) as any
-      expect(result.provider).toBeNull()
-      expect(result.error).toContain('not found')
-    })
+      const result = (await server.call('provider.info', { name: 'nonexistent' })) as any;
+      expect(result.provider).toBeNull();
+      expect(result.error).toContain('not found');
+    });
 
     it('should return error when name is missing', async () => {
-      setupWithProvider('native')
+      setupWithProvider('native');
 
-      const result = await server.call('provider.info', {}) as any
-      expect(result.provider).toBeNull()
-      expect(result.error).toContain('Missing')
-    })
-  })
+      const result = (await server.call('provider.info', {})) as any;
+      expect(result.provider).toBeNull();
+      expect(result.error).toContain('Missing');
+    });
+  });
 
   describe('without providerStore', () => {
     it('should return empty list when no providerStore', async () => {
@@ -197,7 +206,7 @@ describe('Provider Method Handlers', () => {
         watcher: null as any,
         primary: true,
         healthy: true,
-      }
+      };
 
       const locationResolver: LocationResolver = {
         resolve: () => state,
@@ -206,13 +215,13 @@ describe('Provider Method Handlers', () => {
         has: () => true,
         add: vi.fn(),
         remove: vi.fn(),
-      } as unknown as LocationResolver
+      } as unknown as LocationResolver;
 
-      registerProviderMethods({ server: server as unknown as IPCServer, locationResolver })
+      registerProviderMethods({ server: server as unknown as IPCServer, locationResolver });
 
-      const result = await server.call('provider.list', {}) as any
-      expect(result.providers).toEqual([])
-      expect(result.defaultProvider).toBe('native')
-    })
-  })
-})
+      const result = (await server.call('provider.list', {})) as any;
+      expect(result.providers).toEqual([]);
+      expect(result.defaultProvider).toBe('native');
+    });
+  });
+});

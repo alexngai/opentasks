@@ -27,16 +27,19 @@ export type {
   StoreStatus,
   GitArchiveStoreExtended,
   MaterializationProvider,
-} from './types.js'
+} from './types.js';
 
-export { DEFAULT_ARCHIVE_POLICY, DEFAULT_GIT_ARCHIVE_CONFIG } from './types.js'
+export { DEFAULT_ARCHIVE_POLICY, DEFAULT_GIT_ARCHIVE_CONFIG } from './types.js';
 
 // Factories
-export { createGitArchiveStore } from './git-archive-store.js'
-export { createMaterializationArchiver } from './archiver.js'
-export { createHttpRemoteStore } from './http-remote-store.js'
-export { createGitRemoteStore } from './git-remote-store.js'
-export { createRemoteStoresFromConfig, registerRemoteStoreFactory } from './remote-store-factory.js'
+export { createGitArchiveStore } from './git-archive-store.js';
+export { createMaterializationArchiver } from './archiver.js';
+export { createHttpRemoteStore } from './http-remote-store.js';
+export { createGitRemoteStore } from './git-remote-store.js';
+export {
+  createRemoteStoresFromConfig,
+  registerRemoteStoreFactory,
+} from './remote-store-factory.js';
 
 // Snapshot assembly
 export {
@@ -45,7 +48,7 @@ export {
   buildCheckpointSnapshot,
   buildEdgeSnapshots,
   buildProvenance,
-} from './snapshot.js'
+} from './snapshot.js';
 
 // Graph ID resolution
 export {
@@ -56,4 +59,4 @@ export {
   getGitBranch,
   getGitHead,
   resolveGitDir,
-} from './graph-id.js'
+} from './graph-id.js';

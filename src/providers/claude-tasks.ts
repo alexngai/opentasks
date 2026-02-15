@@ -18,8 +18,8 @@ import type {
   ProviderOperationContext,
   ParsedUri,
   UriOptions,
-} from './types.js'
-import { ProviderError } from './types.js'
+} from './types.js';
+import { ProviderError } from './types.js';
 
 // ============================================================================
 // Types
@@ -30,28 +30,28 @@ import { ProviderError } from './types.js'
  */
 export interface ClaudeTasksConfig {
   /** Session identifier ('current' or specific ID) */
-  session?: string
+  session?: string;
 
   /**
    * Task store adapter - allows injecting external task management
    * If not provided, uses an in-memory store for testing
    */
-  taskStore?: ClaudeTaskStore
+  taskStore?: ClaudeTaskStore;
 }
 
 /**
  * Claude task structure
  */
 export interface ClaudeTask {
-  id: string
-  subject: string
-  description?: string
-  status: 'pending' | 'in_progress' | 'completed'
-  activeForm?: string
-  owner?: string
-  blocks?: string[]
-  blockedBy?: string[]
-  metadata?: Record<string, unknown>
+  id: string;
+  subject: string;
+  description?: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  activeForm?: string;
+  owner?: string;
+  blocks?: string[];
+  blockedBy?: string[];
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -59,11 +59,11 @@ export interface ClaudeTask {
  * Allows integration with Claude's actual task system or mock for testing
  */
 export interface ClaudeTaskStore {
-  get(id: string): Promise<ClaudeTask | null>
-  list(): Promise<ClaudeTask[]>
-  create(task: Omit<ClaudeTask, 'id'>): Promise<ClaudeTask>
-  update(id: string, updates: Partial<ClaudeTask>): Promise<ClaudeTask>
-  delete(id: string): Promise<void>
+  get(id: string): Promise<ClaudeTask | null>;
+  list(): Promise<ClaudeTask[]>;
+  create(task: Omit<ClaudeTask, 'id'>): Promise<ClaudeTask>;
+  update(id: string, updates: Partial<ClaudeTask>): Promise<ClaudeTask>;
+  delete(id: string): Promise<void>;
 }
 
 // ============================================================================
@@ -74,12 +74,12 @@ export interface ClaudeTaskStore {
  * Pattern for claude:// or task:// URIs
  * Format: claude://[session/]id or task://[session/]id
  */
-const CLAUDE_URI_PATTERN = /^(claude|task):\/\/(?:([^/]+)\/)?(.+)$/i
+const CLAUDE_URI_PATTERN = /^(claude|task):\/\/(?:([^/]+)\/)?(.+)$/i;
 
 /**
  * Pattern for Claude task IDs (numeric with optional prefix)
  */
-const TASK_ID_PATTERN = /^(?:t-)?(\d+)$/
+const TASK_ID_PATTERN = /^(?:t-)?(\d+)$/;
 
 // ============================================================================
 // In-Memory Task Store (for testing/standalone mode)
@@ -89,42 +89,42 @@ const TASK_ID_PATTERN = /^(?:t-)?(\d+)$/
  * Create an in-memory task store for testing
  */
 export function createInMemoryTaskStore(): ClaudeTaskStore {
-  const tasks = new Map<string, ClaudeTask>()
-  let nextId = 1
+  const tasks = new Map<string, ClaudeTask>();
+  let nextId = 1;
 
   return {
     async get(id: string): Promise<ClaudeTask | null> {
-      return tasks.get(id) ?? null
+      return tasks.get(id) ?? null;
     },
 
     async list(): Promise<ClaudeTask[]> {
-      return Array.from(tasks.values())
+      return Array.from(tasks.values());
     },
 
     async create(task: Omit<ClaudeTask, 'id'>): Promise<ClaudeTask> {
-      const id = String(nextId++)
-      const newTask: ClaudeTask = { ...task, id }
-      tasks.set(id, newTask)
-      return newTask
+      const id = String(nextId++);
+      const newTask: ClaudeTask = { ...task, id };
+      tasks.set(id, newTask);
+      return newTask;
     },
 
     async update(id: string, updates: Partial<ClaudeTask>): Promise<ClaudeTask> {
-      const existing = tasks.get(id)
+      const existing = tasks.get(id);
       if (!existing) {
-        throw new ProviderError('NOT_FOUND', `Task not found: ${id}`, 'claude')
+        throw new ProviderError('NOT_FOUND', `Task not found: ${id}`, 'claude');
       }
-      const updated: ClaudeTask = { ...existing, ...updates, id }
-      tasks.set(id, updated)
-      return updated
+      const updated: ClaudeTask = { ...existing, ...updates, id };
+      tasks.set(id, updated);
+      return updated;
     },
 
     async delete(id: string): Promise<void> {
       if (!tasks.has(id)) {
-        throw new ProviderError('NOT_FOUND', `Task not found: ${id}`, 'claude')
+        throw new ProviderError('NOT_FOUND', `Task not found: ${id}`, 'claude');
       }
-      tasks.delete(id)
+      tasks.delete(id);
     },
-  }
+  };
 }
 
 // ============================================================================
@@ -137,13 +137,13 @@ export function createInMemoryTaskStore(): ClaudeTaskStore {
 function mapStatus(status: ClaudeTask['status']): string {
   switch (status) {
     case 'pending':
-      return 'open'
+      return 'open';
     case 'in_progress':
-      return 'in_progress'
+      return 'in_progress';
     case 'completed':
-      return 'closed'
+      return 'closed';
     default:
-      return status
+      return status;
   }
 }
 
@@ -154,15 +154,15 @@ function mapStatusToClaudeStatus(status: string): ClaudeTask['status'] {
   switch (status.toLowerCase()) {
     case 'open':
     case 'pending':
-      return 'pending'
+      return 'pending';
     case 'in_progress':
-      return 'in_progress'
+      return 'in_progress';
     case 'closed':
     case 'completed':
     case 'done':
-      return 'completed'
+      return 'completed';
     default:
-      return 'pending'
+      return 'pending';
   }
 }
 
@@ -186,7 +186,7 @@ function taskToProviderNode(task: ClaudeTask, session: string = 'current'): Prov
       blockedBy: task.blockedBy,
     },
     fetchedAt: new Date().toISOString(),
-  }
+  };
 }
 
 // ============================================================================
@@ -197,8 +197,8 @@ function taskToProviderNode(task: ClaudeTask, session: string = 'current'): Prov
  * Create a Claude Tasks provider
  */
 export function createClaudeTasksProvider(config: ClaudeTasksConfig = {}): Provider {
-  const session = config.session ?? 'current'
-  const taskStore = config.taskStore ?? createInMemoryTaskStore()
+  const session = config.session ?? 'current';
+  const taskStore = config.taskStore ?? createInMemoryTaskStore();
 
   const capabilities: ProviderCapabilities = {
     read: true,
@@ -207,7 +207,7 @@ export function createClaudeTasksProvider(config: ClaudeTasksConfig = {}): Provi
     watch: false,
     mount: true,
     feedback: false,
-  }
+  };
 
   return {
     name: 'claude',
@@ -220,43 +220,43 @@ export function createClaudeTasksProvider(config: ClaudeTasksConfig = {}): Provi
 
     parseUri(uri: string): ParsedUri | null {
       // Check for claude:// or task:// URI
-      const match = uri.match(CLAUDE_URI_PATTERN)
+      const match = uri.match(CLAUDE_URI_PATTERN);
       if (match) {
-        const scheme = match[1].toLowerCase()
-        const workspace = match[2] || 'current'
-        const id = match[3]
+        const scheme = match[1].toLowerCase();
+        const workspace = match[2] || 'current';
+        const id = match[3];
         return {
           scheme,
           workspace,
           id,
           isRelative: workspace === 'current',
-        }
+        };
       }
 
       // Check for bare task ID
       if (TASK_ID_PATTERN.test(uri)) {
-        const id = uri.replace(/^t-/, '')
+        const id = uri.replace(/^t-/, '');
         return {
           scheme: 'claude',
           workspace: 'current',
           id,
           isRelative: true,
-        }
+        };
       }
 
-      return null
+      return null;
     },
 
     buildUri(id: string, options?: UriOptions): string {
-      const workspace = options?.workspace ?? session
+      const workspace = options?.workspace ?? session;
       if (options?.relative) {
-        return id
+        return id;
       }
-      return `claude://${workspace}/${id}`
+      return `claude://${workspace}/${id}`;
     },
 
     isValidUri(uri: string): boolean {
-      return this.parseUri(uri) !== null
+      return this.parseUri(uri) !== null;
     },
 
     // =========================================================================
@@ -265,128 +265,138 @@ export function createClaudeTasksProvider(config: ClaudeTasksConfig = {}): Provi
 
     async get(id: string, _context?: ProviderOperationContext): Promise<ProviderNode | null> {
       // Parse URI if full URI is passed
-      const parsed = this.parseUri(id)
-      const taskId = parsed?.id ?? id.replace(/^t-/, '')
-      const taskSession = parsed?.workspace ?? session
+      const parsed = this.parseUri(id);
+      const taskId = parsed?.id ?? id.replace(/^t-/, '');
+      const taskSession = parsed?.workspace ?? session;
 
       try {
-        const task = await taskStore.get(taskId)
-        if (!task) return null
-        return taskToProviderNode(task, taskSession)
+        const task = await taskStore.get(taskId);
+        if (!task) return null;
+        return taskToProviderNode(task, taskSession);
       } catch (error) {
-        if (error instanceof ProviderError) throw error
+        if (error instanceof ProviderError) throw error;
         throw new ProviderError(
           'OPERATION_FAILED',
           `Failed to get task: ${error instanceof Error ? error.message : String(error)}`,
           'claude',
-          error instanceof Error ? error : undefined
-        )
+          error instanceof Error ? error : undefined,
+        );
       }
     },
 
-    async list(filter?: ProviderFilter, _context?: ProviderOperationContext): Promise<ProviderNode[]> {
+    async list(
+      filter?: ProviderFilter,
+      _context?: ProviderOperationContext,
+    ): Promise<ProviderNode[]> {
       try {
-        let tasks = await taskStore.list()
+        let tasks = await taskStore.list();
 
         // Filter by status if specified
         if (filter?.status) {
-          const normalizedStatus = filter.status.toLowerCase()
+          const normalizedStatus = filter.status.toLowerCase();
           tasks = tasks.filter((t) => {
-            const taskStatus = mapStatus(t.status).toLowerCase()
-            return taskStatus === normalizedStatus
-          })
+            const taskStatus = mapStatus(t.status).toLowerCase();
+            return taskStatus === normalizedStatus;
+          });
         }
 
         // Apply limit if specified
         if (filter?.limit) {
-          tasks = tasks.slice(0, filter.limit)
+          tasks = tasks.slice(0, filter.limit);
         }
 
-        return tasks.map((task) => taskToProviderNode(task, session))
+        return tasks.map((task) => taskToProviderNode(task, session));
       } catch (error) {
-        if (error instanceof ProviderError) throw error
+        if (error instanceof ProviderError) throw error;
         throw new ProviderError(
           'OPERATION_FAILED',
           `Failed to list tasks: ${error instanceof Error ? error.message : String(error)}`,
           'claude',
-          error instanceof Error ? error : undefined
-        )
+          error instanceof Error ? error : undefined,
+        );
       }
     },
 
-    async create(input: ProviderCreateInput, _context?: ProviderOperationContext): Promise<ProviderNode> {
+    async create(
+      input: ProviderCreateInput,
+      _context?: ProviderOperationContext,
+    ): Promise<ProviderNode> {
       try {
         const task = await taskStore.create({
           subject: input.title,
           description: input.content,
           status: input.status ? mapStatusToClaudeStatus(input.status) : 'pending',
           metadata: input.metadata,
-        })
+        });
 
-        return taskToProviderNode(task, session)
+        return taskToProviderNode(task, session);
       } catch (error) {
-        if (error instanceof ProviderError) throw error
+        if (error instanceof ProviderError) throw error;
         throw new ProviderError(
           'OPERATION_FAILED',
           `Failed to create task: ${error instanceof Error ? error.message : String(error)}`,
           'claude',
-          error instanceof Error ? error : undefined
-        )
+          error instanceof Error ? error : undefined,
+        );
       }
     },
 
-    async update(id: string, updates: ProviderUpdateInput, _context?: ProviderOperationContext): Promise<ProviderNode> {
+    async update(
+      id: string,
+      updates: ProviderUpdateInput,
+      _context?: ProviderOperationContext,
+    ): Promise<ProviderNode> {
       // Parse URI if full URI is passed
-      const parsed = this.parseUri(id)
-      const taskId = parsed?.id ?? id.replace(/^t-/, '')
-      const taskSession = parsed?.workspace ?? session
+      const parsed = this.parseUri(id);
+      const taskId = parsed?.id ?? id.replace(/^t-/, '');
+      const taskSession = parsed?.workspace ?? session;
 
       try {
-        const updateData: Partial<ClaudeTask> = {}
+        const updateData: Partial<ClaudeTask> = {};
 
         if (updates.title !== undefined) {
-          updateData.subject = updates.title
+          updateData.subject = updates.title;
         }
         if (updates.content !== undefined) {
-          updateData.description = updates.content
+          updateData.description = updates.content;
         }
         if (updates.status !== undefined) {
-          updateData.status = mapStatusToClaudeStatus(updates.status)
+          updateData.status = mapStatusToClaudeStatus(updates.status);
         }
         if (updates.metadata !== undefined) {
-          updateData.metadata = updates.metadata
+          updateData.metadata = updates.metadata;
         }
 
-        const task = await taskStore.update(taskId, updateData)
+        const task = await taskStore.update(taskId, updateData);
 
-        return taskToProviderNode(task, taskSession)
+        return taskToProviderNode(task, taskSession);
       } catch (error) {
-        if (error instanceof ProviderError) throw error
+        if (error instanceof ProviderError) throw error;
         throw new ProviderError(
           'OPERATION_FAILED',
           `Failed to update task: ${error instanceof Error ? error.message : String(error)}`,
           'claude',
-          error instanceof Error ? error : undefined
-        )
+          error instanceof Error ? error : undefined,
+        );
       }
     },
 
     async delete(id: string, _context?: ProviderOperationContext): Promise<void> {
       // Parse URI if full URI is passed
-      const parsed = this.parseUri(id)
-      const taskId = parsed?.id ?? id.replace(/^t-/, '')
+      const parsed = this.parseUri(id);
+      const taskId = parsed?.id ?? id.replace(/^t-/, '');
 
       try {
-        await taskStore.delete(taskId)
+        await taskStore.delete(taskId);
       } catch (error) {
-        if (error instanceof ProviderError) throw error
+        if (error instanceof ProviderError) throw error;
         throw new ProviderError(
           'OPERATION_FAILED',
           `Failed to delete task: ${error instanceof Error ? error.message : String(error)}`,
           'claude',
-          error instanceof Error ? error : undefined
-        )
+          error instanceof Error ? error : undefined,
+        );
       }
     },
-  }
+  };
 }

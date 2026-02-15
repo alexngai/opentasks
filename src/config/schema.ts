@@ -3,8 +3,8 @@
  *
  * Phase 2 additions: location identity, connections, role, redirects
  */
-import { z } from 'zod'
-import { randomUUID } from 'node:crypto'
+import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 
 // ============================================================================
 // Location Identity (Phase 2)
@@ -17,7 +17,7 @@ const LocationConfigSchemaInner = z.object({
   uuid: z.string().uuid(),
   /** Human-readable name */
   name: z.string(),
-})
+});
 
 export const LocationConfigSchema = z
   .object({
@@ -27,21 +27,21 @@ export const LocationConfigSchema = z
   })
   .optional()
   .transform((val) => {
-    if (!val || !val.hash) return undefined
+    if (!val || !val.hash) return undefined;
     return LocationConfigSchemaInner.parse({
       hash: val.hash,
       uuid: val.uuid ?? randomUUID(),
       name: val.name ?? '',
-    })
-  })
+    });
+  });
 
-export type LocationConfig = z.infer<typeof LocationConfigSchemaInner>
+export type LocationConfig = z.infer<typeof LocationConfigSchemaInner>;
 
 // ============================================================================
 // Connection Configuration (Phase 2)
 // ============================================================================
 
-export const ConnectionRoleSchema = z.enum(['peer', 'parent', 'child'])
+export const ConnectionRoleSchema = z.enum(['peer', 'parent', 'child']);
 
 export const ConnectionSchema = z.object({
   /** Location hash of the target */
@@ -52,15 +52,15 @@ export const ConnectionSchema = z.object({
   role: ConnectionRoleSchema.default('peer'),
   /** Human-readable name */
   name: z.string().default(''),
-})
+});
 
-export type ConnectionConfig = z.infer<typeof ConnectionSchema>
+export type ConnectionConfig = z.infer<typeof ConnectionSchema>;
 
 // ============================================================================
 // Redirect Rules (Phase 2)
 // ============================================================================
 
-export const RedirectOperationSchema = z.enum(['read', 'write'])
+export const RedirectOperationSchema = z.enum(['read', 'write']);
 
 export const RedirectRuleSchema = z.object({
   /** Operations this rule applies to */
@@ -73,9 +73,9 @@ export const RedirectRuleSchema = z.object({
   priority: z.number().default(100),
   /** Fallback behavior */
   fallback: z.enum(['local', 'error']).default('error'),
-})
+});
 
-export type RedirectRuleConfig = z.infer<typeof RedirectRuleSchema>
+export type RedirectRuleConfig = z.infer<typeof RedirectRuleSchema>;
 
 // ============================================================================
 // Storage Configuration
@@ -90,7 +90,7 @@ const StorageConfigSchemaInner = z.object({
 
   /** Auto-compact JSONL when ratio exceeds threshold */
   autoCompactRatio: z.number().min(1, 'autoCompactRatio must be >= 1').default(2.0),
-})
+});
 
 export const StorageConfigSchema = z
   .object({
@@ -99,9 +99,9 @@ export const StorageConfigSchema = z
     autoCompactRatio: z.number().min(1, 'autoCompactRatio must be >= 1').optional(),
   })
   .default({})
-  .transform((val) => StorageConfigSchemaInner.parse(val))
+  .transform((val) => StorageConfigSchemaInner.parse(val));
 
-export type StorageConfig = z.infer<typeof StorageConfigSchema>
+export type StorageConfig = z.infer<typeof StorageConfigSchema>;
 
 // ============================================================================
 // Daemon Configuration
@@ -116,7 +116,7 @@ const DaemonConfigSchemaInner = z.object({
 
   /** Flush interval (ms) */
   flushInterval: z.number().min(100, 'flushInterval must be >= 100ms').default(1000),
-})
+});
 
 export const DaemonConfigSchema = z
   .object({
@@ -125,9 +125,9 @@ export const DaemonConfigSchema = z
     flushInterval: z.number().min(100, 'flushInterval must be >= 100ms').optional(),
   })
   .default({})
-  .transform((val) => DaemonConfigSchemaInner.parse(val))
+  .transform((val) => DaemonConfigSchemaInner.parse(val));
 
-export type DaemonConfig = z.infer<typeof DaemonConfigSchema>
+export type DaemonConfig = z.infer<typeof DaemonConfigSchema>;
 
 // ============================================================================
 // Provider Configuration
@@ -142,7 +142,7 @@ const BeadsProviderConfigSchemaInner = z.object({
 
   /** Command timeout (ms) */
   timeout: z.number().min(1000, 'timeout must be >= 1000ms').default(30000),
-})
+});
 
 export const BeadsProviderConfigSchema = z
   .object({
@@ -151,23 +151,23 @@ export const BeadsProviderConfigSchema = z
     timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
   })
   .default({})
-  .transform((val) => BeadsProviderConfigSchemaInner.parse(val))
+  .transform((val) => BeadsProviderConfigSchemaInner.parse(val));
 
-export type BeadsProviderConfig = z.infer<typeof BeadsProviderConfigSchema>
+export type BeadsProviderConfig = z.infer<typeof BeadsProviderConfigSchema>;
 
 const ClaudeTasksProviderConfigSchemaInner = z.object({
   /** Enable Claude Tasks provider */
   enabled: z.boolean().default(true),
-})
+});
 
 export const ClaudeTasksProviderConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
   })
   .default({})
-  .transform((val) => ClaudeTasksProviderConfigSchemaInner.parse(val))
+  .transform((val) => ClaudeTasksProviderConfigSchemaInner.parse(val));
 
-export type ClaudeTasksProviderConfig = z.infer<typeof ClaudeTasksProviderConfigSchema>
+export type ClaudeTasksProviderConfig = z.infer<typeof ClaudeTasksProviderConfigSchema>;
 
 const EntireProviderConfigSchemaInner = z.object({
   /** Enable Entire provider and auto-linking */
@@ -184,7 +184,7 @@ const EntireProviderConfigSchemaInner = z.object({
 
   /** Minimum confidence for auto-linking */
   autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).default('medium'),
-})
+});
 
 export const EntireProviderConfigSchema = z
   .object({
@@ -195,9 +195,9 @@ export const EntireProviderConfigSchema = z
     autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
   })
   .default({})
-  .transform((val) => EntireProviderConfigSchemaInner.parse(val))
+  .transform((val) => EntireProviderConfigSchemaInner.parse(val));
 
-export type EntireProviderConfig = z.infer<typeof EntireProviderConfigSchema>
+export type EntireProviderConfig = z.infer<typeof EntireProviderConfigSchema>;
 
 const SudocodeProviderConfigSchemaInner = z.object({
   /** Enable Sudocode provider (auto-detects executable) */
@@ -208,7 +208,7 @@ const SudocodeProviderConfigSchemaInner = z.object({
 
   /** Command timeout (ms) */
   timeout: z.number().min(1000, 'timeout must be >= 1000ms').default(30000),
-})
+});
 
 export const SudocodeProviderConfigSchema = z
   .object({
@@ -217,16 +217,16 @@ export const SudocodeProviderConfigSchema = z
     timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
   })
   .default({})
-  .transform((val) => SudocodeProviderConfigSchemaInner.parse(val))
+  .transform((val) => SudocodeProviderConfigSchemaInner.parse(val));
 
-export type SudocodeProviderConfig = z.infer<typeof SudocodeProviderConfigSchema>
+export type SudocodeProviderConfig = z.infer<typeof SudocodeProviderConfigSchema>;
 
 const ProvidersConfigSchemaInner = z.object({
   beads: BeadsProviderConfigSchema,
   claudeTasks: ClaudeTasksProviderConfigSchema,
   sudocode: SudocodeProviderConfigSchema,
   entire: EntireProviderConfigSchema,
-})
+});
 
 export const ProvidersConfigSchema = z
   .object({
@@ -260,9 +260,9 @@ export const ProvidersConfigSchema = z
       .optional(),
   })
   .default({})
-  .transform((val) => ProvidersConfigSchemaInner.parse(val))
+  .transform((val) => ProvidersConfigSchemaInner.parse(val));
 
-export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>
+export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>;
 
 // ============================================================================
 // Materialization Archive Configuration
@@ -283,7 +283,7 @@ const GitArchiveConfigSchemaInner = z.object({
 
   /** When to push to remote */
   pushPolicy: z.enum(['immediate', 'on-session-end', 'manual']).default('on-session-end'),
-})
+});
 
 export const GitArchiveConfigSchema = z
   .object({
@@ -294,9 +294,9 @@ export const GitArchiveConfigSchema = z
     pushPolicy: z.enum(['immediate', 'on-session-end', 'manual']).optional(),
   })
   .default({})
-  .transform((val) => GitArchiveConfigSchemaInner.parse(val))
+  .transform((val) => GitArchiveConfigSchemaInner.parse(val));
 
-export type GitArchiveConfig = z.infer<typeof GitArchiveConfigSchema>
+export type GitArchiveConfig = z.infer<typeof GitArchiveConfigSchema>;
 
 const RemoteStoreConfigSchema = z.object({
   /** Store type (resolved by factory) */
@@ -308,19 +308,17 @@ const RemoteStoreConfigSchema = z.object({
   /** Store-specific configuration */
   config: z.record(z.string(), z.any()).default({}),
   /** Which events trigger archival to this store */
-  events: z.array(z.enum([
-    'session.started',
-    'session.checkpoint',
-    'session.ended',
-  ])).default(['session.ended']),
-})
+  events: z
+    .array(z.enum(['session.started', 'session.checkpoint', 'session.ended']))
+    .default(['session.ended']),
+});
 
 const ArchivePolicySchemaInner = z.object({
   archiveOnStart: z.boolean().default(false),
   archiveOnCheckpoint: z.boolean().default(true),
   archiveOnEnd: z.boolean().default(true),
   materializeBeforeArchive: z.boolean().default(true),
-})
+});
 
 const MaterializationConfigSchemaInner = z.object({
   /** Graph ID — namespace in the archive tree */
@@ -333,16 +331,19 @@ const MaterializationConfigSchemaInner = z.object({
   remoteStores: z.array(RemoteStoreConfigSchema).default([]),
 
   /** Archive policy */
-  policy: z.object({
-    archiveOnStart: z.boolean().optional(),
-    archiveOnCheckpoint: z.boolean().optional(),
-    archiveOnEnd: z.boolean().optional(),
-    materializeBeforeArchive: z.boolean().optional(),
-  }).default({}).transform((val) => ArchivePolicySchemaInner.parse(val)),
+  policy: z
+    .object({
+      archiveOnStart: z.boolean().optional(),
+      archiveOnCheckpoint: z.boolean().optional(),
+      archiveOnEnd: z.boolean().optional(),
+      materializeBeforeArchive: z.boolean().optional(),
+    })
+    .default({})
+    .transform((val) => ArchivePolicySchemaInner.parse(val)),
 
   /** Restore missing nodes from archive on daemon startup */
   rematerializeOnStartup: z.boolean().default(false),
-})
+});
 
 export const MaterializationConfigSchema = z
   .object({
@@ -356,39 +357,41 @@ export const MaterializationConfigSchema = z
         pushPolicy: z.enum(['immediate', 'on-session-end', 'manual']).optional(),
       })
       .optional(),
-    remoteStores: z.array(
-      z.object({
-        type: z.string(),
-        name: z.string(),
-        enabled: z.boolean().optional(),
-        config: z.record(z.string(), z.any()).optional(),
-        events: z.array(z.enum([
-          'session.started',
-          'session.checkpoint',
-          'session.ended',
-        ])).optional(),
+    remoteStores: z
+      .array(
+        z.object({
+          type: z.string(),
+          name: z.string(),
+          enabled: z.boolean().optional(),
+          config: z.record(z.string(), z.any()).optional(),
+          events: z
+            .array(z.enum(['session.started', 'session.checkpoint', 'session.ended']))
+            .optional(),
+        }),
+      )
+      .optional(),
+    policy: z
+      .object({
+        archiveOnStart: z.boolean().optional(),
+        archiveOnCheckpoint: z.boolean().optional(),
+        archiveOnEnd: z.boolean().optional(),
+        materializeBeforeArchive: z.boolean().optional(),
       })
-    ).optional(),
-    policy: z.object({
-      archiveOnStart: z.boolean().optional(),
-      archiveOnCheckpoint: z.boolean().optional(),
-      archiveOnEnd: z.boolean().optional(),
-      materializeBeforeArchive: z.boolean().optional(),
-    }).optional(),
+      .optional(),
     rematerializeOnStartup: z.boolean().optional(),
   })
   .default({})
-  .transform((val) => MaterializationConfigSchemaInner.parse(val))
+  .transform((val) => MaterializationConfigSchemaInner.parse(val));
 
-export type MaterializationConfig = z.infer<typeof MaterializationConfigSchema>
+export type MaterializationConfig = z.infer<typeof MaterializationConfigSchema>;
 
 // ============================================================================
 // Logging Configuration
 // ============================================================================
 
-export const LoggingLevelSchema = z.enum(['debug', 'info', 'warn', 'error'])
+export const LoggingLevelSchema = z.enum(['debug', 'info', 'warn', 'error']);
 
-export type LoggingLevel = z.infer<typeof LoggingLevelSchema>
+export type LoggingLevel = z.infer<typeof LoggingLevelSchema>;
 
 const LoggingConfigSchemaInner = z.object({
   /** Log level */
@@ -396,7 +399,7 @@ const LoggingConfigSchemaInner = z.object({
 
   /** Log file path (relative to .opentasks/, null = no file) */
   file: z.string().nullable().default(null),
-})
+});
 
 export const LoggingConfigSchema = z
   .object({
@@ -404,9 +407,9 @@ export const LoggingConfigSchema = z
     file: z.string().nullable().optional(),
   })
   .default({})
-  .transform((val) => LoggingConfigSchemaInner.parse(val))
+  .transform((val) => LoggingConfigSchemaInner.parse(val));
 
-export type LoggingConfig = z.infer<typeof LoggingConfigSchema>
+export type LoggingConfig = z.infer<typeof LoggingConfigSchema>;
 
 // ============================================================================
 // Root Configuration Schema
@@ -430,7 +433,7 @@ const OpenTasksConfigSchemaInner = z.object({
   defaultProvider: z.string().default('native'),
   /** Materialization archive configuration */
   materialization: MaterializationConfigSchema,
-})
+});
 
 export const OpenTasksConfigSchema = z
   .object({
@@ -494,24 +497,28 @@ export const OpenTasksConfigSchema = z
         name: z.string().optional(),
       })
       .optional(),
-    connections: z.array(
-      z.object({
-        hash: z.string(),
-        path: z.string(),
-        role: ConnectionRoleSchema.optional(),
-        name: z.string().optional(),
-      })
-    ).optional(),
+    connections: z
+      .array(
+        z.object({
+          hash: z.string(),
+          path: z.string(),
+          role: ConnectionRoleSchema.optional(),
+          name: z.string().optional(),
+        }),
+      )
+      .optional(),
     role: z.enum(['manager', 'worker', 'standalone']).optional(),
-    redirects: z.array(
-      z.object({
-        operations: z.array(RedirectOperationSchema),
-        pattern: z.string().optional(),
-        target: z.string(),
-        priority: z.number().optional(),
-        fallback: z.enum(['local', 'error']).optional(),
-      })
-    ).optional(),
+    redirects: z
+      .array(
+        z.object({
+          operations: z.array(RedirectOperationSchema),
+          pattern: z.string().optional(),
+          target: z.string(),
+          priority: z.number().optional(),
+          fallback: z.enum(['local', 'error']).optional(),
+        }),
+      )
+      .optional(),
     defaultProvider: z.string().optional(),
     materialization: z
       .object({
@@ -525,33 +532,35 @@ export const OpenTasksConfigSchema = z
             pushPolicy: z.enum(['immediate', 'on-session-end', 'manual']).optional(),
           })
           .optional(),
-        remoteStores: z.array(
-          z.object({
-            type: z.string(),
-            name: z.string(),
-            enabled: z.boolean().optional(),
-            config: z.record(z.string(), z.any()).optional(),
-            events: z.array(z.enum([
-              'session.started',
-              'session.checkpoint',
-              'session.ended',
-            ])).optional(),
+        remoteStores: z
+          .array(
+            z.object({
+              type: z.string(),
+              name: z.string(),
+              enabled: z.boolean().optional(),
+              config: z.record(z.string(), z.any()).optional(),
+              events: z
+                .array(z.enum(['session.started', 'session.checkpoint', 'session.ended']))
+                .optional(),
+            }),
+          )
+          .optional(),
+        policy: z
+          .object({
+            archiveOnStart: z.boolean().optional(),
+            archiveOnCheckpoint: z.boolean().optional(),
+            archiveOnEnd: z.boolean().optional(),
+            materializeBeforeArchive: z.boolean().optional(),
           })
-        ).optional(),
-        policy: z.object({
-          archiveOnStart: z.boolean().optional(),
-          archiveOnCheckpoint: z.boolean().optional(),
-          archiveOnEnd: z.boolean().optional(),
-          materializeBeforeArchive: z.boolean().optional(),
-        }).optional(),
+          .optional(),
         rematerializeOnStartup: z.boolean().optional(),
       })
       .optional(),
   })
   .default({})
-  .transform((val) => OpenTasksConfigSchemaInner.parse(val))
+  .transform((val) => OpenTasksConfigSchemaInner.parse(val));
 
-export type OpenTasksConfig = z.infer<typeof OpenTasksConfigSchema>
+export type OpenTasksConfig = z.infer<typeof OpenTasksConfigSchema>;
 
 // ============================================================================
 // Partial Configuration Type (for merging)
@@ -559,35 +568,35 @@ export type OpenTasksConfig = z.infer<typeof OpenTasksConfigSchema>
 
 /** Deep partial type for config merging */
 export type DeepPartial<T> = {
-  [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P]
-}
+  [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
+};
 
-export type PartialOpenTasksConfig = DeepPartial<OpenTasksConfig>
+export type PartialOpenTasksConfig = DeepPartial<OpenTasksConfig>;
 
 // ============================================================================
 // Validation Utilities
 // ============================================================================
 
 export interface ValidationResult {
-  success: boolean
-  data?: OpenTasksConfig
+  success: boolean;
+  data?: OpenTasksConfig;
   errors?: Array<{
-    path: string
-    message: string
-  }>
+    path: string;
+    message: string;
+  }>;
 }
 
 /**
  * Validate a configuration object
  */
 export function validateConfig(config: unknown): ValidationResult {
-  const result = OpenTasksConfigSchema.safeParse(config)
+  const result = OpenTasksConfigSchema.safeParse(config);
 
   if (result.success) {
     return {
       success: true,
       data: result.data,
-    }
+    };
   }
 
   return {
@@ -596,12 +605,12 @@ export function validateConfig(config: unknown): ValidationResult {
       path: issue.path.join('.'),
       message: issue.message,
     })),
-  }
+  };
 }
 
 /**
  * Parse and validate a configuration, throwing on error
  */
 export function parseConfig(config: unknown): OpenTasksConfig {
-  return OpenTasksConfigSchema.parse(config)
+  return OpenTasksConfigSchema.parse(config);
 }

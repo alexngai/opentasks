@@ -10,8 +10,8 @@
  * can adapt their behavior accordingly.
  */
 
-import type { Provider, ProviderNode } from '../types.js'
-import type { ProviderEdge } from './RelationshipQueryable.js'
+import type { Provider, ProviderNode } from '../types.js';
+import type { ProviderEdge } from './RelationshipQueryable.js';
 
 // ============================================================================
 // Watch Granularity
@@ -22,7 +22,7 @@ import type { ProviderEdge } from './RelationshipQueryable.js'
  *
  * Informational — helps consumers understand latency characteristics.
  */
-export type WatchMechanism = 'file-watch' | 'polling' | 'webhook' | 'stream'
+export type WatchMechanism = 'file-watch' | 'polling' | 'webhook' | 'stream';
 
 /**
  * Declares what level of detail a provider's change events carry.
@@ -35,23 +35,23 @@ export interface WatchGranularity {
    * Provider can report which fields changed on a node update.
    * When true, `ProviderNodeChangeEvent.changedFields` may be populated.
    */
-  reportsChangedFields: boolean
+  reportsChangedFields: boolean;
 
   /**
    * Provider can report the previous values of changed fields.
    * When true, `ProviderNodeChangeEvent.previousValues` may be populated.
    * Implies `reportsChangedFields`.
    */
-  reportsPreviousValues: boolean
+  reportsPreviousValues: boolean;
 
   /**
    * Provider can emit edge change events separately from node events.
    * When true, `ProviderEdgeChangeEvent` events may be emitted.
    */
-  reportsEdgeChanges: boolean
+  reportsEdgeChanges: boolean;
 
   /** How the provider detects changes (informational) */
-  mechanism: WatchMechanism
+  mechanism: WatchMechanism;
 }
 
 // ============================================================================
@@ -66,33 +66,33 @@ export interface WatchGranularity {
  */
 export interface ProviderNodeChangeEvent {
   /** What happened */
-  type: 'created' | 'updated' | 'deleted'
+  type: 'created' | 'updated' | 'deleted';
 
   /** Node ID in the provider's local format */
-  nodeId: string
+  nodeId: string;
 
   /** Canonical URI for the node */
-  uri: string
+  uri: string;
 
   /** Full node data (absent for deletes, may be absent if provider can't supply cheaply) */
-  node?: ProviderNode
+  node?: ProviderNode;
 
   /**
    * Which fields changed (only for 'updated' events).
    * Present when `watchGranularity.reportsChangedFields` is true.
    * Uses ProviderNode field names: 'title', 'content', 'status', 'priority', etc.
    */
-  changedFields?: string[]
+  changedFields?: string[];
 
   /**
    * Previous values of changed fields (only for 'updated' events).
    * Present when `watchGranularity.reportsPreviousValues` is true.
    * Keys match `changedFields`.
    */
-  previousValues?: Record<string, unknown>
+  previousValues?: Record<string, unknown>;
 
   /** Provider-side timestamp of when the change occurred (ISO 8601) */
-  timestamp: string
+  timestamp: string;
 }
 
 /**
@@ -105,19 +105,19 @@ export interface ProviderNodeChangeEvent {
  */
 export interface ProviderEdgeChangeEvent {
   /** What happened */
-  type: 'created' | 'deleted'
+  type: 'created' | 'deleted';
 
   /** The edge that changed */
-  edge: ProviderEdge
+  edge: ProviderEdge;
 
   /** URI of the source node */
-  sourceUri: string
+  sourceUri: string;
 
   /** URI of the target node */
-  targetUri: string
+  targetUri: string;
 
   /** Provider-side timestamp (ISO 8601) */
-  timestamp: string
+  timestamp: string;
 }
 
 /**
@@ -140,12 +140,12 @@ export interface ProviderEdgeChangeEvent {
  */
 export type ProviderChangeEvent =
   | { kind: 'node'; event: ProviderNodeChangeEvent }
-  | { kind: 'edge'; event: ProviderEdgeChangeEvent }
+  | { kind: 'edge'; event: ProviderEdgeChangeEvent };
 
 /**
  * Callback for receiving provider change events
  */
-export type WatchChangeCallback = (event: ProviderChangeEvent) => void
+export type WatchChangeCallback = (event: ProviderChangeEvent) => void;
 
 // ============================================================================
 // Watchable Trait
@@ -197,7 +197,7 @@ export interface Watchable {
    * when changedFields is available, or listen for edge events only
    * when the provider reports them.
    */
-  readonly watchGranularity: WatchGranularity
+  readonly watchGranularity: WatchGranularity;
 
   /**
    * Start watching for changes and emitting events via the callback.
@@ -212,7 +212,7 @@ export interface Watchable {
    *
    * @param callback - Function called for each change event
    */
-  startWatching(callback: WatchChangeCallback): void
+  startWatching(callback: WatchChangeCallback): void;
 
   /**
    * Stop watching and release all associated resources.
@@ -224,10 +224,10 @@ export interface Watchable {
    *
    * Safe to call multiple times or when not watching.
    */
-  stopWatching(): void
+  stopWatching(): void;
 
   /** Whether the provider is currently watching for changes */
-  readonly isWatching: boolean
+  readonly isWatching: boolean;
 }
 
 // ============================================================================
@@ -249,14 +249,12 @@ export interface Watchable {
  * }
  * ```
  */
-export function isWatchable(
-  provider: Provider
-): provider is Provider & Watchable {
-  const p = provider as unknown as Watchable
+export function isWatchable(provider: Provider): provider is Provider & Watchable {
+  const p = provider as unknown as Watchable;
   return (
     typeof p.startWatching === 'function' &&
     typeof p.stopWatching === 'function' &&
     p.watchGranularity !== undefined &&
     typeof p.watchGranularity === 'object'
-  )
+  );
 }

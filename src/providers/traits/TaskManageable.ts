@@ -10,7 +10,7 @@
  * standard Provider for CRUD operations.
  */
 
-import type { Provider, ProviderNode, ProviderOperationContext } from '../types.js'
+import type { Provider, ProviderNode, ProviderOperationContext } from '../types.js';
 
 // ============================================================================
 // Task Action Types
@@ -23,7 +23,7 @@ import type { Provider, ProviderNode, ProviderOperationContext } from '../types.
  * For example, a provider with statuses ['pending', 'active', 'done']
  * might map 'start' → 'active' and 'complete' → 'done'.
  */
-export type TaskAction = 'start' | 'complete' | 'block' | 'reopen' | 'close'
+export type TaskAction = 'start' | 'complete' | 'block' | 'reopen' | 'close';
 
 // ============================================================================
 // Task Capabilities
@@ -38,16 +38,16 @@ export type TaskAction = 'start' | 'complete' | 'block' | 'reopen' | 'close'
  */
 export interface TaskCapabilities {
   /** Which semantic actions this provider supports */
-  actions: TaskAction[]
+  actions: TaskAction[];
 
   /** Whether the provider supports assigning tasks to owners */
-  supportsAssignment: boolean
+  supportsAssignment: boolean;
 
   /** Whether the provider can compute ready tasks natively */
-  supportsReadyQuery: boolean
+  supportsReadyQuery: boolean;
 
   /** The provider's native status values (informational) */
-  statusModel: string[]
+  statusModel: string[];
 }
 
 // ============================================================================
@@ -59,16 +59,16 @@ export interface TaskCapabilities {
  */
 export interface ReadyTaskOptions {
   /** Maximum number of tasks to return */
-  limit?: number
+  limit?: number;
 
   /** Filter by tags */
-  tags?: string[]
+  tags?: string[];
 
   /** Filter by minimum priority */
-  priority?: number
+  priority?: number;
 
   /** Filter by assignee */
-  assignee?: string
+  assignee?: string;
 }
 
 // ============================================================================
@@ -118,7 +118,7 @@ export interface ReadyTaskOptions {
  */
 export interface TaskManageable {
   /** Declares what task operations this provider supports */
-  readonly taskCapabilities: TaskCapabilities
+  readonly taskCapabilities: TaskCapabilities;
 
   /**
    * Transition a task's status using a semantic action.
@@ -134,8 +134,8 @@ export interface TaskManageable {
   transitionTask(
     id: string,
     action: TaskAction,
-    context?: ProviderOperationContext
-  ): Promise<ProviderNode>
+    context?: ProviderOperationContext,
+  ): Promise<ProviderNode>;
 
   /**
    * Get tasks that are ready to work on (no active blockers).
@@ -149,8 +149,8 @@ export interface TaskManageable {
    */
   readyTasks(
     options?: ReadyTaskOptions,
-    context?: ProviderOperationContext
-  ): Promise<ProviderNode[]>
+    context?: ProviderOperationContext,
+  ): Promise<ProviderNode[]>;
 
   /**
    * Assign a task to an owner.
@@ -165,8 +165,8 @@ export interface TaskManageable {
   assignTask?(
     id: string,
     assignee: string,
-    context?: ProviderOperationContext
-  ): Promise<ProviderNode>
+    context?: ProviderOperationContext,
+  ): Promise<ProviderNode>;
 
   /**
    * Get the valid next actions for a task in its current state.
@@ -178,10 +178,7 @@ export interface TaskManageable {
    * @param context - Optional operational context
    * @returns Array of valid actions for this task's current state
    */
-  validActions?(
-    id: string,
-    context?: ProviderOperationContext
-  ): Promise<TaskAction[]>
+  validActions?(id: string, context?: ProviderOperationContext): Promise<TaskAction[]>;
 }
 
 // ============================================================================
@@ -203,14 +200,12 @@ export interface TaskManageable {
  * }
  * ```
  */
-export function isTaskManageable(
-  provider: Provider
-): provider is Provider & TaskManageable {
-  const p = provider as unknown as TaskManageable
+export function isTaskManageable(provider: Provider): provider is Provider & TaskManageable {
+  const p = provider as unknown as TaskManageable;
   return (
     typeof p.transitionTask === 'function' &&
     typeof p.readyTasks === 'function' &&
     p.taskCapabilities !== undefined &&
     typeof p.taskCapabilities === 'object'
-  )
+  );
 }

@@ -24,13 +24,13 @@ function createTestNode(overrides: Partial<{
   title: string
   content: string
 }> = {}) {
-  const generated = overrides.id ? null : generateId('spec')
+  const generated = overrides.id ? null : generateId('context')
   const id = overrides.id ?? generated!.id
   const uuid = generated?.uuid ?? `uuid-${id}`
   return {
     id,
     uuid,
-    type: overrides.type ?? 'spec',
+    type: overrides.type ?? 'context',
     title: overrides.title ?? `Test Node ${id}`,
     content: overrides.content ?? 'Test content',
     created_at: new Date().toISOString(),
@@ -75,7 +75,7 @@ describe.skipIf(!SLOW_TESTS)('JSONL Durability Integration', () => {
       await persister.save([node1, node2], [])
 
       // Simulate crash: append truncated JSON line
-      await appendFile(jsonlPath, '{"id":"s-incomplete","title":"Trunca')
+      await appendFile(jsonlPath, '{"id":"c-incomplete","title":"Trunca')
 
       // Load should recover valid entries and skip the corrupted one
       const result = await persister.load()

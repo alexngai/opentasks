@@ -4,20 +4,20 @@
  * Parameter and result types for the 3-tool agent interface.
  */
 
-import type { Node, Edge, EdgeType, NodeType } from '../schema/index.js'
+import type { Node, Edge, EdgeType, NodeType } from '../schema/index.js';
 import type {
   NodeFilter,
   EdgeFilter,
   ReadyOptions,
   BlockerOptions,
   FeedbackOptions,
-} from '../graph/types.js'
-import type { OperationContext } from '../graph/coordination.js'
+} from '../graph/types.js';
+import type { OperationContext } from '../graph/coordination.js';
 
 // Re-export for convenience
-export type { EdgeType, NodeType, Node, Edge }
-export type { NodeFilter, EdgeFilter, ReadyOptions, BlockerOptions, FeedbackOptions }
-export type { OperationContext }
+export type { EdgeType, NodeType, Node, Edge };
+export type { NodeFilter, EdgeFilter, ReadyOptions, BlockerOptions, FeedbackOptions };
+export type { OperationContext };
 
 // ============================================================================
 // Link Tool Types
@@ -28,19 +28,19 @@ export type { OperationContext }
  */
 export interface LinkParams {
   /** Source node ID or provider URI */
-  fromId: string
+  fromId: string;
 
   /** Target node ID or provider URI */
-  toId: string
+  toId: string;
 
   /** Relationship type */
-  type: EdgeType
+  type: EdgeType;
 
   /** Remove the edge instead of creating (default: false) */
-  remove?: boolean
+  remove?: boolean;
 
   /** Additional metadata for the edge */
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -48,13 +48,13 @@ export interface LinkParams {
  */
 export interface LinkResult {
   /** Whether the operation succeeded */
-  success: boolean
+  success: boolean;
 
   /** ID of the created edge (only when creating) */
-  edgeId?: string
+  edgeId?: string;
 
   /** Error message if operation failed */
-  error?: string
+  error?: string;
 }
 
 // ============================================================================
@@ -66,13 +66,13 @@ export interface LinkResult {
  */
 export interface BlockerQueryParams {
   /** Node ID to find blockers for */
-  nodeId: string
+  nodeId: string;
 
   /** Include transitive blockers (default: false) */
-  transitive?: boolean
+  transitive?: boolean;
 
   /** Only include active (non-closed, non-archived) blockers (default: true) */
-  activeOnly?: boolean
+  activeOnly?: boolean;
 }
 
 /**
@@ -80,16 +80,16 @@ export interface BlockerQueryParams {
  */
 export interface FeedbackQueryParams {
   /** Node ID to get feedback for */
-  nodeId: string
+  nodeId: string;
 
   /** Filter by feedback type */
-  type?: 'comment' | 'suggestion' | 'request'
+  type?: 'comment' | 'suggestion' | 'request';
 
   /** Filter by resolution status */
-  resolved?: boolean
+  resolved?: boolean;
 
   /** Include dismissed feedback (default: false) */
-  includeDismissed?: boolean
+  includeDismissed?: boolean;
 }
 
 /**
@@ -97,23 +97,23 @@ export interface FeedbackQueryParams {
  */
 export interface UnresolvedFeedbackQueryParams {
   /** Optional target node ID to filter by */
-  targetId?: string
+  targetId?: string;
 }
 
 /**
- * Parameters for querying implementers of a spec
+ * Parameters for querying tasks that implement a context
  */
-export interface ImplementersQueryParams {
-  /** Spec ID to find implementers for */
-  specId: string
+export interface TasksQueryParams {
+  /** Context ID to find tasks for */
+  contextId: string;
 }
 
 /**
- * Parameters for querying specs an issue implements
+ * Parameters for querying context nodes a task implements
  */
-export interface SpecsQueryParams {
-  /** Issue ID to find specs for */
-  issueId: string
+export interface ContextQueryParams {
+  /** Task ID to find context for */
+  taskId: string;
 }
 
 /**
@@ -123,40 +123,40 @@ export interface SpecsQueryParams {
  */
 export interface QueryParams {
   /** Query nodes with filter */
-  nodes?: NodeFilter
+  nodes?: NodeFilter;
 
   /** Query edges with filter */
-  edges?: EdgeFilter
+  edges?: EdgeFilter;
 
-  /** Get unblocked issues ready to work on */
-  ready?: ReadyOptions
+  /** Get unblocked tasks ready to work on */
+  ready?: ReadyOptions;
 
   /** Get nodes blocking a specific node */
-  blockers?: BlockerQueryParams
+  blockers?: BlockerQueryParams;
 
   /** Get nodes blocked by a specific node */
-  blocking?: BlockerQueryParams
+  blocking?: BlockerQueryParams;
 
   /** Get feedback on a specific node */
-  feedback?: FeedbackQueryParams
+  feedback?: FeedbackQueryParams;
 
   /** Get all unresolved feedback (optionally filtered by target) */
-  unresolvedFeedback?: UnresolvedFeedbackQueryParams
+  unresolvedFeedback?: UnresolvedFeedbackQueryParams;
 
-  /** Get issues that implement a spec */
-  implementers?: ImplementersQueryParams
+  /** Get tasks that implement a context */
+  tasks?: TasksQueryParams;
 
-  /** Get specs that an issue implements */
-  specs?: SpecsQueryParams
+  /** Get context nodes that a task implements */
+  context?: ContextQueryParams;
 
   /** Return full objects instead of summaries (default: false) */
-  verbose?: boolean
+  verbose?: boolean;
 
   /** Maximum results to return (default: 50) */
-  limit?: number
+  limit?: number;
 
   /** Pagination offset (default: 0) */
-  offset?: number
+  offset?: number;
 }
 
 /**
@@ -164,22 +164,22 @@ export interface QueryParams {
  */
 export interface NodeSummary {
   /** Node ID */
-  id: string
+  id: string;
 
   /** Node type */
-  type: NodeType
+  type: NodeType;
 
   /** Node title */
-  title: string
+  title: string;
 
-  /** Issue status (only for issues) */
-  status?: string
+  /** Task status (only for tasks) */
+  status?: string;
 
   /** Priority (0=highest, 4=lowest) */
-  priority?: number
+  priority?: number;
 
   /** Whether the node is archived */
-  archived: boolean
+  archived: boolean;
 }
 
 /**
@@ -187,16 +187,16 @@ export interface NodeSummary {
  */
 export interface EdgeSummary {
   /** Edge ID */
-  id: string
+  id: string;
 
   /** Source node ID */
-  fromId: string
+  fromId: string;
 
   /** Target node ID */
-  toId: string
+  toId: string;
 
   /** Relationship type */
-  type: EdgeType
+  type: EdgeType;
 }
 
 /**
@@ -204,22 +204,22 @@ export interface EdgeSummary {
  */
 export interface FeedbackSummary {
   /** Feedback ID */
-  id: string
+  id: string;
 
   /** Target node ID */
-  targetId: string
+  targetId: string;
 
   /** Feedback type */
-  feedbackType: 'comment' | 'suggestion' | 'request'
+  feedbackType: 'comment' | 'suggestion' | 'request';
 
   /** Whether resolved */
-  resolved: boolean
+  resolved: boolean;
 
   /** Whether dismissed */
-  dismissed: boolean
+  dismissed: boolean;
 
   /** Content preview (truncated) */
-  contentPreview: string
+  contentPreview: string;
 }
 
 /**
@@ -227,13 +227,13 @@ export interface FeedbackSummary {
  */
 export interface QueryResult {
   /** Query results (type depends on query and verbose flag) */
-  items: NodeSummary[] | EdgeSummary[] | FeedbackSummary[] | Node[] | Edge[]
+  items: NodeSummary[] | EdgeSummary[] | FeedbackSummary[] | Node[] | Edge[];
 
   /** Total count if available */
-  total?: number
+  total?: number;
 
   /** Whether more results exist beyond limit */
-  hasMore: boolean
+  hasMore: boolean;
 }
 
 // ============================================================================
@@ -243,17 +243,17 @@ export interface QueryResult {
 /**
  * Feedback type
  */
-export type FeedbackType = 'comment' | 'suggestion' | 'request'
+export type FeedbackType = 'comment' | 'suggestion' | 'request';
 
 /**
  * Anchor for feedback positioning
  */
 export interface FeedbackAnchor {
   /** Line number in target content */
-  line?: number
+  line?: number;
 
   /** Text snippet to anchor to */
-  text?: string
+  text?: string;
 }
 
 /**
@@ -261,13 +261,13 @@ export interface FeedbackAnchor {
  */
 export interface CreateFeedbackParams {
   /** Feedback content (markdown) */
-  content: string
+  content: string;
 
   /** Feedback type (default: comment) */
-  type?: FeedbackType
+  type?: FeedbackType;
 
   /** Anchor in target content */
-  anchor?: FeedbackAnchor
+  anchor?: FeedbackAnchor;
 }
 
 /**
@@ -277,22 +277,22 @@ export interface CreateFeedbackParams {
  */
 export interface AnnotateParams {
   /** Target node ID receiving annotation */
-  targetId: string
+  targetId: string;
 
   /** Create new feedback */
-  create?: CreateFeedbackParams
+  create?: CreateFeedbackParams;
 
   /** Resolve feedback by ID */
-  resolve?: string
+  resolve?: string;
 
   /** Dismiss feedback by ID */
-  dismiss?: string
+  dismiss?: string;
 
   /** Reopen resolved/dismissed feedback by ID */
-  reopen?: string
+  reopen?: string;
 
-  /** Issue ID providing feedback (creates link) */
-  fromId?: string
+  /** Task ID providing feedback (creates link) */
+  fromId?: string;
 }
 
 /**
@@ -300,13 +300,13 @@ export interface AnnotateParams {
  */
 export interface AnnotateResult {
   /** Whether the operation succeeded */
-  success: boolean
+  success: boolean;
 
   /** ID of created/modified feedback */
-  feedbackId?: string
+  feedbackId?: string;
 
   /** Error message if operation failed */
-  error?: string
+  error?: string;
 }
 
 // ============================================================================
@@ -316,7 +316,7 @@ export interface AnnotateResult {
 /**
  * Semantic task actions
  */
-export type { TaskAction } from '../providers/traits/TaskManageable.js'
+export type { TaskAction } from '../providers/traits/TaskManageable.js';
 
 /**
  * Parameters for the task tool
@@ -327,41 +327,41 @@ export interface TaskParams {
   /** Transition a task's status using a semantic action */
   transition?: {
     /** Task ID or provider URI */
-    id: string
+    id: string;
     /** Semantic action: 'start' | 'complete' | 'block' | 'reopen' | 'close' */
-    action: 'start' | 'complete' | 'block' | 'reopen' | 'close'
-  }
+    action: 'start' | 'complete' | 'block' | 'reopen' | 'close';
+  };
 
   /** Get tasks that are ready to work on (no active blockers) */
   ready?: {
     /** Only query these providers (by name). If omitted, queries all task-capable providers. */
-    providers?: string[]
+    providers?: string[];
     /** Maximum results to return */
-    limit?: number
+    limit?: number;
     /** Filter by tags */
-    tags?: string[]
+    tags?: string[];
     /** Filter by minimum priority */
-    priority?: number
+    priority?: number;
     /** Filter by assignee */
-    assignee?: string
-  }
+    assignee?: string;
+  };
 
   /** Assign a task to an owner */
   assign?: {
     /** Task ID or provider URI */
-    id: string
+    id: string;
     /** Assignee identifier */
-    assignee: string
-  }
+    assignee: string;
+  };
 
   /** Get valid next actions for a task in its current state */
   validActions?: {
     /** Task ID or provider URI */
-    id: string
-  }
+    id: string;
+  };
 
   /** Return full objects instead of summaries (default: false) */
-  verbose?: boolean
+  verbose?: boolean;
 }
 
 /**
@@ -369,57 +369,57 @@ export interface TaskParams {
  */
 export interface TaskResult {
   /** Whether the operation succeeded */
-  success: boolean
+  success: boolean;
 
   /** Result data (shape depends on operation) */
-  data?: TaskTransitionData | TaskReadyData | TaskAssignData | TaskValidActionsData
+  data?: TaskTransitionData | TaskReadyData | TaskAssignData | TaskValidActionsData;
 
   /** Error message if operation failed */
-  error?: string
+  error?: string;
 }
 
 /**
  * Result data for a transition operation
  */
 export interface TaskTransitionData {
-  type: 'transition'
+  type: 'transition';
   /** The updated node summary */
-  node: NodeSummary
+  node: NodeSummary;
   /** Which provider handled the transition */
-  provider: string
+  provider: string;
   /** The action that was applied */
-  action: string
+  action: string;
 }
 
 /**
  * Result data for a ready query
  */
 export interface TaskReadyData {
-  type: 'ready'
+  type: 'ready';
   /** Ready task summaries */
-  items: NodeSummary[]
+  items: NodeSummary[];
   /** Total count */
-  total: number
+  total: number;
 }
 
 /**
  * Result data for an assign operation
  */
 export interface TaskAssignData {
-  type: 'assign'
+  type: 'assign';
   /** The updated node summary */
-  node: NodeSummary
+  node: NodeSummary;
   /** Which provider handled the assignment */
-  provider: string
+  provider: string;
 }
 
 /**
  * Result data for a validActions query
  */
 export interface TaskValidActionsData {
-  type: 'validActions'
+  type: 'validActions';
   /** Valid actions for the task's current state */
-  actions: string[]
+  actions: string[];
 }
 
 // ============================================================================
@@ -434,7 +434,7 @@ export type ToolErrorCode =
   | 'VALIDATION_ERROR'
   | 'INVALID_PARAMS'
   | 'CYCLE_DETECTED'
-  | 'OPERATION_FAILED'
+  | 'OPERATION_FAILED';
 
 /**
  * Tool operation error
@@ -443,9 +443,9 @@ export class ToolError extends Error {
   constructor(
     public readonly code: ToolErrorCode,
     message: string,
-    public readonly details?: Record<string, unknown>
+    public readonly details?: Record<string, unknown>,
   ) {
-    super(message)
-    this.name = 'ToolError'
+    super(message);
+    this.name = 'ToolError';
   }
 }

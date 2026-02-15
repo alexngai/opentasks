@@ -5,23 +5,23 @@
  * Snapshots contain everything needed to reconstruct the node in a fresh graph.
  */
 
-import type { GraphStore } from '../graph/store.js'
-import type { ExternalNode } from '../schema/nodes.js'
-import type { Edge } from '../schema/edges.js'
+import type { GraphStore } from '../graph/store.js';
+import type { ExternalNode } from '../schema/nodes.js';
+import type { Edge } from '../schema/edges.js';
 import type {
   MaterializationSnapshot,
   SessionSnapshot,
   CheckpointSnapshot,
   EdgeSnapshot,
   SnapshotProvenance,
-} from './types.js'
+} from './types.js';
 import {
   resolveGraphId,
   resolveGitDir,
   getGitRemoteUrl,
   getGitBranch,
   getGitHead,
-} from './graph-id.js'
+} from './graph-id.js';
 
 // ============================================================================
 // Provenance Resolution
@@ -31,19 +31,19 @@ import {
  * Build provenance metadata for a snapshot
  */
 export function buildProvenance(options: {
-  graphId: string
-  opentasksPath: string
+  graphId: string;
+  opentasksPath: string;
 }): SnapshotProvenance {
-  const { graphId, opentasksPath } = options
-  const gitDir = resolveGitDir(opentasksPath)
+  const { graphId, opentasksPath } = options;
+  const gitDir = resolveGitDir(opentasksPath);
 
   return {
     graphId,
     graphPath: opentasksPath,
-    gitRemote: gitDir ? getGitRemoteUrl(gitDir) ?? undefined : undefined,
-    gitBranch: gitDir ? getGitBranch(gitDir) ?? undefined : undefined,
-    gitHead: gitDir ? getGitHead(gitDir) ?? undefined : undefined,
-  }
+    gitRemote: gitDir ? (getGitRemoteUrl(gitDir) ?? undefined) : undefined,
+    gitBranch: gitDir ? (getGitBranch(gitDir) ?? undefined) : undefined,
+    gitHead: gitDir ? (getGitHead(gitDir) ?? undefined) : undefined,
+  };
 }
 
 // ============================================================================
@@ -54,27 +54,24 @@ export function buildProvenance(options: {
  * Resolve a graph node ID to its URI.
  * External nodes have a URI directly; internal nodes use opentasks:// scheme.
  */
-async function resolveNodeUri(
-  nodeId: string,
-  store: GraphStore
-): Promise<string> {
+async function resolveNodeUri(nodeId: string, store: GraphStore): Promise<string> {
   try {
     const nodes = await store.query.nodes({
       search: nodeId,
       limit: 1,
-    })
+    });
 
     if (nodes.length > 0) {
-      const node = nodes[0] as unknown as Record<string, unknown>
+      const node = nodes[0] as unknown as Record<string, unknown>;
       if (node.type === 'external' && node.uri) {
-        return node.uri as string
+        return node.uri as string;
       }
-      return `opentasks://${node.id}`
+      return `opentasks://${node.id}`;
     }
   } catch {
     // Fall through
   }
-  return `opentasks://${nodeId}`
+  return `opentasks://${nodeId}`;
 }
 
 // ============================================================================
@@ -87,37 +84,37 @@ async function resolveNodeUri(
  */
 export async function buildEdgeSnapshots(
   nodeId: string,
-  store: GraphStore
+  store: GraphStore,
 ): Promise<EdgeSnapshot[]> {
-  const snapshots: EdgeSnapshot[] = []
+  const snapshots: EdgeSnapshot[] = [];
 
   try {
     // Get all edges involving this node (both directions)
-    const edges = await store.query.edges({ from_id: nodeId })
-    const incomingEdges = await store.query.edges({ to_id: nodeId })
-    const allEdges: Edge[] = [...edges, ...incomingEdges]
+    const edges = await store.query.edges({ from_id: nodeId });
+    const incomingEdges = await store.query.edges({ to_id: nodeId });
+    const allEdges: Edge[] = [...edges, ...incomingEdges];
 
     // Deduplicate by edge ID
-    const seen = new Set<string>()
+    const seen = new Set<string>();
     for (const edge of allEdges) {
-      if (seen.has(edge.id)) continue
-      seen.add(edge.id)
+      if (seen.has(edge.id)) continue;
+      seen.add(edge.id);
 
-      const fromUri = await resolveNodeUri(edge.from_id, store)
-      const toUri = await resolveNodeUri(edge.to_id, store)
+      const fromUri = await resolveNodeUri(edge.from_id, store);
+      const toUri = await resolveNodeUri(edge.to_id, store);
 
       snapshots.push({
         fromUri,
         toUri,
         edgeType: edge.type,
         metadata: edge.metadata,
-      })
+      });
     }
   } catch {
     // Best-effort edge capture
   }
 
-  return snapshots
+  return snapshots;
 }
 
 // ============================================================================
@@ -130,17 +127,17 @@ export async function buildEdgeSnapshots(
 export async function buildSessionSnapshot(
   node: ExternalNode,
   store: GraphStore,
-  provenance: SnapshotProvenance
+  provenance: SnapshotProvenance,
 ): Promise<SessionSnapshot> {
-  const edges = await buildEdgeSnapshots(node.id, store)
+  const edges = await buildEdgeSnapshots(node.id, store);
 
   // Extract checkpoint IDs from 'contains' edges
   const checkpointIds = edges
-    .filter(e => e.edgeType === 'contains')
-    .map(e => {
-      const match = e.toUri.match(/entire:\/\/checkpoint\/(.+)/)
-      return match ? match[1] : e.toUri
-    })
+    .filter((e) => e.edgeType === 'contains')
+    .map((e) => {
+      const match = e.toUri.match(/entire:\/\/checkpoint\/(.+)/);
+      return match ? match[1] : e.toUri;
+    });
 
   return {
     version: 1,
@@ -160,7 +157,7 @@ export async function buildSessionSnapshot(
     provenance,
     edges,
     checkpointIds,
-  }
+  };
 }
 
 /**
@@ -169,9 +166,9 @@ export async function buildSessionSnapshot(
 export async function buildCheckpointSnapshot(
   node: ExternalNode,
   store: GraphStore,
-  provenance: SnapshotProvenance
+  provenance: SnapshotProvenance,
 ): Promise<CheckpointSnapshot> {
-  const externalData = node.external_data ?? (node.metadata as Record<string, unknown>) ?? {}
+  const externalData = node.external_data ?? (node.metadata as Record<string, unknown>) ?? {};
 
   return {
     version: 1,
@@ -190,10 +187,8 @@ export async function buildCheckpointSnapshot(
     },
     provenance,
     codeCommit: externalData.commitHash as string | undefined,
-    sessionUri: externalData.sessionId
-      ? `entire://session/${externalData.sessionId}`
-      : '',
-  }
+    sessionUri: externalData.sessionId ? `entire://session/${externalData.sessionId}` : '',
+  };
 }
 
 /**
@@ -202,16 +197,16 @@ export async function buildCheckpointSnapshot(
 export async function buildSnapshot(
   node: ExternalNode,
   store: GraphStore,
-  provenance: SnapshotProvenance
+  provenance: SnapshotProvenance,
 ): Promise<MaterializationSnapshot> {
-  const metadata = node.metadata as Record<string, unknown> | undefined
-  const entityType = metadata?.entityType as string | undefined
+  const metadata = node.metadata as Record<string, unknown> | undefined;
+  const entityType = metadata?.entityType as string | undefined;
 
   if (entityType === 'session') {
-    return buildSessionSnapshot(node, store, provenance)
+    return buildSessionSnapshot(node, store, provenance);
   }
   if (entityType === 'checkpoint') {
-    return buildCheckpointSnapshot(node, store, provenance)
+    return buildCheckpointSnapshot(node, store, provenance);
   }
 
   // Generic external node snapshot
@@ -231,5 +226,5 @@ export async function buildSnapshot(
       tags: node.tags,
     },
     provenance,
-  }
+  };
 }

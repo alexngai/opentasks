@@ -5,9 +5,9 @@
  * Handles native:// and opentasks:// URI schemes.
  */
 
-import * as fs from 'node:fs'
-import type { GraphStore, NodeFilter as GraphNodeFilter } from '../graph/index.js'
-import type { Node, EdgeType } from '../schema/index.js'
+import * as fs from 'node:fs';
+import type { GraphStore, NodeFilter as GraphNodeFilter } from '../graph/index.js';
+import type { Node, EdgeType } from '../schema/index.js';
 import type {
   Provider,
   ProviderCapabilities,
@@ -20,43 +20,36 @@ import type {
   ParsedUri,
   UriOptions,
   SearchOptions,
-} from './types.js'
+} from './types.js';
 import type {
   RelationshipQueryable,
   ProviderEdge,
   QueryEdgesOptions,
-} from './traits/RelationshipQueryable.js'
-import {
-  filterEdgesByType,
-  filterEdgesByDirection,
-} from './traits/RelationshipQueryable.js'
-import type { EdgeTypeSupport } from '../graph/EdgeTypeRegistry.js'
-import type {
-  Watchable,
-  WatchGranularity,
-  WatchChangeCallback,
-} from './traits/Watchable.js'
+} from './traits/RelationshipQueryable.js';
+import { filterEdgesByType, filterEdgesByDirection } from './traits/RelationshipQueryable.js';
+import type { EdgeTypeSupport } from '../graph/EdgeTypeRegistry.js';
+import type { Watchable, WatchGranularity, WatchChangeCallback } from './traits/Watchable.js';
 import type {
   TaskManageable,
   TaskAction,
   TaskCapabilities,
   ReadyTaskOptions,
-} from './traits/TaskManageable.js'
-import { ProviderError as ProviderErrorClass } from './types.js'
+} from './traits/TaskManageable.js';
+import { ProviderError as ProviderErrorClass } from './types.js';
 
 // ============================================================================
 // Constants
 // ============================================================================
 
 /**
- * Pattern for local node IDs (s-, i-, f-, e-, x-)
+ * Pattern for local node IDs (c-, t-, f-, e-, x-)
  */
-const LOCAL_ID_PATTERN = /^[sifex]-[a-z0-9]+$/
+const LOCAL_ID_PATTERN = /^[ctfex]-[a-z0-9]+$/;
 
 /**
  * Pattern for native:// or opentasks:// URIs
  */
-const NATIVE_URI_PATTERN = /^(native|opentasks):\/\/(.+)$/i
+const NATIVE_URI_PATTERN = /^(native|opentasks):\/\/(.+)$/i;
 
 // ============================================================================
 // Type Conversion
@@ -67,33 +60,33 @@ const NATIVE_URI_PATTERN = /^(native|opentasks):\/\/(.+)$/i
  */
 function mapNodeType(nodeType: string): ProviderNodeType {
   switch (nodeType) {
-    case 'spec':
-      return 'spec'
-    case 'issue':
-      return 'issue'
+    case 'context':
+      return 'spec';
+    case 'task':
+      return 'issue';
     case 'feedback':
-      return 'feedback'
+      return 'feedback';
     case 'external':
-      return 'external'
+      return 'external';
     default:
-      return 'external'
+      return 'external';
   }
 }
 
 /**
  * Map provider node types to OpenTasks node types
  */
-function mapProviderType(providerType: string): 'spec' | 'issue' | 'feedback' | 'external' {
+function mapProviderType(providerType: string): 'context' | 'task' | 'feedback' | 'external' {
   switch (providerType) {
     case 'spec':
-      return 'spec'
+      return 'context';
     case 'issue':
     case 'task':
-      return 'issue'
+      return 'task';
     case 'feedback':
-      return 'feedback'
+      return 'feedback';
     default:
-      return 'external'
+      return 'external';
   }
 }
 
@@ -103,15 +96,15 @@ function mapProviderType(providerType: string): 'spec' | 'issue' | 'feedback' | 
 function validActionsForStatus(status: string): TaskAction[] {
   switch (status) {
     case 'open':
-      return ['start', 'block', 'close']
+      return ['start', 'block', 'close'];
     case 'in_progress':
-      return ['complete', 'block', 'close']
+      return ['complete', 'block', 'close'];
     case 'blocked':
-      return ['reopen', 'close']
+      return ['reopen', 'close'];
     case 'closed':
-      return ['reopen']
+      return ['reopen'];
     default:
-      return ['start', 'complete', 'block', 'reopen', 'close']
+      return ['start', 'complete', 'block', 'reopen', 'close'];
   }
 }
 
@@ -143,14 +136,14 @@ function nodeToProviderNode(node: Node): ProviderNode {
       ...('source' in node ? { source: node.source } : {}),
     },
     fetchedAt: new Date().toISOString(),
-  }
+  };
 }
 
 /**
  * Convert ProviderFilter to GraphStore NodeFilter
  */
 function convertFilter(filter?: ProviderFilter): GraphNodeFilter | undefined {
-  if (!filter) return undefined
+  if (!filter) return undefined;
 
   return {
     type: filter.type as GraphNodeFilter['type'],
@@ -158,7 +151,7 @@ function convertFilter(filter?: ProviderFilter): GraphNodeFilter | undefined {
     search: filter.search,
     limit: filter.limit,
     offset: filter.offset,
-  }
+  };
 }
 
 // ============================================================================
@@ -176,10 +169,10 @@ export interface NativeProviderConfig {
    *
    * Typically set to the `graph.jsonl` path inside `.opentasks/`.
    */
-  watchPath?: string
+  watchPath?: string;
 
   /** Debounce delay for file watching in ms (default: 150) */
-  watchDebounceMs?: number
+  watchDebounceMs?: number;
 }
 
 // ============================================================================
@@ -192,10 +185,10 @@ export interface NativeProviderConfig {
  */
 export function createNativeProvider(
   store: GraphStore,
-  config?: NativeProviderConfig
+  config?: NativeProviderConfig,
 ): Provider & RelationshipQueryable & Partial<Watchable> & TaskManageable {
-  const watchPath = config?.watchPath
-  const watchDebounceMs = config?.watchDebounceMs ?? 150
+  const watchPath = config?.watchPath;
+  const watchDebounceMs = config?.watchDebounceMs ?? 150;
 
   const capabilities: ProviderCapabilities = {
     read: true,
@@ -204,33 +197,33 @@ export function createNativeProvider(
     watch: !!watchPath,
     mount: true,
     feedback: true,
-  }
+  };
 
   // =========================================================================
   // Watch State
   // =========================================================================
 
   /** Cached content hashes: node id → hash of title+content+status+priority */
-  const cachedHashes = new Map<string, string>()
+  const cachedHashes = new Map<string, string>();
 
   /** fs.watch instance */
-  let fsWatcher: fs.FSWatcher | null = null
+  let fsWatcher: fs.FSWatcher | null = null;
 
   /** Current watch callback */
-  let watchCallback: WatchChangeCallback | null = null
+  let watchCallback: WatchChangeCallback | null = null;
 
   /** Debounce timer */
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Simple hash for diffing */
   function quickHash(input: string): string {
-    let hash = 0
+    let hash = 0;
     for (let i = 0; i < input.length; i++) {
-      const char = input.charCodeAt(i)
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash
+      const char = input.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash;
     }
-    return hash.toString(16)
+    return hash.toString(16);
   }
 
   function nodeHash(node: Node): string {
@@ -241,25 +234,25 @@ export function createNativeProvider(
       status: 'status' in node ? node.status : undefined,
       priority: node.priority,
       tags: node.tags ? [...node.tags].sort() : undefined,
-    }
-    return quickHash(JSON.stringify(substantive))
+    };
+    return quickHash(JSON.stringify(substantive));
   }
 
   /**
    * Diff current GraphStore state against cached hashes and emit events.
    */
   async function diffAndEmit(): Promise<void> {
-    if (!watchCallback) return
+    if (!watchCallback) return;
 
     try {
-      const nodes = await store.query.nodes({})
-      const currentIds = new Set<string>()
+      const nodes = await store.query.nodes({});
+      const currentIds = new Set<string>();
 
       for (const node of nodes) {
-        currentIds.add(node.id)
-        const hash = nodeHash(node)
-        const prevHash = cachedHashes.get(node.id)
-        const providerNode = nodeToProviderNode(node)
+        currentIds.add(node.id);
+        const hash = nodeHash(node);
+        const prevHash = cachedHashes.get(node.id);
+        const providerNode = nodeToProviderNode(node);
 
         if (!prevHash) {
           watchCallback({
@@ -271,7 +264,7 @@ export function createNativeProvider(
               node: providerNode,
               timestamp: new Date().toISOString(),
             },
-          })
+          });
         } else if (prevHash !== hash) {
           watchCallback({
             kind: 'node',
@@ -282,10 +275,10 @@ export function createNativeProvider(
               node: providerNode,
               timestamp: new Date().toISOString(),
             },
-          })
+          });
         }
 
-        cachedHashes.set(node.id, hash)
+        cachedHashes.set(node.id, hash);
       }
 
       // Detect deletes
@@ -299,8 +292,8 @@ export function createNativeProvider(
               uri: `native://${id}`,
               timestamp: new Date().toISOString(),
             },
-          })
-          cachedHashes.delete(id)
+          });
+          cachedHashes.delete(id);
         }
       }
     } catch {
@@ -309,19 +302,19 @@ export function createNativeProvider(
   }
 
   function onFileChange(): void {
-    if (debounceTimer) clearTimeout(debounceTimer)
+    if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
-      debounceTimer = null
-      void diffAndEmit()
-    }, watchDebounceMs)
+      debounceTimer = null;
+      void diffAndEmit();
+    }, watchDebounceMs);
   }
 
   async function seedCache(): Promise<void> {
     try {
-      const nodes = await store.query.nodes({})
-      cachedHashes.clear()
+      const nodes = await store.query.nodes({});
+      cachedHashes.clear();
       for (const node of nodes) {
-        cachedHashes.set(node.id, nodeHash(node))
+        cachedHashes.set(node.id, nodeHash(node));
       }
     } catch {
       // If we can't seed, first diff emits everything as 'created'
@@ -339,38 +332,38 @@ export function createNativeProvider(
 
     parseUri(uri: string): ParsedUri | null {
       // Check for native:// or opentasks:// URI
-      const uriMatch = uri.match(NATIVE_URI_PATTERN)
+      const uriMatch = uri.match(NATIVE_URI_PATTERN);
       if (uriMatch) {
-        const scheme = uriMatch[1].toLowerCase()
-        const id = uriMatch[2]
+        const scheme = uriMatch[1].toLowerCase();
+        const id = uriMatch[2];
         return {
           scheme,
           id,
           isRelative: false,
-        }
+        };
       }
 
-      // Check for local ID (s-abc1, i-xyz2, etc.)
+      // Check for local ID (c-abc1, t-xyz2, etc.)
       if (LOCAL_ID_PATTERN.test(uri)) {
         return {
           scheme: 'native',
           id: uri,
           isRelative: true,
-        }
+        };
       }
 
-      return null
+      return null;
     },
 
     buildUri(id: string, options?: UriOptions): string {
       if (options?.relative) {
-        return id
+        return id;
       }
-      return `native://${id}`
+      return `native://${id}`;
     },
 
     isValidUri(uri: string): boolean {
-      return this.parseUri(uri) !== null
+      return this.parseUri(uri) !== null;
     },
 
     // =========================================================================
@@ -379,23 +372,29 @@ export function createNativeProvider(
 
     async get(id: string, _context?: ProviderOperationContext): Promise<ProviderNode | null> {
       // Parse URI if full URI is passed
-      const parsed = this.parseUri(id)
-      const nodeId = parsed?.id ?? id
+      const parsed = this.parseUri(id);
+      const nodeId = parsed?.id ?? id;
 
-      const node = await store.getNode(nodeId)
-      if (!node) return null
+      const node = await store.getNode(nodeId);
+      if (!node) return null;
 
-      return nodeToProviderNode(node)
+      return nodeToProviderNode(node);
     },
 
-    async list(filter?: ProviderFilter, _context?: ProviderOperationContext): Promise<ProviderNode[]> {
-      const graphFilter = convertFilter(filter) ?? {}
-      const nodes = await store.query.nodes(graphFilter)
-      return nodes.map(nodeToProviderNode)
+    async list(
+      filter?: ProviderFilter,
+      _context?: ProviderOperationContext,
+    ): Promise<ProviderNode[]> {
+      const graphFilter = convertFilter(filter) ?? {};
+      const nodes = await store.query.nodes(graphFilter);
+      return nodes.map(nodeToProviderNode);
     },
 
-    async create(input: ProviderCreateInput, _context?: ProviderOperationContext): Promise<ProviderNode> {
-      const nodeType = mapProviderType(input.type)
+    async create(
+      input: ProviderCreateInput,
+      _context?: ProviderOperationContext,
+    ): Promise<ProviderNode> {
+      const nodeType = mapProviderType(input.type);
 
       const node = await store.createNode({
         type: nodeType,
@@ -404,15 +403,19 @@ export function createNativeProvider(
         status: input.status,
         priority: input.priority,
         metadata: input.metadata,
-      })
+      });
 
-      return nodeToProviderNode(node)
+      return nodeToProviderNode(node);
     },
 
-    async update(id: string, updates: ProviderUpdateInput, _context?: ProviderOperationContext): Promise<ProviderNode> {
+    async update(
+      id: string,
+      updates: ProviderUpdateInput,
+      _context?: ProviderOperationContext,
+    ): Promise<ProviderNode> {
       // Parse URI if full URI is passed
-      const parsed = this.parseUri(id)
-      const nodeId = parsed?.id ?? id
+      const parsed = this.parseUri(id);
+      const nodeId = parsed?.id ?? id;
 
       const node = await store.updateNode(nodeId, {
         title: updates.title,
@@ -420,17 +423,17 @@ export function createNativeProvider(
         status: updates.status,
         priority: updates.priority,
         metadata: updates.metadata,
-      })
+      });
 
-      return nodeToProviderNode(node)
+      return nodeToProviderNode(node);
     },
 
     async delete(id: string, _context?: ProviderOperationContext): Promise<void> {
       // Parse URI if full URI is passed
-      const parsed = this.parseUri(id)
-      const nodeId = parsed?.id ?? id
+      const parsed = this.parseUri(id);
+      const nodeId = parsed?.id ?? id;
 
-      await store.deleteNode(nodeId)
+      await store.deleteNode(nodeId);
     },
 
     // =========================================================================
@@ -442,10 +445,10 @@ export function createNativeProvider(
         search: query,
         limit: options?.limit,
         type: options?.type as GraphNodeFilter['type'],
-      }
+      };
 
-      const nodes = await store.query.nodes(filter)
-      return nodes.map(nodeToProviderNode)
+      const nodes = await store.query.nodes(filter);
+      return nodes.map(nodeToProviderNode);
     },
 
     // =========================================================================
@@ -454,70 +457,70 @@ export function createNativeProvider(
 
     async queryEdges(nodeId: string, options?: QueryEdgesOptions): Promise<ProviderEdge[]> {
       // Parse URI if full URI is passed
-      const parsed = this.parseUri(nodeId)
-      const localId = parsed?.id ?? nodeId
+      const parsed = this.parseUri(nodeId);
+      const localId = parsed?.id ?? nodeId;
 
       // Check if node exists
-      const node = await store.getNode(localId)
+      const node = await store.getNode(localId);
       if (!node) {
-        return []
+        return [];
       }
 
       // Determine which edges to fetch based on direction
-      const direction = options?.direction ?? 'both'
-      const edgeType = options?.edgeType as EdgeType | undefined
+      const direction = options?.direction ?? 'both';
+      const edgeType = options?.edgeType as EdgeType | undefined;
 
-      let edges: ProviderEdge[] = []
+      let edges: ProviderEdge[] = [];
 
       if (direction === 'out' || direction === 'both') {
-        const outEdges = await store.query.edgesFrom(localId, edgeType)
+        const outEdges = await store.query.edgesFrom(localId, edgeType);
         for (const edge of outEdges) {
           edges.push({
             from: edge.from_id,
             to: edge.to_id,
             type: edge.type,
             metadata: edge.metadata,
-          })
+          });
         }
       }
 
       if (direction === 'in' || direction === 'both') {
-        const inEdges = await store.query.edgesTo(localId, edgeType)
+        const inEdges = await store.query.edgesTo(localId, edgeType);
         for (const edge of inEdges) {
           edges.push({
             from: edge.from_id,
             to: edge.to_id,
             type: edge.type,
             metadata: edge.metadata,
-          })
+          });
         }
       }
 
       // Deduplicate edges (in case of 'both' direction)
       if (direction === 'both') {
-        const seen = new Set<string>()
+        const seen = new Set<string>();
         edges = edges.filter((e) => {
-          const key = `${e.from}:${e.to}:${e.type}`
-          if (seen.has(key)) return false
-          seen.add(key)
-          return true
-        })
+          const key = `${e.from}:${e.to}:${e.type}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
       }
 
       // Apply additional filters if specified (when direction was used to fetch)
       if (options?.edgeType && !edgeType) {
-        edges = filterEdgesByType(edges, options.edgeType)
+        edges = filterEdgesByType(edges, options.edgeType);
       }
       if (options?.direction && options.direction !== 'both') {
-        edges = filterEdgesByDirection(edges, localId, options.direction)
+        edges = filterEdgesByDirection(edges, localId, options.direction);
       }
 
       // Apply limit
       if (options?.limit && edges.length > options.limit) {
-        edges = edges.slice(0, options.limit)
+        edges = edges.slice(0, options.limit);
       }
 
-      return edges
+      return edges;
     },
 
     supportedEdgeTypes(): EdgeTypeSupport[] {
@@ -535,7 +538,7 @@ export function createNativeProvider(
         { type: 'dependency-of', canQuery: true, canCreate: true, canDelete: true },
         { type: 'duplicates', canQuery: true, canCreate: true, canDelete: true },
         { type: 'supersedes', canQuery: true, canCreate: true, canDelete: true },
-      ]
+      ];
     },
 
     // =========================================================================
@@ -552,47 +555,47 @@ export function createNativeProvider(
     } satisfies WatchGranularity,
 
     startWatching(callback: WatchChangeCallback): void {
-      if (!watchPath) return
+      if (!watchPath) return;
 
-      watchCallback = callback
+      watchCallback = callback;
 
-      if (fsWatcher) return // Already watching
+      if (fsWatcher) return; // Already watching
 
       void seedCache().then(() => {
-        if (!watchCallback) return
+        if (!watchCallback) return;
 
         try {
           fsWatcher = fs.watch(watchPath, (eventType: string) => {
             if (eventType === 'change') {
-              onFileChange()
+              onFileChange();
             }
-          })
+          });
 
           fsWatcher.on('error', () => {
             // Resilient — continue
-          })
+          });
         } catch {
           // File might not exist yet
         }
-      })
+      });
     },
 
     stopWatching(): void {
-      watchCallback = null
+      watchCallback = null;
 
       if (debounceTimer) {
-        clearTimeout(debounceTimer)
-        debounceTimer = null
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
       }
 
       if (fsWatcher) {
-        fsWatcher.close()
-        fsWatcher = null
+        fsWatcher.close();
+        fsWatcher = null;
       }
     },
 
     get isWatching(): boolean {
-      return fsWatcher !== null && watchCallback !== null
+      return fsWatcher !== null && watchCallback !== null;
     },
 
     // =========================================================================
@@ -609,21 +612,21 @@ export function createNativeProvider(
     async transitionTask(
       id: string,
       action: TaskAction,
-      _context?: ProviderOperationContext
+      _context?: ProviderOperationContext,
     ): Promise<ProviderNode> {
-      const parsed = this.parseUri(id)
-      const nodeId = parsed?.id ?? id
+      const parsed = this.parseUri(id);
+      const nodeId = parsed?.id ?? id;
 
-      const node = await store.getNode(nodeId)
+      const node = await store.getNode(nodeId);
       if (!node) {
-        throw new ProviderErrorClass('NOT_FOUND', `Node not found: ${nodeId}`, 'native')
+        throw new ProviderErrorClass('NOT_FOUND', `Node not found: ${nodeId}`, 'native');
       }
-      if (node.type !== 'issue') {
+      if (node.type !== 'task') {
         throw new ProviderErrorClass(
           'NOT_SUPPORTED',
-          `Cannot transition ${node.type} node ${nodeId} — only issues support task lifecycle`,
-          'native'
-        )
+          `Cannot transition ${node.type} node ${nodeId} — only tasks support task lifecycle`,
+          'native',
+        );
       }
 
       const statusMap: Record<TaskAction, string> = {
@@ -632,37 +635,37 @@ export function createNativeProvider(
         block: 'blocked',
         reopen: 'open',
         close: 'closed',
-      }
+      };
 
-      const targetStatus = statusMap[action]
+      const targetStatus = statusMap[action];
       if (!targetStatus) {
         throw new ProviderErrorClass(
           'NOT_SUPPORTED',
           `Unsupported task action: ${action}`,
-          'native'
-        )
+          'native',
+        );
       }
 
       // Validate transition is allowed from current state
-      const currentStatus = 'status' in node ? (node.status as string) : 'open'
-      const allowed = validActionsForStatus(currentStatus)
+      const currentStatus = 'status' in node ? (node.status as string) : 'open';
+      const allowed = validActionsForStatus(currentStatus);
       if (!allowed.includes(action)) {
         throw new ProviderErrorClass(
           'NOT_SUPPORTED',
-          `Cannot ${action} an issue in '${currentStatus}' state. Valid actions: ${allowed.join(', ')}`,
-          'native'
-        )
+          `Cannot ${action} a task in '${currentStatus}' state. Valid actions: ${allowed.join(', ')}`,
+          'native',
+        );
       }
 
-      const updates: Record<string, unknown> = { status: targetStatus }
+      const updates: Record<string, unknown> = { status: targetStatus };
 
-      const updated = await store.updateNode(nodeId, updates)
-      return nodeToProviderNode(updated)
+      const updated = await store.updateNode(nodeId, updates);
+      return nodeToProviderNode(updated);
     },
 
     async readyTasks(
       options?: ReadyTaskOptions,
-      _context?: ProviderOperationContext
+      _context?: ProviderOperationContext,
     ): Promise<ProviderNode[]> {
       // Delegate to the existing query engine's ready() method
       const readyIssues = await store.query.ready({
@@ -670,56 +673,53 @@ export function createNativeProvider(
         priority: options?.priority,
         assignee: options?.assignee,
         limit: options?.limit,
-      })
+      });
 
-      return readyIssues.map(nodeToProviderNode)
+      return readyIssues.map(nodeToProviderNode);
     },
 
     async assignTask(
       id: string,
       assignee: string,
-      _context?: ProviderOperationContext
+      _context?: ProviderOperationContext,
     ): Promise<ProviderNode> {
-      const parsed = this.parseUri(id)
-      const nodeId = parsed?.id ?? id
+      const parsed = this.parseUri(id);
+      const nodeId = parsed?.id ?? id;
 
-      const node = await store.getNode(nodeId)
+      const node = await store.getNode(nodeId);
       if (!node) {
-        throw new ProviderErrorClass('NOT_FOUND', `Node not found: ${nodeId}`, 'native')
+        throw new ProviderErrorClass('NOT_FOUND', `Node not found: ${nodeId}`, 'native');
       }
-      if (node.type !== 'issue') {
+      if (node.type !== 'task') {
         throw new ProviderErrorClass(
           'NOT_SUPPORTED',
-          `Cannot assign ${node.type} node ${nodeId} — only issues support assignment`,
-          'native'
-        )
+          `Cannot assign ${node.type} node ${nodeId} — only tasks support assignment`,
+          'native',
+        );
       }
 
-      const updated = await store.updateNode(nodeId, { assignee })
-      return nodeToProviderNode(updated)
+      const updated = await store.updateNode(nodeId, { assignee });
+      return nodeToProviderNode(updated);
     },
 
-    async validActions(
-      id: string,
-      _context?: ProviderOperationContext
-    ): Promise<TaskAction[]> {
-      const parsed = this.parseUri(id)
-      const nodeId = parsed?.id ?? id
+    async validActions(id: string, _context?: ProviderOperationContext): Promise<TaskAction[]> {
+      const parsed = this.parseUri(id);
+      const nodeId = parsed?.id ?? id;
 
-      const node = await store.getNode(nodeId)
+      const node = await store.getNode(nodeId);
       if (!node) {
-        throw new ProviderErrorClass('NOT_FOUND', `Node not found: ${nodeId}`, 'native')
+        throw new ProviderErrorClass('NOT_FOUND', `Node not found: ${nodeId}`, 'native');
       }
-      if (node.type !== 'issue') {
+      if (node.type !== 'task') {
         throw new ProviderErrorClass(
           'NOT_SUPPORTED',
-          `Cannot query actions for ${node.type} node ${nodeId} — only issues support task lifecycle`,
-          'native'
-        )
+          `Cannot query actions for ${node.type} node ${nodeId} — only tasks support task lifecycle`,
+          'native',
+        );
       }
 
-      const status = 'status' in node ? (node.status as string) : 'open'
-      return validActionsForStatus(status)
+      const status = 'status' in node ? (node.status as string) : 'open';
+      return validActionsForStatus(status);
     },
-  }
+  };
 }

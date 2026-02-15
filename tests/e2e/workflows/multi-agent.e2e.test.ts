@@ -18,7 +18,7 @@ import {
   expectBlocks,
   expectBlockers,
   // Fixtures
-  createTestIssue,
+  createTestTask,
   createBlockingChain,
   createDiamondDependency,
   resetFixtureCounter,
@@ -50,11 +50,11 @@ describe.skipIf(!AGENT_TESTS)('Multi-Agent Coordination', () => {
       const agent1 = get('agent1')
       const agent2 = get('agent2')
 
-      // Agent1 creates foundation issue
-      const foundation = await agent1.createIssue('Foundation Work')
+      // Agent1 creates foundation task
+      const foundation = await agent1.createTask('Foundation Work')
 
-      // Agent1 creates dependent issue blocked by foundation
-      const dependent = await agent1.createIssue('Dependent Work')
+      // Agent1 creates dependent task blocked by foundation
+      const dependent = await agent1.createTask('Dependent Work')
       await agent1.blocks(foundation.id, dependent.id)
 
       // Agent2 queries ready → sees only foundation
@@ -62,7 +62,7 @@ describe.skipIf(!AGENT_TESTS)('Multi-Agent Coordination', () => {
       await expectNotReady(agent2, dependent.id)
 
       // Agent1 closes foundation
-      await agent1.closeIssue(foundation.id)
+      await agent1.closeTask(foundation.id)
 
       // Agent2 queries ready → now sees dependent
       await expectReady(agent2, dependent.id)
@@ -80,21 +80,21 @@ describe.skipIf(!AGENT_TESTS)('Multi-Agent Coordination', () => {
       const agent1 = get('agent1')
       const agent2 = get('agent2')
 
-      // Agent1 creates issue X
-      const issueX = await agent1.createIssue('Issue X')
+      // Agent1 creates task X
+      const taskX = await agent1.createTask('Task X')
 
-      // Agent2 creates issue Y, then blocks Y with X
-      const issueY = await agent2.createIssue('Issue Y')
-      await agent2.blocks(issueX.id, issueY.id)
+      // Agent2 creates task Y, then blocks Y with X
+      const taskY = await agent2.createTask('Task Y')
+      await agent2.blocks(taskX.id, taskY.id)
 
       // Agent2 queries ready → Y not present (blocked by X)
-      await expectNotReady(agent2, issueY.id)
+      await expectNotReady(agent2, taskY.id)
 
       // Agent1 closes X
-      await agent1.closeIssue(issueX.id)
+      await agent1.closeTask(taskX.id)
 
       // Agent2 queries ready → Y now present
-      await expectReady(agent2, issueY.id)
+      await expectReady(agent2, taskY.id)
 
       disconnectAll()
     })
@@ -117,17 +117,17 @@ describe.skipIf(!AGENT_TESTS)('Multi-Agent Coordination', () => {
       await expectNotReady(agent, bottom.id)
 
       // Close A → B and C become ready
-      await agent.closeIssue(top.id)
+      await agent.closeTask(top.id)
       await expectReady(agent, left.id)
       await expectReady(agent, right.id)
       await expectNotReady(agent, bottom.id)
 
       // Close B → D still blocked (waiting for C)
-      await agent.closeIssue(left.id)
+      await agent.closeTask(left.id)
       await expectNotReady(agent, bottom.id)
 
       // Close C → D becomes ready
-      await agent.closeIssue(right.id)
+      await agent.closeTask(right.id)
       await expectReady(agent, bottom.id)
     })
 
@@ -152,28 +152,28 @@ describe.skipIf(!AGENT_TESTS)('Multi-Agent Coordination', () => {
   })
 
   describe('Concurrent Operations', () => {
-    it('should handle concurrent issue creation', async () => {
-      // 3 agents create issues simultaneously via Promise.all
+    it('should handle concurrent task creation', async () => {
+      // 3 agents create tasks simultaneously via Promise.all
       const { get, disconnectAll } = await createMultiAgents(
         () => system.createClient(),
         ['agent1', 'agent2', 'agent3'],
         { provider: system.nativeProvider }
       )
 
-      const issues = await Promise.all([
-        get('agent1').createIssue('Issue from Agent 1'),
-        get('agent2').createIssue('Issue from Agent 2'),
-        get('agent3').createIssue('Issue from Agent 3'),
+      const tasks = await Promise.all([
+        get('agent1').createTask('Task from Agent 1'),
+        get('agent2').createTask('Task from Agent 2'),
+        get('agent3').createTask('Task from Agent 3'),
       ])
 
-      // Verify all issues have unique IDs
-      const ids = issues.map(i => i.id)
+      // Verify all tasks have unique IDs
+      const ids = tasks.map(i => i.id)
       expect(new Set(ids).size).toBe(3)
 
       // Verify all appear in ready queue
       const agent = get('agent1')
-      for (const issue of issues) {
-        await expectReady(agent, issue.id)
+      for (const task of tasks) {
+        await expectReady(agent, task.id)
       }
 
       disconnectAll()
@@ -189,24 +189,24 @@ describe.skipIf(!AGENT_TESTS)('Multi-Agent Coordination', () => {
       const creator = get('creator')
       const blocker = get('blocker')
 
-      // Creator creates multiple issues
-      const issues = await Promise.all([
-        creator.createIssue('Task A'),
-        creator.createIssue('Task B'),
-        creator.createIssue('Task C'),
+      // Creator creates multiple tasks
+      const tasks = await Promise.all([
+        creator.createTask('Task A'),
+        creator.createTask('Task B'),
+        creator.createTask('Task C'),
       ])
 
       // Blocker creates blocking relationships concurrently
       // A blocks B, B blocks C (chain)
       await Promise.all([
-        blocker.blocks(issues[0].id, issues[1].id),
-        blocker.blocks(issues[1].id, issues[2].id),
+        blocker.blocks(tasks[0].id, tasks[1].id),
+        blocker.blocks(tasks[1].id, tasks[2].id),
       ])
 
       // Verify chain structure
-      await expectReady(blocker, issues[0].id)
-      await expectNotReady(blocker, issues[1].id)
-      await expectNotReady(blocker, issues[2].id)
+      await expectReady(blocker, tasks[0].id)
+      await expectNotReady(blocker, tasks[1].id)
+      await expectNotReady(blocker, tasks[2].id)
 
       disconnectAll()
     })
@@ -277,19 +277,19 @@ describe.skipIf(!AGENT_TESTS)('Multi-Agent Coordination', () => {
       const reader = get('reader')
       const writer = get('writer')
 
-      // Writer creates an issue
-      const issue = await writer.createIssue('Shared Issue')
+      // Writer creates a task
+      const task = await writer.createTask('Shared Task')
 
       // Reader can see it immediately (shared state)
       const ready = await reader.ready()
-      expect(ready.some(r => r.id === issue.id)).toBe(true)
+      expect(ready.some(r => r.id === task.id)).toBe(true)
 
       // Writer closes it
-      await writer.closeIssue(issue.id)
+      await writer.closeTask(task.id)
 
       // Reader sees the update
       const readyAfter = await reader.ready()
-      expect(readyAfter.some(r => r.id === issue.id)).toBe(false)
+      expect(readyAfter.some(r => r.id === task.id)).toBe(false)
 
       disconnectAll()
     })

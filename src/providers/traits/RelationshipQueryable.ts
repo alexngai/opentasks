@@ -6,16 +6,16 @@
  * federated graph system.
  */
 
-import type { Provider } from '../types.js'
-import type { EdgeTypeSupport } from '../../graph/EdgeTypeRegistry.js'
+import type { Provider } from '../types.js';
+import type { EdgeTypeSupport } from '../../graph/EdgeTypeRegistry.js';
 
 // Re-export for convenience
-export type { EdgeTypeSupport } from '../../graph/EdgeTypeRegistry.js'
+export type { EdgeTypeSupport } from '../../graph/EdgeTypeRegistry.js';
 
 /**
  * Direction for edge queries
  */
-export type EdgeDirection = 'in' | 'out' | 'both'
+export type EdgeDirection = 'in' | 'out' | 'both';
 
 /**
  * Edge data returned by a provider
@@ -25,16 +25,16 @@ export type EdgeDirection = 'in' | 'out' | 'both'
  */
 export interface ProviderEdge {
   /** Source node ID (in provider's local format) */
-  from: string
+  from: string;
 
   /** Target node ID (in provider's local format) */
-  to: string
+  to: string;
 
   /** Relationship type (e.g., 'blocks', 'parent-of') */
-  type: string
+  type: string;
 
   /** Additional relationship metadata */
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -42,13 +42,13 @@ export interface ProviderEdge {
  */
 export interface QueryEdgesOptions {
   /** Filter by edge type */
-  edgeType?: string
+  edgeType?: string;
 
   /** Filter by direction relative to the node */
-  direction?: EdgeDirection
+  direction?: EdgeDirection;
 
   /** Maximum number of edges to return */
-  limit?: number
+  limit?: number;
 }
 
 /**
@@ -87,7 +87,7 @@ export interface RelationshipQueryable {
    * @param options - Query options (edgeType, direction, limit)
    * @returns Array of edges involving this node
    */
-  queryEdges(nodeId: string, options?: QueryEdgesOptions): Promise<ProviderEdge[]>
+  queryEdges(nodeId: string, options?: QueryEdgesOptions): Promise<ProviderEdge[]>;
 
   /**
    * Declare what edge types this provider supports
@@ -97,7 +97,7 @@ export interface RelationshipQueryable {
    *
    * @returns Array of edge type support declarations
    */
-  supportedEdgeTypes(): EdgeTypeSupport[]
+  supportedEdgeTypes(): EdgeTypeSupport[];
 }
 
 /**
@@ -115,10 +115,10 @@ export interface RelationshipQueryable {
  * ```
  */
 export function isRelationshipQueryable(
-  provider: Provider
+  provider: Provider,
 ): provider is Provider & RelationshipQueryable {
-  const p = provider as unknown as RelationshipQueryable
-  return typeof p.queryEdges === 'function' && typeof p.supportedEdgeTypes === 'function'
+  const p = provider as unknown as RelationshipQueryable;
+  return typeof p.queryEdges === 'function' && typeof p.supportedEdgeTypes === 'function';
 }
 
 /**
@@ -128,11 +128,8 @@ export function isRelationshipQueryable(
  * @param edgeType - Edge type to filter by
  * @returns Filtered edges
  */
-export function filterEdgesByType(
-  edges: ProviderEdge[],
-  edgeType: string
-): ProviderEdge[] {
-  return edges.filter((e) => e.type === edgeType)
+export function filterEdgesByType(edges: ProviderEdge[], edgeType: string): ProviderEdge[] {
+  return edges.filter((e) => e.type === edgeType);
 }
 
 /**
@@ -146,15 +143,15 @@ export function filterEdgesByType(
 export function filterEdgesByDirection(
   edges: ProviderEdge[],
   nodeId: string,
-  direction: EdgeDirection
+  direction: EdgeDirection,
 ): ProviderEdge[] {
   switch (direction) {
     case 'in':
-      return edges.filter((e) => e.to === nodeId)
+      return edges.filter((e) => e.to === nodeId);
     case 'out':
-      return edges.filter((e) => e.from === nodeId)
+      return edges.filter((e) => e.from === nodeId);
     case 'both':
-      return edges.filter((e) => e.from === nodeId || e.to === nodeId)
+      return edges.filter((e) => e.from === nodeId || e.to === nodeId);
   }
 }
 
@@ -165,11 +162,8 @@ export function filterEdgesByDirection(
  * @param nodeId - The reference node ID
  * @returns The neighbor's ID or null if nodeId is not in the edge
  */
-export function getNeighborFromEdge(
-  edge: ProviderEdge,
-  nodeId: string
-): string | null {
-  if (edge.from === nodeId) return edge.to
-  if (edge.to === nodeId) return edge.from
-  return null
+export function getNeighborFromEdge(edge: ProviderEdge, nodeId: string): string | null {
+  if (edge.from === nodeId) return edge.to;
+  if (edge.to === nodeId) return edge.from;
+  return null;
 }

@@ -15,10 +15,10 @@
  *   <graphId>/sessions/<session-id>/checkpoints/<checkpoint-id>.json
  */
 
-import { execSync } from 'node:child_process'
-import * as path from 'node:path'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
+import { execSync } from 'node:child_process';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import type {
   RemoteStore,
   RemoteStoreConfig,
@@ -30,7 +30,7 @@ import type {
   ArchiveFilter,
   ArchiveListEntry,
   StoreStatus,
-} from './types.js'
+} from './types.js';
 
 // ============================================================================
 // Types
@@ -38,16 +38,16 @@ import type {
 
 interface GitRemoteStoreConfig {
   /** Remote git URL (SSH or HTTPS) */
-  url: string
+  url: string;
 
   /** Branch name for archive commits (default: 'opentasks/archive') */
-  branch?: string
+  branch?: string;
 
   /**
    * Local path for the bare repo cache.
    * If not set, a temp directory under os.tmpdir() is used.
    */
-  cachePath?: string
+  cachePath?: string;
 
   /**
    * When to push to remote:
@@ -55,16 +55,16 @@ interface GitRemoteStoreConfig {
    * - 'on-close': push once on close()
    * Default: 'immediate'
    */
-  pushPolicy?: 'immediate' | 'on-close'
+  pushPolicy?: 'immediate' | 'on-close';
 
   /** Git command timeout in milliseconds (default: 30000) */
-  timeout?: number
+  timeout?: number;
 
   /**
    * Whether to fetch from remote before read operations.
    * Default: true
    */
-  fetchBeforeRead?: boolean
+  fetchBeforeRead?: boolean;
 }
 
 // ============================================================================
@@ -77,29 +77,29 @@ interface GitRemoteStoreConfig {
 function git(
   repoPath: string,
   args: string,
-  options?: { allowFailure?: boolean; timeout?: number }
+  options?: { allowFailure?: boolean; timeout?: number },
 ): string {
-  const timeout = options?.timeout ?? 30000
+  const timeout = options?.timeout ?? 30000;
   try {
     return execSync(`git -C "${repoPath}" ${args}`, {
       encoding: 'utf-8',
       timeout,
       stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim()
+    }).trim();
   } catch (error) {
-    if (options?.allowFailure) return ''
-    throw error
+    if (options?.allowFailure) return '';
+    throw error;
   }
 }
 
 function extractSessionId(uri: string): string | null {
-  const match = uri.match(/entire:\/\/session\/(.+)/)
-  return match ? match[1] : null
+  const match = uri.match(/entire:\/\/session\/(.+)/);
+  return match ? match[1] : null;
 }
 
 function extractCheckpointId(uri: string): string | null {
-  const match = uri.match(/entire:\/\/checkpoint\/(.+)/)
-  return match ? match[1] : null
+  const match = uri.match(/entire:\/\/checkpoint\/(.+)/);
+  return match ? match[1] : null;
 }
 
 // ============================================================================
@@ -110,28 +110,30 @@ function extractCheckpointId(uri: string): string | null {
  * Create a git remote store
  */
 export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStore {
-  const config = storeConfig.config as GitRemoteStoreConfig
-  const remoteUrl = config.url
-  const branch = config.branch ?? 'opentasks/archive'
-  const pushPolicy = config.pushPolicy ?? 'immediate'
-  const timeout = config.timeout ?? 30000
-  const fetchBeforeRead = config.fetchBeforeRead ?? true
+  const config = storeConfig.config as unknown as GitRemoteStoreConfig;
+  const remoteUrl = config.url;
+  const branch = config.branch ?? 'opentasks/archive';
+  const pushPolicy = config.pushPolicy ?? 'immediate';
+  const timeout = config.timeout ?? 30000;
+  const fetchBeforeRead = config.fetchBeforeRead ?? true;
 
   if (!remoteUrl) {
-    throw new Error('Git remote store requires a "url" in config')
+    throw new Error('Git remote store requires a "url" in config');
   }
 
   // Determine cache path — use configured path or derive from URL
-  const cachePath = config.cachePath ?? path.join(
-    process.env.OPENTASKS_CACHE_DIR ?? path.join(os.tmpdir(), 'opentasks'),
-    'git-remote-stores',
-    remoteUrl.replace(/[^a-zA-Z0-9-_]/g, '_')
-  )
+  const cachePath =
+    config.cachePath ??
+    path.join(
+      process.env.OPENTASKS_CACHE_DIR ?? path.join(os.tmpdir(), 'opentasks'),
+      'git-remote-stores',
+      remoteUrl.replace(/[^a-zA-Z0-9-_]/g, '_'),
+    );
 
-  let initialized = false
-  let hasPendingCommits = false
-  let lastArchiveAt: string | undefined
-  let lastError: string | undefined
+  let initialized = false;
+  let hasPendingCommits = false;
+  let lastArchiveAt: string | undefined;
+  let lastError: string | undefined;
 
   /**
    * Ensure the bare repo cache exists and is connected to the remote
@@ -139,11 +141,11 @@ export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStor
   function ensureRepo(): void {
     if (fs.existsSync(path.join(cachePath, 'HEAD'))) {
       // Bare repo already exists
-      return
+      return;
     }
 
     // Ensure parent directory exists (let git create cachePath itself)
-    fs.mkdirSync(path.dirname(cachePath), { recursive: true })
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
 
     // Try to clone from remote
     try {
@@ -151,17 +153,17 @@ export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStor
         encoding: 'utf-8',
         timeout: 60000,
         stdio: ['pipe', 'pipe', 'pipe'],
-      })
+      });
     } catch {
       // Remote might not exist yet or be empty — init a bare repo
-      fs.mkdirSync(cachePath, { recursive: true })
+      fs.mkdirSync(cachePath, { recursive: true });
       execSync(`git init --bare "${cachePath}"`, {
         encoding: 'utf-8',
         timeout: 10000,
         stdio: ['pipe', 'pipe', 'pipe'],
-      })
+      });
       // Add the remote
-      git(cachePath, `remote add origin "${remoteUrl}"`, { allowFailure: true, timeout })
+      git(cachePath, `remote add origin "${remoteUrl}"`, { allowFailure: true, timeout });
     }
   }
 
@@ -169,25 +171,25 @@ export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStor
    * Ensure the archive branch exists locally
    */
   function ensureBranch(): void {
-    const exists = git(cachePath, `rev-parse --verify ${branch}`, { allowFailure: true, timeout })
-    if (exists) return
+    const exists = git(cachePath, `rev-parse --verify ${branch}`, { allowFailure: true, timeout });
+    if (exists) return;
 
     // Try to fetch the branch from remote
     try {
-      git(cachePath, `fetch origin ${branch}`, { timeout: 60000 })
-      git(cachePath, `branch ${branch} FETCH_HEAD`, { allowFailure: true, timeout })
-      return
+      git(cachePath, `fetch origin ${branch}`, { timeout: 60000 });
+      git(cachePath, `branch ${branch} FETCH_HEAD`, { allowFailure: true, timeout });
+      return;
     } catch {
       // Branch doesn't exist on remote either — create orphan
     }
 
-    const emptyTree = git(cachePath, 'hash-object -t tree /dev/null', { timeout })
+    const emptyTree = git(cachePath, 'hash-object -t tree /dev/null', { timeout });
     const commitHash = git(
       cachePath,
       `commit-tree ${emptyTree} -m "Initialize opentasks archive"`,
-      { timeout }
-    )
-    git(cachePath, `update-ref refs/heads/${branch} ${commitHash}`, { timeout })
+      { timeout },
+    );
+    git(cachePath, `update-ref refs/heads/${branch} ${commitHash}`, { timeout });
   }
 
   /**
@@ -195,16 +197,16 @@ export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStor
    */
   function fetchFromRemote(): void {
     try {
-      git(cachePath, `fetch origin ${branch}`, { timeout: 60000 })
+      git(cachePath, `fetch origin ${branch}`, { timeout: 60000 });
       // Fast-forward local branch if possible
-      const localRef = git(cachePath, `rev-parse ${branch}`, { allowFailure: true, timeout })
-      const remoteRef = git(cachePath, `rev-parse FETCH_HEAD`, { allowFailure: true, timeout })
+      const localRef = git(cachePath, `rev-parse ${branch}`, { allowFailure: true, timeout });
+      const remoteRef = git(cachePath, `rev-parse FETCH_HEAD`, { allowFailure: true, timeout });
       if (remoteRef && localRef !== remoteRef) {
         // Merge remote changes (fast-forward when possible)
         git(cachePath, `update-ref refs/heads/${branch} ${remoteRef} ${localRef}`, {
           allowFailure: true,
           timeout,
-        })
+        });
       }
     } catch {
       // Fetch failure is non-fatal for reads — use stale cache
@@ -216,22 +218,25 @@ export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStor
    */
   function pushToRemote(): void {
     try {
-      git(cachePath, `push origin ${branch}`, { timeout: 60000 })
-      hasPendingCommits = false
+      git(cachePath, `push origin ${branch}`, { timeout: 60000 });
+      hasPendingCommits = false;
     } catch {
       // Retry with fetch + rebase for conflict resolution
       try {
-        git(cachePath, `fetch origin ${branch}`, { timeout: 60000 })
-        const localRef = git(cachePath, `rev-parse ${branch}`, { allowFailure: true, timeout })
-        const remoteRef = git(cachePath, `rev-parse origin/${branch}`, { allowFailure: true, timeout })
+        git(cachePath, `fetch origin ${branch}`, { timeout: 60000 });
+        const localRef = git(cachePath, `rev-parse ${branch}`, { allowFailure: true, timeout });
+        const remoteRef = git(cachePath, `rev-parse origin/${branch}`, {
+          allowFailure: true,
+          timeout,
+        });
 
         if (remoteRef && localRef !== remoteRef) {
-          git(cachePath, `rebase origin/${branch} ${branch}`, { timeout })
-          git(cachePath, `push origin ${branch}`, { timeout: 60000 })
-          hasPendingCommits = false
+          git(cachePath, `rebase origin/${branch} ${branch}`, { timeout });
+          git(cachePath, `push origin ${branch}`, { timeout: 60000 });
+          hasPendingCommits = false;
         }
       } catch (error) {
-        lastError = `Push to remote failed: ${error instanceof Error ? error.message : String(error)}`
+        lastError = `Push to remote failed: ${error instanceof Error ? error.message : String(error)}`;
       }
     }
   }
@@ -239,39 +244,43 @@ export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStor
   /**
    * Commit files to the local archive branch
    */
-  function commitFiles(
-    files: Array<{ path: string; content: string }>,
-    message: string
-  ): string {
-    const indexFile = path.join(cachePath, `index-archive-${Date.now()}`)
-    const env = `GIT_INDEX_FILE="${indexFile}"`
+  function commitFiles(files: Array<{ path: string; content: string }>, message: string): string {
+    const indexFile = path.join(cachePath, `index-archive-${Date.now()}`);
+    const env = `GIT_INDEX_FILE="${indexFile}"`;
 
     try {
       // Read current tree into temp index
-      const currentCommit = git(cachePath, `rev-parse ${branch}`, { allowFailure: true, timeout })
+      const currentCommit = git(cachePath, `rev-parse ${branch}`, { allowFailure: true, timeout });
       if (currentCommit) {
         execSync(`${env} git -C "${cachePath}" read-tree ${branch}`, {
           encoding: 'utf-8',
           timeout: 10000,
           stdio: ['pipe', 'pipe', 'pipe'],
-        })
+        });
       }
 
       for (const file of files) {
-        const tmpFile = path.join(cachePath, `tmp-archive-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-        fs.writeFileSync(tmpFile, file.content, 'utf-8')
+        const tmpFile = path.join(
+          cachePath,
+          `tmp-archive-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        );
+        fs.writeFileSync(tmpFile, file.content, 'utf-8');
         try {
-          const blobHash = git(cachePath, `hash-object -w "${tmpFile}"`, { timeout })
+          const blobHash = git(cachePath, `hash-object -w "${tmpFile}"`, { timeout });
           execSync(
             `${env} git -C "${cachePath}" update-index --add --cacheinfo 100644,${blobHash},"${file.path}"`,
             {
               encoding: 'utf-8',
               timeout: 10000,
               stdio: ['pipe', 'pipe', 'pipe'],
-            }
-          )
+            },
+          );
         } finally {
-          try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
+          try {
+            fs.unlinkSync(tmpFile);
+          } catch {
+            /* ignore */
+          }
         }
       }
 
@@ -279,16 +288,22 @@ export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStor
         encoding: 'utf-8',
         timeout: 10000,
         stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim()
+      }).trim();
 
-      const parentArg = currentCommit ? `-p ${currentCommit}` : ''
-      const commitHash = git(cachePath, `commit-tree ${treeHash} ${parentArg} -m "${message}"`, { timeout })
+      const parentArg = currentCommit ? `-p ${currentCommit}` : '';
+      const commitHash = git(cachePath, `commit-tree ${treeHash} ${parentArg} -m "${message}"`, {
+        timeout,
+      });
 
-      git(cachePath, `update-ref refs/heads/${branch} ${commitHash}`, { timeout })
+      git(cachePath, `update-ref refs/heads/${branch} ${commitHash}`, { timeout });
 
-      return commitHash
+      return commitHash;
     } finally {
-      try { fs.unlinkSync(indexFile) } catch { /* ignore */ }
+      try {
+        fs.unlinkSync(indexFile);
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -297,9 +312,9 @@ export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStor
    */
   function readFile(filePath: string): string | null {
     try {
-      return git(cachePath, `show ${branch}:"${filePath}"`, { timeout })
+      return git(cachePath, `show ${branch}:"${filePath}"`, { timeout });
     } catch {
-      return null
+      return null;
     }
   }
 
@@ -308,10 +323,10 @@ export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStor
    */
   function listFiles(prefix: string): string[] {
     try {
-      const output = git(cachePath, `ls-tree -r --name-only ${branch} -- "${prefix}"`, { timeout })
-      return output ? output.split('\n').filter(Boolean) : []
+      const output = git(cachePath, `ls-tree -r --name-only ${branch} -- "${prefix}"`, { timeout });
+      return output ? output.split('\n').filter(Boolean) : [];
     } catch {
-      return []
+      return [];
     }
   }
 
@@ -319,22 +334,22 @@ export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStor
    * Determine the archive file path for a snapshot
    */
   function snapshotFilePath(snapshot: MaterializationSnapshot): string {
-    const graphId = snapshot.provenance.graphId
+    const graphId = snapshot.provenance.graphId;
 
     if (snapshot.entityType === 'session') {
-      const sessionId = extractSessionId(snapshot.uri)
-      return `${graphId}/sessions/${sessionId}/session.json`
+      const sessionId = extractSessionId(snapshot.uri);
+      return `${graphId}/sessions/${sessionId}/session.json`;
     }
 
     if (snapshot.entityType === 'checkpoint') {
-      const cpSnapshot = snapshot as CheckpointSnapshot
-      const sessionId = extractSessionId(cpSnapshot.sessionUri)
-      const checkpointId = extractCheckpointId(snapshot.uri)
-      return `${graphId}/sessions/${sessionId}/checkpoints/${checkpointId}.json`
+      const cpSnapshot = snapshot as CheckpointSnapshot;
+      const sessionId = extractSessionId(cpSnapshot.sessionUri);
+      const checkpointId = extractCheckpointId(snapshot.uri);
+      return `${graphId}/sessions/${sessionId}/checkpoints/${checkpointId}.json`;
     }
 
-    const safeUri = snapshot.uri.replace(/[^a-zA-Z0-9-_]/g, '_')
-    return `${graphId}/other/${safeUri}.json`
+    const safeUri = snapshot.uri.replace(/[^a-zA-Z0-9-_]/g, '_');
+    return `${graphId}/other/${safeUri}.json`;
   }
 
   // ==========================================================================
@@ -349,133 +364,142 @@ export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStor
 
     async archive(snapshot: MaterializationSnapshot): Promise<ArchiveResult> {
       try {
-        const files: Array<{ path: string; content: string }> = []
+        const files: Array<{ path: string; content: string }> = [];
 
         files.push({
           path: snapshotFilePath(snapshot),
           content: JSON.stringify(snapshot, null, 2),
-        })
+        });
 
         if (snapshot.entityType === 'session') {
-          const sessionSnapshot = snapshot as SessionSnapshot
-          const sessionId = extractSessionId(snapshot.uri)
-          const graphId = snapshot.provenance.graphId
+          const sessionSnapshot = snapshot as SessionSnapshot;
+          const sessionId = extractSessionId(snapshot.uri);
+          const graphId = snapshot.provenance.graphId;
 
           if (sessionSnapshot.edges?.length > 0) {
             files.push({
               path: `${graphId}/sessions/${sessionId}/edges.json`,
               content: JSON.stringify(sessionSnapshot.edges, null, 2),
-            })
+            });
           }
         }
 
-        const entityDesc = snapshot.entityType === 'checkpoint'
-          ? `checkpoint ${extractCheckpointId(snapshot.uri)}`
-          : `session ${extractSessionId(snapshot.uri)}`
-        const message = `archive: ${snapshot.provenance.graphId} ${entityDesc}`
+        const entityDesc =
+          snapshot.entityType === 'checkpoint'
+            ? `checkpoint ${extractCheckpointId(snapshot.uri)}`
+            : `session ${extractSessionId(snapshot.uri)}`;
+        const message = `archive: ${snapshot.provenance.graphId} ${entityDesc}`;
 
-        commitFiles(files, message)
-        hasPendingCommits = true
-        lastArchiveAt = new Date().toISOString()
-        lastError = undefined
+        commitFiles(files, message);
+        hasPendingCommits = true;
+        lastArchiveAt = new Date().toISOString();
+        lastError = undefined;
 
         if (pushPolicy === 'immediate') {
-          pushToRemote()
+          pushToRemote();
         }
 
-        return { stored: true, uri: snapshot.uri }
+        return { stored: true, uri: snapshot.uri };
       } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error)
-        lastError = errorMsg
-        return { stored: false, uri: snapshot.uri, error: errorMsg }
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        lastError = errorMsg;
+        return { stored: false, uri: snapshot.uri, error: errorMsg };
       }
     },
 
     async archiveBatch(snapshots: MaterializationSnapshot[]): Promise<BatchArchiveResult> {
-      const results: ArchiveResult[] = []
+      const results: ArchiveResult[] = [];
       for (const snapshot of snapshots) {
-        results.push(await this.archive(snapshot))
+        results.push(await this.archive(snapshot));
       }
       return {
         results,
-        successCount: results.filter(r => r.stored).length,
-        failureCount: results.filter(r => !r.stored).length,
-      }
+        successCount: results.filter((r) => r.stored).length,
+        failureCount: results.filter((r) => !r.stored).length,
+      };
     },
 
     async retrieve(uri: string): Promise<MaterializationSnapshot | null> {
       if (fetchBeforeRead) {
-        fetchFromRemote()
+        fetchFromRemote();
       }
 
-      const sessionId = extractSessionId(uri)
-      const checkpointId = extractCheckpointId(uri)
-      if (!sessionId && !checkpointId) return null
+      const sessionId = extractSessionId(uri);
+      const checkpointId = extractCheckpointId(uri);
+      if (!sessionId && !checkpointId) return null;
 
       try {
-        const topLevel = git(cachePath, `ls-tree --name-only ${branch}`, { allowFailure: true, timeout })
-        if (!topLevel) return null
+        const topLevel = git(cachePath, `ls-tree --name-only ${branch}`, {
+          allowFailure: true,
+          timeout,
+        });
+        if (!topLevel) return null;
 
         for (const graphId of topLevel.split('\n').filter(Boolean)) {
-          let filePath: string
+          let filePath: string;
 
           if (checkpointId) {
-            const cpFiles = listFiles(`${graphId}/sessions/`)
-              .filter(f => f.endsWith(`/${checkpointId}.json`) && f.includes('/checkpoints/'))
+            const cpFiles = listFiles(`${graphId}/sessions/`).filter(
+              (f) => f.endsWith(`/${checkpointId}.json`) && f.includes('/checkpoints/'),
+            );
 
             if (cpFiles.length > 0) {
-              filePath = cpFiles[0]
+              filePath = cpFiles[0];
             } else {
-              continue
+              continue;
             }
           } else {
-            filePath = `${graphId}/sessions/${sessionId}/session.json`
+            filePath = `${graphId}/sessions/${sessionId}/session.json`;
           }
 
-          const content = readFile(filePath)
+          const content = readFile(filePath);
           if (content) {
             try {
-              return JSON.parse(content) as MaterializationSnapshot
+              return JSON.parse(content) as MaterializationSnapshot;
             } catch {
-              continue
+              continue;
             }
           }
         }
       } catch {
-        return null
+        return null;
       }
 
-      return null
+      return null;
     },
 
     async list(filter?: ArchiveFilter): Promise<ArchiveListEntry[]> {
       if (fetchBeforeRead) {
-        fetchFromRemote()
+        fetchFromRemote();
       }
 
-      const entries: ArchiveListEntry[] = []
+      const entries: ArchiveListEntry[] = [];
 
       try {
-        const topLevel = git(cachePath, `ls-tree --name-only ${branch}`, { allowFailure: true, timeout })
-        if (!topLevel) return entries
+        const topLevel = git(cachePath, `ls-tree --name-only ${branch}`, {
+          allowFailure: true,
+          timeout,
+        });
+        if (!topLevel) return entries;
 
         for (const graphId of topLevel.split('\n').filter(Boolean)) {
-          if (filter?.graphId && filter.graphId !== '*' && filter.graphId !== graphId) continue
+          if (filter?.graphId && filter.graphId !== '*' && filter.graphId !== graphId) continue;
 
-          const sessionFiles = listFiles(`${graphId}/sessions/`)
-            .filter(f => f.endsWith('/session.json'))
+          const sessionFiles = listFiles(`${graphId}/sessions/`).filter((f) =>
+            f.endsWith('/session.json'),
+          );
 
           for (const sessionFile of sessionFiles) {
-            const content = readFile(sessionFile)
-            if (!content) continue
+            const content = readFile(sessionFile);
+            if (!content) continue;
 
             try {
-              const snapshot = JSON.parse(content) as MaterializationSnapshot
+              const snapshot = JSON.parse(content) as MaterializationSnapshot;
 
-              if (filter?.source && snapshot.source !== filter.source) continue
-              if (filter?.entityType && snapshot.entityType !== filter.entityType) continue
-              if (filter?.archivedAfter && snapshot.archivedAt < filter.archivedAfter) continue
-              if (filter?.archivedBefore && snapshot.archivedAt > filter.archivedBefore) continue
+              if (filter?.source && snapshot.source !== filter.source) continue;
+              if (filter?.entityType && snapshot.entityType !== filter.entityType) continue;
+              if (filter?.archivedAfter && snapshot.archivedAt < filter.archivedAfter) continue;
+              if (filter?.archivedBefore && snapshot.archivedAt > filter.archivedBefore) continue;
 
               entries.push({
                 uri: snapshot.uri,
@@ -484,9 +508,9 @@ export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStor
                 archivedAt: snapshot.archivedAt,
                 title: snapshot.node.title,
                 status: snapshot.node.status,
-              })
+              });
             } catch {
-              continue
+              continue;
             }
           }
         }
@@ -494,21 +518,21 @@ export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStor
         // Best-effort listing
       }
 
-      return entries
+      return entries;
     },
 
     async initialize(): Promise<void> {
-      if (initialized) return
+      if (initialized) return;
 
-      ensureRepo()
-      ensureBranch()
-      initialized = true
+      ensureRepo();
+      ensureBranch();
+      initialized = true;
     },
 
     async close(): Promise<void> {
       if (hasPendingCommits) {
         try {
-          pushToRemote()
+          pushToRemote();
         } catch {
           // Best-effort on close
         }
@@ -518,14 +542,10 @@ export function createGitRemoteStore(storeConfig: RemoteStoreConfig): RemoteStor
     async status(): Promise<StoreStatus> {
       return {
         healthy: initialized && !lastError,
-        message: !initialized
-          ? 'Not initialized'
-          : lastError
-            ? `Last error: ${lastError}`
-            : 'OK',
+        message: !initialized ? 'Not initialized' : lastError ? `Last error: ${lastError}` : 'OK',
         lastArchiveAt,
         lastError,
-      }
+      };
     },
-  }
+  };
 }

@@ -28,54 +28,54 @@ export function resetFixtureCounter(): void {
 }
 
 /**
- * Create a test spec with a unique name
+ * Create a test context with a unique name
  *
  * @param agent - TestAgent with provider configured
  * @param name - Optional name suffix
- * @param options - Optional additional spec options
+ * @param options - Optional additional context options
  * @returns Created ProviderNode
  *
  * @example
  * ```typescript
- * const spec = await createTestSpec(agent, 'Auth Feature')
- * // Creates spec titled "Spec: Auth Feature (1706536800000-1)"
+ * const context = await createTestContext(agent, 'Auth Feature')
+ * // Creates context titled "Context: Auth Feature (1706536800000-1)"
  * ```
  */
-export async function createTestSpec(
+export async function createTestContext(
   agent: TestAgent,
   name?: string,
   options?: { content?: string; priority?: number }
 ): Promise<ProviderNode> {
-  return agent.createSpec(uniqueName('Spec', name), options)
+  return agent.createContext(uniqueName('Context', name), options)
 }
 
 /**
- * Create a test issue with a unique name
+ * Create a test task with a unique name
  *
  * @param agent - TestAgent with provider configured
  * @param name - Optional name suffix
- * @param options - Optional additional issue options
+ * @param options - Optional additional task options
  * @returns Created ProviderNode
  *
  * @example
  * ```typescript
- * const issue = await createTestIssue(agent, 'Implement login')
- * // Creates issue titled "Issue: Implement login (1706536800000-2)"
+ * const task = await createTestTask(agent, 'Implement login')
+ * // Creates task titled "Task: Implement login (1706536800000-2)"
  * ```
  */
-export async function createTestIssue(
+export async function createTestTask(
   agent: TestAgent,
   name?: string,
   options?: { description?: string; status?: string; priority?: number }
 ): Promise<ProviderNode> {
-  return agent.createIssue(uniqueName('Issue', name), options)
+  return agent.createTask(uniqueName('Task', name), options)
 }
 
 /**
- * Create a chain of blocking issues: A blocks B blocks C...
+ * Create a chain of blocking tasks: A blocks B blocks C...
  *
  * @param agent - TestAgent with provider configured
- * @param count - Number of issues in the chain
+ * @param count - Number of tasks in the chain
  * @returns Array of ProviderNodes in order [A, B, C, ...]
  *
  * @example
@@ -93,20 +93,20 @@ export async function createBlockingChain(
     throw new Error('createBlockingChain requires count >= 1')
   }
 
-  const issues: ProviderNode[] = []
+  const tasks: ProviderNode[] = []
 
-  // Create all issues first
+  // Create all tasks first
   for (let i = 0; i < count; i++) {
-    const issue = await createTestIssue(agent, `Chain ${i + 1}`)
-    issues.push(issue)
+    const task = await createTestTask(agent, `Chain ${i + 1}`)
+    tasks.push(task)
   }
 
   // Create blocking edges: 0 blocks 1, 1 blocks 2, etc.
   for (let i = 0; i < count - 1; i++) {
-    await agent.blocks(issues[i].id, issues[i + 1].id)
+    await agent.blocks(tasks[i].id, tasks[i + 1].id)
   }
 
-  return issues
+  return tasks
 }
 
 /**
@@ -149,10 +149,10 @@ export async function createDiamondDependency(
   agent: TestAgent
 ): Promise<DiamondDependency> {
   // Create all nodes
-  const top = await createTestIssue(agent, 'Diamond Top')
-  const left = await createTestIssue(agent, 'Diamond Left')
-  const right = await createTestIssue(agent, 'Diamond Right')
-  const bottom = await createTestIssue(agent, 'Diamond Bottom')
+  const top = await createTestTask(agent, 'Diamond Top')
+  const left = await createTestTask(agent, 'Diamond Left')
+  const right = await createTestTask(agent, 'Diamond Right')
+  const bottom = await createTestTask(agent, 'Diamond Bottom')
 
   // Create edges
   await agent.blocks(top.id, left.id)
@@ -164,70 +164,70 @@ export async function createDiamondDependency(
 }
 
 /**
- * Spec with implementing issues result
+ * Context with implementing tasks result
  */
-export interface SpecWithIssues {
-  /** The parent spec */
-  spec: ProviderNode
-  /** Issues implementing the spec */
-  issues: ProviderNode[]
+export interface ContextWithTasks {
+  /** The parent context */
+  context: ProviderNode
+  /** Tasks implementing the context */
+  tasks: ProviderNode[]
 }
 
 /**
- * Create a spec with multiple implementing issues
+ * Create a context with multiple implementing tasks
  *
  * @param agent - TestAgent with provider configured
- * @param issueCount - Number of implementing issues to create
- * @param specName - Optional name for the spec
- * @returns Object with spec and issues array
+ * @param taskCount - Number of implementing tasks to create
+ * @param contextName - Optional name for the context
+ * @returns Object with context and tasks array
  *
  * @example
  * ```typescript
- * const { spec, issues } = await createSpecWithIssues(agent, 3, 'Auth')
- * // Creates a spec and 3 issues, each linked with 'implements' edge
+ * const { context, tasks } = await createContextWithTasks(agent, 3, 'Auth')
+ * // Creates a context and 3 tasks, each linked with 'implements' edge
  * ```
  */
-export async function createSpecWithIssues(
+export async function createContextWithTasks(
   agent: TestAgent,
-  issueCount: number,
-  specName?: string
-): Promise<SpecWithIssues> {
-  const spec = await createTestSpec(agent, specName)
-  const issues: ProviderNode[] = []
+  taskCount: number,
+  contextName?: string
+): Promise<ContextWithTasks> {
+  const context = await createTestContext(agent, contextName)
+  const tasks: ProviderNode[] = []
 
-  for (let i = 0; i < issueCount; i++) {
-    const issue = await createTestIssue(agent, `Impl ${i + 1}`)
-    await agent.implements(issue.id, spec.id)
-    issues.push(issue)
+  for (let i = 0; i < taskCount; i++) {
+    const task = await createTestTask(agent, `Impl ${i + 1}`)
+    await agent.implements(task.id, context.id)
+    tasks.push(task)
   }
 
-  return { spec, issues }
+  return { context, tasks }
 }
 
 /**
- * Create an issue blocked by multiple other issues
+ * Create a task blocked by multiple other tasks
  *
  * @param agent - TestAgent with provider configured
- * @param blockerCount - Number of blocking issues to create
- * @param blockedName - Optional name for the blocked issue
- * @returns Object with blocked issue and array of blockers
+ * @param blockerCount - Number of blocking tasks to create
+ * @param blockedName - Optional name for the blocked task
+ * @returns Object with blocked task and array of blockers
  *
  * @example
  * ```typescript
- * const { blocked, blockers } = await createBlockedIssue(agent, 2)
- * // Creates one issue blocked by 2 other issues
+ * const { blocked, blockers } = await createBlockedTask(agent, 2)
+ * // Creates one task blocked by 2 other tasks
  * ```
  */
-export async function createBlockedIssue(
+export async function createBlockedTask(
   agent: TestAgent,
   blockerCount: number,
   blockedName?: string
 ): Promise<{ blocked: ProviderNode; blockers: ProviderNode[] }> {
-  const blocked = await createTestIssue(agent, blockedName ?? 'Blocked Issue')
+  const blocked = await createTestTask(agent, blockedName ?? 'Blocked Task')
   const blockers: ProviderNode[] = []
 
   for (let i = 0; i < blockerCount; i++) {
-    const blocker = await createTestIssue(agent, `Blocker ${i + 1}`)
+    const blocker = await createTestTask(agent, `Blocker ${i + 1}`)
     await agent.blocks(blocker.id, blocked.id)
     blockers.push(blocker)
   }

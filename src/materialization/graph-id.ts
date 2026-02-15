@@ -5,8 +5,8 @@
  * Uses a fallback chain: explicit config → location name → git remote → directory name.
  */
 
-import { execSync } from 'node:child_process'
-import * as path from 'node:path'
+import { execSync } from 'node:child_process';
+import * as path from 'node:path';
 
 /**
  * Slugify a string for use as a directory name.
@@ -18,7 +18,7 @@ export function slugify(input: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 64)
+    .slice(0, 64);
 }
 
 /**
@@ -30,36 +30,34 @@ export function slugify(input: string): string {
  */
 export function slugifyRemoteUrl(url: string): string {
   // Strip protocol and .git suffix
-  let cleaned = url
-    .replace(/^(https?:\/\/|git@|ssh:\/\/[^@]+@)/, '')
-    .replace(/\.git$/, '')
+  let cleaned = url.replace(/^(https?:\/\/|git@|ssh:\/\/[^@]+@)/, '').replace(/\.git$/, '');
 
   // For SSH-style URLs: github.com:org/repo → org/repo
-  const colonIdx = cleaned.indexOf(':')
+  const colonIdx = cleaned.indexOf(':');
   if (colonIdx !== -1 && !cleaned.includes('/')) {
-    cleaned = cleaned.slice(colonIdx + 1)
+    cleaned = cleaned.slice(colonIdx + 1);
   } else if (colonIdx !== -1) {
     // github.com:org/repo
-    const afterHost = cleaned.slice(colonIdx + 1)
+    const afterHost = cleaned.slice(colonIdx + 1);
     if (afterHost && !afterHost.startsWith('/')) {
-      cleaned = afterHost
+      cleaned = afterHost;
     } else {
       // https-style: github.com/org/repo — strip host
-      const parts = cleaned.split('/')
+      const parts = cleaned.split('/');
       if (parts.length > 2) {
-        cleaned = parts.slice(1).join('/')
+        cleaned = parts.slice(1).join('/');
       }
     }
   } else {
     // Pure path: github.com/org/repo — strip host
-    const parts = cleaned.split('/')
+    const parts = cleaned.split('/');
     if (parts.length > 2) {
-      cleaned = parts.slice(1).join('/')
+      cleaned = parts.slice(1).join('/');
     }
   }
 
   // Replace / with -- for readability
-  return slugify(cleaned.replace(/\//g, '--'))
+  return slugify(cleaned.replace(/\//g, '--'));
 }
 
 /**
@@ -68,15 +66,15 @@ export function slugifyRemoteUrl(url: string): string {
  */
 export function getGitRemoteUrl(gitDir: string, remoteName: string = 'origin'): string | null {
   try {
-    const repoRoot = path.dirname(gitDir)
+    const repoRoot = path.dirname(gitDir);
     const result = execSync(`git -C "${repoRoot}" remote get-url ${remoteName}`, {
       encoding: 'utf-8',
       timeout: 5000,
       stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    return result.trim() || null
+    });
+    return result.trim() || null;
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -85,15 +83,15 @@ export function getGitRemoteUrl(gitDir: string, remoteName: string = 'origin'): 
  */
 export function getGitHead(gitDir: string): string | null {
   try {
-    const repoRoot = path.dirname(gitDir)
+    const repoRoot = path.dirname(gitDir);
     const result = execSync(`git -C "${repoRoot}" rev-parse HEAD`, {
       encoding: 'utf-8',
       timeout: 5000,
       stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    return result.trim() || null
+    });
+    return result.trim() || null;
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -102,16 +100,16 @@ export function getGitHead(gitDir: string): string | null {
  */
 export function getGitBranch(gitDir: string): string | null {
   try {
-    const repoRoot = path.dirname(gitDir)
+    const repoRoot = path.dirname(gitDir);
     const result = execSync(`git -C "${repoRoot}" rev-parse --abbrev-ref HEAD`, {
       encoding: 'utf-8',
       timeout: 5000,
       stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    const branch = result.trim()
-    return branch === 'HEAD' ? null : branch
+    });
+    const branch = result.trim();
+    return branch === 'HEAD' ? null : branch;
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -121,16 +119,16 @@ export function getGitBranch(gitDir: string): string | null {
  */
 export function resolveGitDir(opentasksPath: string): string | null {
   try {
-    const repoRoot = path.dirname(opentasksPath)
+    const repoRoot = path.dirname(opentasksPath);
     const result = execSync(`git -C "${repoRoot}" rev-parse --git-dir`, {
       encoding: 'utf-8',
       timeout: 5000,
       stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    const gitDir = result.trim()
-    return path.isAbsolute(gitDir) ? gitDir : path.resolve(repoRoot, gitDir)
+    });
+    const gitDir = result.trim();
+    return path.isAbsolute(gitDir) ? gitDir : path.resolve(repoRoot, gitDir);
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -144,32 +142,32 @@ export function resolveGitDir(opentasksPath: string): string | null {
  * 4. Derive from directory name
  */
 export function resolveGraphId(options: {
-  explicitGraphId?: string
-  locationName?: string
-  opentasksPath: string
+  explicitGraphId?: string;
+  locationName?: string;
+  opentasksPath: string;
 }): string {
-  const { explicitGraphId, locationName, opentasksPath } = options
+  const { explicitGraphId, locationName, opentasksPath } = options;
 
   // 1. Explicit config
   if (explicitGraphId) {
-    return explicitGraphId
+    return explicitGraphId;
   }
 
   // 2. Location name
   if (locationName) {
-    return slugify(locationName)
+    return slugify(locationName);
   }
 
   // 3. Derive from git remote URL
-  const gitDir = resolveGitDir(opentasksPath)
+  const gitDir = resolveGitDir(opentasksPath);
   if (gitDir) {
-    const remoteUrl = getGitRemoteUrl(gitDir)
+    const remoteUrl = getGitRemoteUrl(gitDir);
     if (remoteUrl) {
-      return slugifyRemoteUrl(remoteUrl)
+      return slugifyRemoteUrl(remoteUrl);
     }
   }
 
   // 4. Derive from directory name
-  const repoRoot = path.dirname(opentasksPath)
-  return slugify(path.basename(repoRoot))
+  const repoRoot = path.dirname(opentasksPath);
+  return slugify(path.basename(repoRoot));
 }

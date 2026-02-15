@@ -2,59 +2,59 @@
  * Tests for OpenTasks Client
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
-import * as os from 'node:os'
-import { OpenTasksClient, ClientError, createClient } from '../client.js'
-import { createIPCServer, type IPCServer } from '../../daemon/ipc.js'
-import { registerToolsMethods } from '../../daemon/methods/tools.js'
-import { createDaemonFlushManager, type DaemonFlushManager } from '../../daemon/flush.js'
-import type { GraphStore } from '../../graph/store.js'
-import type { LinkResult, QueryResult, AnnotateResult, TaskResult } from '../../tools/types.js'
-import type { LocationResolver, LocationState } from '../../daemon/location-state.js'
-import type { ProviderAwareStore } from '../../graph/provider-store.js'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { OpenTasksClient, ClientError, createClient } from '../client.js';
+import { createIPCServer, type IPCServer } from '../../daemon/ipc.js';
+import { registerToolsMethods } from '../../daemon/methods/tools.js';
+import { createDaemonFlushManager, type DaemonFlushManager } from '../../daemon/flush.js';
+import type { GraphStore } from '../../graph/store.js';
+import type { LinkResult, QueryResult, AnnotateResult, TaskResult } from '../../tools/types.js';
+import type { LocationResolver, LocationState } from '../../daemon/location-state.js';
+import type { ProviderAwareStore } from '../../graph/provider-store.js';
 
 describe('OpenTasksClient', () => {
-  let tempDir: string
-  let socketPath: string
-  let server: IPCServer
-  let mockStore: GraphStore
-  let flushManager: DaemonFlushManager
-  let nodeCounter: number
-  let edgeCounter: number
+  let tempDir: string;
+  let socketPath: string;
+  let server: IPCServer;
+  let mockStore: GraphStore;
+  let flushManager: DaemonFlushManager;
+  let nodeCounter: number;
+  let edgeCounter: number;
 
   // Sample data
-  const sampleSpec = {
-    id: 's-test1',
+  const sampleContext = {
+    id: 'c-test1',
     uuid: 'uuid-1',
-    type: 'spec' as const,
-    title: 'Test Spec',
+    type: 'context' as const,
+    title: 'Test Context',
     content: 'Test content',
     priority: 2,
     archived: false,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
-  }
+  };
 
-  const sampleIssue = {
-    id: 'i-test1',
+  const sampleTask = {
+    id: 't-test1',
     uuid: 'uuid-2',
-    type: 'issue' as const,
-    title: 'Test Issue',
+    type: 'task' as const,
+    title: 'Test Task',
     status: 'open' as const,
     priority: 1,
     archived: false,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
-  }
+  };
 
   const sampleFeedback = {
     id: 'f-test1',
     uuid: 'uuid-3',
     type: 'feedback' as const,
     title: 'Test Feedback',
-    target_id: 's-test1',
+    target_id: 'c-test1',
     feedback_type: 'comment' as const,
     resolved: false,
     dismissed: false,
@@ -63,36 +63,36 @@ describe('OpenTasksClient', () => {
     archived: false,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
-  }
+  };
 
   const sampleEdge = {
     id: 'x-test1',
     uuid: 'uuid-4',
-    from_id: 'i-test1',
-    to_id: 's-test1',
+    from_id: 't-test1',
+    to_id: 'c-test1',
     type: 'implements' as const,
     created_at: '2024-01-01T00:00:00Z',
-  }
+  };
 
   beforeEach(async () => {
-    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'opentasks-client-test-'))
-    socketPath = path.join(tempDir, 'daemon.sock')
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'opentasks-client-test-'));
+    socketPath = path.join(tempDir, 'daemon.sock');
 
-    nodeCounter = 0
-    edgeCounter = 0
+    nodeCounter = 0;
+    edgeCounter = 0;
 
     // Create mock store
-    const nodes = new Map<string, any>()
-    nodes.set(sampleSpec.id, { ...sampleSpec })
-    nodes.set(sampleIssue.id, { ...sampleIssue })
-    nodes.set(sampleFeedback.id, { ...sampleFeedback })
+    const nodes = new Map<string, any>();
+    nodes.set(sampleContext.id, { ...sampleContext });
+    nodes.set(sampleTask.id, { ...sampleTask });
+    nodes.set(sampleFeedback.id, { ...sampleFeedback });
 
-    const edges = new Map<string, any>()
-    edges.set(sampleEdge.id, { ...sampleEdge })
+    const edges = new Map<string, any>();
+    edges.set(sampleEdge.id, { ...sampleEdge });
 
     mockStore = {
       getNode: vi.fn().mockImplementation(async (id: string) => {
-        return nodes.get(id) || null
+        return nodes.get(id) || null;
       }),
       createNode: vi.fn().mockImplementation(async (input: any) => {
         const node = {
@@ -101,16 +101,16 @@ describe('OpenTasksClient', () => {
           uuid: `uuid-new${nodeCounter}`,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        }
-        nodes.set(node.id, node)
-        return node
+        };
+        nodes.set(node.id, node);
+        return node;
       }),
       updateNode: vi.fn().mockImplementation(async (id: string, updates: any) => {
-        const existing = nodes.get(id)
-        if (!existing) throw new Error('Node not found')
-        const updated = { ...existing, ...updates }
-        nodes.set(id, updated)
-        return updated
+        const existing = nodes.get(id);
+        if (!existing) throw new Error('Node not found');
+        const updated = { ...existing, ...updates };
+        nodes.set(id, updated);
+        return updated;
       }),
       createEdge: vi.fn().mockImplementation(async (input: any) => {
         const edge = {
@@ -118,36 +118,33 @@ describe('OpenTasksClient', () => {
           id: `x-new${++edgeCounter}`,
           uuid: `uuid-edge${edgeCounter}`,
           created_at: new Date().toISOString(),
-        }
-        edges.set(edge.id, edge)
-        return edge
+        };
+        edges.set(edge.id, edge);
+        return edge;
       }),
       deleteEdge: vi.fn().mockImplementation(async (id: string) => {
-        edges.delete(id)
+        edges.delete(id);
       }),
       getEdge: vi.fn().mockImplementation(async (id: string) => {
-        return edges.get(id) || null
+        return edges.get(id) || null;
       }),
       query: {
-        nodes: vi.fn().mockResolvedValue([sampleSpec, sampleIssue]),
+        nodes: vi.fn().mockResolvedValue([sampleContext, sampleTask]),
         edges: vi.fn().mockResolvedValue([sampleEdge]),
-        ready: vi.fn().mockResolvedValue([sampleIssue]),
-        blockers: vi.fn().mockResolvedValue([sampleSpec]),
-        blocking: vi.fn().mockResolvedValue([sampleIssue]),
+        ready: vi.fn().mockResolvedValue([sampleTask]),
+        blockers: vi.fn().mockResolvedValue([sampleContext]),
+        blocking: vi.fn().mockResolvedValue([sampleTask]),
         feedback: vi.fn().mockResolvedValue([sampleFeedback]),
       },
-    } as unknown as GraphStore
+    } as unknown as GraphStore;
 
     // Create flush manager
-    flushManager = createDaemonFlushManager(
-      { debounceMs: 100, maxDelayMs: 500 },
-      async () => {
-        // No-op for tests
-      }
-    )
+    flushManager = createDaemonFlushManager({ debounceMs: 100, maxDelayMs: 500 }, async () => {
+      // No-op for tests
+    });
 
     // Create server and register methods
-    server = createIPCServer(socketPath)
+    server = createIPCServer(socketPath);
     const locationState = {
       hash: 'primary',
       opentasksPath: tempDir,
@@ -156,7 +153,7 @@ describe('OpenTasksClient', () => {
       watcher: {} as any,
       primary: true,
       healthy: true,
-    } as LocationState
+    } as LocationState;
     const locationResolver: LocationResolver = {
       resolve: () => locationState,
       getDefault: () => locationState,
@@ -164,325 +161,325 @@ describe('OpenTasksClient', () => {
       has: () => true,
       add: () => {},
       remove: async () => {},
-    }
-    registerToolsMethods({ server, locationResolver })
+    };
+    registerToolsMethods({ server, locationResolver });
 
-    await server.start()
-  })
+    await server.start();
+  });
 
   afterEach(async () => {
     try {
-      await server.stop()
+      await server.stop();
     } catch {
       // Ignore
     }
 
     try {
-      await fs.rm(tempDir, { recursive: true, force: true })
+      await fs.rm(tempDir, { recursive: true, force: true });
     } catch {
       // Ignore
     }
-  })
+  });
 
   describe('connection lifecycle', () => {
     it('should connect to daemon', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
-      await client.connect()
+      await client.connect();
 
-      expect(client.connected).toBe(true)
+      expect(client.connected).toBe(true);
 
-      client.disconnect()
-    })
+      client.disconnect();
+    });
 
     it('should disconnect cleanly', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
-      await client.connect()
-      expect(client.connected).toBe(true)
+      await client.connect();
+      expect(client.connected).toBe(true);
 
-      client.disconnect()
-      expect(client.connected).toBe(false)
-    })
+      client.disconnect();
+      expect(client.connected).toBe(false);
+    });
 
     it('should auto-connect on first request', async () => {
-      const client = new OpenTasksClient({ socketPath, autoConnect: true })
+      const client = new OpenTasksClient({ socketPath, autoConnect: true });
 
-      expect(client.connected).toBe(false)
+      expect(client.connected).toBe(false);
 
       // First request should auto-connect
-      await client.query({ nodes: {} })
+      await client.query({ nodes: {} });
 
-      expect(client.connected).toBe(true)
+      expect(client.connected).toBe(true);
 
-      client.disconnect()
-    })
+      client.disconnect();
+    });
 
     it('should throw when not connected and autoConnect=false', async () => {
-      const client = new OpenTasksClient({ socketPath, autoConnect: false })
+      const client = new OpenTasksClient({ socketPath, autoConnect: false });
 
-      await expect(client.query({ nodes: {} })).rejects.toThrow(ClientError)
-      await expect(client.query({ nodes: {} })).rejects.toThrow('Not connected')
-    })
+      await expect(client.query({ nodes: {} })).rejects.toThrow(ClientError);
+      await expect(client.query({ nodes: {} })).rejects.toThrow('Not connected');
+    });
 
     it('should not reconnect if already connected', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
-      await client.connect()
-      await client.connect() // Should be a no-op
+      await client.connect();
+      await client.connect(); // Should be a no-op
 
-      expect(client.connected).toBe(true)
+      expect(client.connected).toBe(true);
 
-      client.disconnect()
-    })
+      client.disconnect();
+    });
 
     it('should handle disconnect when not connected', () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
       // Should not throw
-      client.disconnect()
-      expect(client.connected).toBe(false)
-    })
-  })
+      client.disconnect();
+      expect(client.connected).toBe(false);
+    });
+  });
 
   describe('link()', () => {
     it('should create an edge', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
       const result = await client.link({
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'implements',
-      })
+      });
 
-      expect(result.success).toBe(true)
-      expect(result.edgeId).toBeDefined()
+      expect(result.success).toBe(true);
+      expect(result.edgeId).toBeDefined();
 
-      client.disconnect()
-    })
+      client.disconnect();
+    });
 
     it('should remove an edge', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
       const result = await client.link({
-        fromId: 'i-test1',
-        toId: 's-test1',
+        fromId: 't-test1',
+        toId: 'c-test1',
         type: 'implements',
         remove: true,
-      })
+      });
 
-      expect(result.success).toBe(true)
+      expect(result.success).toBe(true);
 
-      client.disconnect()
-    })
-  })
+      client.disconnect();
+    });
+  });
 
   describe('query()', () => {
     it('should query nodes', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
-      const result = await client.query({ nodes: {} })
+      const result = await client.query({ nodes: {} });
 
-      expect(result.items).toBeDefined()
-      expect(result.items.length).toBeGreaterThan(0)
+      expect(result.items).toBeDefined();
+      expect(result.items.length).toBeGreaterThan(0);
 
-      client.disconnect()
-    })
+      client.disconnect();
+    });
 
     it('should query edges', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
-      const result = await client.query({ edges: {} })
+      const result = await client.query({ edges: {} });
 
-      expect(result.items).toBeDefined()
+      expect(result.items).toBeDefined();
 
-      client.disconnect()
-    })
+      client.disconnect();
+    });
 
     it('should respect verbose flag', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
-      const result = await client.query({ nodes: {}, verbose: true })
+      const result = await client.query({ nodes: {}, verbose: true });
 
-      const item = result.items[0] as any
-      expect(item.uuid).toBeDefined()
+      const item = result.items[0] as any;
+      expect(item.uuid).toBeDefined();
 
-      client.disconnect()
-    })
+      client.disconnect();
+    });
 
     it('should respect pagination', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
-      const result = await client.query({ nodes: {}, limit: 1 })
+      const result = await client.query({ nodes: {}, limit: 1 });
 
-      expect(result.items).toHaveLength(1)
-      expect(result.hasMore).toBe(true)
+      expect(result.items).toHaveLength(1);
+      expect(result.hasMore).toBe(true);
 
-      client.disconnect()
-    })
-  })
+      client.disconnect();
+    });
+  });
 
   describe('annotate()', () => {
     it('should create feedback', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
       const result = await client.annotate({
-        targetId: 's-test1',
+        targetId: 'c-test1',
         create: { content: 'New feedback' },
-      })
+      });
 
-      expect(result.success).toBe(true)
-      expect(result.feedbackId).toBeDefined()
+      expect(result.success).toBe(true);
+      expect(result.feedbackId).toBeDefined();
 
-      client.disconnect()
-    })
+      client.disconnect();
+    });
 
     it('should resolve feedback', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
       const result = await client.annotate({
-        targetId: 's-test1',
+        targetId: 'c-test1',
         resolve: 'f-test1',
-      })
+      });
 
-      expect(result.success).toBe(true)
+      expect(result.success).toBe(true);
 
-      client.disconnect()
-    })
-  })
+      client.disconnect();
+    });
+  });
 
   describe('convenience methods', () => {
     describe('ready()', () => {
-      it('should return ready issues', async () => {
-        const client = new OpenTasksClient({ socketPath })
+      it('should return ready tasks', async () => {
+        const client = new OpenTasksClient({ socketPath });
 
-        const result = await client.ready()
+        const result = await client.ready();
 
-        expect(Array.isArray(result)).toBe(true)
-        expect(mockStore.query.ready).toHaveBeenCalled()
+        expect(Array.isArray(result)).toBe(true);
+        expect(mockStore.query.ready).toHaveBeenCalled();
 
-        client.disconnect()
-      })
+        client.disconnect();
+      });
 
       it('should pass options', async () => {
-        const client = new OpenTasksClient({ socketPath })
+        const client = new OpenTasksClient({ socketPath });
 
-        await client.ready({ priority: 1 })
+        await client.ready({ priority: 1 });
 
         expect(mockStore.query.ready).toHaveBeenCalledWith(
-          expect.objectContaining({ priority: 1 })
-        )
+          expect.objectContaining({ priority: 1 }),
+        );
 
-        client.disconnect()
-      })
-    })
+        client.disconnect();
+      });
+    });
 
     describe('blockers()', () => {
       it('should return blocking nodes', async () => {
-        const client = new OpenTasksClient({ socketPath })
+        const client = new OpenTasksClient({ socketPath });
 
-        const result = await client.blockers('i-test1')
+        const result = await client.blockers('t-test1');
 
-        expect(Array.isArray(result)).toBe(true)
-        expect(mockStore.query.blockers).toHaveBeenCalledWith('i-test1', expect.any(Object))
+        expect(Array.isArray(result)).toBe(true);
+        expect(mockStore.query.blockers).toHaveBeenCalledWith('t-test1', expect.any(Object));
 
-        client.disconnect()
-      })
+        client.disconnect();
+      });
 
       it('should pass options', async () => {
-        const client = new OpenTasksClient({ socketPath })
+        const client = new OpenTasksClient({ socketPath });
 
-        await client.blockers('i-test1', { transitive: true })
+        await client.blockers('t-test1', { transitive: true });
 
-        expect(mockStore.query.blockers).toHaveBeenCalledWith('i-test1', {
+        expect(mockStore.query.blockers).toHaveBeenCalledWith('t-test1', {
           transitive: true,
           activeOnly: undefined,
-        })
+        });
 
-        client.disconnect()
-      })
-    })
+        client.disconnect();
+      });
+    });
 
     describe('blocking()', () => {
       it('should return blocked nodes', async () => {
-        const client = new OpenTasksClient({ socketPath })
+        const client = new OpenTasksClient({ socketPath });
 
-        const result = await client.blocking('s-test1')
+        const result = await client.blocking('c-test1');
 
-        expect(Array.isArray(result)).toBe(true)
-        expect(mockStore.query.blocking).toHaveBeenCalledWith('s-test1', expect.any(Object))
+        expect(Array.isArray(result)).toBe(true);
+        expect(mockStore.query.blocking).toHaveBeenCalledWith('c-test1', expect.any(Object));
 
-        client.disconnect()
-      })
-    })
+        client.disconnect();
+      });
+    });
 
     describe('feedback()', () => {
       it('should return feedback for node', async () => {
-        const client = new OpenTasksClient({ socketPath })
+        const client = new OpenTasksClient({ socketPath });
 
-        const result = await client.feedback('s-test1')
+        const result = await client.feedback('c-test1');
 
-        expect(Array.isArray(result)).toBe(true)
-        expect(mockStore.query.feedback).toHaveBeenCalledWith('s-test1', expect.any(Object))
+        expect(Array.isArray(result)).toBe(true);
+        expect(mockStore.query.feedback).toHaveBeenCalledWith('c-test1', expect.any(Object));
 
-        client.disconnect()
-      })
+        client.disconnect();
+      });
 
       it('should pass options', async () => {
-        const client = new OpenTasksClient({ socketPath })
+        const client = new OpenTasksClient({ socketPath });
 
-        await client.feedback('s-test1', { type: 'suggestion', resolved: true })
+        await client.feedback('c-test1', { type: 'suggestion', resolved: true });
 
-        expect(mockStore.query.feedback).toHaveBeenCalledWith('s-test1', {
+        expect(mockStore.query.feedback).toHaveBeenCalledWith('c-test1', {
           type: 'suggestion',
           resolved: true,
           includeDismissed: undefined,
-        })
+        });
 
-        client.disconnect()
-      })
-    })
-  })
+        client.disconnect();
+      });
+    });
+  });
 
   describe('createClient factory', () => {
     it('should create a client instance', async () => {
-      const client = createClient({ socketPath })
+      const client = createClient({ socketPath });
 
-      expect(client).toBeInstanceOf(OpenTasksClient)
+      expect(client).toBeInstanceOf(OpenTasksClient);
 
-      await client.connect()
-      expect(client.connected).toBe(true)
+      await client.connect();
+      expect(client.connected).toBe(true);
 
-      client.disconnect()
-    })
-  })
+      client.disconnect();
+    });
+  });
 
   describe('error handling', () => {
     it('should throw ClientError on connection failure', async () => {
       const client = new OpenTasksClient({
         socketPath: '/nonexistent/path/daemon.sock',
         autoConnect: false,
-      })
+      });
 
-      await expect(client.connect()).rejects.toThrow(ClientError)
+      await expect(client.connect()).rejects.toThrow(ClientError);
       await expect(client.connect()).rejects.toMatchObject({
         code: 'CONNECTION_FAILED',
-      })
-    })
-  })
-})
+      });
+    });
+  });
+});
 
 // =============================================================================
 // Client task methods — separate describe with providerStore
 // =============================================================================
 
 describe('OpenTasksClient - task methods', () => {
-  let tempDir: string
-  let socketPath: string
-  let server: IPCServer
-  let mockStore: GraphStore
-  let mockProviderStore: ProviderAwareStore
-  let flushManager: DaemonFlushManager
+  let tempDir: string;
+  let socketPath: string;
+  let server: IPCServer;
+  let mockStore: GraphStore;
+  let mockProviderStore: ProviderAwareStore;
+  let flushManager: DaemonFlushManager;
 
   const sampleNode = {
     id: 'x-task1',
@@ -494,11 +491,11 @@ describe('OpenTasksClient - task methods', () => {
     archived: false,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
-  }
+  };
 
   beforeEach(async () => {
-    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'opentasks-client-task-test-'))
-    socketPath = path.join(tempDir, 'daemon.sock')
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'opentasks-client-task-test-'));
+    socketPath = path.join(tempDir, 'daemon.sock');
 
     mockStore = {
       getNode: vi.fn(),
@@ -516,7 +513,7 @@ describe('OpenTasksClient - task methods', () => {
         blocking: vi.fn().mockResolvedValue([]),
         feedback: vi.fn().mockResolvedValue([]),
       },
-    } as unknown as GraphStore
+    } as unknown as GraphStore;
 
     mockProviderStore = {
       ...mockStore,
@@ -528,14 +525,11 @@ describe('OpenTasksClient - task methods', () => {
       taskReady: vi.fn().mockResolvedValue([sampleNode]),
       taskAssign: vi.fn().mockResolvedValue(sampleNode),
       taskValidActions: vi.fn().mockResolvedValue(['start', 'complete']),
-    } as unknown as ProviderAwareStore
+    } as unknown as ProviderAwareStore;
 
-    flushManager = createDaemonFlushManager(
-      { debounceMs: 100, maxDelayMs: 500 },
-      async () => {}
-    )
+    flushManager = createDaemonFlushManager({ debounceMs: 100, maxDelayMs: 500 }, async () => {});
 
-    server = createIPCServer(socketPath)
+    server = createIPCServer(socketPath);
     const locationState = {
       hash: 'primary',
       opentasksPath: tempDir,
@@ -545,7 +539,7 @@ describe('OpenTasksClient - task methods', () => {
       watcher: {} as any,
       primary: true,
       healthy: true,
-    } as LocationState
+    } as LocationState;
     const locationResolver: LocationResolver = {
       resolve: () => locationState,
       getDefault: () => locationState,
@@ -553,108 +547,112 @@ describe('OpenTasksClient - task methods', () => {
       has: () => true,
       add: () => {},
       remove: async () => {},
-    }
-    registerToolsMethods({ server, locationResolver })
+    };
+    registerToolsMethods({ server, locationResolver });
 
-    await server.start()
-  })
+    await server.start();
+  });
 
   afterEach(async () => {
-    try { await server.stop() } catch {}
-    try { await fs.rm(tempDir, { recursive: true, force: true }) } catch {}
-  })
+    try {
+      await server.stop();
+    } catch {}
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    } catch {}
+  });
 
   describe('task()', () => {
     it('should call tools.task with transition params', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
       const result = await client.task({
         transition: { id: 'x-task1', action: 'start' },
-      })
+      });
 
-      expect(result.success).toBe(true)
-      expect(result.data!.type).toBe('transition')
+      expect(result.success).toBe(true);
+      expect(result.data!.type).toBe('transition');
 
-      client.disconnect()
-    })
+      client.disconnect();
+    });
 
     it('should call tools.task with ready params', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
-      const result = await client.task({ ready: {} })
+      const result = await client.task({ ready: {} });
 
-      expect(result.success).toBe(true)
-      expect(result.data!.type).toBe('ready')
+      expect(result.success).toBe(true);
+      expect(result.data!.type).toBe('ready');
 
-      client.disconnect()
-    })
-  })
+      client.disconnect();
+    });
+  });
 
   describe('taskTransition()', () => {
     it('should transition a task', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
-      const result = await client.taskTransition('x-task1', 'start')
+      const result = await client.taskTransition('x-task1', 'start');
 
-      expect(result.success).toBe(true)
-      expect(result.data!.type).toBe('transition')
-      expect(mockProviderStore.taskTransition).toHaveBeenCalledWith('x-task1', 'start')
+      expect(result.success).toBe(true);
+      expect(result.data!.type).toBe('transition');
+      expect(mockProviderStore.taskTransition).toHaveBeenCalledWith('x-task1', 'start');
 
-      client.disconnect()
-    })
-  })
+      client.disconnect();
+    });
+  });
 
   describe('taskReady()', () => {
     it('should get ready tasks', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
-      const result = await client.taskReady({ providers: ['beads'], limit: 5 })
+      const result = await client.taskReady({ providers: ['beads'], limit: 5 });
 
-      expect(result.success).toBe(true)
-      expect(result.data!.type).toBe('ready')
-      expect(mockProviderStore.taskReady).toHaveBeenCalled()
+      expect(result.success).toBe(true);
+      expect(result.data!.type).toBe('ready');
+      expect(mockProviderStore.taskReady).toHaveBeenCalled();
 
-      client.disconnect()
-    })
+      client.disconnect();
+    });
 
     it('should work without options', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
-      const result = await client.taskReady()
+      const result = await client.taskReady();
 
-      expect(result.success).toBe(true)
+      expect(result.success).toBe(true);
 
-      client.disconnect()
-    })
-  })
+      client.disconnect();
+    });
+  });
 
   describe('taskAssign()', () => {
     it('should assign a task', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
-      const result = await client.taskAssign('x-task1', 'alice')
+      const result = await client.taskAssign('x-task1', 'alice');
 
-      expect(result.success).toBe(true)
-      expect(result.data!.type).toBe('assign')
-      expect(mockProviderStore.taskAssign).toHaveBeenCalledWith('x-task1', 'alice')
+      expect(result.success).toBe(true);
+      expect(result.data!.type).toBe('assign');
+      expect(mockProviderStore.taskAssign).toHaveBeenCalledWith('x-task1', 'alice');
 
-      client.disconnect()
-    })
-  })
+      client.disconnect();
+    });
+  });
 
   describe('taskValidActions()', () => {
     it('should return valid actions', async () => {
-      const client = new OpenTasksClient({ socketPath })
+      const client = new OpenTasksClient({ socketPath });
 
-      const result = await client.taskValidActions('x-task1')
+      const result = await client.taskValidActions('x-task1');
 
-      expect(result.success).toBe(true)
-      expect(result.data!.type).toBe('validActions')
+      expect(result.success).toBe(true);
+      expect(result.data!.type).toBe('validActions');
       if (result.data!.type === 'validActions') {
-        expect(result.data!.actions).toEqual(['start', 'complete'])
+        expect(result.data!.actions).toEqual(['start', 'complete']);
       }
 
-      client.disconnect()
-    })
-  })
-})
+      client.disconnect();
+    });
+  });
+});

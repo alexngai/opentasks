@@ -2,16 +2,16 @@
  * Tests for Snapshot Assembly
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi } from 'vitest';
 import {
   buildSessionSnapshot,
   buildCheckpointSnapshot,
   buildSnapshot,
   buildProvenance,
-} from '../snapshot.js'
-import type { ExternalNode } from '../../schema/nodes.js'
-import type { GraphStore } from '../../graph/store.js'
-import type { SnapshotProvenance } from '../types.js'
+} from '../snapshot.js';
+import type { ExternalNode } from '../../schema/nodes.js';
+import type { GraphStore } from '../../graph/store.js';
+import type { SnapshotProvenance } from '../types.js';
 
 // ============================================================================
 // Mock Helpers
@@ -41,7 +41,7 @@ function createMockExternalNode(overrides: Partial<ExternalNode> = {}): External
       entityType: 'session',
     },
     ...overrides,
-  }
+  };
 }
 
 function createMockStore(): GraphStore {
@@ -56,7 +56,7 @@ function createMockStore(): GraphStore {
     flush: vi.fn(),
     close: vi.fn(),
     initialize: vi.fn(),
-  } as unknown as GraphStore
+  } as unknown as GraphStore;
 }
 
 const mockProvenance: SnapshotProvenance = {
@@ -65,7 +65,7 @@ const mockProvenance: SnapshotProvenance = {
   gitRemote: 'https://github.com/test/repo',
   gitBranch: 'main',
   gitHead: 'deadbeef',
-}
+};
 
 // ============================================================================
 // Tests
@@ -77,37 +77,37 @@ describe('Snapshot Assembly', () => {
       const prov = buildProvenance({
         graphId: 'my-repo',
         opentasksPath: '/nonexistent/path/.opentasks',
-      })
+      });
 
-      expect(prov.graphId).toBe('my-repo')
-      expect(prov.graphPath).toBe('/nonexistent/path/.opentasks')
-    })
-  })
+      expect(prov.graphId).toBe('my-repo');
+      expect(prov.graphPath).toBe('/nonexistent/path/.opentasks');
+    });
+  });
 
   describe('buildSessionSnapshot', () => {
     it('should build a session snapshot with all fields', async () => {
-      const node = createMockExternalNode()
-      const store = createMockStore()
+      const node = createMockExternalNode();
+      const store = createMockStore();
 
-      const snapshot = await buildSessionSnapshot(node, store, mockProvenance)
+      const snapshot = await buildSessionSnapshot(node, store, mockProvenance);
 
-      expect(snapshot.version).toBe(1)
-      expect(snapshot.uri).toBe('entire://session/2026-02-14-abc123')
-      expect(snapshot.source).toBe('entire')
-      expect(snapshot.entityType).toBe('session')
-      expect(snapshot.createdAt).toBe('2026-02-14T10:00:00.000Z')
-      expect(snapshot.archivedAt).toBeTruthy()
-      expect(snapshot.node.title).toBe('Session: 2026-02-14-abc123')
-      expect(snapshot.node.external_data).toHaveProperty('agent', 'claude-code')
-      expect(snapshot.provenance.graphId).toBe('test-repo')
-      expect(snapshot.edges).toEqual([])
-      expect(snapshot.checkpointIds).toEqual([])
-    })
+      expect(snapshot.version).toBe(1);
+      expect(snapshot.uri).toBe('entire://session/2026-02-14-abc123');
+      expect(snapshot.source).toBe('entire');
+      expect(snapshot.entityType).toBe('session');
+      expect(snapshot.createdAt).toBe('2026-02-14T10:00:00.000Z');
+      expect(snapshot.archivedAt).toBeTruthy();
+      expect(snapshot.node.title).toBe('Session: 2026-02-14-abc123');
+      expect(snapshot.node.external_data).toHaveProperty('agent', 'claude-code');
+      expect(snapshot.provenance.graphId).toBe('test-repo');
+      expect(snapshot.edges).toEqual([]);
+      expect(snapshot.checkpointIds).toEqual([]);
+    });
 
     it('should extract checkpoint IDs from contains edges', async () => {
-      const node = createMockExternalNode()
-      const store = createMockStore()
-      const queryEdges = store.query.edges as ReturnType<typeof vi.fn>
+      const node = createMockExternalNode();
+      const store = createMockStore();
+      const queryEdges = store.query.edges as ReturnType<typeof vi.fn>;
 
       queryEdges
         .mockResolvedValueOnce([
@@ -120,23 +120,25 @@ describe('Snapshot Assembly', () => {
             created_at: '2026-02-14T10:05:00.000Z',
           },
         ])
-        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
 
       // Mock node lookup for to_id resolution
-      const queryNodes = store.query.nodes as ReturnType<typeof vi.fn>
-      queryNodes.mockResolvedValue([{
-        id: 'x-cp1',
-        type: 'external',
-        uri: 'entire://checkpoint/cp-001',
-      }])
+      const queryNodes = store.query.nodes as ReturnType<typeof vi.fn>;
+      queryNodes.mockResolvedValue([
+        {
+          id: 'x-cp1',
+          type: 'external',
+          uri: 'entire://checkpoint/cp-001',
+        },
+      ]);
 
-      const snapshot = await buildSessionSnapshot(node, store, mockProvenance)
+      const snapshot = await buildSessionSnapshot(node, store, mockProvenance);
 
-      expect(snapshot.checkpointIds).toContain('cp-001')
-      expect(snapshot.edges.length).toBe(1)
-      expect(snapshot.edges[0].edgeType).toBe('contains')
-    })
-  })
+      expect(snapshot.checkpointIds).toContain('cp-001');
+      expect(snapshot.edges.length).toBe(1);
+      expect(snapshot.edges[0].edgeType).toBe('contains');
+    });
+  });
 
   describe('buildCheckpointSnapshot', () => {
     it('should build a checkpoint snapshot with code commit', async () => {
@@ -152,29 +154,29 @@ describe('Snapshot Assembly', () => {
           entityType: 'checkpoint',
           sessionId: '2026-02-14-abc123',
         },
-      })
-      const store = createMockStore()
+      });
+      const store = createMockStore();
 
-      const snapshot = await buildCheckpointSnapshot(node, store, mockProvenance)
+      const snapshot = await buildCheckpointSnapshot(node, store, mockProvenance);
 
-      expect(snapshot.entityType).toBe('checkpoint')
-      expect(snapshot.codeCommit).toBe('fa3bc91')
-      expect(snapshot.sessionUri).toBe('entire://session/2026-02-14-abc123')
-    })
-  })
+      expect(snapshot.entityType).toBe('checkpoint');
+      expect(snapshot.codeCommit).toBe('fa3bc91');
+      expect(snapshot.sessionUri).toBe('entire://session/2026-02-14-abc123');
+    });
+  });
 
   describe('buildSnapshot', () => {
     it('should dispatch to session builder for session nodes', async () => {
       const node = createMockExternalNode({
         metadata: { entityType: 'session' },
-      })
-      const store = createMockStore()
+      });
+      const store = createMockStore();
 
-      const snapshot = await buildSnapshot(node, store, mockProvenance)
+      const snapshot = await buildSnapshot(node, store, mockProvenance);
 
-      expect(snapshot.entityType).toBe('session')
-      expect('edges' in snapshot).toBe(true)
-    })
+      expect(snapshot.entityType).toBe('session');
+      expect('edges' in snapshot).toBe(true);
+    });
 
     it('should dispatch to checkpoint builder for checkpoint nodes', async () => {
       const node = createMockExternalNode({
@@ -184,24 +186,24 @@ describe('Snapshot Assembly', () => {
           commitHash: 'xyz',
         },
         metadata: { entityType: 'checkpoint', sessionId: '2026-02-14-abc123' },
-      })
-      const store = createMockStore()
+      });
+      const store = createMockStore();
 
-      const snapshot = await buildSnapshot(node, store, mockProvenance)
+      const snapshot = await buildSnapshot(node, store, mockProvenance);
 
-      expect(snapshot.entityType).toBe('checkpoint')
-      expect('codeCommit' in snapshot).toBe(true)
-    })
+      expect(snapshot.entityType).toBe('checkpoint');
+      expect('codeCommit' in snapshot).toBe(true);
+    });
 
     it('should handle unknown entity types', async () => {
       const node = createMockExternalNode({
         metadata: { entityType: 'unknown-type' },
-      })
-      const store = createMockStore()
+      });
+      const store = createMockStore();
 
-      const snapshot = await buildSnapshot(node, store, mockProvenance)
+      const snapshot = await buildSnapshot(node, store, mockProvenance);
 
-      expect(snapshot.entityType).toBe('unknown-type')
-    })
-  })
-})
+      expect(snapshot.entityType).toBe('unknown-type');
+    });
+  });
+});

@@ -26,18 +26,18 @@ export type {
   MaterializationConfig,
   ProviderRegistry,
   ProviderErrorCode,
-} from './types.js'
+} from './types.js';
 
-export { ProviderError, DEFAULT_MATERIALIZATION_CONFIG } from './types.js'
+export { ProviderError, DEFAULT_MATERIALIZATION_CONFIG } from './types.js';
 
 // Registry
-export { createProviderRegistry } from './registry.js'
+export { createProviderRegistry } from './registry.js';
 
 // Native Provider
-export { createNativeProvider, type NativeProviderConfig } from './native.js'
+export { createNativeProvider, type NativeProviderConfig } from './native.js';
 
 // Beads Provider
-export { createBeadsProvider, type BeadsConfig } from './beads.js'
+export { createBeadsProvider, type BeadsConfig } from './beads.js';
 
 // Claude Tasks Provider
 export {
@@ -46,10 +46,10 @@ export {
   type ClaudeTasksConfig,
   type ClaudeTask,
   type ClaudeTaskStore,
-} from './claude-tasks.js'
+} from './claude-tasks.js';
 
 // Sudocode Provider
-export { createSudocodeProvider, type SudocodeConfig } from './sudocode.js'
+export { createSudocodeProvider, type SudocodeConfig } from './sudocode.js';
 
 // Entire Provider
 export {
@@ -61,14 +61,14 @@ export {
   type EntireCheckpoint,
   type EntireTokenUsage,
   type EntireStore,
-} from './entire.js'
+} from './entire.js';
 
 // Materialization
 export {
   createMaterializationManager,
   type MaterializationManager,
   type MaterializationContext,
-} from './materialization.js'
+} from './materialization.js';
 
 // Traits - RelationshipQueryable
 export type {
@@ -76,14 +76,14 @@ export type {
   ProviderEdge,
   EdgeDirection,
   QueryEdgesOptions,
-} from './traits/index.js'
+} from './traits/index.js';
 
 export {
   isRelationshipQueryable,
   filterEdgesByType,
   filterEdgesByDirection,
   getNeighborFromEdge,
-} from './traits/index.js'
+} from './traits/index.js';
 
 // Traits - Watchable
 export type {
@@ -94,9 +94,9 @@ export type {
   ProviderChangeEvent,
   ProviderNodeChangeEvent,
   ProviderEdgeChangeEvent,
-} from './traits/index.js'
+} from './traits/index.js';
 
-export { isWatchable } from './traits/index.js'
+export { isWatchable } from './traits/index.js';
 
 // Traits - TaskManageable
 export type {
@@ -104,16 +104,16 @@ export type {
   TaskAction,
   TaskCapabilities,
   ReadyTaskOptions,
-} from './traits/index.js'
+} from './traits/index.js';
 
-export { isTaskManageable } from './traits/index.js'
+export { isTaskManageable } from './traits/index.js';
 
 // Config-based Provider Factory
 export {
   createProvidersFromConfig,
   type CreateProvidersOptions,
   type CreateProvidersResult,
-} from './from-config.js'
+} from './from-config.js';
 
 // Sync Extensions
 export type {
@@ -133,11 +133,11 @@ export type {
   SyncDirection,
   SyncOptions,
   SyncResult,
-} from './sync.js'
+} from './sync.js';
 export {
   isSyncableProvider,
   calculateContentHash,
   compareVersions,
   hasConflict,
   suggestResolution,
-} from './sync.js'
+} from './sync.js';

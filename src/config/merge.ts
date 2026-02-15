@@ -1,13 +1,13 @@
 /**
  * Config merger - deep merges config layers
  */
-import { parseConfig, type OpenTasksConfig, type PartialOpenTasksConfig } from './schema.js'
+import { parseConfig, type OpenTasksConfig, type PartialOpenTasksConfig } from './schema.js';
 
 /**
  * Check if a value is a plain object (not null, not array)
  */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -18,28 +18,28 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  */
 function deepMerge(
   target: Record<string, unknown>,
-  source: Record<string, unknown>
+  source: Record<string, unknown>,
 ): Record<string, unknown> {
-  const result = { ...target }
+  const result = { ...target };
 
   for (const key in source) {
-    const sourceValue = source[key]
+    const sourceValue = source[key];
 
     // Skip undefined values
     if (sourceValue === undefined) {
-      continue
+      continue;
     }
 
     // If both are plain objects, merge recursively
     if (isPlainObject(sourceValue) && isPlainObject(result[key])) {
-      result[key] = deepMerge(result[key] as Record<string, unknown>, sourceValue)
+      result[key] = deepMerge(result[key] as Record<string, unknown>, sourceValue);
     } else {
       // Otherwise, override (including null values)
-      result[key] = sourceValue
+      result[key] = sourceValue;
     }
   }
 
-  return result
+  return result;
 }
 
 /**
@@ -50,15 +50,15 @@ function deepMerge(
  */
 export function mergeConfigs(...configs: PartialOpenTasksConfig[]): OpenTasksConfig {
   // Start with empty object
-  let merged: Record<string, unknown> = {}
+  let merged: Record<string, unknown> = {};
 
   // Merge each config in order
   for (const config of configs) {
     if (config) {
-      merged = deepMerge(merged, config as Record<string, unknown>)
+      merged = deepMerge(merged, config as Record<string, unknown>);
     }
   }
 
   // Parse through schema to apply defaults and validate
-  return parseConfig(merged)
+  return parseConfig(merged);
 }

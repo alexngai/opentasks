@@ -6,9 +6,9 @@
  * with OpenTasks tasks.
  */
 
-import * as path from 'node:path'
-import * as fs from 'node:fs'
-import chokidar, { type FSWatcher } from 'chokidar'
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+import chokidar, { type FSWatcher } from 'chokidar';
 
 // ============================================================================
 // Types
@@ -18,46 +18,46 @@ import chokidar, { type FSWatcher } from 'chokidar'
  * Entire session state from a session file
  */
 export interface EntireSessionState {
-  id: string
-  agent: string
-  phase: 'ACTIVE' | 'IDLE' | 'ENDED'
-  baseCommit?: string
-  branch?: string
-  startedAt?: string
-  endedAt?: string
-  checkpoints: string[]
-  lastPromptAt?: string
+  id: string;
+  agent: string;
+  phase: 'ACTIVE' | 'IDLE' | 'ENDED';
+  baseCommit?: string;
+  branch?: string;
+  startedAt?: string;
+  endedAt?: string;
+  checkpoints: string[];
+  lastPromptAt?: string;
 }
 
 /**
  * Event emitted when a session changes
  */
 export interface EntireSessionEvent {
-  type: 'started' | 'updated' | 'checkpoint' | 'ended' | 'deleted'
-  sessionId: string
-  session: EntireSessionState
-  previousPhase?: string
-  checkpointId?: string
-  timestamp: string
+  type: 'started' | 'updated' | 'checkpoint' | 'ended' | 'deleted';
+  sessionId: string;
+  session: EntireSessionState;
+  previousPhase?: string;
+  checkpointId?: string;
+  timestamp: string;
 }
 
-export type SessionEventHandler = (event: EntireSessionEvent) => void
+export type SessionEventHandler = (event: EntireSessionEvent) => void;
 
 /**
  * Configuration for the Entire watcher
  */
 export interface EntireWatcherConfig {
   /** Path to .opentasks/ directory (used to resolve .git) */
-  locationPath: string
+  locationPath: string;
 
   /** Override the git directory path (for testing) */
-  gitDir?: string
+  gitDir?: string;
 
   /** Debounce delay in milliseconds (default: 200) */
-  debounceMs?: number
+  debounceMs?: number;
 
   /** Use polling instead of native fs events (useful for containers/tests) */
-  usePolling?: boolean
+  usePolling?: boolean;
 }
 
 /**
@@ -65,19 +65,19 @@ export interface EntireWatcherConfig {
  */
 export interface EntireWatcher {
   /** Start watching for session changes */
-  start(): Promise<void>
+  start(): Promise<void>;
 
   /** Stop watching */
-  stop(): Promise<void>
+  stop(): Promise<void>;
 
   /** Register event handler */
-  onSessionEvent(handler: SessionEventHandler): void
+  onSessionEvent(handler: SessionEventHandler): void;
 
   /** Check if watching */
-  readonly isWatching: boolean
+  readonly isWatching: boolean;
 
   /** Get the resolved sessions directory path */
-  readonly sessionsDir: string
+  readonly sessionsDir: string;
 }
 
 // ============================================================================
@@ -90,34 +90,34 @@ export interface EntireWatcher {
  */
 function resolveGitDir(locationPath: string): string | null {
   // Walk up from the opentasks location to find .git
-  let dir = path.dirname(locationPath) // Go from .opentasks/ to project root
-  const root = path.parse(dir).root
+  let dir = path.dirname(locationPath); // Go from .opentasks/ to project root
+  const root = path.parse(dir).root;
 
   while (dir !== root) {
-    const gitPath = path.join(dir, '.git')
+    const gitPath = path.join(dir, '.git');
 
     try {
-      const stat = fs.statSync(gitPath)
+      const stat = fs.statSync(gitPath);
       if (stat.isDirectory()) {
-        return gitPath
+        return gitPath;
       }
       // Worktree: .git is a file containing "gitdir: <path>"
       if (stat.isFile()) {
-        const content = fs.readFileSync(gitPath, 'utf-8').trim()
-        const match = content.match(/^gitdir:\s*(.+)$/)
+        const content = fs.readFileSync(gitPath, 'utf-8').trim();
+        const match = content.match(/^gitdir:\s*(.+)$/);
         if (match) {
-          const resolved = path.resolve(dir, match[1])
-          return resolved
+          const resolved = path.resolve(dir, match[1]);
+          return resolved;
         }
       }
     } catch {
       // .git doesn't exist at this level, keep looking
     }
 
-    dir = path.dirname(dir)
+    dir = path.dirname(dir);
   }
 
-  return null
+  return null;
 }
 
 // ============================================================================
@@ -129,10 +129,10 @@ function resolveGitDir(locationPath: string): string | null {
  */
 function parseSessionFile(filePath: string): EntireSessionState | null {
   try {
-    const content = fs.readFileSync(filePath, 'utf-8')
-    const data = JSON.parse(content) as Record<string, unknown>
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const data = JSON.parse(content) as Record<string, unknown>;
 
-    const id = path.basename(filePath, '.json')
+    const id = path.basename(filePath, '.json');
 
     return {
       id,
@@ -144,18 +144,18 @@ function parseSessionFile(filePath: string): EntireSessionState | null {
       endedAt: data.endedAt as string | undefined,
       checkpoints: Array.isArray(data.checkpoints) ? data.checkpoints.map(String) : [],
       lastPromptAt: data.lastPromptAt as string | undefined,
-    }
+    };
   } catch {
-    return null
+    return null;
   }
 }
 
 function normalizePhase(phase: string): EntireSessionState['phase'] {
-  const upper = phase.toUpperCase()
+  const upper = phase.toUpperCase();
   if (upper === 'ACTIVE' || upper === 'IDLE' || upper === 'ENDED') {
-    return upper as EntireSessionState['phase']
+    return upper as EntireSessionState['phase'];
   }
-  return 'ACTIVE'
+  return 'ACTIVE';
 }
 
 // ============================================================================
@@ -166,26 +166,26 @@ function normalizePhase(phase: string): EntireSessionState['phase'] {
  * Create an Entire session watcher
  */
 export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher {
-  const { locationPath, debounceMs = 200, usePolling = false } = config
+  const { locationPath, debounceMs = 200, usePolling = false } = config;
 
   // Resolve git dir
-  const gitDir = config.gitDir ?? resolveGitDir(locationPath)
-  const sessionsDir = gitDir ? path.join(gitDir, 'entire-sessions') : ''
+  const gitDir = config.gitDir ?? resolveGitDir(locationPath);
+  const sessionsDir = gitDir ? path.join(gitDir, 'entire-sessions') : '';
 
-  let watcher: FSWatcher | null = null
-  let watching = false
-  const handlers: SessionEventHandler[] = []
+  let watcher: FSWatcher | null = null;
+  let watching = false;
+  const handlers: SessionEventHandler[] = [];
 
   // Cache of known session states for diff detection
-  const sessionCache = new Map<string, EntireSessionState>()
+  const sessionCache = new Map<string, EntireSessionState>();
 
   // Debounce map
-  const pendingChanges = new Map<string, ReturnType<typeof setTimeout>>()
+  const pendingChanges = new Map<string, ReturnType<typeof setTimeout>>();
 
   function emitEvent(event: EntireSessionEvent): void {
     for (const handler of handlers) {
       try {
-        handler(event)
+        handler(event);
       } catch {
         // Ignore handler errors
       }
@@ -194,9 +194,9 @@ export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher 
 
   function determineEventType(
     previous: EntireSessionState | undefined,
-    current: EntireSessionState
+    current: EntireSessionState,
   ): EntireSessionEvent | null {
-    const timestamp = new Date().toISOString()
+    const timestamp = new Date().toISOString();
 
     if (!previous) {
       // New session
@@ -205,7 +205,7 @@ export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher 
         sessionId: current.id,
         session: current,
         timestamp,
-      }
+      };
     }
 
     // Phase change to ENDED
@@ -216,12 +216,12 @@ export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher 
         session: current,
         previousPhase: previous.phase,
         timestamp,
-      }
+      };
     }
 
     // New checkpoints
     if (current.checkpoints.length > previous.checkpoints.length) {
-      const newCheckpointId = current.checkpoints[current.checkpoints.length - 1]
+      const newCheckpointId = current.checkpoints[current.checkpoints.length - 1];
       return {
         type: 'checkpoint',
         sessionId: current.id,
@@ -229,7 +229,7 @@ export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher 
         checkpointId: newCheckpointId,
         previousPhase: previous.phase,
         timestamp,
-      }
+      };
     }
 
     // Phase change (ACTIVE → IDLE, etc.)
@@ -240,80 +240,80 @@ export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher 
         session: current,
         previousPhase: previous.phase,
         timestamp,
-      }
+      };
     }
 
     // No meaningful change
-    return null
+    return null;
   }
 
   function handleFileChange(filePath: string): void {
-    if (!filePath.endsWith('.json')) return
+    if (!filePath.endsWith('.json')) return;
 
     // Cancel existing debounce
-    const existing = pendingChanges.get(filePath)
-    if (existing) clearTimeout(existing)
+    const existing = pendingChanges.get(filePath);
+    if (existing) clearTimeout(existing);
 
     pendingChanges.set(
       filePath,
       setTimeout(() => {
-        pendingChanges.delete(filePath)
+        pendingChanges.delete(filePath);
 
-        const current = parseSessionFile(filePath)
-        if (!current) return
+        const current = parseSessionFile(filePath);
+        if (!current) return;
 
-        const previous = sessionCache.get(current.id)
-        const event = determineEventType(previous, current)
+        const previous = sessionCache.get(current.id);
+        const event = determineEventType(previous, current);
 
         // Update cache
-        sessionCache.set(current.id, current)
+        sessionCache.set(current.id, current);
 
         if (event) {
-          emitEvent(event)
+          emitEvent(event);
         }
-      }, debounceMs)
-    )
+      }, debounceMs),
+    );
   }
 
   function handleFileDelete(filePath: string): void {
-    if (!filePath.endsWith('.json')) return
+    if (!filePath.endsWith('.json')) return;
 
-    const sessionId = path.basename(filePath, '.json')
-    const previous = sessionCache.get(sessionId)
+    const sessionId = path.basename(filePath, '.json');
+    const previous = sessionCache.get(sessionId);
 
     if (previous) {
-      sessionCache.delete(sessionId)
+      sessionCache.delete(sessionId);
 
       emitEvent({
         type: 'deleted',
         sessionId,
         session: previous,
         timestamp: new Date().toISOString(),
-      })
+      });
     }
   }
 
   return {
     get isWatching(): boolean {
-      return watching
+      return watching;
     },
 
     get sessionsDir(): string {
-      return sessionsDir
+      return sessionsDir;
     },
 
     async start(): Promise<void> {
-      if (watching || !sessionsDir) return
+      if (watching || !sessionsDir) return;
 
       // Process existing session files on startup
       try {
         if (fs.existsSync(sessionsDir)) {
-          const files = fs.readdirSync(sessionsDir).filter((f) => f.endsWith('.json'))
+          const files = fs.readdirSync(sessionsDir).filter((f) => f.endsWith('.json'));
           for (const file of files) {
-            const filePath = path.join(sessionsDir, file)
-            const session = parseSessionFile(filePath)
+            const filePath = path.join(sessionsDir, file);
+            const session = parseSessionFile(filePath);
             if (session) {
-              sessionCache.set(session.id, session)
+              sessionCache.set(session.id, session);
             }
           }
         }
@@ -332,40 +332,40 @@ export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher 
             stabilityThreshold: usePolling ? 100 : 200,
             pollInterval: 50,
           },
-        })
+        });
 
-        watcher.on('add', handleFileChange)
-        watcher.on('change', handleFileChange)
-        watcher.on('unlink', handleFileDelete)
+        watcher.on('add', handleFileChange);
+        watcher.on('change', handleFileChange);
+        watcher.on('unlink', handleFileDelete);
 
         watcher.on('ready', () => {
-          watching = true
-          resolve()
-        })
+          watching = true;
+          resolve();
+        });
 
         watcher.on('error', () => {
           // Log but don't crash — directory may not exist yet
-          resolve()
-        })
-      })
+          resolve();
+        });
+      });
     },
 
     async stop(): Promise<void> {
       // Clear pending changes
       for (const timeout of pendingChanges.values()) {
-        clearTimeout(timeout)
+        clearTimeout(timeout);
       }
-      pendingChanges.clear()
+      pendingChanges.clear();
 
       if (watcher) {
-        await watcher.close()
-        watcher = null
+        await watcher.close();
+        watcher = null;
       }
-      watching = false
+      watching = false;
     },
 
     onSessionEvent(handler: SessionEventHandler): void {
-      handlers.push(handler)
+      handlers.push(handler);
     },
-  }
+  };
 }

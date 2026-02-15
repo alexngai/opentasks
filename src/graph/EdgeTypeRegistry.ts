@@ -10,22 +10,22 @@
  */
 export interface EdgeTypeDefinition {
   /** Edge type name (e.g., 'blocks', 'implements') */
-  name: string
+  name: string;
 
   /** Human-readable description */
-  description: string
+  description: string;
 
   /** Inverse relationship name (e.g., 'blocks' ↔ 'blocked-by') */
-  inverseOf?: string
+  inverseOf?: string;
 
   /** Does this edge type affect ready status? */
-  affectsReady: boolean
+  affectsReady: boolean;
 
   /** Edge direction semantics */
-  direction: 'directed' | 'undirected'
+  direction: 'directed' | 'undirected';
 
   /** Which providers support this edge type */
-  providers: string[]
+  providers: string[];
 }
 
 /**
@@ -33,16 +33,16 @@ export interface EdgeTypeDefinition {
  */
 export interface EdgeTypeSupport {
   /** Edge type name */
-  type: string
+  type: string;
 
   /** Can query existing edges of this type */
-  canQuery: boolean
+  canQuery: boolean;
 
   /** Can create new edges of this type */
-  canCreate: boolean
+  canCreate: boolean;
 
   /** Can delete edges of this type */
-  canDelete: boolean
+  canDelete: boolean;
 }
 
 /**
@@ -67,7 +67,7 @@ export const BUILTIN_EDGE_TYPES: EdgeTypeDefinition[] = [
   },
   {
     name: 'implements',
-    description: 'Issue implements a spec',
+    description: 'Task implements a context',
     affectsReady: false,
     direction: 'directed',
     providers: ['native'],
@@ -139,20 +139,20 @@ export const BUILTIN_EDGE_TYPES: EdgeTypeDefinition[] = [
     direction: 'directed',
     providers: ['native'],
   },
-]
+];
 
 /**
  * Result of looking up an edge type
  */
 export interface EdgeTypeLookupResult {
   /** The edge type definition */
-  definition: EdgeTypeDefinition
+  definition: EdgeTypeDefinition;
 
   /** Whether this is the canonical form (not inverse) */
-  isCanonical: boolean
+  isCanonical: boolean;
 
   /** The canonical edge type name */
-  canonicalType: string
+  canonicalType: string;
 }
 
 /**
@@ -162,14 +162,14 @@ export interface EdgeTypeLookupResult {
  * Supports inverse relationships (e.g., blocks ↔ blocked-by).
  */
 export class EdgeTypeRegistry {
-  private types: Map<string, EdgeTypeDefinition> = new Map()
-  private inverses: Map<string, string> = new Map()
-  private registrationOrder: string[] = []
+  private types: Map<string, EdgeTypeDefinition> = new Map();
+  private inverses: Map<string, string> = new Map();
+  private registrationOrder: string[] = [];
 
   constructor() {
     // Register built-in types
     for (const type of BUILTIN_EDGE_TYPES) {
-      this.register(type)
+      this.register(type);
     }
   }
 
@@ -180,23 +180,23 @@ export class EdgeTypeRegistry {
    * @throws Error if type already registered with different definition
    */
   register(definition: EdgeTypeDefinition): void {
-    const existing = this.types.get(definition.name)
+    const existing = this.types.get(definition.name);
     if (existing) {
       // Allow re-registration with same definition (idempotent)
       if (JSON.stringify(existing) !== JSON.stringify(definition)) {
         throw new Error(
-          `Edge type '${definition.name}' already registered with different definition`
-        )
+          `Edge type '${definition.name}' already registered with different definition`,
+        );
       }
-      return
+      return;
     }
 
-    this.types.set(definition.name, definition)
-    this.registrationOrder.push(definition.name)
+    this.types.set(definition.name, definition);
+    this.registrationOrder.push(definition.name);
 
     // Track inverse relationships
     if (definition.inverseOf) {
-      this.inverses.set(definition.name, definition.inverseOf)
+      this.inverses.set(definition.name, definition.inverseOf);
     }
   }
 
@@ -207,31 +207,31 @@ export class EdgeTypeRegistry {
    * @returns The lookup result or null if not found
    */
   lookup(name: string): EdgeTypeLookupResult | null {
-    const definition = this.types.get(name)
+    const definition = this.types.get(name);
     if (!definition) {
-      return null
+      return null;
     }
 
     // Check if this is an inverse type
-    const inverse = definition.inverseOf
+    const inverse = definition.inverseOf;
     if (inverse && this.types.has(inverse)) {
       // The canonical form is the one registered first
-      const nameIndex = this.registrationOrder.indexOf(name)
-      const inverseIndex = this.registrationOrder.indexOf(inverse)
-      const isCanonical = nameIndex < inverseIndex
+      const nameIndex = this.registrationOrder.indexOf(name);
+      const inverseIndex = this.registrationOrder.indexOf(inverse);
+      const isCanonical = nameIndex < inverseIndex;
 
       return {
         definition,
         isCanonical,
         canonicalType: isCanonical ? name : inverse,
-      }
+      };
     }
 
     return {
       definition,
       isCanonical: true,
       canonicalType: name,
-    }
+    };
   }
 
   /**
@@ -241,7 +241,7 @@ export class EdgeTypeRegistry {
    * @returns The inverse type name or null if none
    */
   getInverse(name: string): string | null {
-    return this.inverses.get(name) ?? null
+    return this.inverses.get(name) ?? null;
   }
 
   /**
@@ -251,8 +251,8 @@ export class EdgeTypeRegistry {
    * @returns True if this edge type affects ready status
    */
   affectsReady(name: string): boolean {
-    const definition = this.types.get(name)
-    return definition?.affectsReady ?? false
+    const definition = this.types.get(name);
+    return definition?.affectsReady ?? false;
   }
 
   /**
@@ -261,7 +261,7 @@ export class EdgeTypeRegistry {
    * @returns Array of all edge type definitions
    */
   getAll(): EdgeTypeDefinition[] {
-    return Array.from(this.types.values())
+    return Array.from(this.types.values());
   }
 
   /**
@@ -272,7 +272,7 @@ export class EdgeTypeRegistry {
   getReadyAffectingTypes(): string[] {
     return this.getAll()
       .filter((t) => t.affectsReady)
-      .map((t) => t.name)
+      .map((t) => t.name);
   }
 
   /**
@@ -282,7 +282,7 @@ export class EdgeTypeRegistry {
    * @returns Array of edge type definitions
    */
   getTypesForProvider(provider: string): EdgeTypeDefinition[] {
-    return this.getAll().filter((t) => t.providers.includes(provider))
+    return this.getAll().filter((t) => t.providers.includes(provider));
   }
 
   /**
@@ -292,14 +292,14 @@ export class EdgeTypeRegistry {
    * @returns True if the type is registered
    */
   has(name: string): boolean {
-    return this.types.has(name)
+    return this.types.has(name);
   }
 }
 
 /**
  * Singleton instance of the edge type registry
  */
-let globalRegistry: EdgeTypeRegistry | null = null
+let globalRegistry: EdgeTypeRegistry | null = null;
 
 /**
  * Get the global edge type registry instance
@@ -308,9 +308,9 @@ let globalRegistry: EdgeTypeRegistry | null = null
  */
 export function getEdgeTypeRegistry(): EdgeTypeRegistry {
   if (!globalRegistry) {
-    globalRegistry = new EdgeTypeRegistry()
+    globalRegistry = new EdgeTypeRegistry();
   }
-  return globalRegistry
+  return globalRegistry;
 }
 
 /**
@@ -319,12 +319,12 @@ export function getEdgeTypeRegistry(): EdgeTypeRegistry {
  * @returns A fresh EdgeTypeRegistry instance
  */
 export function createEdgeTypeRegistry(): EdgeTypeRegistry {
-  return new EdgeTypeRegistry()
+  return new EdgeTypeRegistry();
 }
 
 /**
  * Reset the global registry (for testing)
  */
 export function resetEdgeTypeRegistry(): void {
-  globalRegistry = null
+  globalRegistry = null;
 }

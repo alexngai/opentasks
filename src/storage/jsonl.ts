@@ -5,36 +5,31 @@
  * Each line is a JSON object (node or edge).
  */
 
-import * as fs from 'node:fs'
-import * as path from 'node:path'
-import type { StoredNode, StoredEdge } from '../schema/storage.js'
-import {
-  atomicWrite,
-  appendToFile,
-  fileExists,
-  readFileOrEmpty,
-} from './atomic-write.js'
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import type { StoredNode, StoredEdge } from '../schema/storage.js';
+import { atomicWrite, appendToFile, fileExists, readFileOrEmpty } from './atomic-write.js';
 
 /**
  * Configuration for JSONL Persister
  */
 export interface JSONLPersisterConfig {
   /** Path to the JSONL file (e.g., ".opentasks/graph.jsonl") */
-  path: string
+  path: string;
 
   /** Optional path for tombstones (soft deletes) */
-  tombstonesPath?: string
+  tombstonesPath?: string;
 
   /** Use atomic writes (default: true) */
-  atomicWrite?: boolean
+  atomicWrite?: boolean;
 }
 
 /**
  * Result of loading a JSONL file
  */
 export interface LoadResult {
-  nodes: StoredNode[]
-  edges: StoredEdge[]
+  nodes: StoredNode[];
+  edges: StoredEdge[];
 }
 
 /**
@@ -44,9 +39,8 @@ export interface LoadResult {
  */
 function isEdge(obj: Record<string, unknown>): boolean {
   return (
-    ('from_id' in obj && 'to_id' in obj) ||
-    (typeof obj.id === 'string' && obj.id.startsWith('x-'))
-  )
+    ('from_id' in obj && 'to_id' in obj) || (typeof obj.id === 'string' && obj.id.startsWith('x-'))
+  );
 }
 
 /**
@@ -56,31 +50,29 @@ function isEdge(obj: Record<string, unknown>): boolean {
  * Source of truth for OpenTasks data.
  */
 export class JSONLPersister {
-  private readonly config: Required<JSONLPersisterConfig>
-  private watcher: fs.FSWatcher | null = null
+  private readonly config: Required<JSONLPersisterConfig>;
+  private watcher: fs.FSWatcher | null = null;
 
   constructor(config: JSONLPersisterConfig) {
     this.config = {
       path: config.path,
-      tombstonesPath:
-        config.tombstonesPath ||
-        config.path.replace('.jsonl', '.tombstones.jsonl'),
+      tombstonesPath: config.tombstonesPath || config.path.replace('.jsonl', '.tombstones.jsonl'),
       atomicWrite: config.atomicWrite ?? true,
-    }
+    };
   }
 
   /**
    * Get the file path
    */
   get filePath(): string {
-    return this.config.path
+    return this.config.path;
   }
 
   /**
    * Check if the JSONL file exists
    */
   async exists(): Promise<boolean> {
-    return fileExists(this.config.path)
+    return fileExists(this.config.path);
   }
 
   /**
@@ -92,34 +84,34 @@ export class JSONLPersister {
    * @returns Object with nodes and edges arrays
    */
   async load(): Promise<LoadResult> {
-    const content = await readFileOrEmpty(this.config.path)
+    const content = await readFileOrEmpty(this.config.path);
 
     if (!content.trim()) {
-      return { nodes: [], edges: [] }
+      return { nodes: [], edges: [] };
     }
 
-    const nodes: StoredNode[] = []
-    const edges: StoredEdge[] = []
-    const lines = content.split('\n')
+    const nodes: StoredNode[] = [];
+    const edges: StoredEdge[] = [];
+    const lines = content.split('\n');
 
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim()
-      if (!line) continue
+      const line = lines[i].trim();
+      if (!line) continue;
 
       try {
-        const obj = JSON.parse(line) as Record<string, unknown>
+        const obj = JSON.parse(line) as Record<string, unknown>;
 
         if (isEdge(obj)) {
-          edges.push(obj as unknown as StoredEdge)
+          edges.push(obj as unknown as StoredEdge);
         } else {
-          nodes.push(obj as StoredNode)
+          nodes.push(obj as StoredNode);
         }
       } catch (error) {
-        console.warn(`Invalid JSON at line ${i + 1}: ${line.slice(0, 50)}...`)
+        console.warn(`Invalid JSON at line ${i + 1}: ${line.slice(0, 50)}...`);
       }
     }
 
-    return { nodes, edges }
+    return { nodes, edges };
   }
 
   /**
@@ -132,26 +124,26 @@ export class JSONLPersister {
    * @param edges - All edges to save
    */
   async save(nodes: StoredNode[], edges: StoredEdge[]): Promise<void> {
-    const lines: string[] = []
+    const lines: string[] = [];
 
     // Nodes first
     for (const node of nodes) {
-      lines.push(JSON.stringify(node))
+      lines.push(JSON.stringify(node));
     }
 
     // Then edges
     for (const edge of edges) {
-      lines.push(JSON.stringify(edge))
+      lines.push(JSON.stringify(edge));
     }
 
-    const content = lines.join('\n') + (lines.length > 0 ? '\n' : '')
+    const content = lines.join('\n') + (lines.length > 0 ? '\n' : '');
 
     if (this.config.atomicWrite) {
-      await atomicWrite(this.config.path, content)
+      await atomicWrite(this.config.path, content);
     } else {
-      const dir = path.dirname(this.config.path)
-      await fs.promises.mkdir(dir, { recursive: true })
-      await fs.promises.writeFile(this.config.path, content, 'utf-8')
+      const dir = path.dirname(this.config.path);
+      await fs.promises.mkdir(dir, { recursive: true });
+      await fs.promises.writeFile(this.config.path, content, 'utf-8');
     }
   }
 
@@ -164,8 +156,8 @@ export class JSONLPersister {
    * @param entry - Node or edge to append
    */
   async append(entry: StoredNode | StoredEdge): Promise<void> {
-    const line = JSON.stringify(entry) + '\n'
-    await appendToFile(this.config.path, line)
+    const line = JSON.stringify(entry) + '\n';
+    await appendToFile(this.config.path, line);
   }
 
   /**
@@ -174,10 +166,10 @@ export class JSONLPersister {
    * @param entries - Nodes or edges to append
    */
   async appendMany(entries: Array<StoredNode | StoredEdge>): Promise<void> {
-    if (entries.length === 0) return
+    if (entries.length === 0) return;
 
-    const lines = entries.map((e) => JSON.stringify(e)).join('\n') + '\n'
-    await appendToFile(this.config.path, lines)
+    const lines = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
+    await appendToFile(this.config.path, lines);
   }
 
   /**
@@ -191,44 +183,44 @@ export class JSONLPersister {
    */
   watch(callback: () => void): () => void {
     if (this.watcher) {
-      this.watcher.close()
+      this.watcher.close();
     }
 
-    let debounceTimer: NodeJS.Timeout | null = null
+    let debounceTimer: NodeJS.Timeout | null = null;
     const debouncedCallback = () => {
       if (debounceTimer) {
-        clearTimeout(debounceTimer)
+        clearTimeout(debounceTimer);
       }
       debounceTimer = setTimeout(() => {
-        callback()
-        debounceTimer = null
-      }, 100)
-    }
+        callback();
+        debounceTimer = null;
+      }, 100);
+    };
 
     try {
       this.watcher = fs.watch(this.config.path, (eventType) => {
         if (eventType === 'change') {
-          debouncedCallback()
+          debouncedCallback();
         }
-      })
+      });
 
       this.watcher.on('error', (error) => {
-        console.warn('File watcher error:', error)
-      })
+        console.warn('File watcher error:', error);
+      });
     } catch (error) {
       // File might not exist yet - that's OK
-      console.warn('Could not watch file:', this.config.path)
+      console.warn('Could not watch file:', this.config.path);
     }
 
     return () => {
       if (debounceTimer) {
-        clearTimeout(debounceTimer)
+        clearTimeout(debounceTimer);
       }
       if (this.watcher) {
-        this.watcher.close()
-        this.watcher = null
+        this.watcher.close();
+        this.watcher = null;
       }
-    }
+    };
   }
 
   /**
@@ -236,8 +228,8 @@ export class JSONLPersister {
    */
   stopWatching(): void {
     if (this.watcher) {
-      this.watcher.close()
-      this.watcher = null
+      this.watcher.close();
+      this.watcher = null;
     }
   }
 
@@ -248,10 +240,10 @@ export class JSONLPersister {
    */
   async delete(): Promise<void> {
     try {
-      await fs.promises.unlink(this.config.path)
+      await fs.promises.unlink(this.config.path);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error
+        throw error;
       }
     }
   }
@@ -268,5 +260,5 @@ export function createJSONLPersister(basePath: string): JSONLPersister {
     path: path.join(basePath, 'graph.jsonl'),
     tombstonesPath: path.join(basePath, 'tombstones.jsonl'),
     atomicWrite: true,
-  })
+  });
 }

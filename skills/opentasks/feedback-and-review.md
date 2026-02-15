@@ -1,6 +1,6 @@
 # Feedback and Review
 
-Leave feedback on specs and issues, manage suggestion lifecycles, query unresolved items.
+Leave feedback on context and tasks, manage suggestion lifecycles, query unresolved items.
 
 ## Feedback Types
 
@@ -15,21 +15,21 @@ Leave feedback on specs and issues, manage suggestion lifecycles, query unresolv
 ### Basic comment
 
 ```bash
-opentasks annotate '{"targetId":"s-a2b3","create":{"content":"Implemented OAuth. Deferred SAML to follow-up.","type":"comment"}}'
+opentasks annotate '{"targetId":"c-a2b3","create":{"content":"Implemented OAuth. Deferred SAML to follow-up.","type":"comment"}}'
 ```
 
 ### Implementation feedback (linked to source issue)
 
 ```bash
-opentasks annotate '{"targetId":"s-a2b3","fromId":"i-x7k9","create":{"content":"Google OAuth requires access_type=offline for refresh tokens — added to config.","type":"comment"}}'
+opentasks annotate '{"targetId":"c-a2b3","fromId":"t-x7k9","create":{"content":"Google OAuth requires access_type=offline for refresh tokens — added to config.","type":"comment"}}'
 ```
 
-`fromId` creates a link from the issue to the feedback for traceability.
+`fromId` creates a link from the task to the feedback for traceability.
 
 ### Anchored suggestion
 
 ```bash
-opentasks annotate '{"targetId":"s-a2b3","create":{"content":"Rate limiting needed here — OAuth endpoints are brute-force targets.","type":"suggestion","anchor":{"line":15,"text":"OAuth2 endpoints"}}}'
+opentasks annotate '{"targetId":"c-a2b3","create":{"content":"Rate limiting needed here — OAuth endpoints are brute-force targets.","type":"suggestion","anchor":{"line":15,"text":"OAuth2 endpoints"}}}'
 ```
 
 Anchors use `line` (exact), `text` (fuzzy match), or both. Text anchors survive content edits better.
@@ -37,55 +37,55 @@ Anchors use `line` (exact), `text` (fuzzy match), or both. Text anchors survive 
 ### Blocking request
 
 ```bash
-opentasks annotate '{"targetId":"s-a2b3","create":{"content":"Which GitHub OAuth scopes? Spec says user profile but integration may need repo access.","type":"request"}}'
+opentasks annotate '{"targetId":"c-a2b3","create":{"content":"Which GitHub OAuth scopes? Spec says user profile but integration may need repo access.","type":"request"}}'
 ```
 
 ## Querying Feedback
 
 ```bash
 # All feedback on a node
-opentasks query '{"feedback": {"nodeId": "s-a2b3"}}'
+opentasks query '{"feedback": {"nodeId": "c-a2b3"}}'
 
 # Unresolved suggestions only
-opentasks query '{"feedback": {"nodeId": "s-a2b3", "type": "suggestion", "resolved": false}}'
+opentasks query '{"feedback": {"nodeId": "c-a2b3", "type": "suggestion", "resolved": false}}'
 
 # All unresolved feedback globally
 opentasks query '{"unresolvedFeedback": {}}'
 
 # Unresolved feedback for a specific target
-opentasks query '{"unresolvedFeedback": {"targetId": "s-a2b3"}}'
+opentasks query '{"unresolvedFeedback": {"targetId": "c-a2b3"}}'
 ```
 
 ## Lifecycle Management
 
 ```bash
 # Resolve (addressed)
-opentasks annotate '{"targetId":"s-a2b3","resolve":"f-t1u2"}'
+opentasks annotate '{"targetId":"c-a2b3","resolve":"f-t1u2"}'
 
 # Dismiss (not applicable)
-opentasks annotate '{"targetId":"s-a2b3","dismiss":"f-t1u2"}'
+opentasks annotate '{"targetId":"c-a2b3","dismiss":"f-t1u2"}'
 
 # Reopen
-opentasks annotate '{"targetId":"s-a2b3","reopen":"f-t1u2"}'
+opentasks annotate '{"targetId":"c-a2b3","reopen":"f-t1u2"}'
 ```
 
 ## Review Workflow
 
 ```bash
 # 1. Read spec
-opentasks get s-a2b3
+opentasks get c-a2b3
 
 # 2. Check existing feedback
-opentasks query '{"feedback": {"nodeId": "s-a2b3"}}'
+opentasks query '{"feedback": {"nodeId": "c-a2b3"}}'
 
 # 3. Leave feedback
-opentasks annotate '{"targetId":"s-a2b3","create":{"content":"...","type":"comment"}}'
+opentasks annotate '{"targetId":"c-a2b3","create":{"content":"...","type":"comment"}}'
 
 # 4. Before implementing — check unresolved
-opentasks query '{"feedback": {"nodeId": "s-a2b3", "resolved": false}}'
+opentasks query '{"feedback": {"nodeId": "c-a2b3", "resolved": false}}'
 
 # 5. After addressing — resolve
-opentasks annotate '{"targetId":"s-a2b3","resolve":"f-abc1"}'
+opentasks annotate '{"targetId":"c-a2b3","resolve":"f-abc1"}'
 ```
 
 ## Cross-System Feedback

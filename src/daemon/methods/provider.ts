@@ -5,11 +5,11 @@
  * Allows agents and tools to discover available providers and their capabilities.
  */
 
-import type { IPCServer } from '../ipc.js'
-import type { LocationResolver } from '../location-state.js'
-import type { Provider } from '../../providers/types.js'
-import { isTaskManageable } from '../../providers/traits/TaskManageable.js'
-import type { TaskCapabilities } from '../../providers/traits/TaskManageable.js'
+import type { IPCServer } from '../ipc.js';
+import type { LocationResolver } from '../location-state.js';
+import type { Provider } from '../../providers/types.js';
+import { isTaskManageable } from '../../providers/traits/TaskManageable.js';
+import type { TaskCapabilities } from '../../providers/traits/TaskManageable.js';
 
 // ============================================================================
 // Types
@@ -20,10 +20,10 @@ import type { TaskCapabilities } from '../../providers/traits/TaskManageable.js'
  */
 export interface ProviderMethodsOptions {
   /** IPC server to register handlers on */
-  server: IPCServer
+  server: IPCServer;
 
   /** Location resolver for routing to correct store */
-  locationResolver: LocationResolver
+  locationResolver: LocationResolver;
 }
 
 /**
@@ -31,26 +31,26 @@ export interface ProviderMethodsOptions {
  */
 interface ProviderSummary {
   /** Provider name */
-  name: string
+  name: string;
 
   /** URI schemes this provider handles */
-  schemes: string[]
+  schemes: string[];
 
   /** Provider capabilities */
   capabilities: {
-    read: boolean
-    write: boolean
-    search: boolean
-    watch: boolean
-    mount: boolean
-    feedback: boolean
-  }
+    read: boolean;
+    write: boolean;
+    search: boolean;
+    watch: boolean;
+    mount: boolean;
+    feedback: boolean;
+  };
 
   /** Whether this is the default provider for creates */
-  isDefault: boolean
+  isDefault: boolean;
 
   /** Task lifecycle capabilities (only present if provider supports tasks) */
-  taskCapabilities?: TaskCapabilities
+  taskCapabilities?: TaskCapabilities;
 }
 
 /**
@@ -58,10 +58,10 @@ interface ProviderSummary {
  */
 interface ProviderListResult {
   /** Registered providers */
-  providers: ProviderSummary[]
+  providers: ProviderSummary[];
 
   /** The configured default provider name */
-  defaultProvider: string
+  defaultProvider: string;
 }
 
 /**
@@ -69,10 +69,10 @@ interface ProviderListResult {
  */
 interface ProviderInfoResult {
   /** Provider details */
-  provider: ProviderSummary | null
+  provider: ProviderSummary | null;
 
   /** Error message if provider not found */
-  error?: string
+  error?: string;
 }
 
 // ============================================================================
@@ -94,63 +94,66 @@ function toProviderSummary(provider: Provider, defaultProvider: string): Provide
       mount: provider.capabilities.mount,
       feedback: provider.capabilities.feedback,
     },
-    isDefault: provider.name === defaultProvider
-      || provider.schemes.some((s) => s === defaultProvider),
-  }
+    isDefault:
+      provider.name === defaultProvider || provider.schemes.some((s) => s === defaultProvider),
+  };
 
   if (isTaskManageable(provider)) {
-    summary.taskCapabilities = { ...provider.taskCapabilities }
+    summary.taskCapabilities = { ...provider.taskCapabilities };
   }
 
-  return summary
+  return summary;
 }
 
 /**
  * Register provider method handlers on an IPC server
  */
 export function registerProviderMethods(options: ProviderMethodsOptions): void {
-  const { server, locationResolver } = options
+  const { server, locationResolver } = options;
 
   // provider.list - List all registered providers with capabilities
   server.handle<{ location?: string }, ProviderListResult>('provider.list', async (params) => {
-    const { location } = params || {}
-    const state = locationResolver.resolve(location)
+    const { location } = params || {};
+    const state = locationResolver.resolve(location);
 
     if (!state.providerStore) {
-      return { providers: [], defaultProvider: 'native' }
+      return { providers: [], defaultProvider: 'native' };
     }
 
-    const providers = state.providerStore.providers.list()
-    const defaultProvider = state.providerStore.defaultProvider
+    const providers = state.providerStore.providers.list();
+    const defaultProvider = state.providerStore.defaultProvider;
 
     return {
       providers: providers.map((p) => toProviderSummary(p, defaultProvider)),
       defaultProvider,
-    }
-  })
+    };
+  });
 
   // provider.info - Get detailed info about a specific provider
-  server.handle<{ name: string; location?: string }, ProviderInfoResult>('provider.info', async (params) => {
-    const { name, location } = params || {}
-    if (!name) {
-      return { provider: null, error: 'Missing required parameter: name' }
-    }
+  server.handle<{ name: string; location?: string }, ProviderInfoResult>(
+    'provider.info',
+    async (params) => {
+      const { name, location } = params || {};
+      if (!name) {
+        return { provider: null, error: 'Missing required parameter: name' };
+      }
 
-    const state = locationResolver.resolve(location)
+      const state = locationResolver.resolve(location);
 
-    if (!state.providerStore) {
-      return { provider: null, error: 'Provider store not available' }
-    }
+      if (!state.providerStore) {
+        return { provider: null, error: 'Provider store not available' };
+      }
 
-    const provider = state.providerStore.providers.get(name)
-    if (!provider) {
-      return { provider: null, error: `Provider not found: ${name}` }
-    }
+      const provider = state.providerStore.providers.get(name);
+      if (!provider) {
+        return { provider: null, error: `Provider not found: ${name}` };
+      }
 
-    const defaultProvider = state.providerStore.defaultProvider
+      const defaultProvider = state.providerStore.defaultProvider;
 
-    return {
-      provider: toProviderSummary(provider, defaultProvider),
-    }
-  })
+      return {
+        provider: toProviderSummary(provider, defaultProvider),
+      };
+    },
+  );
 }

@@ -2,15 +2,15 @@
  * Tests for Materialization Archiver
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createMaterializationArchiver } from '../archiver.js'
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createMaterializationArchiver } from '../archiver.js';
 import type {
   MaterializationStore,
   RemoteStore,
   ArchivePolicy,
   MaterializationSnapshot,
-} from '../types.js'
-import type { GraphStore } from '../../graph/store.js'
+} from '../types.js';
+import type { GraphStore } from '../../graph/store.js';
 
 // ============================================================================
 // Mock Helpers
@@ -28,7 +28,7 @@ function createMockStore(): GraphStore {
     flush: vi.fn(),
     close: vi.fn(),
     initialize: vi.fn(),
-  } as unknown as GraphStore
+  } as unknown as GraphStore;
 }
 
 function createMockGitStore(): MaterializationStore {
@@ -43,7 +43,7 @@ function createMockGitStore(): MaterializationStore {
     initialize: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
     status: vi.fn().mockResolvedValue({ healthy: true }),
-  }
+  };
 }
 
 function createMockRemoteStore(overrides: Partial<RemoteStore> = {}): RemoteStore {
@@ -60,7 +60,7 @@ function createMockRemoteStore(overrides: Partial<RemoteStore> = {}): RemoteStor
     close: vi.fn().mockResolvedValue(undefined),
     status: vi.fn().mockResolvedValue({ healthy: true }),
     ...overrides,
-  }
+  };
 }
 
 const DEFAULT_POLICY: ArchivePolicy = {
@@ -68,20 +68,20 @@ const DEFAULT_POLICY: ArchivePolicy = {
   archiveOnCheckpoint: true,
   archiveOnEnd: true,
   materializeBeforeArchive: true,
-}
+};
 
 // ============================================================================
 // Tests
 // ============================================================================
 
 describe('MaterializationArchiver', () => {
-  let mockGraphStore: GraphStore
-  let mockGitStore: MaterializationStore
+  let mockGraphStore: GraphStore;
+  let mockGitStore: MaterializationStore;
 
   beforeEach(() => {
-    mockGraphStore = createMockStore()
-    mockGitStore = createMockGitStore()
-  })
+    mockGraphStore = createMockStore();
+    mockGitStore = createMockGitStore();
+  });
 
   describe('onSessionEvent', () => {
     it('should skip archival when policy disables the event type', async () => {
@@ -91,33 +91,35 @@ describe('MaterializationArchiver', () => {
         policy: { ...DEFAULT_POLICY, archiveOnStart: false },
         graphId: 'test',
         graphPath: '/test/.opentasks',
-      })
+      });
 
       const result = await archiver.onSessionEvent(
         'started',
         'entire://session/abc123',
-        mockGraphStore
-      )
+        mockGraphStore,
+      );
 
-      expect(result.stores).toEqual([])
-      expect(mockGitStore.archive).not.toHaveBeenCalled()
-    })
+      expect(result.stores).toEqual([]);
+      expect(mockGitStore.archive).not.toHaveBeenCalled();
+    });
 
     it('should archive on ended when policy allows', async () => {
-      const queryNodes = mockGraphStore.query.nodes as ReturnType<typeof vi.fn>
-      queryNodes.mockResolvedValue([{
-        id: 'x-abc1',
-        uuid: 'u1',
-        type: 'external',
-        title: 'Session: abc123',
-        uri: 'entire://session/abc123',
-        source: 'entire',
-        materialized: true,
-        created_at: '2026-02-14T10:00:00Z',
-        updated_at: '2026-02-14T10:15:00Z',
-        external_data: { agent: 'claude', phase: 'ENDED' },
-        metadata: { entityType: 'session' },
-      }])
+      const queryNodes = mockGraphStore.query.nodes as ReturnType<typeof vi.fn>;
+      queryNodes.mockResolvedValue([
+        {
+          id: 'x-abc1',
+          uuid: 'u1',
+          type: 'external',
+          title: 'Session: abc123',
+          uri: 'entire://session/abc123',
+          source: 'entire',
+          materialized: true,
+          created_at: '2026-02-14T10:00:00Z',
+          updated_at: '2026-02-14T10:15:00Z',
+          external_data: { agent: 'claude', phase: 'ENDED' },
+          metadata: { entityType: 'session' },
+        },
+      ]);
 
       const archiver = createMaterializationArchiver({
         gitStore: mockGitStore,
@@ -125,18 +127,18 @@ describe('MaterializationArchiver', () => {
         policy: DEFAULT_POLICY,
         graphId: 'test',
         graphPath: '/test/.opentasks',
-      })
+      });
 
       const result = await archiver.onSessionEvent(
         'ended',
         'entire://session/abc123',
-        mockGraphStore
-      )
+        mockGraphStore,
+      );
 
-      expect(result.stores.length).toBe(1)
-      expect(result.stores[0].stored).toBe(true)
-      expect(mockGitStore.archive).toHaveBeenCalledTimes(1)
-    })
+      expect(result.stores.length).toBe(1);
+      expect(result.stores[0].stored).toBe(true);
+      expect(mockGitStore.archive).toHaveBeenCalledTimes(1);
+    });
 
     it('should return error when node not found', async () => {
       const archiver = createMaterializationArchiver({
@@ -145,37 +147,39 @@ describe('MaterializationArchiver', () => {
         policy: DEFAULT_POLICY,
         graphId: 'test',
         graphPath: '/test/.opentasks',
-      })
+      });
 
       const result = await archiver.onSessionEvent(
         'ended',
         'entire://session/nonexistent',
-        mockGraphStore
-      )
+        mockGraphStore,
+      );
 
-      expect(result.stores[0].stored).toBe(false)
-      expect(result.stores[0].error).toContain('not found')
-    })
-  })
+      expect(result.stores[0].stored).toBe(false);
+      expect(result.stores[0].error).toContain('not found');
+    });
+  });
 
   describe('fan-out', () => {
     it('should archive to both git and remote stores', async () => {
-      const remoteStore = createMockRemoteStore({ events: ['session.ended'] })
+      const remoteStore = createMockRemoteStore({ events: ['session.ended'] });
 
-      const queryNodes = mockGraphStore.query.nodes as ReturnType<typeof vi.fn>
-      queryNodes.mockResolvedValue([{
-        id: 'x-abc1',
-        uuid: 'u1',
-        type: 'external',
-        title: 'Session: abc123',
-        uri: 'entire://session/abc123',
-        source: 'entire',
-        materialized: true,
-        created_at: '2026-02-14T10:00:00Z',
-        updated_at: '2026-02-14T10:15:00Z',
-        external_data: { agent: 'claude' },
-        metadata: { entityType: 'session' },
-      }])
+      const queryNodes = mockGraphStore.query.nodes as ReturnType<typeof vi.fn>;
+      queryNodes.mockResolvedValue([
+        {
+          id: 'x-abc1',
+          uuid: 'u1',
+          type: 'external',
+          title: 'Session: abc123',
+          uri: 'entire://session/abc123',
+          source: 'entire',
+          materialized: true,
+          created_at: '2026-02-14T10:00:00Z',
+          updated_at: '2026-02-14T10:15:00Z',
+          external_data: { agent: 'claude' },
+          metadata: { entityType: 'session' },
+        },
+      ]);
 
       const archiver = createMaterializationArchiver({
         gitStore: mockGitStore,
@@ -183,36 +187,38 @@ describe('MaterializationArchiver', () => {
         policy: DEFAULT_POLICY,
         graphId: 'test',
         graphPath: '/test/.opentasks',
-      })
+      });
 
       const result = await archiver.onSessionEvent(
         'ended',
         'entire://session/abc123',
-        mockGraphStore
-      )
+        mockGraphStore,
+      );
 
-      expect(result.stores.length).toBe(2)
-      expect(mockGitStore.archive).toHaveBeenCalledTimes(1)
-      expect(remoteStore.archive).toHaveBeenCalledTimes(1)
-    })
+      expect(result.stores.length).toBe(2);
+      expect(mockGitStore.archive).toHaveBeenCalledTimes(1);
+      expect(remoteStore.archive).toHaveBeenCalledTimes(1);
+    });
 
     it('should skip disabled remote stores', async () => {
-      const remoteStore = createMockRemoteStore({ enabled: false })
+      const remoteStore = createMockRemoteStore({ enabled: false });
 
-      const queryNodes = mockGraphStore.query.nodes as ReturnType<typeof vi.fn>
-      queryNodes.mockResolvedValue([{
-        id: 'x-abc1',
-        uuid: 'u1',
-        type: 'external',
-        title: 'Session',
-        uri: 'entire://session/abc123',
-        source: 'entire',
-        materialized: true,
-        created_at: '2026-02-14T10:00:00Z',
-        updated_at: '2026-02-14T10:00:00Z',
-        external_data: {},
-        metadata: { entityType: 'session' },
-      }])
+      const queryNodes = mockGraphStore.query.nodes as ReturnType<typeof vi.fn>;
+      queryNodes.mockResolvedValue([
+        {
+          id: 'x-abc1',
+          uuid: 'u1',
+          type: 'external',
+          title: 'Session',
+          uri: 'entire://session/abc123',
+          source: 'entire',
+          materialized: true,
+          created_at: '2026-02-14T10:00:00Z',
+          updated_at: '2026-02-14T10:00:00Z',
+          external_data: {},
+          metadata: { entityType: 'session' },
+        },
+      ]);
 
       const archiver = createMaterializationArchiver({
         gitStore: mockGitStore,
@@ -220,35 +226,37 @@ describe('MaterializationArchiver', () => {
         policy: DEFAULT_POLICY,
         graphId: 'test',
         graphPath: '/test/.opentasks',
-      })
+      });
 
       const result = await archiver.onSessionEvent(
         'ended',
         'entire://session/abc123',
-        mockGraphStore
-      )
+        mockGraphStore,
+      );
 
-      expect(result.stores.length).toBe(1) // Only git store
-      expect(remoteStore.archive).not.toHaveBeenCalled()
-    })
+      expect(result.stores.length).toBe(1); // Only git store
+      expect(remoteStore.archive).not.toHaveBeenCalled();
+    });
 
     it('should filter remote stores by event type', async () => {
-      const remoteStore = createMockRemoteStore({ events: ['session.started'] })
+      const remoteStore = createMockRemoteStore({ events: ['session.started'] });
 
-      const queryNodes = mockGraphStore.query.nodes as ReturnType<typeof vi.fn>
-      queryNodes.mockResolvedValue([{
-        id: 'x-abc1',
-        uuid: 'u1',
-        type: 'external',
-        title: 'Session',
-        uri: 'entire://session/abc123',
-        source: 'entire',
-        materialized: true,
-        created_at: '2026-02-14T10:00:00Z',
-        updated_at: '2026-02-14T10:00:00Z',
-        external_data: {},
-        metadata: { entityType: 'session' },
-      }])
+      const queryNodes = mockGraphStore.query.nodes as ReturnType<typeof vi.fn>;
+      queryNodes.mockResolvedValue([
+        {
+          id: 'x-abc1',
+          uuid: 'u1',
+          type: 'external',
+          title: 'Session',
+          uri: 'entire://session/abc123',
+          source: 'entire',
+          materialized: true,
+          created_at: '2026-02-14T10:00:00Z',
+          updated_at: '2026-02-14T10:00:00Z',
+          external_data: {},
+          metadata: { entityType: 'session' },
+        },
+      ]);
 
       const archiver = createMaterializationArchiver({
         gitStore: mockGitStore,
@@ -256,39 +264,41 @@ describe('MaterializationArchiver', () => {
         policy: DEFAULT_POLICY,
         graphId: 'test',
         graphPath: '/test/.opentasks',
-      })
+      });
 
       const result = await archiver.onSessionEvent(
         'ended',
         'entire://session/abc123',
-        mockGraphStore
-      )
+        mockGraphStore,
+      );
 
       // Remote store only wants 'session.started', this is 'session.ended'
-      expect(result.stores.length).toBe(1)
-      expect(remoteStore.archive).not.toHaveBeenCalled()
-    })
+      expect(result.stores.length).toBe(1);
+      expect(remoteStore.archive).not.toHaveBeenCalled();
+    });
 
     it('should isolate failures per store', async () => {
       const failingRemote = createMockRemoteStore({
         events: ['session.ended'],
         archive: vi.fn().mockRejectedValue(new Error('Network failure')),
-      })
+      });
 
-      const queryNodes = mockGraphStore.query.nodes as ReturnType<typeof vi.fn>
-      queryNodes.mockResolvedValue([{
-        id: 'x-abc1',
-        uuid: 'u1',
-        type: 'external',
-        title: 'Session',
-        uri: 'entire://session/abc123',
-        source: 'entire',
-        materialized: true,
-        created_at: '2026-02-14T10:00:00Z',
-        updated_at: '2026-02-14T10:00:00Z',
-        external_data: {},
-        metadata: { entityType: 'session' },
-      }])
+      const queryNodes = mockGraphStore.query.nodes as ReturnType<typeof vi.fn>;
+      queryNodes.mockResolvedValue([
+        {
+          id: 'x-abc1',
+          uuid: 'u1',
+          type: 'external',
+          title: 'Session',
+          uri: 'entire://session/abc123',
+          source: 'entire',
+          materialized: true,
+          created_at: '2026-02-14T10:00:00Z',
+          updated_at: '2026-02-14T10:00:00Z',
+          external_data: {},
+          metadata: { entityType: 'session' },
+        },
+      ]);
 
       const archiver = createMaterializationArchiver({
         gitStore: mockGitStore,
@@ -296,21 +306,21 @@ describe('MaterializationArchiver', () => {
         policy: DEFAULT_POLICY,
         graphId: 'test',
         graphPath: '/test/.opentasks',
-      })
+      });
 
       const result = await archiver.onSessionEvent(
         'ended',
         'entire://session/abc123',
-        mockGraphStore
-      )
+        mockGraphStore,
+      );
 
       // Git store should succeed, remote should fail
-      expect(result.stores.length).toBe(2)
-      expect(result.stores[0].stored).toBe(true) // git
-      expect(result.stores[1].stored).toBe(false) // remote
-      expect(result.stores[1].error).toContain('Network failure')
-    })
-  })
+      expect(result.stores.length).toBe(2);
+      expect(result.stores[0].stored).toBe(true); // git
+      expect(result.stores[1].stored).toBe(false); // remote
+      expect(result.stores[1].error).toContain('Network failure');
+    });
+  });
 
   describe('rematerialize', () => {
     it('should reconstruct node from git archive', async () => {
@@ -330,9 +340,9 @@ describe('MaterializationArchiver', () => {
           graphId: 'test',
           graphPath: '/test/.opentasks',
         },
-      }
+      };
 
-      ;(mockGitStore.retrieve as ReturnType<typeof vi.fn>).mockResolvedValue(snapshot)
+      (mockGitStore.retrieve as ReturnType<typeof vi.fn>).mockResolvedValue(snapshot);
 
       const archiver = createMaterializationArchiver({
         gitStore: mockGitStore,
@@ -340,23 +350,20 @@ describe('MaterializationArchiver', () => {
         policy: DEFAULT_POLICY,
         graphId: 'test',
         graphPath: '/test/.opentasks',
-      })
+      });
 
-      const result = await archiver.rematerialize(
-        'entire://session/abc123',
-        mockGraphStore
-      )
+      const result = await archiver.rematerialize('entire://session/abc123', mockGraphStore);
 
-      expect(result).toBe(true)
+      expect(result).toBe(true);
       expect(mockGraphStore.createNode).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'external',
           uri: 'entire://session/abc123',
           source: 'entire',
           title: 'Session: abc123',
-        })
-      )
-    })
+        }),
+      );
+    });
 
     it('should try remote stores when git has no data', async () => {
       const remoteSnapshot: MaterializationSnapshot = {
@@ -371,11 +378,11 @@ describe('MaterializationArchiver', () => {
           external_data: { agent: 'claude' },
         },
         provenance: { graphId: 'test', graphPath: '/test' },
-      }
+      };
 
       const remoteStore = createMockRemoteStore({
         retrieve: vi.fn().mockResolvedValue(remoteSnapshot),
-      })
+      });
 
       const archiver = createMaterializationArchiver({
         gitStore: mockGitStore,
@@ -383,16 +390,13 @@ describe('MaterializationArchiver', () => {
         policy: DEFAULT_POLICY,
         graphId: 'test',
         graphPath: '/test/.opentasks',
-      })
+      });
 
-      const result = await archiver.rematerialize(
-        'entire://session/abc123',
-        mockGraphStore
-      )
+      const result = await archiver.rematerialize('entire://session/abc123', mockGraphStore);
 
-      expect(result).toBe(true)
-      expect(remoteStore.retrieve).toHaveBeenCalledWith('entire://session/abc123')
-    })
+      expect(result).toBe(true);
+      expect(remoteStore.retrieve).toHaveBeenCalledWith('entire://session/abc123');
+    });
 
     it('should return false when snapshot not in any store', async () => {
       const archiver = createMaterializationArchiver({
@@ -401,28 +405,37 @@ describe('MaterializationArchiver', () => {
         policy: DEFAULT_POLICY,
         graphId: 'test',
         graphPath: '/test/.opentasks',
-      })
+      });
 
-      const result = await archiver.rematerialize(
-        'entire://session/nonexistent',
-        mockGraphStore
-      )
+      const result = await archiver.rematerialize('entire://session/nonexistent', mockGraphStore);
 
-      expect(result).toBe(false)
-    })
-  })
+      expect(result).toBe(false);
+    });
+  });
 
   describe('listArchived', () => {
     it('should merge results from all stores', async () => {
-      ;(mockGitStore.list as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { uri: 'entire://session/abc', entityType: 'session', graphId: 'test', archivedAt: '2026-02-14T10:00:00Z' },
-      ])
+      (mockGitStore.list as ReturnType<typeof vi.fn>).mockResolvedValue([
+        {
+          uri: 'entire://session/abc',
+          entityType: 'session',
+          graphId: 'test',
+          archivedAt: '2026-02-14T10:00:00Z',
+        },
+      ]);
 
       const remoteStore = createMockRemoteStore({
-        list: vi.fn().mockResolvedValue([
-          { uri: 'entire://session/def', entityType: 'session', graphId: 'test', archivedAt: '2026-02-14T11:00:00Z' },
-        ]),
-      })
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            {
+              uri: 'entire://session/def',
+              entityType: 'session',
+              graphId: 'test',
+              archivedAt: '2026-02-14T11:00:00Z',
+            },
+          ]),
+      });
 
       const archiver = createMaterializationArchiver({
         gitStore: mockGitStore,
@@ -430,25 +443,37 @@ describe('MaterializationArchiver', () => {
         policy: DEFAULT_POLICY,
         graphId: 'test',
         graphPath: '/test/.opentasks',
-      })
+      });
 
-      const entries = await archiver.listArchived()
+      const entries = await archiver.listArchived();
 
-      expect(entries.length).toBe(2)
-      expect(entries[0].uri).toBe('entire://session/abc')
-      expect(entries[1].uri).toBe('entire://session/def')
-    })
+      expect(entries.length).toBe(2);
+      expect(entries[0].uri).toBe('entire://session/abc');
+      expect(entries[1].uri).toBe('entire://session/def');
+    });
 
     it('should deduplicate by URI (prefer git)', async () => {
-      ;(mockGitStore.list as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { uri: 'entire://session/abc', entityType: 'session', graphId: 'test', archivedAt: '2026-02-14T10:00:00Z' },
-      ])
+      (mockGitStore.list as ReturnType<typeof vi.fn>).mockResolvedValue([
+        {
+          uri: 'entire://session/abc',
+          entityType: 'session',
+          graphId: 'test',
+          archivedAt: '2026-02-14T10:00:00Z',
+        },
+      ]);
 
       const remoteStore = createMockRemoteStore({
-        list: vi.fn().mockResolvedValue([
-          { uri: 'entire://session/abc', entityType: 'session', graphId: 'test', archivedAt: '2026-02-14T11:00:00Z' },
-        ]),
-      })
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            {
+              uri: 'entire://session/abc',
+              entityType: 'session',
+              graphId: 'test',
+              archivedAt: '2026-02-14T11:00:00Z',
+            },
+          ]),
+      });
 
       const archiver = createMaterializationArchiver({
         gitStore: mockGitStore,
@@ -456,18 +481,18 @@ describe('MaterializationArchiver', () => {
         policy: DEFAULT_POLICY,
         graphId: 'test',
         graphPath: '/test/.opentasks',
-      })
+      });
 
-      const entries = await archiver.listArchived()
+      const entries = await archiver.listArchived();
 
-      expect(entries.length).toBe(1)
-      expect(entries[0].archivedAt).toBe('2026-02-14T10:00:00Z') // git version
-    })
-  })
+      expect(entries.length).toBe(1);
+      expect(entries[0].archivedAt).toBe('2026-02-14T10:00:00Z'); // git version
+    });
+  });
 
   describe('lifecycle', () => {
     it('should initialize all stores', async () => {
-      const remoteStore = createMockRemoteStore()
+      const remoteStore = createMockRemoteStore();
 
       const archiver = createMaterializationArchiver({
         gitStore: mockGitStore,
@@ -475,16 +500,16 @@ describe('MaterializationArchiver', () => {
         policy: DEFAULT_POLICY,
         graphId: 'test',
         graphPath: '/test/.opentasks',
-      })
+      });
 
-      await archiver.initialize()
+      await archiver.initialize();
 
-      expect(mockGitStore.initialize).toHaveBeenCalled()
-      expect(remoteStore.initialize).toHaveBeenCalled()
-    })
+      expect(mockGitStore.initialize).toHaveBeenCalled();
+      expect(remoteStore.initialize).toHaveBeenCalled();
+    });
 
     it('should close all stores', async () => {
-      const remoteStore = createMockRemoteStore()
+      const remoteStore = createMockRemoteStore();
 
       const archiver = createMaterializationArchiver({
         gitStore: mockGitStore,
@@ -492,12 +517,12 @@ describe('MaterializationArchiver', () => {
         policy: DEFAULT_POLICY,
         graphId: 'test',
         graphPath: '/test/.opentasks',
-      })
+      });
 
-      await archiver.close()
+      await archiver.close();
 
-      expect(mockGitStore.close).toHaveBeenCalled()
-      expect(remoteStore.close).toHaveBeenCalled()
-    })
-  })
-})
+      expect(mockGitStore.close).toHaveBeenCalled();
+      expect(remoteStore.close).toHaveBeenCalled();
+    });
+  });
+});
