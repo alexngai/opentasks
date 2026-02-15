@@ -39,6 +39,12 @@ import type {
   ProviderNodeChangeEvent,
   ProviderEdgeChangeEvent,
 } from './traits/Watchable.js'
+import type {
+  TaskManageable,
+  TaskAction,
+  TaskCapabilities,
+  ReadyTaskOptions,
+} from './traits/TaskManageable.js'
 
 const execAsync = promisify(execCallback)
 
@@ -196,7 +202,7 @@ function beadsIssueToProviderNode(issue: BeadsIssue, workspace: string = '.'): P
 /**
  * Create a Beads provider with relationship querying and optional watching support
  */
-export function createBeadsProvider(config: BeadsConfig = {}): Provider & RelationshipQueryable & Partial<Watchable> {
+export function createBeadsProvider(config: BeadsConfig = {}): Provider & RelationshipQueryable & Partial<Watchable> & TaskManageable {
   const executable = config.executable ?? 'bd'
   const cwd = config.cwd
   const timeout = config.timeout ?? 30000
@@ -926,6 +932,182 @@ export function createBeadsProvider(config: BeadsConfig = {}): Provider & Relati
 
     get isWatching(): boolean {
       return fileWatcher !== null && watchCallback !== null
+    },
+
+    // =========================================================================
+    // TaskManageable Implementation
+    // =========================================================================
+
+    taskCapabilities: {
+      actions: ['start', 'complete', 'block', 'reopen', 'close'],
+      supportsAssignment: true,
+      supportsReadyQuery: true,
+      statusModel: ['open', 'in_progress', 'blocked', 'closed'],
+    } satisfies TaskCapabilities,
+
+    async transitionTask(
+      id: string,
+      action: TaskAction,
+      context?: ProviderOperationContext
+    ): Promise<ProviderNode> {
+      const statusMap: Record<TaskAction, string> = {
+        start: 'in_progress',
+        complete: 'closed',
+        block: 'blocked',
+        reopen: 'open',
+        close: 'closed',
+      }
+
+      const targetStatus = statusMap[action]
+      if (!targetStatus) {
+        throw new ProviderErrorClass(
+          'NOT_SUPPORTED',
+          `Unsupported task action: ${action}`,
+          'beads'
+        )
+      }
+
+      const parsed = this.parseUri(id)
+      const issueId = parsed?.id ?? id
+
+      const output = await execBd(['update', issueId, '--status', targetStatus, '--json'], context)
+      const issues = parseJson<BeadsIssue[]>(output)
+      if (!issues || issues.length === 0) {
+        throw new ProviderErrorClass('OPERATION_FAILED', 'Transition returned no results', 'beads')
+      }
+
+      return beadsIssueToProviderNode(issues[0])
+    },
+
+    async readyTasks(
+      options?: ReadyTaskOptions,
+      context?: ProviderOperationContext
+    ): Promise<ProviderNode[]> {
+      const output = await execBd(['list', '--json'], context)
+      const issues = parseJson<BeadsIssue[]>(output)
+
+      const readyIssues: ProviderNode[] = []
+
+      for (const issue of issues) {
+        // Skip tombstoned and non-open issues
+        if (issue.status === 'tombstone' || issue.status !== 'open') continue
+
+        // Apply tag filter
+        if (options?.tags) {
+          const issueTags = issue.tags ?? []
+          if (!options.tags.every((t) => issueTags.includes(t))) continue
+        }
+
+        // Apply priority filter
+        if (options?.priority !== undefined) {
+          const normalized = mapPriority(issue.priority)
+          if (normalized === undefined || normalized > options.priority) continue
+        }
+
+        // Apply assignee filter
+        if (options?.assignee) {
+          if ((issue as Record<string, unknown>).assignee !== options.assignee) continue
+        }
+
+        // Check for active blockers
+        let hasActiveBlocker = false
+
+        // Legacy format: blockedBy
+        if (issue.blockedBy && issue.blockedBy.length > 0) {
+          // Need to check if blockers are still active
+          for (const blockerId of issue.blockedBy) {
+            try {
+              const blockerOutput = await execBd(['show', blockerId, '--json'], context)
+              const blockerIssues = parseJson<BeadsIssue[]>(blockerOutput)
+              if (blockerIssues?.[0] && blockerIssues[0].status !== 'closed' && blockerIssues[0].status !== 'tombstone') {
+                hasActiveBlocker = true
+                break
+              }
+            } catch {
+              // If we can't resolve the blocker, assume it's active
+              hasActiveBlocker = true
+              break
+            }
+          }
+        }
+
+        // Structured format (bd v0.49+): dependencies
+        if (!hasActiveBlocker && issue.dependencies && issue.dependencies.length > 0) {
+          for (const dep of issue.dependencies) {
+            const depId = dep.id ?? dep.depends_on_id
+            if (!depId) continue
+            try {
+              const depOutput = await execBd(['show', depId, '--json'], context)
+              const depIssues = parseJson<BeadsIssue[]>(depOutput)
+              if (depIssues?.[0] && depIssues[0].status !== 'closed' && depIssues[0].status !== 'tombstone') {
+                hasActiveBlocker = true
+                break
+              }
+            } catch {
+              hasActiveBlocker = true
+              break
+            }
+          }
+        }
+
+        if (!hasActiveBlocker) {
+          readyIssues.push(beadsIssueToProviderNode(issue))
+        }
+      }
+
+      // Sort by priority (lower number = higher priority)
+      readyIssues.sort((a, b) => {
+        const aPriority = a.priority ?? Infinity
+        const bPriority = b.priority ?? Infinity
+        return aPriority - bPriority
+      })
+
+      // Apply limit
+      if (options?.limit && readyIssues.length > options.limit) {
+        return readyIssues.slice(0, options.limit)
+      }
+
+      return readyIssues
+    },
+
+    async assignTask(
+      id: string,
+      assignee: string,
+      context?: ProviderOperationContext
+    ): Promise<ProviderNode> {
+      const parsed = this.parseUri(id)
+      const issueId = parsed?.id ?? id
+
+      const output = await execBd(['update', issueId, '--assignee', assignee, '--json'], context)
+      const issues = parseJson<BeadsIssue[]>(output)
+      if (!issues || issues.length === 0) {
+        throw new ProviderErrorClass('OPERATION_FAILED', 'Assign returned no results', 'beads')
+      }
+
+      return beadsIssueToProviderNode(issues[0])
+    },
+
+    async validActions(
+      id: string,
+      context?: ProviderOperationContext
+    ): Promise<TaskAction[]> {
+      const node = await this.get(id, context)
+      if (!node) {
+        throw new ProviderErrorClass('NOT_FOUND', `Issue not found: ${id}`, 'beads')
+      }
+
+      switch (node.status) {
+        case 'open':
+          return ['start', 'block', 'close']
+        case 'in_progress':
+          return ['complete', 'block', 'close']
+        case 'blocked':
+          return ['reopen', 'close']
+        case 'closed':
+          return ['reopen']
+        default:
+          return ['start', 'complete', 'block', 'reopen', 'close']
+      }
     },
   }
 }

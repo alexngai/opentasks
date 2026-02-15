@@ -69,7 +69,7 @@ describe('ProviderAwareStore', () => {
         edges: vi.fn(),
         blockers: vi.fn(),
         blocking: vi.fn(),
-        ready: vi.fn(),
+        ready: vi.fn().mockResolvedValue([]),
         children: vi.fn(),
         descendants: vi.fn(),
         ancestors: vi.fn(),
