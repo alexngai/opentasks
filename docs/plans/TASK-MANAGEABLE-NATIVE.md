@@ -35,10 +35,10 @@ Native issues use the `Issue` schema statuses (from `src/schema/nodes.ts`):
 | TaskAction   | Target Status  | Notes                                    |
 |--------------|----------------|------------------------------------------|
 | `start`      | `in_progress`  | Begin work on the issue                  |
-| `complete`   | `closed`       | Mark as done, set `closed_at`            |
+| `complete`   | `closed`       | Mark as done                             |
 | `block`      | `blocked`      | Mark as blocked by dependency            |
-| `reopen`     | `open`         | Re-open, clear `closed_at`              |
-| `close`      | `closed`       | Close without completing, set `closed_at`|
+| `reopen`     | `open`         | Re-open a closed/blocked issue           |
+| `close`      | `closed`       | Close without completing (won't-do, etc) |
 
 ## TaskCapabilities Declaration
 

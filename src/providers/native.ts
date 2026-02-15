@@ -627,13 +627,6 @@ export function createNativeProvider(
 
       const updates: Record<string, unknown> = { status: targetStatus }
 
-      // Set/clear closed_at for close/complete/reopen
-      if (action === 'complete' || action === 'close') {
-        updates.closed_at = new Date().toISOString()
-      } else if (action === 'reopen') {
-        updates.closed_at = undefined
-      }
-
       const updated = await store.updateNode(nodeId, updates)
       return nodeToProviderNode(updated)
     },
