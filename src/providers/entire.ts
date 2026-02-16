@@ -56,6 +56,26 @@ export interface EntireSession {
   tokenUsage?: EntireTokenUsage;
   filesTouched?: string[];
   summary?: string;
+
+  /** Skills used during this session (populated by SkillTracker) */
+  skillsUsed?: EntireSkillUsage;
+}
+
+/**
+ * Skill usage data embedded in session metadata
+ */
+export interface EntireSkillUsage {
+  /** Distinct skill names used */
+  skills: string[];
+
+  /** Total invocation count across all skills */
+  totalInvocations: number;
+
+  /** Per-skill invocation counts */
+  counts: Record<string, number>;
+
+  /** Per-skill success/failure counts */
+  outcomes: Record<string, { success: number; failure: number }>;
 }
 
 /**
@@ -356,6 +376,7 @@ function sessionToProviderNode(session: EntireSession): ProviderNode {
       checkpoints: session.checkpoints,
       startedAt: session.startedAt,
       endedAt: session.endedAt,
+      skillsUsed: session.skillsUsed,
     },
     fetchedAt: new Date().toISOString(),
   };

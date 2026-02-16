@@ -75,6 +75,11 @@ Archive commands (require running daemon with archival enabled):
   archive status                                 Show archive status
   archive node <uri>                             Manually archive a node
 
+Skill tracking commands (require running daemon):
+  skills <session-id>                            Get skill usage for a session
+  skills --all                                   Get skill usage for all sessions
+  skills --end <session-id>                      End tracking and get final summary
+
 All tool commands output JSON to stdout.
 `);
 }
@@ -731,6 +736,49 @@ export async function cmdArchive(args: string[]): Promise<void> {
   }
 }
 
+// ============================================================================
+// Skill Tracking Commands
+// ============================================================================
+
+export async function cmdSkills(args: string[]): Promise<void> {
+  const client = new OpenTasksClient();
+
+  if (hasFlag(args, '--all')) {
+    // Get all active session skill summaries
+    await runToolCommand(async () => {
+      const result = await client.allSkillUsage();
+      client.disconnect();
+      return result;
+    });
+  } else if (hasFlag(args, '--end')) {
+    // End tracking for a session
+    const sessionId = getFlag(args, '--end');
+    if (!sessionId) {
+      console.error('Usage: opentasks skills --end <session-id>');
+      process.exit(1);
+    }
+    await runToolCommand(async () => {
+      const result = await client.endSkillTracking(sessionId);
+      client.disconnect();
+      return result;
+    });
+  } else {
+    // Get skill usage for a specific session
+    const sessionId = args[0];
+    if (!sessionId || sessionId.startsWith('--')) {
+      console.error('Usage: opentasks skills <session-id>');
+      console.error('       opentasks skills --all');
+      console.error('       opentasks skills --end <session-id>');
+      process.exit(1);
+    }
+    await runToolCommand(async () => {
+      const result = await client.skillUsage(sessionId);
+      client.disconnect();
+      return result;
+    });
+  }
+}
+
 function padRight(str: string, len: number): string {
   return str.length >= len ? str + '  ' : str + ' '.repeat(len - str.length);
 }
@@ -808,6 +856,9 @@ async function main() {
       break;
     case 'archive':
       await cmdArchive(args.slice(1));
+      break;
+    case 'skills':
+      await cmdSkills(args.slice(1));
       break;
     case 'discover':
       cmdDiscover(args.slice(1));

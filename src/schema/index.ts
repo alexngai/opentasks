@@ -11,7 +11,7 @@ export type { Anchor, BaseNode } from './base.js';
 export type { Context, Task, Feedback, ExternalNode, Node, NodeType } from './nodes.js';
 
 // Edge types
-export type { Edge, EdgeType, CoreEdgeType, ExtendedEdgeType } from './edges.js';
+export type { Edge, EdgeType, CoreEdgeType, ExtendedEdgeType, SkillEdgeType } from './edges.js';
 
 // Storage types
 export type {
