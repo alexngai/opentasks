@@ -26,6 +26,11 @@ import {
   type IPCServer,
   type DaemonFlushManager,
 } from '../../../src/daemon/index.js'
+import type { LocationResolver, LocationState } from '../../../src/daemon/location-state.js'
+import type { FileWatcher } from '../../../src/daemon/watcher.js'
+
+// Tracking
+import { createSkillTrackerRegistry, type SkillTrackerRegistry } from '../../../src/tracking/index.js'
 
 // Client
 import { OpenTasksClient, createClient } from '../../../src/client/index.js'
@@ -84,6 +89,9 @@ export interface E2ESystemOptions {
    * Use this with beforeAll/afterAll to share workspace across tests.
    */
   beadsWorkspacePath?: string
+
+  /** Enable skill tracking for tool invocations (default: false) */
+  enableSkillTracking?: boolean
 }
 
 /**
@@ -143,6 +151,9 @@ export interface E2ESystemContext {
   /** Whether Beads integration is available */
   beadsAvailable: boolean
 
+  /** Skill tracker registry (if skill tracking is enabled) */
+  skillTrackerRegistry?: SkillTrackerRegistry
+
   /**
    * Create an additional client (for multi-agent tests)
    */
@@ -188,6 +199,7 @@ export async function setupE2ESystem(options: E2ESystemOptions = {}): Promise<E2
     enableBeads = false,
     cacheTTL = 1000, // Short TTL for fast tests
     beadsWorkspacePath,
+    enableSkillTracking = false,
   } = options
 
   // Create temp directory
@@ -321,11 +333,32 @@ export async function setupE2ESystem(options: E2ESystemOptions = {}): Promise<E2
   // Create IPC server
   const server = createIPCServer(socketPath)
 
+  // Create a minimal LocationResolver wrapping the single store + flushManager
+  const locationState: LocationState = {
+    hash: 'e2e-primary',
+    opentasksPath: openTasksDir,
+    store,
+    flushManager,
+    watcher: null as unknown as FileWatcher,
+    primary: true,
+    healthy: true,
+  }
+  const locationResolver: LocationResolver = {
+    resolve(_location?: string) { return locationState },
+    list() { return [{ hash: 'e2e-primary', opentasksPath: openTasksDir, primary: true, healthy: true }] },
+    has(hash: string) { return hash === 'e2e-primary' },
+    add() {},
+    async remove() {},
+  }
+
+  // Create skill tracker registry (if enabled)
+  const skillTrackerRegistry = enableSkillTracking ? createSkillTrackerRegistry() : undefined
+
   // Register tool handlers
   registerToolsMethods({
     server,
-    store,
-    flushManager,
+    locationResolver,
+    skillTrackerRegistry,
   })
 
   // Start IPC server
@@ -357,6 +390,7 @@ export async function setupE2ESystem(options: E2ESystemOptions = {}): Promise<E2
     hydratingGraph,
     materializationManager,
     beadsAvailable,
+    skillTrackerRegistry,
 
     async createClient(name?: string): Promise<OpenTasksClient> {
       const additionalClient = createClient({ socketPath })

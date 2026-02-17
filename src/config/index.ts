@@ -23,6 +23,7 @@ export type {
   ClaudeTasksProviderConfig,
   LoggingConfig,
   LoggingLevel,
+  TrackingConfig,
   DeepPartial,
   ValidationResult,
 } from './schema.js';

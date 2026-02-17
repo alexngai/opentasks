@@ -412,8 +412,11 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           locationResolver,
         });
 
-        // Create shared skill tracker registry for this daemon
-        const skillTrackerRegistry = createSkillTrackerRegistry();
+        // Create shared skill tracker registry (only if enabled in config)
+        const skillTrackingEnabled = openTasksConfig?.tracking?.skillTracking !== false;
+        const skillTrackerRegistry = skillTrackingEnabled
+          ? createSkillTrackerRegistry()
+          : undefined;
 
         registerToolsMethods({
           server: ipcServer,
@@ -673,8 +676,9 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
   /**
    * Initialize a location, returning its state. Returns null on failure (degraded mode).
    */
-  // Shared skill tracker registry for the entire daemon (created once, used by all locations)
-  const sharedSkillTrackerRegistry = createSkillTrackerRegistry();
+  // Shared skill tracker registry for the entire daemon.
+  // Created lazily based on primary config's tracking.skillTracking setting.
+  let sharedSkillTrackerRegistry: ReturnType<typeof createSkillTrackerRegistry> | undefined;
 
   async function initLocation(
     opentasksPath: string,
@@ -683,6 +687,11 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
     locationConfig?: PartialOpenTasksConfig,
   ): Promise<LocationState | null> {
     try {
+      // On primary init, create the shared registry if tracking is enabled
+      if (isPrimary && locationConfig?.tracking?.skillTracking !== false) {
+        sharedSkillTrackerRegistry = createSkillTrackerRegistry();
+      }
+
       const locState = await createLocationState(opentasksPath, hash, isPrimary, sharedSkillTrackerRegistry);
       // Wrap store with provider-aware dispatch
       const defaultProvider = (locationConfig?.defaultProvider as string | undefined) ?? 'native';

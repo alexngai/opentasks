@@ -58,6 +58,18 @@ const ENV_MAPPINGS: EnvMapping[] = [
   // Logging
   { envVar: 'OPENTASKS_LOGGING_LEVEL', path: ['logging', 'level'], type: 'string' },
   { envVar: 'OPENTASKS_LOGGING_FILE', path: ['logging', 'file'], type: 'nullable-string' },
+
+  // Tracking
+  {
+    envVar: 'OPENTASKS_TRACKING_SKILL_TRACKING',
+    path: ['tracking', 'skillTracking'],
+    type: 'boolean',
+  },
+  {
+    envVar: 'OPENTASKS_TRACKING_MAX_INVOCATIONS',
+    path: ['tracking', 'maxInvocationsPerSession'],
+    type: 'number',
+  },
 ];
 
 /**
