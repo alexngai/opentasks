@@ -240,6 +240,10 @@ describe('Config Schema', () => {
           level: 'info',
           file: null,
         },
+        tracking: {
+          skillTracking: false,
+          maxInvocationsPerSession: 1000,
+        },
         materialization: {
           graphId: undefined,
           git: {
@@ -314,6 +318,10 @@ describe('Config Schema', () => {
         logging: {
           level: 'error',
           file: 'logs/error.log',
+        },
+        tracking: {
+          skillTracking: false,
+          maxInvocationsPerSession: 1000,
         },
         materialization: {
           graphId: undefined,

@@ -15,6 +15,7 @@ import { createGraphStore, type GraphStore } from '../graph/store.js';
 import { createSQLitePersister } from '../storage/sqlite.js';
 import { JSONLPersister } from '../storage/jsonl.js';
 import type { Storage } from '../storage/interface.js';
+import type { PartialOpenTasksConfig } from '../config/schema.js';
 
 /**
  * Configuration for createDaemonWithStore
@@ -31,6 +32,9 @@ export interface DaemonWithStoreConfig {
 
   /** Shutdown timeout in milliseconds */
   shutdownTimeoutMs?: number;
+
+  /** OpenTasks config (controls tracking, providers, etc.) */
+  openTasksConfig?: PartialOpenTasksConfig;
 }
 
 /**
@@ -43,7 +47,7 @@ export interface DaemonWithStoreConfig {
  * @returns A ready-to-start daemon with an initialized store
  */
 export async function createDaemonWithStore(config: DaemonWithStoreConfig): Promise<Daemon> {
-  const { locationPath, version, registryPath, shutdownTimeoutMs } = config;
+  const { locationPath, version, registryPath, shutdownTimeoutMs, openTasksConfig } = config;
 
   const jsonlPath = path.join(locationPath, 'graph.jsonl');
 
@@ -83,6 +87,7 @@ export async function createDaemonWithStore(config: DaemonWithStoreConfig): Prom
     store,
     registryPath,
     shutdownTimeoutMs,
+    openTasksConfig,
   });
 }
 

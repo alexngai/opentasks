@@ -10,6 +10,7 @@ import type { GraphStore } from '../graph/store.js';
 import type { DaemonFlushManager } from './flush.js';
 import type { EntireSessionEvent, EntireSessionState } from './entire-watcher.js';
 import type { MaterializationArchiver } from '../materialization/types.js';
+import type { SkillTrackerRegistry } from '../tracking/skill-tracker.js';
 
 // ============================================================================
 // Types
@@ -62,6 +63,9 @@ export interface EntireAutoLinkerConfig {
 
   /** Optional archiver for durable session snapshots */
   archiver?: MaterializationArchiver;
+
+  /** Skill tracker registry for embedding skill usage in session nodes */
+  skillTrackerRegistry?: SkillTrackerRegistry;
 }
 
 /**
@@ -103,7 +107,7 @@ function meetsConfidenceThreshold(
  * Create an Entire auto-linker
  */
 export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAutoLinker {
-  const { store, flushManager, archiver } = config;
+  const { store, flushManager, archiver, skillTrackerRegistry } = config;
   const minConfidence = config.minConfidence ?? 'medium';
 
   // Track which sessions have been linked to avoid duplicates
@@ -481,9 +485,39 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
             });
 
             if (nodes.length > 0) {
+              // Pull skill usage from the tracker registry (if available)
+              const updateMetadata: Record<string, unknown> = {
+                phase: 'ENDED',
+                endedAt: session.endedAt,
+              };
+
+              if (skillTrackerRegistry) {
+                // Finalize the tracker: remove it and get the final summary
+                const skillSummary = skillTrackerRegistry.remove(sessionId);
+                if (skillSummary && skillSummary.totalInvocations > 0) {
+                  // Build the compact skillsUsed structure for the session node
+                  const counts: Record<string, number> = {};
+                  const outcomes: Record<string, { success: number; failure: number }> = {};
+                  for (const stat of skillSummary.stats) {
+                    counts[stat.skill] = stat.count;
+                    outcomes[stat.skill] = {
+                      success: stat.successCount,
+                      failure: stat.failureCount,
+                    };
+                  }
+
+                  updateMetadata.skillsUsed = {
+                    skills: skillSummary.skillsUsed,
+                    totalInvocations: skillSummary.totalInvocations,
+                    counts,
+                    outcomes,
+                  };
+                }
+              }
+
               await store.updateNode(nodes[0].id, {
                 status: 'closed',
-                metadata: { phase: 'ENDED', endedAt: session.endedAt },
+                metadata: updateMetadata,
               });
               flushManager.markDirty(nodes[0].id);
               flushManager.schedule();

@@ -18,6 +18,7 @@ import { createDaemonFlushManager, type DaemonFlushManager } from './flush.js';
 import { createEntireWatcher, type EntireWatcher } from './entire-watcher.js';
 import { createEntireAutoLinker, type EntireAutoLinker } from './entire-linker.js';
 import { DaemonError, type LocationInfo } from './types.js';
+import type { SkillTrackerRegistry } from '../tracking/skill-tracker.js';
 import type { MaterializationArchiver } from '../materialization/types.js';
 import { createGitArchiveStore } from '../materialization/git-archive-store.js';
 import { createMaterializationArchiver } from '../materialization/archiver.js';
@@ -142,6 +143,7 @@ export async function createLocationState(
   opentasksPath: string,
   hash: string,
   primary: boolean = false,
+  skillTrackerRegistry?: SkillTrackerRegistry,
 ): Promise<LocationState> {
   const store = await createStoreForLocation(opentasksPath);
 
@@ -226,6 +228,7 @@ export async function createLocationState(
       store,
       flushManager,
       archiver,
+      skillTrackerRegistry,
     });
 
     entireWatcher.onSessionEvent((event) => {

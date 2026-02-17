@@ -245,3 +245,19 @@ export {
 export type { ProviderAwareStore, ProviderStoreConfig, ResolveOptions } from './graph/index.js';
 
 export { createProviderAwareStore } from './graph/index.js';
+
+// =============================================================================
+// Tracking (Skill Usage)
+// =============================================================================
+
+export type {
+  SkillName,
+  SkillInvocation,
+  SkillUsageStats,
+  SkillUsageSummary,
+  SkillTrackerOptions,
+  SkillTracker,
+  SkillTrackerRegistry,
+} from './tracking/index.js';
+
+export { createSkillTracker, createSkillTrackerRegistry } from './tracking/index.js';

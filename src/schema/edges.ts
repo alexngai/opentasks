@@ -35,9 +35,15 @@ export type EntireEdgeType =
   | 'contains'; // session → checkpoint: "this session produced this checkpoint"
 
 /**
+ * Skill tracking edge types (auto-created by SkillTracker integration)
+ */
+export type SkillEdgeType =
+  | 'used-skill'; // session → context node: "this session used this skill"
+
+/**
  * All edge types (extensible via string)
  */
-export type EdgeType = CoreEdgeType | ExtendedEdgeType | EntireEdgeType | string;
+export type EdgeType = CoreEdgeType | ExtendedEdgeType | EntireEdgeType | SkillEdgeType | string;
 
 /**
  * Edge - Represents a relationship between nodes

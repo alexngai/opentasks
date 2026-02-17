@@ -386,6 +386,28 @@ export const MaterializationConfigSchema = z
 export type MaterializationConfig = z.infer<typeof MaterializationConfigSchema>;
 
 // ============================================================================
+// Tracking Configuration
+// ============================================================================
+
+const TrackingConfigSchemaInner = z.object({
+  /** Enable skill usage tracking for agent sessions */
+  skillTracking: z.boolean().default(false),
+
+  /** Maximum invocations to retain per session (default: 1000) */
+  maxInvocationsPerSession: z.number().min(10).default(1000),
+});
+
+export const TrackingConfigSchema = z
+  .object({
+    skillTracking: z.boolean().optional(),
+    maxInvocationsPerSession: z.number().min(10).optional(),
+  })
+  .default({})
+  .transform((val) => TrackingConfigSchemaInner.parse(val));
+
+export type TrackingConfig = z.infer<typeof TrackingConfigSchema>;
+
+// ============================================================================
 // Logging Configuration
 // ============================================================================
 
@@ -421,6 +443,8 @@ const OpenTasksConfigSchemaInner = z.object({
   daemon: DaemonConfigSchema,
   providers: ProvidersConfigSchema,
   logging: LoggingConfigSchema,
+  /** Skill tracking configuration */
+  tracking: TrackingConfigSchema,
   /** Location identity (Phase 2) */
   location: LocationConfigSchema,
   /** Explicit connections to other locations (Phase 2) */
@@ -488,6 +512,12 @@ export const OpenTasksConfigSchema = z
       .object({
         level: LoggingLevelSchema.optional(),
         file: z.string().nullable().optional(),
+      })
+      .optional(),
+    tracking: z
+      .object({
+        skillTracking: z.boolean().optional(),
+        maxInvocationsPerSession: z.number().min(10).optional(),
       })
       .optional(),
     location: z

@@ -474,6 +474,42 @@ export class OpenTasksClient {
   }
 
   // ==========================================================================
+  // Skill Tracking
+  // ==========================================================================
+
+  /**
+   * Get skill usage summary for a specific session/trajectory
+   *
+   * @param sessionId - Session ID to query
+   * @returns Skill usage summary or null if session not found
+   */
+  async skillUsage(sessionId: string): Promise<unknown> {
+    await this.ensureConnected();
+    return this.client!.request('tracking.skills', { sessionId });
+  }
+
+  /**
+   * Get skill usage summaries for all active sessions
+   *
+   * @returns Array of skill usage summaries
+   */
+  async allSkillUsage(): Promise<unknown> {
+    await this.ensureConnected();
+    return this.client!.request('tracking.skills.all', {});
+  }
+
+  /**
+   * End skill tracking for a session and return the final summary
+   *
+   * @param sessionId - Session ID to finalize
+   * @returns Final skill usage summary or null if session not found
+   */
+  async endSkillTracking(sessionId: string): Promise<unknown> {
+    await this.ensureConnected();
+    return this.client!.request('tracking.skills.end', { sessionId });
+  }
+
+  // ==========================================================================
   // Generic RPC
   // ==========================================================================
 
