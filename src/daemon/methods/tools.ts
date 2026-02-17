@@ -26,7 +26,6 @@ import { query } from '../../tools/query.js';
 import { annotate } from '../../tools/annotate.js';
 import { task } from '../../tools/task.js';
 import type { SkillTrackerRegistry, SkillUsageSummary } from '../../tracking/skill-tracker.js';
-import { createSkillTrackerRegistry } from '../../tracking/skill-tracker.js';
 
 // ============================================================================
 // Types
@@ -122,7 +121,7 @@ function getAnnotateOperation(params: AnnotateParams): string | undefined {
  */
 export function registerToolsMethods(options: ToolsMethodsOptions): void {
   const { server, locationResolver } = options;
-  const registry = options.skillTrackerRegistry ?? createSkillTrackerRegistry();
+  const registry = options.skillTrackerRegistry;
 
   // tools.link - Create/remove edges between nodes
   server.handle<LinkParams & TrackingContext, LinkResult>('tools.link', async (params) => {
@@ -137,7 +136,7 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
     const result = await link(state.store, linkParams);
 
     // Record skill invocation
-    if (_sessionId) {
+    if (_sessionId && registry) {
       const tracker = registry.getOrCreate(_sessionId, _agentId);
       tracker.record({
         skill: 'link',
@@ -181,7 +180,7 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       // Record failure before re-throwing
-      if (_sessionId) {
+      if (_sessionId && registry) {
         const tracker = registry.getOrCreate(_sessionId, _agentId);
         tracker.record({
           skill: 'query',
@@ -195,7 +194,7 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
     }
 
     // Record skill invocation
-    if (_sessionId) {
+    if (_sessionId && registry) {
       const tracker = registry.getOrCreate(_sessionId, _agentId);
       tracker.record({
         skill: 'query',
@@ -223,7 +222,7 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
       const result = await annotate(state.store, annotateParams);
 
       // Record skill invocation
-      if (_sessionId) {
+      if (_sessionId && registry) {
         const tracker = registry.getOrCreate(_sessionId, _agentId);
         tracker.record({
           skill: 'annotate',
@@ -265,7 +264,7 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
 
     if (!state.providerStore) {
       const error = 'Provider store not available';
-      if (_sessionId) {
+      if (_sessionId && registry) {
         const tracker = registry.getOrCreate(_sessionId, _agentId);
         tracker.record({
           skill: 'task',
@@ -281,7 +280,7 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
     const result = await task(state.providerStore, taskParams);
 
     // Record skill invocation
-    if (_sessionId) {
+    if (_sessionId && registry) {
       const tracker = registry.getOrCreate(_sessionId, _agentId);
       const targets: string[] = [];
       if (taskParams.transition?.id) targets.push(taskParams.transition.id);
@@ -324,6 +323,7 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
       if (!params?.sessionId) {
         throw new Error('Missing required parameter: sessionId');
       }
+      if (!registry) return null;
 
       const tracker = registry.get(params.sessionId);
       if (!tracker) return null;
@@ -336,6 +336,7 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
   server.handle<Record<string, never>, SkillUsageSummary[]>(
     'tracking.skills.all',
     async () => {
+      if (!registry) return [];
       return registry.getAllSummaries();
     },
   );
@@ -347,6 +348,7 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
       if (!params?.sessionId) {
         throw new Error('Missing required parameter: sessionId');
       }
+      if (!registry) return null;
 
       return registry.remove(params.sessionId);
     },
