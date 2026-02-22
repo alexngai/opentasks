@@ -67,6 +67,7 @@
     "url": "git+https://github.com/alexngai/opentasks.git"
   },
   "dependencies": {
+    "agent-session-parser": "^0.1.0",
     "better-sqlite3": "^12.6.2",
     "chokidar": "^5.0.0",
     "graphology": "^0.26.0",

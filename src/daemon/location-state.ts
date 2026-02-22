@@ -19,6 +19,7 @@ import { createEntireWatcher, type EntireWatcher } from './entire-watcher.js';
 import { createEntireAutoLinker, type EntireAutoLinker } from './entire-linker.js';
 import { DaemonError, type LocationInfo } from './types.js';
 import type { SkillTrackerRegistry } from '../tracking/skill-tracker.js';
+import { createTranscriptExtractor } from '../tracking/transcript-extractor.js';
 import type { MaterializationArchiver } from '../materialization/types.js';
 import { createGitArchiveStore } from '../materialization/git-archive-store.js';
 import { createMaterializationArchiver } from '../materialization/archiver.js';
@@ -215,7 +216,7 @@ export async function createLocationState(
     archiver = undefined;
   }
 
-  // Initialize Entire integration (watcher + auto-linker)
+  // Initialize Entire integration (watcher + auto-linker + transcript extractor)
   let entireWatcher: EntireWatcher | undefined;
   let entireLinker: EntireAutoLinker | undefined;
 
@@ -231,8 +232,22 @@ export async function createLocationState(
       skillTrackerRegistry,
     });
 
-    entireWatcher.onSessionEvent((event) => {
-      void entireLinker!.handleSessionEvent(event);
+    const transcriptExtractor = createTranscriptExtractor({
+      skillTrackerRegistry,
+    });
+
+    entireWatcher.onSessionEvent(async (event) => {
+      // Step 1: Extract transcript and backfill SkillTracker (BEFORE linker finalizes)
+      if (event.type === 'ended') {
+        try {
+          await transcriptExtractor.extract(event);
+        } catch {
+          // Best-effort: don't block linker on extraction failure
+        }
+      }
+
+      // Step 2: Linker finalizes (calls registry.remove() on ended)
+      await entireLinker!.handleSessionEvent(event);
     });
 
     await entireWatcher.start();
