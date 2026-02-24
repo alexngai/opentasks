@@ -10,6 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { createIPCClient, type IPCClient } from '../daemon/ipc.js';
 import { getGitCommonDir } from '../core/worktree.js';
+import { ensureGlobalStoreInitialized } from '../core/init.js';
 import type {
   LinkParams,
   LinkResult,
@@ -121,7 +122,9 @@ function getDefaultSocketPath(): string {
   }
 
   // 3. Fallback to global daemon at ~/.opentasks/daemon.sock
-  const globalSocketPath = path.join(os.homedir(), '.opentasks', 'daemon.sock');
+  // Auto-init ~/.opentasks/ if it doesn't exist yet
+  const globalDir = ensureGlobalStoreInitialized();
+  const globalSocketPath = path.join(globalDir, 'daemon.sock');
   if (fs.existsSync(globalSocketPath)) {
     return globalSocketPath;
   }

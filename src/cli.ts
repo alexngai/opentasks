@@ -11,6 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { generateLocationIdentity } from './core/location.js';
+import { ensureGlobalStoreInitialized } from './core/init.js';
 import { createConnection, checkAllConnectionHealth, type Connection } from './core/connections.js';
 import {
   worktreeSetup,
@@ -113,9 +114,20 @@ function cmdInit(args: string[]): void {
   const name = nameIndex !== -1 ? args[nameIndex + 1] : undefined;
   const isGlobal = args.includes('--global');
 
-  const opentasksDir = isGlobal
-    ? path.join(os.homedir(), '.opentasks')
-    : path.resolve(OPENTASKS_DIR);
+  // Global init delegates to the shared utility
+  if (isGlobal) {
+    ensureGlobalStoreInitialized(name ?? 'global');
+    const globalDir = path.join(os.homedir(), '.opentasks');
+    const config = readConfig(globalDir);
+    const loc = config.location as Record<string, string>;
+    console.log('Initialized ~/.opentasks/ (global)');
+    console.log(`  hash: ${loc.hash}`);
+    console.log(`  uuid: ${loc.uuid}`);
+    console.log(`  name: ${loc.name}`);
+    return;
+  }
+
+  const opentasksDir = path.resolve(OPENTASKS_DIR);
 
   // Create directory if it doesn't exist
   fs.mkdirSync(opentasksDir, { recursive: true });
@@ -134,8 +146,7 @@ function cmdInit(args: string[]): void {
   }
 
   // Generate location identity
-  const effectiveName = name ?? (isGlobal ? 'global' : undefined);
-  const identity = generateLocationIdentity(opentasksDir, effectiveName);
+  const identity = generateLocationIdentity(opentasksDir, name);
 
   config.version = '1.0';
   config.location = {
@@ -174,7 +185,7 @@ function cmdInit(args: string[]): void {
     );
   }
 
-  console.log(isGlobal ? 'Initialized ~/.opentasks/ (global)' : 'Initialized .opentasks/');
+  console.log('Initialized .opentasks/');
   console.log(`  hash: ${identity.hash}`);
   console.log(`  uuid: ${identity.uuid}`);
   console.log(`  name: ${identity.name}`);
