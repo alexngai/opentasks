@@ -7,6 +7,7 @@
 import { createBeadsProvider } from './beads.js';
 import { createClaudeTasksProvider } from './claude-tasks.js';
 import { createEntireProvider } from './entire.js';
+import { createGlobalProvider } from './global.js';
 import { createNativeProvider } from './native.js';
 import { createSudocodeProvider } from './sudocode.js';
 import { createProviderRegistry } from './registry.js';
@@ -183,6 +184,27 @@ export async function createProvidersFromConfig(
     }
   } else {
     skipped.push('entire');
+  }
+
+  // 6. Global provider (if enabled)
+  if (config.providers.global.enabled) {
+    const globalConfig = config.providers.global;
+    try {
+      const globalProvider = createGlobalProvider({
+        globalPath: globalConfig.path || undefined,
+        timeout: globalConfig.timeout,
+        cacheTTL: globalConfig.cacheTTL,
+      });
+      registry.register(globalProvider);
+      providers.push(globalProvider);
+    } catch (error) {
+      failed.push({
+        name: 'global',
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+    }
+  } else {
+    skipped.push('global');
   }
 
   return { registry, providers, skipped, failed };

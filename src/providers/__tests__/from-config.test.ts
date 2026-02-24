@@ -155,6 +155,7 @@ describe('createProvidersFromConfig', () => {
           claudeTasks: { enabled: false },
           sudocode: { ...defaultConfig.providers.sudocode, enabled: false },
           entire: { ...defaultConfig.providers.entire, enabled: false },
+          global: { ...defaultConfig.providers.global, enabled: false },
         },
       };
 
@@ -167,6 +168,7 @@ describe('createProvidersFromConfig', () => {
       expect(result.skipped).toContain('claude');
       expect(result.skipped).toContain('sudocode');
       expect(result.skipped).toContain('entire');
+      expect(result.skipped).toContain('global');
     });
 
     it('returns empty failed array on success', async () => {

@@ -221,11 +221,38 @@ export const SudocodeProviderConfigSchema = z
 
 export type SudocodeProviderConfig = z.infer<typeof SudocodeProviderConfigSchema>;
 
+const GlobalProviderConfigSchemaInner = z.object({
+  /** Enable global provider for federation with ~/.opentasks */
+  enabled: z.boolean().default(true),
+
+  /** Path to the global .opentasks directory (empty = ~/.opentasks) */
+  path: z.string().default(''),
+
+  /** Connection timeout for IPC to global daemon (ms) */
+  timeout: z.number().min(1000, 'timeout must be >= 1000ms').default(10000),
+
+  /** TTL for cached data from global store (ms) */
+  cacheTTL: z.number().min(0, 'cacheTTL must be >= 0').default(300000),
+});
+
+export const GlobalProviderConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    path: z.string().optional(),
+    timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+    cacheTTL: z.number().min(0, 'cacheTTL must be >= 0').optional(),
+  })
+  .default({})
+  .transform((val) => GlobalProviderConfigSchemaInner.parse(val));
+
+export type GlobalProviderConfig = z.infer<typeof GlobalProviderConfigSchema>;
+
 const ProvidersConfigSchemaInner = z.object({
   beads: BeadsProviderConfigSchema,
   claudeTasks: ClaudeTasksProviderConfigSchema,
   sudocode: SudocodeProviderConfigSchema,
   entire: EntireProviderConfigSchema,
+  global: GlobalProviderConfigSchema,
 });
 
 export const ProvidersConfigSchema = z
@@ -256,6 +283,14 @@ export const ProvidersConfigSchema = z
         timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
         autoLink: z.boolean().optional(),
         autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
+      })
+      .optional(),
+    global: z
+      .object({
+        enabled: z.boolean().optional(),
+        path: z.string().optional(),
+        timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+        cacheTTL: z.number().min(0, 'cacheTTL must be >= 0').optional(),
       })
       .optional(),
   })
@@ -504,6 +539,14 @@ export const OpenTasksConfigSchema = z
             timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
             autoLink: z.boolean().optional(),
             autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
+          })
+          .optional(),
+        global: z
+          .object({
+            enabled: z.boolean().optional(),
+            path: z.string().optional(),
+            timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+            cacheTTL: z.number().min(0, 'cacheTTL must be >= 0').optional(),
           })
           .optional(),
       })

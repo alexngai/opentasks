@@ -51,6 +51,9 @@ export {
 // Sudocode Provider
 export { createSudocodeProvider, type SudocodeConfig } from './sudocode.js';
 
+// Global Provider
+export { createGlobalProvider, type GlobalProviderConfig } from './global.js';
+
 // Entire Provider
 export {
   createEntireProvider,

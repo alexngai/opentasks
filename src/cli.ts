@@ -8,6 +8,7 @@
  */
 
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { generateLocationIdentity } from './core/location.js';
 import { createConnection, checkAllConnectionHealth, type Connection } from './core/connections.js';
@@ -57,7 +58,7 @@ Update options:
   --metadata <json>             Update metadata (merged)
 
 Setup commands:
-  init [--name <name>]          Initialize .opentasks in current directory
+  init [--name <name>] [--global] Initialize .opentasks (--global: ~/.opentasks)
   connect <path> [--role <role>] Connect to another location
   disconnect <hash>             Disconnect from a location
   connections                   List connections with health status
@@ -110,8 +111,11 @@ function writeConfig(opentasksDir: string, config: Record<string, unknown>): voi
 function cmdInit(args: string[]): void {
   const nameIndex = args.indexOf('--name');
   const name = nameIndex !== -1 ? args[nameIndex + 1] : undefined;
+  const isGlobal = args.includes('--global');
 
-  const opentasksDir = path.resolve(OPENTASKS_DIR);
+  const opentasksDir = isGlobal
+    ? path.join(os.homedir(), '.opentasks')
+    : path.resolve(OPENTASKS_DIR);
 
   // Create directory if it doesn't exist
   fs.mkdirSync(opentasksDir, { recursive: true });
@@ -130,7 +134,8 @@ function cmdInit(args: string[]): void {
   }
 
   // Generate location identity
-  const identity = generateLocationIdentity(opentasksDir, name);
+  const effectiveName = name ?? (isGlobal ? 'global' : undefined);
+  const identity = generateLocationIdentity(opentasksDir, effectiveName);
 
   config.version = '1.0';
   config.location = {
@@ -169,7 +174,7 @@ function cmdInit(args: string[]): void {
     );
   }
 
-  console.log('Initialized .opentasks/');
+  console.log(isGlobal ? 'Initialized ~/.opentasks/ (global)' : 'Initialized .opentasks/');
   console.log(`  hash: ${identity.hash}`);
   console.log(`  uuid: ${identity.uuid}`);
   console.log(`  name: ${identity.name}`);
@@ -214,10 +219,24 @@ function cmdConnect(args: string[]): void {
     updated.push(connection);
     config.connections = updated;
 
+    // Auto-enable global provider for parent connections
+    if (role === 'parent') {
+      const resolvedTarget = path.resolve(targetPath);
+      if (!config.providers) config.providers = {};
+      const providers = config.providers as Record<string, unknown>;
+      if (!providers.global) providers.global = {};
+      const globalConfig = providers.global as Record<string, unknown>;
+      globalConfig.enabled = true;
+      globalConfig.path = resolvedTarget;
+    }
+
     writeConfig(opentasksDir, config);
 
     console.log(`  path: ${connection.path}`);
     console.log(`  role: ${connection.role}`);
+    if (role === 'parent') {
+      console.log(`  global provider: enabled (path: ${path.resolve(targetPath)})`);
+    }
   } catch (error) {
     console.error(`Failed to connect: ${(error as Error).message}`);
     process.exit(1);

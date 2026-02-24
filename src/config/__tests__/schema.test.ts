@@ -150,6 +150,12 @@ describe('Config Schema', () => {
           autoLink: true,
           autoLinkMinConfidence: 'medium',
         },
+        global: {
+          enabled: true,
+          path: '',
+          timeout: 10000,
+          cacheTTL: 300000,
+        },
       });
     });
 
@@ -235,6 +241,12 @@ describe('Config Schema', () => {
             autoLink: true,
             autoLinkMinConfidence: 'medium',
           },
+          global: {
+            enabled: true,
+            path: '',
+            timeout: 10000,
+            cacheTTL: 300000,
+          },
         },
         logging: {
           level: 'info',
@@ -313,6 +325,12 @@ describe('Config Schema', () => {
             timeout: 45000,
             autoLink: false,
             autoLinkMinConfidence: 'high',
+          },
+          global: {
+            enabled: false,
+            path: '',
+            timeout: 10000,
+            cacheTTL: 300000,
           },
         },
         logging: {

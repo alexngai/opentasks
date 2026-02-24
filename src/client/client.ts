@@ -7,6 +7,7 @@
 
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import { createIPCClient, type IPCClient } from '../daemon/ipc.js';
 import { getGitCommonDir } from '../core/worktree.js';
 import type {
@@ -102,8 +103,9 @@ function findOpenTasksDir(startDir: string = process.cwd()): string | null {
 
 /**
  * Get the default socket path.
- * Prefers .git/opentasks/daemon.sock (multi-location) then falls back
- * to walking up for .opentasks/daemon.sock (single-location).
+ * Prefers .git/opentasks/daemon.sock (multi-location), then walks up for
+ * .opentasks/daemon.sock (single-location), then falls back to
+ * ~/.opentasks/daemon.sock (global store).
  */
 function getDefaultSocketPath(): string {
   // 1. Check for multi-location daemon socket first
@@ -114,13 +116,20 @@ function getDefaultSocketPath(): string {
 
   // 2. Fallback to single-location .opentasks/daemon.sock
   const openTasksDir = findOpenTasksDir();
-  if (!openTasksDir) {
-    throw new ClientError(
-      'Could not find daemon socket. Is the daemon running?',
-      'SOCKET_NOT_FOUND',
-    );
+  if (openTasksDir) {
+    return path.join(openTasksDir, 'daemon.sock');
   }
-  return path.join(openTasksDir, 'daemon.sock');
+
+  // 3. Fallback to global daemon at ~/.opentasks/daemon.sock
+  const globalSocketPath = path.join(os.homedir(), '.opentasks', 'daemon.sock');
+  if (fs.existsSync(globalSocketPath)) {
+    return globalSocketPath;
+  }
+
+  throw new ClientError(
+    'Could not find daemon socket. Is the daemon running?',
+    'SOCKET_NOT_FOUND',
+  );
 }
 
 // ============================================================================

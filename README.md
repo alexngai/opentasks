@@ -242,6 +242,7 @@ OpenTasks owns the graph. Providers own node content. Three patterns:
 | Provider | Resolve URIs on demand | Jira, Linear, GitHub |
 | Adapter | Delegate all CRUD to backend | Beads (`bd` CLI) |
 | SyncTarget | Two-way sync | Sudocode |
+| IPC Bridge | Federate across daemons | Global store (`~/.opentasks`) |
 
 External nodes go through three stages:
 
@@ -266,7 +267,7 @@ No upfront API calls. References stay cheap until you need the data.
 Multiple `.opentasks/` directories at different filesystem levels. Each is isolated by default.
 
 ```
-~/.opentasks/                         # User global
+~/.opentasks/                         # Global store
   └── ~/projects/.opentasks/          # Workspace
       └── ~/projects/app/.opentasks/  # Project
 ```
@@ -277,6 +278,62 @@ Cross-location references use `opentasks://` URIs:
 opentasks://./t-x7k9              # Current location
 opentasks://~/t-a2b3              # User global
 opentasks://../other-repo/c-c4d5  # Relative path
+```
+
+### Global Store
+
+Use opentasks without initializing in a project. The global store at `~/.opentasks/` acts as a fallback when no project-level `.opentasks/` is found.
+
+```bash
+# One-time setup
+opentasks init --global
+
+# Now use from any directory (no per-project init needed)
+cd /any/directory
+opentasks create --type task --title "Read paper on transformers"
+opentasks query '{"ready": {}}'
+```
+
+The client discovers daemons in order: project `.opentasks/` > git worktree > global `~/.opentasks/`. Project stores always take precedence.
+
+### Federation
+
+A project can connect to the global store (or any other location) as a parent, enabling cross-scope references.
+
+```bash
+# In your project
+opentasks init
+opentasks connect ~/.opentasks --role parent
+```
+
+This auto-enables the global provider. You can then reference global tasks from your project using `global://` URIs:
+
+```bash
+# Create a cross-scope blocker
+opentasks link --from i-local1 --to global://i-global1 --type blocks
+
+# Query local tasks (default — global tasks excluded)
+opentasks query '{"ready": {}}'
+
+# Query global tasks explicitly
+opentasks query '{"ready": {"providers": ["global"]}}'
+```
+
+Cross-scope blockers work transparently. If a local task is blocked by `global://i-xyz`, the `ready()` query resolves the global blocker via IPC, checks its status, and only shows the local task as ready once the global blocker is closed.
+
+Federation config in `.opentasks/config.json`:
+
+```json
+{
+  "providers": {
+    "global": {
+      "enabled": true,
+      "path": "/Users/you/.opentasks",
+      "timeout": 10000,
+      "cacheTTL": 300000
+    }
+  }
+}
 ```
 
 ## Worktrees
