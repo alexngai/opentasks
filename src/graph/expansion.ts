@@ -9,6 +9,7 @@ import type { Storage } from '../storage/interface.js';
 import type { Connection } from '../core/connections.js';
 import type { ProviderNode } from '../providers/types.js';
 import type { LocationProvider } from '../providers/location.js';
+import type { NodeResolver } from './query.js';
 import { isOpentasksUri, parseOpentasksUri } from '../core/uri.js';
 
 /**
@@ -149,16 +150,28 @@ function findCrossLocationEdges(
 }
 
 /**
+ * Statuses considered "closed" for cross-location blocker resolution
+ */
+const CLOSED_STATUSES = new Set(['closed', 'done', 'resolved', 'completed', 'cancelled']);
+
+/**
+ * Pattern for external URIs (opentasks:// or global://)
+ */
+const EXTERNAL_URI_PATTERN = /^(opentasks|global):\/\//;
+
+/**
  * Create a query expander
  *
  * @param storage - Local storage
  * @param locationHash - Current location hash
  * @param locationProviders - Map of location hash → Provider
+ * @param nodeResolver - Optional resolver for cross-provider blocker resolution
  */
 export function createQueryExpander(
   storage: Storage,
   locationHash: string,
   locationProviders: Map<string, LocationProvider>,
+  nodeResolver?: NodeResolver,
 ): QueryExpander {
   /**
    * Get all local edges for cross-location analysis
@@ -204,7 +217,31 @@ export function createQueryExpander(
       const maxLocations = options?.maxLocations ?? 10;
 
       // Always query local
-      const local = await storage.getReady();
+      let local = await storage.getReady();
+
+      // Post-filter: exclude tasks with active cross-location blockers
+      if (nodeResolver && local.length > 0) {
+        const filtered: StoredNode[] = [];
+        for (const task of local) {
+          const blockerEdges = await storage.getEdgesTo(task.id, 'blocks');
+          let hasActiveCrossLocationBlocker = false;
+
+          for (const edge of blockerEdges) {
+            if (EXTERNAL_URI_PATTERN.test(edge.from_id)) {
+              const blocker = await nodeResolver(edge.from_id);
+              if (blocker && !blocker.archived && !CLOSED_STATUSES.has(blocker.status ?? '')) {
+                hasActiveCrossLocationBlocker = true;
+                break;
+              }
+            }
+          }
+
+          if (!hasActiveCrossLocationBlocker) {
+            filtered.push(task);
+          }
+        }
+        local = filtered;
+      }
 
       if (mode === 'none') {
         return {

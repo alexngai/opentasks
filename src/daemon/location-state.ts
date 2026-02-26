@@ -26,6 +26,7 @@ import { createMaterializationArchiver } from '../materialization/archiver.js';
 import { resolveGraphId } from '../materialization/graph-id.js';
 import { createRemoteStoresFromConfig } from '../materialization/remote-store-factory.js';
 import { loadConfig } from '../config/index.js';
+import { createGitGraphSyncer, type GitGraphSyncer } from '../graph/git-graph-syncer.js';
 
 // ============================================================================
 // Types
@@ -67,6 +68,9 @@ export interface LocationState {
 
   /** Materialization archiver (if enabled) */
   archiver?: MaterializationArchiver;
+
+  /** Git graph syncer (if enabled) */
+  graphSyncer?: GitGraphSyncer;
 }
 
 /**
@@ -156,14 +160,24 @@ export async function createLocationState(
       watcher.pause();
       try {
         await store.flush();
+        // Auto-commit after flush if git sync is enabled
+        if (graphSyncer) {
+          await graphSyncer.commitIfDirty();
+        }
       } finally {
         watcher.resume();
       }
     },
   );
 
-  watcher.onchange((_event) => {
-    // External changes detected. Full reload deferred.
+  watcher.onchange((event) => {
+    if (event.category === 'graph') {
+      // External change to graph.jsonl detected — reload into SQLite
+      flushManager.pause();
+      void store.reload().finally(() => {
+        flushManager.resume();
+      });
+    }
   });
 
   // Initialize materialization archiver (if configured)
@@ -214,6 +228,34 @@ export async function createLocationState(
   } catch {
     // Materialization is optional — continue without it
     archiver = undefined;
+  }
+
+  // Initialize GitGraphSyncer (if configured)
+  let graphSyncer: GitGraphSyncer | undefined;
+
+  try {
+    const syncConfig = (await loadConfig(opentasksPath)).sync;
+    if (syncConfig?.git?.enabled) {
+      graphSyncer = createGitGraphSyncer({
+        opentasksPath,
+        remote: syncConfig.git.remote,
+        autoCommit: syncConfig.git.autoCommit,
+        autoPush: syncConfig.git.autoPush,
+        pushDebounceMs: syncConfig.git.pushDebounceMs,
+      });
+      graphSyncer.installMergeDriver();
+
+      if (syncConfig.git.pullOnStartup) {
+        await graphSyncer.pull();
+      }
+
+      if (syncConfig.git.autoCommit || syncConfig.git.autoPush) {
+        graphSyncer.startAutoSync();
+      }
+    }
+  } catch {
+    // Git sync is optional — continue without it
+    graphSyncer = undefined;
   }
 
   // Initialize Entire integration (watcher + auto-linker + transcript extractor)
@@ -268,6 +310,7 @@ export async function createLocationState(
     entireWatcher,
     entireLinker,
     archiver,
+    graphSyncer,
   };
 }
 
@@ -315,6 +358,15 @@ export async function destroyLocationState(state: LocationState): Promise<void> 
   if (state.archiver) {
     try {
       await state.archiver.close();
+    } catch {
+      /* ignore */
+    }
+  }
+  // Shut down git graph syncer (final sync + stop auto-sync)
+  if (state.graphSyncer) {
+    try {
+      state.graphSyncer.stopAutoSync();
+      await state.graphSyncer.sync();
     } catch {
       /* ignore */
     }

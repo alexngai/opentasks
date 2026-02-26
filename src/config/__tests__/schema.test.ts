@@ -272,6 +272,15 @@ describe('Config Schema', () => {
           },
           rematerializeOnStartup: false,
         },
+        sync: {
+          git: {
+            enabled: false,
+            autoCommit: false,
+            autoPush: false,
+            pushDebounceMs: 60000,
+            pullOnStartup: false,
+          },
+        },
         location: undefined,
         connections: [],
         role: 'standalone',
@@ -356,6 +365,15 @@ describe('Config Schema', () => {
             materializeBeforeArchive: true,
           },
           rematerializeOnStartup: false,
+        },
+        sync: {
+          git: {
+            enabled: false,
+            autoCommit: false,
+            autoPush: false,
+            pushDebounceMs: 60000,
+            pullOnStartup: false,
+          },
         },
         location: undefined,
         connections: [],
