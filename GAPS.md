@@ -39,14 +39,13 @@ what to close next.
 |-----------|---------------|--------|
 | `agent/agent.go` (Agent interface) | `agent/types.ts` | :white_check_mark: |
 | `agent/agent.go` (HookSupport, FileWatcher, TranscriptAnalyzer, TokenCalculator) | `agent/types.ts` | :white_check_mark: |
-| `agent/agent.go` (`TranscriptPreparer` interface) | — | :red_circle: |
+| `agent/agent.go` (`TranscriptPreparer` interface) | `agent/types.ts` (`TranscriptPreparer`) | :white_check_mark: |
 | `agent/agent.go` (`SubagentAwareExtractor` interface) | — | :red_circle: |
 | `agent/registry.go` | `agent/registry.ts` | :white_check_mark: |
 
-#### Gap: `TranscriptPreparer` interface
-**Go**: `PrepareTranscript(ctx, transcriptPath)` — Claude Code uses this to wait for an
-async-flush sentinel before reading the transcript, avoiding partial reads.
-**TS**: Not implemented. Transcript reads may see incomplete data on slow I/O.
+#### ~~Gap: `TranscriptPreparer` interface~~ :white_check_mark: CLOSED
+Implemented in `agent/types.ts` + `agent/agents/claude-code.ts`.
+Polls transcript tail for "hooks claude-code stop" sentinel with timestamp validation.
 
 #### Gap: `SubagentAwareExtractor` interface
 **Go**: `ExtractAllModifiedFiles()` and `CalculateTotalTokenUsage()` — aggregates files
@@ -72,7 +71,7 @@ and tokens from the main session *plus* all Task-tool subagent sessions.
 | `reassembleTranscript()` | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
 | `extractPrompts()` | :white_check_mark: | N/A | :white_check_mark: | :white_check_mark: |
 | `extractSummary()` | :white_check_mark: | N/A | :white_check_mark: | :white_check_mark: |
-| `prepareTranscript()` (flush wait) | :red_circle: | N/A | N/A | N/A |
+| `prepareTranscript()` (flush wait) | :white_check_mark: | N/A | N/A | N/A |
 | `extractSpawnedAgentIDs()` | :red_circle: | N/A | N/A | N/A |
 | `extractAllModifiedFiles()` (+ subagents) | :red_circle: | N/A | N/A | N/A |
 | `calculateTotalTokenUsage()` (+ subagents) | :red_circle: | N/A | N/A | N/A |
@@ -163,8 +162,8 @@ in unexpected phases).
 
 | Go Source | TS Equivalent | Status |
 |-----------|---------------|--------|
-| `manual_commit_hooks.go` — `CommitMsg()` hook handler | — | :red_circle: |
-| `manual_commit_migration.go` — `migrateShadowBranchIfNeeded()` | — | :red_circle: |
+| `manual_commit_hooks.go` — `CommitMsg()` hook handler | `strategy/manual-commit.ts` `commitMsg()` | :white_check_mark: |
+| `manual_commit_migration.go` — `migrateShadowBranchIfNeeded()` | `strategy/manual-commit.ts` `migrateShadowBranchIfNeeded()` | :white_check_mark: |
 | `strategy/messages.go` — `ExtractLastCompletedTodo()` | — | :red_circle: |
 | `strategy/messages.go` — `ExtractInProgressTodo()` | — | :red_circle: |
 | `strategy/messages.go` — `CountTodos()` | — | :red_circle: |
@@ -174,18 +173,13 @@ in unexpected phases).
 | `manual_commit_rewind.go` — `ResolveAgentForRewind()` | — | :red_circle: |
 | `manual_commit_rewind.go` — `ClassifyTimestamps()` / conflict detection | — | :red_circle: |
 
-#### Gap: `commit-msg` hook
-**Go**: 4 git hooks — `prepare-commit-msg`, **`commit-msg`**, `post-commit`, `pre-push`.
-The `commit-msg` hook strips the Entire trailer from the commit message if there's no
-user content, allowing `git commit --allow-empty` to be aborted cleanly.
-**TS**: Only 3 git hooks — missing `commit-msg`. Also missing from `HOOK_NAMES` in
-`git-hooks.ts` and from `hookManagerWarning()`.
+#### ~~Gap: `commit-msg` hook~~ CLOSED
+Now all 4 git hooks are implemented: `prepare-commit-msg`, `commit-msg`, `post-commit`,
+`pre-push`. The `commit-msg` hook strips the Entire trailer if there's no user content.
 
-#### Gap: Shadow branch migration
-**Go**: `migrateShadowBranchIfNeeded()` detects when HEAD changes mid-session
-(due to rebase, pull, or amend) and migrates the shadow branch to the new base.
-Without this, a rebase during an active session would orphan the shadow branch.
-**TS**: No migration logic. Active sessions will break if the user rebases mid-session.
+#### ~~Gap: Shadow branch migration~~ CLOSED
+`migrateShadowBranchIfNeeded()` now detects when HEAD changes mid-session and migrates
+the shadow branch. Called automatically by `saveStep()` and `saveTaskStep()`.
 
 #### Gap: Todo extraction from tool input
 **Go**: `ExtractLastCompletedTodo()`, `ExtractInProgressTodo()`, `CountTodos()` parse
@@ -209,7 +203,7 @@ interactive confirmation for log overwrites.
 | Go Source | TS Equivalent | Status |
 |-----------|---------------|--------|
 | `strategy/hooks.go` — `prepare-commit-msg` | `hooks/git-hooks.ts` | :white_check_mark: |
-| `strategy/hooks.go` — `commit-msg` | — | :red_circle: |
+| `strategy/hooks.go` — `commit-msg` | `hooks/git-hooks.ts` | :white_check_mark: |
 | `strategy/hooks.go` — `post-commit` | `hooks/git-hooks.ts` | :white_check_mark: |
 | `strategy/hooks.go` — `pre-push` | `hooks/git-hooks.ts` | :white_check_mark: |
 
@@ -311,7 +305,7 @@ consistency and prevent bugs where `.entire/` paths leak into user-facing output
 | Go Source | TS Equivalent | Status |
 |-----------|---------------|--------|
 | Lifecycle event dispatch | `hooks/lifecycle.ts` | :white_check_mark: |
-| Git hook installation | `hooks/git-hooks.ts` | :yellow_circle: (missing `commit-msg`) |
+| Git hook installation | `hooks/git-hooks.ts` | :white_check_mark: |
 | Hook manager detection | `utils/hook-managers.ts` | :white_check_mark: |
 | Hook manager warnings | `utils/hook-managers.ts` | :white_check_mark: |
 
@@ -336,26 +330,13 @@ These exist in Go but are deliberately excluded from the npm library:
 
 ## Priority Ranking for Closing Gaps
 
-### P0 — Correctness
+### P0 — Correctness :white_check_mark: CLOSED
 
-These gaps can cause data loss or incorrect behavior:
+All P0 gaps have been closed:
 
-1. **Shadow branch migration** (`migrateShadowBranchIfNeeded`)
-   - Without this, a rebase/pull mid-session orphans the shadow branch
-   - Affected users: anyone who pulls or rebases while an agent session is active
-   - Files to create: `strategy/migration.ts`
-   - Estimated scope: ~150 lines
-
-2. **`commit-msg` hook**
-   - Prevents empty commits with only Entire trailers from being created
-   - Files to modify: `hooks/git-hooks.ts`, `strategy/manual-commit.ts`
-   - Estimated scope: ~40 lines
-
-3. **`prepareTranscript()` (flush sentinel)**
-   - Without this, transcript reads may see partial data
-   - Only affects Claude Code agent
-   - Files to modify: `agent/agents/claude-code.ts`
-   - Estimated scope: ~30 lines
+1. ~~**Shadow branch migration**~~ — `migrateShadowBranchIfNeeded()` in `manual-commit.ts`
+2. ~~**`commit-msg` hook**~~ — 4th hook in `git-hooks.ts` + `commitMsg()` strategy method
+3. ~~**`prepareTranscript()` flush sentinel**~~ — `TranscriptPreparer` in `claude-code.ts`
 
 ### P1 — Feature Completeness
 
