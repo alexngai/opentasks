@@ -175,6 +175,27 @@ export {
   type AssistantContent,
 } from './agent/agents/claude-code.js';
 
+export { createCursorAgent } from './agent/agents/cursor.js';
+
+export {
+  createGeminiCLIAgent,
+  type GeminiTranscript,
+  type GeminiMessage,
+  type GeminiToolCall,
+} from './agent/agents/gemini-cli.js';
+
+export {
+  createOpenCodeAgent,
+  extractTextFromParts,
+  parseExportSession,
+  extractAllUserPrompts,
+  type ExportSession,
+  type ExportMessage,
+  type SessionInfo as OpenCodeSessionInfo,
+  type Part as OpenCodePart,
+  type ToolState as OpenCodeToolState,
+} from './agent/agents/opencode.js';
+
 // =============================================================================
 // Hooks
 // =============================================================================
@@ -273,3 +294,121 @@ export {
   type ResetOptions,
   type ResetResult,
 } from './commands/reset.js';
+
+export {
+  listCheckpoints,
+  getCheckpointDetail,
+  getCheckpointTranscript,
+  explainCommit,
+  findCheckpointByPrefix,
+  type CheckpointDetail,
+  type CheckpointListItem,
+  type ExplainOptions,
+  type CommitExplainResult,
+} from './commands/explain.js';
+
+export {
+  discoverResumeInfo,
+  listResumableBranches,
+  type ResumeInfo,
+  type ResumeOptions,
+  type ResumeResult,
+} from './commands/resume.js';
+
+// =============================================================================
+// Strategy Engine
+// =============================================================================
+
+export {
+  createManualCommitStrategy,
+  type ManualCommitStrategyConfig,
+} from './strategy/manual-commit.js';
+
+export type { Strategy } from './strategy/types.js';
+
+export {
+  STRATEGY_NAME_MANUAL_COMMIT,
+  MAX_COMMIT_TRAVERSAL_DEPTH,
+} from './strategy/types.js';
+
+// =============================================================================
+// Utilities
+// =============================================================================
+
+export {
+  parseStrategy,
+  parseMetadata,
+  parseTaskMetadata,
+  parseBaseCommit,
+  parseCondensation,
+  parseSession,
+  parseCheckpoint as parseCheckpointTrailer,
+  parseAllSessions,
+  formatStrategy,
+  formatMetadata,
+  formatShadowCommit,
+  formatShadowTaskCommit,
+  formatCheckpoint as formatCheckpointTrailer,
+  formatSourceRef,
+  MetadataTrailerKey,
+  StrategyTrailerKey,
+  SessionTrailerKey,
+  CheckpointTrailerKey,
+  BaseCommitTrailerKey,
+} from './utils/trailers.js';
+
+export { stripIDEContextTags } from './utils/ide-tags.js';
+
+export {
+  truncateRunes,
+  collapseWhitespace,
+  capitalizeFirst,
+  countLines,
+} from './utils/string-utils.js';
+
+export {
+  parseFromBytes,
+  parseFromBytesAtLine,
+  sliceFromLine,
+  extractUserContent,
+  type TranscriptLine as ParsedTranscriptLine,
+} from './utils/transcript-parse.js';
+
+export { generateCommitMessage } from './utils/commit-message.js';
+
+// =============================================================================
+// Summarization
+// =============================================================================
+
+export {
+  buildCondensedTranscriptFromBytes,
+  buildCondensedTranscript,
+  formatCondensedTranscript,
+  buildSummarizationPrompt,
+  extractJSONFromMarkdown,
+  generateFromTranscript,
+  type Entry as SummarizeEntry,
+  type EntryType as SummarizeEntryType,
+  type SummarizeInput,
+  type SummaryGenerator,
+} from './summarize/summarize.js';
+
+// =============================================================================
+// Attribution
+// =============================================================================
+
+export {
+  diffLines,
+  getAllChangedFiles,
+  calculateAttributionWithAccumulated,
+} from './strategy/attribution.js';
+
+// =============================================================================
+// Content Overlap
+// =============================================================================
+
+export {
+  filesOverlapWithContent,
+  stagedFilesOverlapWithContent,
+  filesWithRemainingAgentChanges,
+} from './strategy/content-overlap.js';
