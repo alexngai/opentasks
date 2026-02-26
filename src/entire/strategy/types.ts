@@ -32,6 +32,7 @@ export interface Strategy {
 
   // Git hooks
   prepareCommitMsg(commitMsgFile: string, source: string, sha: string): Promise<void>;
+  commitMsg(commitMsgFile: string): Promise<void>;
   postCommit(): Promise<void>;
   prePush(remote: string): Promise<void>;
 

@@ -139,6 +139,7 @@ export type {
   TranscriptAnalyzer,
   TokenCalculator,
   TranscriptChunker,
+  TranscriptPreparer,
   SessionChangeEvent,
 } from './agent/types.js';
 
@@ -148,6 +149,7 @@ export {
   hasTranscriptAnalyzer,
   hasTokenCalculator,
   hasTranscriptChunker,
+  hasTranscriptPreparer,
 } from './agent/types.js';
 
 export {
@@ -321,6 +323,8 @@ export {
 
 export {
   createManualCommitStrategy,
+  hasUserContent,
+  stripCheckpointTrailer,
   type ManualCommitStrategyConfig,
 } from './strategy/manual-commit.js';
 

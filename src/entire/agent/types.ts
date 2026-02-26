@@ -114,6 +114,18 @@ export interface TokenCalculator {
 }
 
 /**
+ * Agent supports transcript preparation (e.g., waiting for async flush).
+ *
+ * Some agents write transcripts asynchronously. Before reading the transcript
+ * for checkpoint creation, the agent can wait for a flush sentinel to ensure
+ * the transcript is complete.
+ */
+export interface TranscriptPreparer {
+  /** Wait for the transcript to be fully flushed before reading */
+  prepareTranscript(sessionRef: string): Promise<void>;
+}
+
+/**
  * Agent supports transcript chunking for storage
  */
 export interface TranscriptChunker {
@@ -158,6 +170,13 @@ export function hasTokenCalculator(agent: Agent): agent is Agent & TokenCalculat
   return (
     'calculateTokenUsage' in agent &&
     typeof (agent as unknown as TokenCalculator).calculateTokenUsage === 'function'
+  );
+}
+
+export function hasTranscriptPreparer(agent: Agent): agent is Agent & TranscriptPreparer {
+  return (
+    'prepareTranscript' in agent &&
+    typeof (agent as unknown as TranscriptPreparer).prepareTranscript === 'function'
   );
 }
 

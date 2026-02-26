@@ -25,6 +25,7 @@ import type {
   TranscriptAnalyzer,
   TokenCalculator,
   TranscriptChunker,
+  TranscriptPreparer,
 } from '../types.js';
 import { registerAgent } from '../registry.js';
 
@@ -116,7 +117,7 @@ interface ClaudeSettings {
 // ============================================================================
 
 class ClaudeCodeAgent
-  implements Agent, HookSupport, TranscriptAnalyzer, TokenCalculator, TranscriptChunker
+  implements Agent, HookSupport, TranscriptAnalyzer, TokenCalculator, TranscriptChunker, TranscriptPreparer
 {
   readonly name = AGENT_NAMES.CLAUDE_CODE;
   readonly type = AGENT_TYPES.CLAUDE_CODE;
@@ -423,6 +424,14 @@ class ClaudeCodeAgent
   }
 
   // ===========================================================================
+  // TranscriptPreparer — wait for Claude Code's async transcript flush
+  // ===========================================================================
+
+  async prepareTranscript(sessionRef: string): Promise<void> {
+    await waitForTranscriptFlush(sessionRef);
+  }
+
+  // ===========================================================================
   // TranscriptAnalyzer
   // ===========================================================================
 
@@ -658,6 +667,87 @@ function chunkJSONL(content: Buffer, maxSize: number): Buffer[] {
   }
 
   return chunks;
+}
+
+// ============================================================================
+// Transcript Flush Sentinel
+// ============================================================================
+
+/**
+ * String that appears in Claude Code's hook_progress entry when the stop hook
+ * has been invoked, indicating the transcript is fully flushed.
+ */
+const STOP_HOOK_SENTINEL = 'hooks claude-code stop';
+
+const FLUSH_MAX_WAIT_MS = 3000;
+const FLUSH_POLL_INTERVAL_MS = 50;
+const FLUSH_TAIL_BYTES = 4096;
+const FLUSH_MAX_SKEW_MS = 2000;
+
+/**
+ * Poll the transcript file for the stop hook sentinel.
+ * Falls back silently after a timeout.
+ */
+async function waitForTranscriptFlush(transcriptPath: string): Promise<void> {
+  const hookStartTime = Date.now();
+  const deadline = hookStartTime + FLUSH_MAX_WAIT_MS;
+
+  while (Date.now() < deadline) {
+    if (checkStopSentinel(transcriptPath, hookStartTime)) {
+      return;
+    }
+    await sleep(FLUSH_POLL_INTERVAL_MS);
+  }
+  // Timeout — proceed anyway
+}
+
+/**
+ * Read the tail of the transcript file and look for the stop hook sentinel
+ * with a timestamp within the acceptable skew window.
+ */
+function checkStopSentinel(filePath: string, hookStartTime: number): boolean {
+  let fd: number;
+  try {
+    fd = fs.openSync(filePath, 'r');
+  } catch {
+    return false;
+  }
+
+  try {
+    const stat = fs.fstatSync(fd);
+    const offset = Math.max(0, stat.size - FLUSH_TAIL_BYTES);
+    const buf = Buffer.alloc(stat.size - offset);
+    fs.readSync(fd, buf, 0, buf.length, offset);
+
+    const lines = buf.toString('utf-8').split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.includes(STOP_HOOK_SENTINEL)) continue;
+
+      try {
+        const entry = JSON.parse(trimmed) as { timestamp?: string };
+        if (!entry.timestamp) continue;
+
+        const ts = new Date(entry.timestamp).getTime();
+        if (isNaN(ts)) continue;
+
+        const lowerBound = hookStartTime - FLUSH_MAX_SKEW_MS;
+        const upperBound = hookStartTime + FLUSH_MAX_SKEW_MS;
+        if (ts > lowerBound && ts < upperBound) {
+          return true;
+        }
+      } catch {
+        continue;
+      }
+    }
+    return false;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ============================================================================

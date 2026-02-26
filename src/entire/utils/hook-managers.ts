@@ -94,6 +94,7 @@ export function hookManagerWarning(
       const hookDir = m.configPath;
       const hooks = [
         { name: 'prepare-commit-msg', cmd: `${entireExecutable} hooks git prepare-commit-msg "$1" "$2" 2>/dev/null || true` },
+        { name: 'commit-msg', cmd: `${entireExecutable} hooks git commit-msg "$1" || exit 1` },
         { name: 'post-commit', cmd: `${entireExecutable} hooks git post-commit 2>/dev/null || true` },
         { name: 'pre-push', cmd: `${entireExecutable} hooks git pre-push "$@" 2>/dev/null || true` },
       ];

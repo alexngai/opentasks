@@ -354,6 +354,33 @@ export function createManualCommitStrategy(
     },
 
     // ======================================================================
+    // CommitMsg - Strip trailer if no user content (prevents empty commits)
+    // ======================================================================
+    async commitMsg(commitMsgFile: string): Promise<void> {
+      let content: string;
+      try {
+        content = fs.readFileSync(commitMsgFile, 'utf-8');
+      } catch {
+        return; // Hook must be silent on failure
+      }
+
+      // Check if our trailer is present
+      const [, found] = parseCheckpoint(content);
+      if (!found) return;
+
+      // Check if there's any user content (non-comment, non-trailer lines)
+      if (!hasUserContent(content)) {
+        // No user content - strip the trailer so git aborts the commit
+        const stripped = stripCheckpointTrailer(content);
+        try {
+          fs.writeFileSync(commitMsgFile, stripped, 'utf-8');
+        } catch {
+          // Hook must be silent on failure
+        }
+      }
+    },
+
+    // ======================================================================
     // PrePush - Push metadata branch alongside user push
     // ======================================================================
     async prePush(remote: string): Promise<void> {
@@ -400,6 +427,9 @@ export function createManualCommitStrategy(
         };
         await saveSession(state);
       }
+
+      // Migrate shadow branch if HEAD changed (rebase/pull mid-session)
+      await migrateAndPersist(state);
 
       // Write temporary checkpoint
       const isFirstCheckpoint = state.stepCount === 0;
@@ -469,6 +499,9 @@ export function createManualCommitStrategy(
         };
         await saveSession(state);
       }
+
+      // Migrate shadow branch if HEAD changed (rebase/pull mid-session)
+      await migrateAndPersist(state);
 
       // Generate commit message for task checkpoint
       const shortToolUseID =
@@ -798,6 +831,88 @@ export function createManualCommitStrategy(
     return points;
   }
 
+  // ========================================================================
+  // Internal: Shadow branch migration
+  // ========================================================================
+
+  /**
+   * Check if HEAD has changed since the session started and migrate the
+   * shadow branch to the new base commit if needed.
+   *
+   * This handles the scenario where the agent performs a rebase, pull, or
+   * other git operation that changes HEAD mid-session. Without migration,
+   * checkpoints would be saved to an orphaned shadow branch.
+   */
+  async function migrateShadowBranchIfNeeded(
+    state: SessionState,
+  ): Promise<boolean> {
+    if (!state.baseCommit) return false;
+
+    const currentHead = await getHead(cwd);
+    if (state.baseCommit === currentHead) return false;
+
+    const oldShadowBranch = getShadowBranchName(
+      state.baseCommit,
+      state.worktreeID,
+    );
+    const newShadowBranch = getShadowBranchName(
+      currentHead,
+      state.worktreeID,
+    );
+
+    // Guard: if both commits produce the same shadow branch name
+    // (same 7-char prefix), just update state
+    if (oldShadowBranch === newShadowBranch) {
+      state.baseCommit = currentHead;
+      return true;
+    }
+
+    const oldExists = await refExists(`refs/heads/${oldShadowBranch}`, cwd);
+    if (!oldExists) {
+      // Old shadow branch doesn't exist — just update baseCommit
+      state.baseCommit = currentHead;
+      return true;
+    }
+
+    // Old shadow branch exists — rename it to the new base
+    try {
+      // Read the current tip of the old branch
+      const oldTip = await git(
+        ['rev-parse', `refs/heads/${oldShadowBranch}`],
+        { cwd },
+      );
+
+      // Create new branch pointing to same commit
+      await updateRef(
+        `refs/heads/${newShadowBranch}`,
+        oldTip.trim(),
+        cwd,
+      );
+
+      // Delete old branch (best effort)
+      try {
+        await deleteBranch(oldShadowBranch, false, cwd);
+      } catch {
+        // Non-fatal
+      }
+    } catch {
+      // If rename fails, just update state
+    }
+
+    state.baseCommit = currentHead;
+    return true;
+  }
+
+  /**
+   * Check for HEAD changes, migrate shadow branch if needed, and persist.
+   */
+  async function migrateAndPersist(state: SessionState): Promise<void> {
+    const migrated = await migrateShadowBranchIfNeeded(state);
+    if (migrated) {
+      await saveSession(state);
+    }
+  }
+
   return strategy;
 }
 
@@ -833,4 +948,30 @@ function injectCheckpointTrailer(
   }
 
   return [...before, '', trailer, '', ...after].join('\n');
+}
+
+/**
+ * Check if a commit message has any content besides comments and our trailer.
+ */
+export function hasUserContent(message: string): boolean {
+  const trailerPrefix = CheckpointTrailerKey + ':';
+  for (const line of message.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith('#')) continue;
+    if (trimmed.startsWith(trailerPrefix)) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Remove the Entire-Checkpoint trailer line from a commit message.
+ */
+export function stripCheckpointTrailer(message: string): string {
+  const trailerPrefix = CheckpointTrailerKey + ':';
+  return message
+    .split('\n')
+    .filter(line => !line.trim().startsWith(trailerPrefix))
+    .join('\n');
 }

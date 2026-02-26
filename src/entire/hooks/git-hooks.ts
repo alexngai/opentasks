@@ -2,7 +2,7 @@
  * Git Hooks
  *
  * Installation and management of git hooks (prepare-commit-msg,
- * post-commit, pre-push) that integrate Entire into the git workflow.
+ * commit-msg, post-commit, pre-push) that integrate Entire into the git workflow.
  */
 
 import * as fs from 'node:fs';
@@ -14,7 +14,7 @@ import { getGitDir } from '../git-operations.js';
 // ============================================================================
 
 const HOOK_MARKER = '# Entire CLI hook';
-const HOOK_NAMES = ['prepare-commit-msg', 'post-commit', 'pre-push'] as const;
+const HOOK_NAMES = ['prepare-commit-msg', 'commit-msg', 'post-commit', 'pre-push'] as const;
 
 export type GitHookName = (typeof HOOK_NAMES)[number];
 
@@ -147,6 +147,13 @@ function generateHookScript(hookName: GitHookName, executable: string): string {
       return [
         HOOK_MARKER,
         `${executable} hooks git prepare-commit-msg "$@" 2>/dev/null || true`,
+      ].join('\n');
+
+    case 'commit-msg':
+      return [
+        HOOK_MARKER,
+        '# Commit-msg hook: strip trailer if no user content (allows aborting empty commits)',
+        `${executable} hooks git commit-msg "$1" || exit 1`,
       ].join('\n');
 
     case 'post-commit':
