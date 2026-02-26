@@ -2,8 +2,8 @@
  * Entire Provider
  *
  * Read-only provider that resolves entire:// URIs to Entire session
- * and checkpoint data. Shells out to the Entire CLI for data access,
- * with fallback to direct git/filesystem reads.
+ * and checkpoint data. Uses either the native TypeScript store (default)
+ * or falls back to shelling out to the Entire CLI.
  *
  * URI formats:
  *   entire://session/<session-id>
@@ -282,6 +282,17 @@ export function createEntireCliStore(config: EntireConfig = {}): EntireStore {
       return results;
     },
   };
+}
+
+/**
+ * Create a native Entire store that reads directly from the filesystem
+ * and git branches, without requiring the Entire CLI binary.
+ *
+ * This is the recommended store for production use.
+ */
+export async function createEntireNativeStore(config: EntireConfig = {}): Promise<EntireStore> {
+  const { createNativeEntireStore } = await import('../entire/store/native-store.js');
+  return createNativeEntireStore(config.cwd);
 }
 
 /**
