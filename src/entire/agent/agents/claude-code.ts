@@ -26,6 +26,7 @@ import type {
   TokenCalculator,
   TranscriptChunker,
   TranscriptPreparer,
+  SubagentAwareExtractor,
 } from '../types.js';
 import { registerAgent } from '../registry.js';
 
@@ -117,7 +118,7 @@ interface ClaudeSettings {
 // ============================================================================
 
 class ClaudeCodeAgent
-  implements Agent, HookSupport, TranscriptAnalyzer, TokenCalculator, TranscriptChunker, TranscriptPreparer
+  implements Agent, HookSupport, TranscriptAnalyzer, TokenCalculator, TranscriptChunker, TranscriptPreparer, SubagentAwareExtractor
 {
   readonly name = AGENT_NAMES.CLAUDE_CODE;
   readonly type = AGENT_TYPES.CLAUDE_CODE;
@@ -507,20 +508,26 @@ class ClaudeCodeAgent
   async calculateTokenUsage(transcriptData: Buffer, fromOffset: number): Promise<TokenUsage> {
     const content = transcriptData.toString('utf-8');
     const lines = content.split('\n').filter(Boolean);
-    const usage = emptyTokenUsage();
+
+    // Deduplicate by message ID — streaming may produce multiple rows per message.
+    // Keep the entry with the highest output_tokens (final streaming state).
+    const usageByMessageID = new Map<string, MessageUsage>();
 
     for (let i = fromOffset; i < lines.length; i++) {
       try {
         const raw = JSON.parse(lines[i]) as Record<string, unknown>;
         if (raw.type === 'assistant') {
           const msg = raw.message as Record<string, unknown> | undefined;
+          const msgID = msg?.id as string | undefined;
           const msgUsage = msg?.usage as MessageUsage | undefined;
-          if (msgUsage) {
-            usage.inputTokens += msgUsage.input_tokens ?? 0;
-            usage.cacheCreationTokens += msgUsage.cache_creation_input_tokens ?? 0;
-            usage.cacheReadTokens += msgUsage.cache_read_input_tokens ?? 0;
-            usage.outputTokens += msgUsage.output_tokens ?? 0;
-            usage.apiCallCount++;
+          if (msgUsage && msgID) {
+            const existing = usageByMessageID.get(msgID);
+            if (!existing || (msgUsage.output_tokens ?? 0) > (existing.output_tokens ?? 0)) {
+              usageByMessageID.set(msgID, msgUsage);
+            }
+          } else if (msgUsage) {
+            // No message ID — count each occurrence
+            usageByMessageID.set(`_anon_${i}`, msgUsage);
           }
         }
       } catch {
@@ -528,7 +535,111 @@ class ClaudeCodeAgent
       }
     }
 
+    const usage = emptyTokenUsage();
+    usage.apiCallCount = usageByMessageID.size;
+    for (const u of usageByMessageID.values()) {
+      usage.inputTokens += u.input_tokens ?? 0;
+      usage.cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
+      usage.cacheReadTokens += u.cache_read_input_tokens ?? 0;
+      usage.outputTokens += u.output_tokens ?? 0;
+    }
+
     return usage;
+  }
+
+  // ===========================================================================
+  // SubagentAwareExtractor
+  // ===========================================================================
+
+  async extractAllModifiedFiles(
+    transcriptData: Buffer,
+    fromOffset: number,
+    subagentsDir: string,
+  ): Promise<string[]> {
+    if (transcriptData.length === 0) return [];
+
+    const content = transcriptData.toString('utf-8');
+    const allLines = content.split('\n').filter(Boolean);
+    const sliced = allLines.slice(fromOffset);
+    const parsed = sliced.map(line => {
+      try { return JSON.parse(line) as TranscriptLine; } catch { return null; }
+    }).filter((l): l is TranscriptLine => l !== null);
+
+    // Collect modified files from main agent
+    const fileSet = new Set<string>();
+    for (const f of extractModifiedFiles(parsed)) {
+      fileSet.add(f);
+    }
+
+    // Find spawned subagents and collect their modified files
+    const agentIDs = extractSpawnedAgentIDs(parsed);
+    if (subagentsDir) {
+      for (const agentID of agentIDs.keys()) {
+        const agentPath = path.join(subagentsDir, `agent-${agentID}.jsonl`);
+        try {
+          const agentContent = await fs.promises.readFile(agentPath, 'utf-8');
+          const agentLines = agentContent.split('\n').filter(Boolean).map(line => {
+            try { return JSON.parse(line) as TranscriptLine; } catch { return null; }
+          }).filter((l): l is TranscriptLine => l !== null);
+          for (const f of extractModifiedFiles(agentLines)) {
+            fileSet.add(f);
+          }
+        } catch {
+          // Subagent transcript may not exist yet
+        }
+      }
+    }
+
+    return Array.from(fileSet);
+  }
+
+  async calculateTotalTokenUsage(
+    transcriptData: Buffer,
+    fromOffset: number,
+    subagentsDir: string,
+  ): Promise<TokenUsage> {
+    if (transcriptData.length === 0) return emptyTokenUsage();
+
+    // Calculate main session token usage
+    const mainUsage = await this.calculateTokenUsage(transcriptData, fromOffset);
+
+    // Extract spawned agent IDs from the transcript
+    const content = transcriptData.toString('utf-8');
+    const allLines = content.split('\n').filter(Boolean);
+    const sliced = allLines.slice(fromOffset);
+    const parsed = sliced.map(line => {
+      try { return JSON.parse(line) as TranscriptLine; } catch { return null; }
+    }).filter((l): l is TranscriptLine => l !== null);
+
+    const agentIDs = extractSpawnedAgentIDs(parsed);
+
+    // Calculate subagent token usage
+    if (agentIDs.size > 0 && subagentsDir) {
+      const subagentUsage = emptyTokenUsage();
+      let hasSubagentUsage = false;
+
+      for (const agentID of agentIDs.keys()) {
+        const agentPath = path.join(subagentsDir, `agent-${agentID}.jsonl`);
+        try {
+          const agentData = await fs.promises.readFile(agentPath);
+          const agentUsage = await this.calculateTokenUsage(agentData, 0);
+          subagentUsage.inputTokens += agentUsage.inputTokens;
+          subagentUsage.cacheCreationTokens += agentUsage.cacheCreationTokens;
+          subagentUsage.cacheReadTokens += agentUsage.cacheReadTokens;
+          subagentUsage.outputTokens += agentUsage.outputTokens;
+          subagentUsage.apiCallCount += agentUsage.apiCallCount;
+          hasSubagentUsage = true;
+        } catch {
+          // Agent transcript may not exist yet
+        }
+      }
+
+      if (hasSubagentUsage && subagentUsage.apiCallCount > 0) {
+        mainUsage.subagentTokens = subagentUsage;
+      }
+    }
+
+    return mainUsage;
   }
 
   // ===========================================================================
@@ -612,7 +723,8 @@ export function extractModifiedFiles(lines: TranscriptLine[]): string[] {
     const blocks = extractContentBlocks(line.message);
     for (const block of blocks) {
       if (block.type === 'tool_use' && block.name && FILE_MODIFICATION_TOOLS.has(block.name)) {
-        const filePath = (block.input as Record<string, unknown>)?.file_path as string;
+        const input = block.input as Record<string, unknown> | undefined;
+        const filePath = (input?.file_path ?? input?.notebook_path) as string | undefined;
         if (filePath) files.add(filePath);
       }
     }
@@ -631,6 +743,71 @@ export function extractLastUserPrompt(lines: TranscriptLine[]): string {
     }
   }
   return '';
+}
+
+// ============================================================================
+// Subagent ID Extraction
+// ============================================================================
+
+/**
+ * Extract spawned agent IDs from Task tool results in a transcript.
+ * When a Task tool completes, the tool_result contains "agentId: <id>".
+ * Returns a map of agentID → toolUseID.
+ */
+export function extractSpawnedAgentIDs(lines: TranscriptLine[]): Map<string, string> {
+  const agentIDs = new Map<string, string>();
+
+  for (const line of lines) {
+    if (line.type !== 'user') continue;
+
+    const msg = line.message as Record<string, unknown> | undefined;
+    if (!msg) continue;
+
+    const content = msg.content;
+    if (!Array.isArray(content)) continue;
+
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block.type !== 'tool_result') continue;
+
+      const toolUseID = String(block.tool_use_id ?? '');
+      let textContent = '';
+
+      // Content can be a string or array of text blocks
+      if (typeof block.content === 'string') {
+        textContent = block.content;
+      } else if (Array.isArray(block.content)) {
+        for (const tb of block.content as Array<Record<string, unknown>>) {
+          if (tb.type === 'text' && typeof tb.text === 'string') {
+            textContent += tb.text + '\n';
+          }
+        }
+      }
+
+      const agentID = extractAgentIDFromText(textContent);
+      if (agentID) {
+        agentIDs.set(agentID, toolUseID);
+      }
+    }
+  }
+
+  return agentIDs;
+}
+
+/**
+ * Extract an agent ID from text containing "agentId: <id>".
+ */
+function extractAgentIDFromText(text: string): string {
+  const prefix = 'agentId: ';
+  const idx = text.indexOf(prefix);
+  if (idx === -1) return '';
+
+  const start = idx + prefix.length;
+  let end = start;
+  while (end < text.length && /[a-zA-Z0-9]/.test(text[end])) {
+    end++;
+  }
+
+  return end > start ? text.slice(start, end) : '';
 }
 
 // ============================================================================

@@ -451,117 +451,83 @@ All P0 gaps have been closed:
 2. ~~**`commit-msg` hook**~~ — 4th hook in `git-hooks.ts` + `commitMsg()` strategy method
 3. ~~**`prepareTranscript()` flush sentinel**~~ — `TranscriptPreparer` in `claude-code.ts`
 
-### P1 — Feature Completeness
+### P1 — Feature Completeness :white_check_mark: CLOSED
 
-These are noticeable missing features:
+All P1 gaps have been closed:
 
-4. **Session state machine formalization**
-   - Extract `Transition()` pure function from lifecycle.ts
-   - Add `Action` type with 6 action constants
-   - Add `TransitionContext` with `IsRebaseInProgress` check
-   - Add `ActionHandler` interface and `ApplyTransition()` executor
-   - Add `NormalizeAfterLoad()` for backward-compatible phase migration
-   - Add `IsStale()` for stale session detection (7-day threshold)
-   - Makes edge cases auditable and independently testable
-   - Files to create: `session/state-machine.ts` + tests
-   - Estimated scope: ~250 lines + ~200 lines tests
+4. ~~**Session state machine formalization**~~ — `session/state-machine.ts`
+   - Pure `transition()` function, `Action` enum (6 actions), `TransitionContext`
+   - `ActionHandler` interface + `applyTransition()` executor
+   - `normalizeAfterLoad()`, `isStale()` (7-day threshold), `mermaidDiagram()`
 
-5. **Todo extraction from tool input**
-   - `ExtractLastCompletedTodo()`, `ExtractInProgressTodo()`, `CountTodos()`
-   - Plus wrapper functions for extracting from TodoWrite tool_input JSON
-   - Enables meaningful incremental checkpoint messages
-   - Files to create: `utils/todo-extract.ts` + tests
-   - Estimated scope: ~100 lines + ~80 lines tests
+5. ~~**Todo extraction from tool input**~~ — `utils/todo-extract.ts`
+   - `extractLastCompletedTodo()`, `extractInProgressTodo()`, `countTodos()`
+   - Wrapper functions for TodoWrite tool_input JSON unwrapping
 
-6. **`FormatIncrementalMessage()`**
-   - Uses todo extraction to format checkpoint commit messages
-   - Format: `"<todo-content> (<tool-use-id>")`; fallback: `"Checkpoint #N: <id>"`
-   - Truncates to 60 chars
-   - Files to modify: `strategy/types.ts`
-   - Estimated scope: ~30 lines
+6. ~~**`FormatIncrementalMessage()`**~~ — `utils/todo-extract.ts`
+   - Formats meaningful checkpoint messages from todo content
+   - Truncates to 60 chars with `(<tool-use-id>)` suffix
 
-7. **Rewind conflict detection**
-   - `ClassifyTimestamps()`, `ResolveAgentForRewind()`
-   - Prevents silent overwrites of newer local transcripts
-   - Files to modify: `commands/rewind.ts`
-   - Estimated scope: ~100 lines
+7. ~~**Rewind conflict detection**~~ — `utils/rewind-conflict.ts`
+   - `classifyTimestamps()`, `statusToText()`, `hasConflicts()`, `partitionConflicts()`
+   - `resolveAgentForRewind()` maps agent types to instances
 
-8. **Subagent-aware extraction**
+8. ~~**Subagent-aware extraction**~~ — `agent/types.ts` + `agent/agents/claude-code.ts`
    - `SubagentAwareExtractor` interface + `hasSubagentAwareExtractor()` type guard
-   - `extractSpawnedAgentIDs()` — parses transcript for Task tool results with agentIds
-   - `extractAllModifiedFiles()` — main + subagent file aggregation
-   - `calculateTotalTokenUsage()` — main + subagent token aggregation
-   - Files to modify: `agent/types.ts`, `agent/agents/claude-code.ts`
-   - Estimated scope: ~150 lines
+   - `extractSpawnedAgentIDs()` parses Task tool results for agentIds
+   - `extractAllModifiedFiles()` + `calculateTotalTokenUsage()` aggregate subagent data
+   - Fixed `calculateTokenUsage()` to deduplicate by message ID (streaming support)
 
-### P2 — Polish
+### P2 — Polish :white_check_mark: CLOSED
 
-Nice to have for robustness:
+All P2 gaps have been closed:
 
-9. **Chunk file naming utilities** (`ChunkFileName`, `ParseChunkIndex`, `SortChunkFiles`)
-   - Standalone utilities currently inline in agents
-   - `ChunkSuffix = ".%03d"` constant
-   - Files to create: `utils/chunk-files.ts`
-   - Estimated scope: ~50 lines
+9. ~~**Chunk file naming utilities**~~ — `utils/chunk-files.ts`
+   - `chunkFileName()`, `parseChunkIndex()`, `sortChunkFiles()`
 
-10. **Path classification helpers** (`IsInfrastructurePath`, `ToRelativePath`, etc.)
-    - Currently done inline; extracting prevents inconsistency
-    - Files to create: `utils/paths.ts`
-    - Estimated scope: ~60 lines
+10. ~~**Path classification helpers**~~ — `utils/paths.ts`
+    - `isInfrastructurePath()`, `toRelativePath()`, `absPath()`
+    - `extractSessionIDFromPath()`, `sessionMetadataDir()`
 
-11. **`DetectAgentTypeFromContent()`**
-    - Auto-detect agent from transcript content
-    - Files to create: `utils/detect-agent.ts`
-    - Estimated scope: ~30 lines
+11. ~~**`DetectAgentTypeFromContent()`**~~ — `utils/detect-agent.ts`
+    - Detects Gemini JSON format from transcript content
 
-12. **`PreviewRewind()`**
-    - Show what files would change before committing to rewind
-    - Files to modify: `commands/rewind.ts`
-    - Estimated scope: ~60 lines
+12. ~~**`PreviewRewind()`**~~ — `utils/preview-rewind.ts`
+    - Shows files to restore and untracked files to delete
 
-13. **`MermaidDiagram()`**
-    - Generate state machine diagram for documentation
-    - Only useful if state machine is formalized (depends on #4)
-    - Estimated scope: ~40 lines
+13. ~~**`MermaidDiagram()`**~~ — included in `session/state-machine.ts`
+    - Generates Mermaid state diagram from transition table
 
-14. **TTY interaction** (`hasTTY`, `askConfirmTTY`)
-    - Needed for interactive git hook prompts
-    - Respects `ENTIRE_TEST_TTY` and `GEMINI_CLI` env vars
-    - Files to create: `utils/tty.ts`
-    - Estimated scope: ~60 lines
+14. ~~**TTY interaction**~~ — `utils/tty.ts`
+    - `hasTTY()` with `ENTIRE_TEST_TTY` and `GEMINI_CLI` env var support
+    - `askConfirmTTY()` prompts via `/dev/tty` for git hook confirmation
 
-15. **Strategy infrastructure** (`ValidateRepository`, `ListOrphanedItems`)
-    - Repository validation and orphan cleanup at the strategy level
-    - Files to modify: `strategy/types.ts`, `strategy/manual-commit.ts`
-    - Estimated scope: ~80 lines
+15. ~~**ValidateRepository / ListOrphanedItems**~~ — `strategy/types.ts` + `strategy/manual-commit.ts`
+    - Added to `Strategy` interface, implemented on manual-commit strategy
+    - `OrphanedItem` type for cleanup reporting
 
-16. **Exported shadow branch utilities** (`HashWorktreeID`, `ShadowBranchNameForCommit`)
-    - Currently inlined in `checkpoint-store.ts`; exporting enables reuse
-    - Estimated scope: ~20 lines (refactor only)
+16. ~~**Exported shadow branch utilities**~~ — `utils/shadow-branch.ts`
+    - `hashWorktreeID()`, `shadowBranchNameForCommit()`, `parseShadowBranchName()`
+    - `isShadowBranch()`, `listShadowBranches()`, `deleteShadowBranches()`
 
-### P3 — Architectural
+### P3 — Architectural :white_check_mark: CLOSED
 
-Not blocking but worth considering:
+All P3 gaps have been closed:
 
-17. **Normalized `AgentSession` type**
-    - Shared session model with typed entries (`EntryUser`, `EntryAssistant`, etc.)
-    - Convenience methods (`GetLastUserPrompt`, `TruncateAtUUID`)
-    - Would simplify cross-agent operations and SubagentAwareExtractor
-    - Large refactor — all agent implementations would need updating
-    - Estimated scope: ~300 lines + refactoring
+17. ~~**Normalized `AgentSession` type**~~ — `agent/session-types.ts`
+    - `AgentSession` with `SessionEntry` typed entries (`User`, `Assistant`, `Tool`, `System`)
+    - `getLastUserPrompt()`, `getUserPrompts()`, `truncateAtUUID()`, `findToolResultByUUID()`
 
-18. **Strategy `common.go` infrastructure** (`EnsureMetadataBranch`, `ListCheckpoints`,
-    `ReadCheckpointMetadata`, `GetMetadataBranchTree`, etc.)
-    - ~15 functions for direct metadata branch operations
-    - Currently abstracted behind the checkpoint store
-    - Only needed if consumers want lower-level checkpoint access
-    - Estimated scope: ~400 lines
+18. ~~**Strategy `common.go` infrastructure**~~ — `strategy/common.ts`
+    - `validateRepository()`, `isEmptyRepository()`, `isAncestorOf()`
+    - `ensureMetadataBranch()`, `readCheckpointMetadata()`, `readSessionPromptFromTree()`
+    - `readAgentTypeFromTree()`, `extractFirstPrompt()`, `ensureSetup()`
+    - `isInsideWorktree()`, `getMainRepoRoot()`
 
-19. **Git tree manipulation** (`UpdateSubtree`, `ApplyTreeChanges`, `TreeChange`, `MergeMode`)
-    - Structured tree operations used internally by Go checkpoint store
-    - TS uses `git mktree`/`git hash-object` directly — functionally equivalent
-    - Only needed if TS checkpoint store needs more complex tree operations
-    - Estimated scope: ~200 lines
+19. ~~**Git tree manipulation**~~ — `utils/tree-ops.ts`
+    - `updateSubtree()` with `MergeMode` (`ReplaceAll`, `MergeKeepExisting`)
+    - `applyTreeChanges()` for batch file-level tree modifications
+    - `createTreeFromMap()` for building trees from file content
 
 ---
 
@@ -570,10 +536,10 @@ Not blocking but worth considering:
 | Priority | Open Gaps | Closed |
 |----------|:---------:|:------:|
 | **P0 — Correctness** | 0 | 3 |
-| **P1 — Feature Completeness** | 5 | 0 |
-| **P2 — Polish** | 8 | 0 |
-| **P3 — Architectural** | 3 | 0 |
-| **Total** | **16** | **3** |
+| **P1 — Feature Completeness** | 0 | 5 |
+| **P2 — Polish** | 0 | 8 |
+| **P3 — Architectural** | 0 | 3 |
+| **Total** | **0** | **19** |
 
 ---
 

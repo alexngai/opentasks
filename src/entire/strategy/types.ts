@@ -47,6 +47,10 @@ export interface Strategy {
 
   // Condensation
   condense(sessionID: string): Promise<CondensationResult>;
+
+  // Validation & Cleanup
+  validateRepository(): Promise<void>;
+  listOrphanedItems(): Promise<OrphanedItem[]>;
 }
 
 // ============================================================================
@@ -218,6 +222,18 @@ export interface RestoredSession {
   agent: AgentType;
   prompt: string;
   createdAt?: string;
+}
+
+// ============================================================================
+// Orphaned Item (for cleanup)
+// ============================================================================
+
+export type OrphanedItemType = 'shadow-branch' | 'session-state';
+
+export interface OrphanedItem {
+  type: OrphanedItemType;
+  id: string;
+  reason: string;
 }
 
 // ============================================================================

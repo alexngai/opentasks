@@ -126,6 +126,26 @@ export interface TranscriptPreparer {
 }
 
 /**
+ * Agent supports subagent-aware extraction (e.g., Claude Code's Task tool).
+ * Aggregates files and tokens from both the main session and spawned subagents.
+ */
+export interface SubagentAwareExtractor {
+  /** Extract files modified by both the main agent and any spawned subagents */
+  extractAllModifiedFiles(
+    transcriptData: Buffer,
+    fromOffset: number,
+    subagentsDir: string,
+  ): Promise<string[]>;
+
+  /** Calculate token usage including all spawned subagents */
+  calculateTotalTokenUsage(
+    transcriptData: Buffer,
+    fromOffset: number,
+    subagentsDir: string,
+  ): Promise<TokenUsage>;
+}
+
+/**
  * Agent supports transcript chunking for storage
  */
 export interface TranscriptChunker {
@@ -177,6 +197,15 @@ export function hasTranscriptPreparer(agent: Agent): agent is Agent & Transcript
   return (
     'prepareTranscript' in agent &&
     typeof (agent as unknown as TranscriptPreparer).prepareTranscript === 'function'
+  );
+}
+
+export function hasSubagentAwareExtractor(agent: Agent): agent is Agent & SubagentAwareExtractor {
+  return (
+    'extractAllModifiedFiles' in agent &&
+    typeof (agent as unknown as SubagentAwareExtractor).extractAllModifiedFiles === 'function' &&
+    'calculateTotalTokenUsage' in agent &&
+    typeof (agent as unknown as SubagentAwareExtractor).calculateTotalTokenUsage === 'function'
   );
 }
 

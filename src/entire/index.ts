@@ -140,6 +140,7 @@ export type {
   TokenCalculator,
   TranscriptChunker,
   TranscriptPreparer,
+  SubagentAwareExtractor,
   SessionChangeEvent,
 } from './agent/types.js';
 
@@ -150,6 +151,7 @@ export {
   hasTokenCalculator,
   hasTranscriptChunker,
   hasTranscriptPreparer,
+  hasSubagentAwareExtractor,
 } from './agent/types.js';
 
 export {
@@ -173,6 +175,7 @@ export {
   parseTranscript,
   extractModifiedFiles,
   extractLastUserPrompt,
+  extractSpawnedAgentIDs,
   type TranscriptLine,
   type AssistantContent,
 } from './agent/agents/claude-code.js';
@@ -328,7 +331,11 @@ export {
   type ManualCommitStrategyConfig,
 } from './strategy/manual-commit.js';
 
-export type { Strategy } from './strategy/types.js';
+export type {
+  Strategy,
+  OrphanedItem,
+  OrphanedItemType,
+} from './strategy/types.js';
 
 export {
   STRATEGY_NAME_MANUAL_COMMIT,
@@ -463,3 +470,163 @@ export {
   DEFAULT_SUMMARIZE_MODEL,
   type ClaudeGeneratorOptions,
 } from './summarize/claude-generator.js';
+
+// =============================================================================
+// Session State Machine
+// =============================================================================
+
+export {
+  transition,
+  applyTransition,
+  phaseFromString,
+  eventToString,
+  actionToString,
+  isStale,
+  normalizeAfterLoad,
+  mermaidDiagram,
+  NoOpActionHandler,
+  STALE_SESSION_THRESHOLD_MS,
+} from './session/state-machine.js';
+
+export type {
+  Phase,
+  TransitionContext,
+  TransitionResult,
+  ActionHandler,
+  StateMachineState,
+} from './session/state-machine.js';
+
+// =============================================================================
+// Todo Extraction
+// =============================================================================
+
+export {
+  extractLastCompletedTodo,
+  extractInProgressTodo,
+  countTodos,
+  extractTodoContentFromToolInput,
+  extractLastCompletedTodoFromToolInput,
+  countTodosFromToolInput,
+  formatIncrementalMessage,
+} from './utils/todo-extract.js';
+
+// =============================================================================
+// Rewind Conflict Detection
+// =============================================================================
+
+export {
+  classifyTimestamps,
+  statusToText,
+  hasConflicts,
+  partitionConflicts,
+  resolveAgentForRewind,
+} from './utils/rewind-conflict.js';
+
+export type {
+  SessionRestoreInfo as RewindSessionRestoreInfo,
+} from './utils/rewind-conflict.js';
+
+// =============================================================================
+// Chunk File Naming
+// =============================================================================
+
+export {
+  chunkFileName,
+  parseChunkIndex,
+  sortChunkFiles,
+} from './utils/chunk-files.js';
+
+// =============================================================================
+// Path Classification
+// =============================================================================
+
+export {
+  isInfrastructurePath,
+  toRelativePath,
+  absPath,
+  extractSessionIDFromPath,
+  sessionMetadataDir,
+} from './utils/paths.js';
+
+// =============================================================================
+// Agent Type Detection
+// =============================================================================
+
+export { detectAgentTypeFromContent } from './utils/detect-agent.js';
+
+// =============================================================================
+// TTY Interaction
+// =============================================================================
+
+export {
+  hasTTY,
+  askConfirmTTY,
+} from './utils/tty.js';
+
+// =============================================================================
+// Shadow Branch Utilities
+// =============================================================================
+
+export {
+  hashWorktreeID,
+  shadowBranchNameForCommit,
+  parseShadowBranchName,
+  isShadowBranch,
+  listShadowBranches,
+  deleteShadowBranches,
+} from './utils/shadow-branch.js';
+
+// =============================================================================
+// Rewind Preview
+// =============================================================================
+
+export {
+  previewRewind,
+  type RewindPreview as RewindPreviewResult,
+} from './utils/preview-rewind.js';
+
+// =============================================================================
+// Normalized Agent Session
+// =============================================================================
+
+export {
+  createAgentSession,
+} from './agent/session-types.js';
+
+export type {
+  AgentSession,
+  SessionEntry,
+} from './agent/session-types.js';
+
+// =============================================================================
+// Strategy Infrastructure
+// =============================================================================
+
+export {
+  validateRepository,
+  isEmptyRepository,
+  isAncestorOf,
+  isInsideWorktree,
+  ensureMetadataBranch,
+  readCheckpointMetadata,
+  readSessionPromptFromTree,
+  readAgentTypeFromTree,
+  extractFirstPrompt,
+  ensureSetup,
+  getMainRepoRoot,
+} from './strategy/common.js';
+
+// =============================================================================
+// Git Tree Manipulation
+// =============================================================================
+
+export {
+  updateSubtree,
+  applyTreeChanges,
+  createTreeFromMap,
+} from './utils/tree-ops.js';
+
+export type {
+  TreeEntry,
+  TreeChange,
+} from './utils/tree-ops.js';

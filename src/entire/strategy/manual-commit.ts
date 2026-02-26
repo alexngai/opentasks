@@ -81,6 +81,7 @@ import type {
   PromptAttribution,
   RewindPoint,
   StrategySessionState,
+  OrphanedItem,
 } from './types.js';
 import {
   STRATEGY_NAME_MANUAL_COMMIT,
@@ -646,6 +647,36 @@ export function createManualCommitStrategy(
       const cpID = await checkpointStore.generateID();
       const committedFiles = new Set(state.filesTouched);
       return condenseSession(state, cpID, committedFiles);
+    },
+
+    // ======================================================================
+    // Validation & Cleanup
+    // ======================================================================
+
+    async validateRepository(): Promise<void> {
+      const { validateRepository: validate } = await import('./common.js');
+      await validate(cwd);
+    },
+
+    async listOrphanedItems(): Promise<OrphanedItem[]> {
+      const items: OrphanedItem[] = [];
+
+      // Find orphaned shadow branches
+      const allBranches = await listBranches(cwd);
+      for (const branch of allBranches) {
+        if (
+          branch.startsWith(SHADOW_BRANCH_PREFIX) &&
+          branch !== CHECKPOINTS_BRANCH
+        ) {
+          items.push({
+            type: 'shadow-branch',
+            id: branch,
+            reason: 'shadow branch (should have been auto-cleaned)',
+          });
+        }
+      }
+
+      return items;
     },
   };
 
