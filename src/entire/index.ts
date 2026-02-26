@@ -412,3 +412,50 @@ export {
   stagedFilesOverlapWithContent,
   filesWithRemainingAgentChanges,
 } from './strategy/content-overlap.js';
+
+// =============================================================================
+// Validation
+// =============================================================================
+
+export {
+  validateSessionID,
+  validateToolUseID,
+  validateAgentID,
+  validateAgentSessionID,
+} from './utils/validation.js';
+
+// =============================================================================
+// Hook Manager Detection
+// =============================================================================
+
+export {
+  detectHookManagers,
+  hookManagerWarning,
+  type HookManager,
+} from './utils/hook-managers.js';
+
+// =============================================================================
+// Worktree Utilities
+// =============================================================================
+
+export { getWorktreeID } from './utils/worktree.js';
+
+// =============================================================================
+// Transcript Timestamps
+// =============================================================================
+
+export {
+  parseTimestampFromJSONL,
+  getLastTimestampFromBytes,
+  getLastTimestampFromFile,
+} from './utils/transcript-timestamp.js';
+
+// =============================================================================
+// Summary Generator (Claude CLI)
+// =============================================================================
+
+export {
+  createClaudeGenerator,
+  DEFAULT_SUMMARIZE_MODEL,
+  type ClaudeGeneratorOptions,
+} from './summarize/claude-generator.js';
