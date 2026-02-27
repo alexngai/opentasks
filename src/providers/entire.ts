@@ -24,8 +24,23 @@ import type {
 import { ProviderError } from './types.js';
 
 // ============================================================================
-// Types
+// Types — re-exported from the entire package (canonical source of truth)
 // ============================================================================
+
+export type {
+  EntireStore,
+  EntireSession,
+  EntireCheckpoint,
+  EntireTokenUsage,
+  EntireSkillUsage,
+} from '../entire/store/provider-types.js';
+
+import type {
+  EntireStore,
+  EntireSession,
+  EntireCheckpoint,
+  EntireTokenUsage,
+} from '../entire/store/provider-types.js';
 
 /**
  * Configuration for Entire provider
@@ -39,79 +54,6 @@ export interface EntireConfig {
 
   /** Working directory for CLI commands */
   cwd?: string;
-}
-
-/**
- * Entire session state (from .git/entire-sessions/<id>.json)
- */
-export interface EntireSession {
-  id: string;
-  agent: string;
-  phase: 'ACTIVE' | 'IDLE' | 'ENDED';
-  baseCommit?: string;
-  branch?: string;
-  startedAt?: string;
-  endedAt?: string;
-  checkpoints?: string[];
-  tokenUsage?: EntireTokenUsage;
-  filesTouched?: string[];
-  summary?: string;
-
-  /** Skills used during this session (populated by SkillTracker) */
-  skillsUsed?: EntireSkillUsage;
-}
-
-/**
- * Skill usage data embedded in session metadata
- */
-export interface EntireSkillUsage {
-  /** Distinct skill names used */
-  skills: string[];
-
-  /** Total invocation count across all skills */
-  totalInvocations: number;
-
-  /** Per-skill invocation counts */
-  counts: Record<string, number>;
-
-  /** Per-skill success/failure counts */
-  outcomes: Record<string, { success: number; failure: number }>;
-}
-
-/**
- * Entire checkpoint metadata
- */
-export interface EntireCheckpoint {
-  id: string;
-  sessionId?: string;
-  commitHash?: string;
-  commitMessage?: string;
-  promptCount?: number;
-  filesModified?: string[];
-  filesNew?: string[];
-  filesDeleted?: string[];
-  tokenUsage?: EntireTokenUsage;
-  context?: string;
-}
-
-/**
- * Token usage statistics
- */
-export interface EntireTokenUsage {
-  input?: number;
-  output?: number;
-  cache?: number;
-}
-
-/**
- * Interface for accessing Entire data (CLI or direct reads)
- */
-export interface EntireStore {
-  getSession(id: string): Promise<EntireSession | null>;
-  listSessions(): Promise<EntireSession[]>;
-  getCheckpoint(id: string): Promise<EntireCheckpoint | null>;
-  listCheckpoints(): Promise<EntireCheckpoint[]>;
-  search(query: string): Promise<Array<EntireSession | EntireCheckpoint>>;
 }
 
 // ============================================================================

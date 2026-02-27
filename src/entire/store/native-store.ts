@@ -11,7 +11,7 @@ import type {
   EntireSession,
   EntireCheckpoint,
   EntireTokenUsage,
-} from '../../providers/entire.js';
+} from './provider-types.js';
 import type { SessionState } from '../types.js';
 import { createSessionStore, type SessionStore } from './session-store.js';
 import { createCheckpointStore, type CheckpointStore } from './checkpoint-store.js';

@@ -128,6 +128,14 @@ export {
 
 export { createNativeEntireStore } from './store/native-store.js';
 
+export type {
+  EntireStore,
+  EntireSession,
+  EntireCheckpoint,
+  EntireTokenUsage,
+  EntireSkillUsage,
+} from './store/provider-types.js';
+
 // =============================================================================
 // Agent System
 // =============================================================================
