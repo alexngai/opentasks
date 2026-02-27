@@ -268,10 +268,10 @@ function transitionFromEnded(
 // ============================================================================
 
 export interface ActionHandler {
-  handleCondense(sessionID: string): Promise<void>;
-  handleCondenseIfFilesTouched(sessionID: string, filesTouched: string[]): Promise<void>;
-  handleDiscardIfNoFiles(sessionID: string, filesTouched: string[]): Promise<void>;
-  handleWarnStaleSession(sessionID: string): Promise<void>;
+  handleCondense(state: StateMachineState): Promise<void>;
+  handleCondenseIfFilesTouched(state: StateMachineState): Promise<void>;
+  handleDiscardIfNoFiles(state: StateMachineState): Promise<void>;
+  handleWarnStaleSession(state: StateMachineState): Promise<void>;
 }
 
 export class NoOpActionHandler implements ActionHandler {
@@ -318,7 +318,7 @@ export async function applyTransition(
       case Action.Condense:
         if (!handlerErr) {
           try {
-            await handler.handleCondense(state.sessionID);
+            await handler.handleCondense(state);
           } catch (e) {
             handlerErr = e instanceof Error ? e : new Error(String(e));
           }
@@ -327,10 +327,7 @@ export async function applyTransition(
       case Action.CondenseIfFilesTouched:
         if (!handlerErr) {
           try {
-            await handler.handleCondenseIfFilesTouched(
-              state.sessionID,
-              state.filesTouched,
-            );
+            await handler.handleCondenseIfFilesTouched(state);
           } catch (e) {
             handlerErr = e instanceof Error ? e : new Error(String(e));
           }
@@ -339,10 +336,7 @@ export async function applyTransition(
       case Action.DiscardIfNoFiles:
         if (!handlerErr) {
           try {
-            await handler.handleDiscardIfNoFiles(
-              state.sessionID,
-              state.filesTouched,
-            );
+            await handler.handleDiscardIfNoFiles(state);
           } catch (e) {
             handlerErr = e instanceof Error ? e : new Error(String(e));
           }
@@ -351,7 +345,7 @@ export async function applyTransition(
       case Action.WarnStaleSession:
         if (!handlerErr) {
           try {
-            await handler.handleWarnStaleSession(state.sessionID);
+            await handler.handleWarnStaleSession(state);
           } catch (e) {
             handlerErr = e instanceof Error ? e : new Error(String(e));
           }

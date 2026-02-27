@@ -54,13 +54,15 @@ export async function askConfirmTTY(prompt: string): Promise<boolean> {
       output: ttyOut,
     });
 
-    return new Promise<boolean>((resolve) => {
+    const result = await new Promise<boolean>((resolve) => {
       rl.question(`${prompt} [y/N] `, (answer) => {
         rl.close();
         const normalized = answer.trim().toLowerCase();
         resolve(normalized === 'y' || normalized === 'yes');
       });
     });
+
+    return result;
   } catch {
     return false;
   } finally {

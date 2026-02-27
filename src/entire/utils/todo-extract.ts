@@ -7,6 +7,7 @@
  * Ported from Go: strategy/messages.go
  */
 
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -183,7 +184,10 @@ function extractTodosArrayJSON(toolInput: unknown): string | null {
 }
 
 function truncateDescription(s: string, maxLen: number): string {
-  if ([...s].length <= maxLen) return s;
-  if (maxLen < 3) return [...s].slice(0, maxLen).join('');
-  return [...s].slice(0, maxLen - 3).join('') + '...';
+  const runes = [...s];
+  if (runes.length <= maxLen) return s;
+  const suffix = '...';
+  const suffixRunes = [...suffix];
+  const truncateAt = Math.max(0, maxLen - suffixRunes.length);
+  return runes.slice(0, truncateAt).join('') + suffix;
 }

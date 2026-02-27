@@ -486,6 +486,8 @@ export {
   mermaidDiagram,
   NoOpActionHandler,
   STALE_SESSION_THRESHOLD_MS,
+  StateMachineEvent,
+  Action,
 } from './session/state-machine.js';
 
 export type {
@@ -591,6 +593,7 @@ export {
 
 export {
   createAgentSession,
+  EntryType,
 } from './agent/session-types.js';
 
 export type {
@@ -624,6 +627,7 @@ export {
   updateSubtree,
   applyTreeChanges,
   createTreeFromMap,
+  MergeMode,
 } from './utils/tree-ops.js';
 
 export type {

@@ -114,11 +114,8 @@ import type { AgentType } from '../types.js';
 
 /**
  * Resolve the agent from checkpoint metadata agent type string.
+ * Returns null if the agent type is not registered.
  */
 export function resolveAgentForRewind(agentType: AgentType): Agent | null {
-  try {
-    return getAgentByType(agentType);
-  } catch {
-    return null;
-  }
+  return getAgentByType(agentType);
 }
