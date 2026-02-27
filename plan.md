@@ -1,145 +1,35 @@
-# Plan: Migrate Entire Provider from Go CLI to TS Dependency
+# Migration: Entire Provider — Go CLI → TS Dependency
 
-## Context
+## Status: IMPLEMENTED
 
-Currently the Entire integration shells out to a Go binary (`entire status --json`, `entire rewind --list`) via `child_process.exec`. This requires users to independently install the Go CLI via Homebrew or `go install`. If the binary isn't on PATH, the entire provider is silently skipped.
+All changes have been made and tests pass (117/117 across changed files).
 
-**Goal**: Replace the external Go CLI dependency with a direct npm dependency (TS port), so `npm install` is the only setup step and the integration always works.
+## What Changed
 
-## Scope of Changes
+### Package: `entire-cli@^0.0.3` added as a direct dependency
 
-### What currently touches the Go CLI (only 2 files):
+The `entire-cli` npm package (https://github.com/alexngai/entire-cli) provides a native
+TypeScript implementation with zero production dependencies. It exports `createNativeEntireStore(cwd)`
+which implements the exact same `EntireStore` interface opentasks already used, making it a
+drop-in replacement.
 
-1. **`src/providers/entire.ts`** — `createEntireCliStore()` (lines 134-285): shells out to `entire status --json` and `entire rewind --list`, parses JSON stdout
-2. **`src/providers/from-config.ts`** — `isCliAvailable()` check (lines 55-66) and conditional skip logic for entire (lines 162-187)
+### Files Modified
 
-### What does NOT need to change:
+| File | Change |
+|---|---|
+| `package.json` | Added `"entire-cli": "^0.0.3"` to dependencies |
+| `src/providers/entire.ts` | Replaced 150-line `createEntireCliStore` (child_process.exec + JSON parsing) with 3-line wrapper around `createNativeEntireStore` from entire-cli. Re-exported types from entire-cli instead of redefining them locally. |
+| `src/providers/from-config.ts` | Removed `isCliAvailable(entireConfig.executable)` check for entire provider. Provider now always creates successfully since the TS module is a direct import. |
+| `src/config/schema.ts` | Removed `executable` field from `EntireProviderConfigSchemaInner`. Outer schema still accepts `executable` for backward compat with existing config files. |
+| `src/config/__tests__/schema.test.ts` | Updated expected defaults to no longer include `executable: 'entire'`. |
+| `src/providers/__tests__/entire.test.ts` | Replaced `child_process` mocks with `vi.mock('entire-cli')`. Tests now mock `createNativeEntireStore` directly. |
 
-- **`src/daemon/entire-watcher.ts`** — Already reads `.git/entire-sessions/*.json` directly from disk (no CLI involved)
-- **`src/daemon/entire-linker.ts`** — Uses GraphStore API directly (no CLI involved)
-- **Provider interface, URI parsing, node conversion** — All in `entire.ts` but decoupled from the CLI store; the `EntireStore` interface, `createEntireProvider()`, `createInMemoryEntireStore()`, and all `*ToProviderNode()` functions remain unchanged
-- **Config schema fields** — `autoLink`, `autoLinkMinConfidence`, `timeout` still relevant
+### Files NOT changed (by design)
 
-## Steps
-
-### 1. Add the TS port as a dependency
-
-```bash
-npm install entire-cli
-```
-
-Add to `dependencies` in `package.json`. The exact package name needs to be confirmed — likely `entire-cli`, `@entire/cli`, or the fork's name.
-
-### 2. Replace `createEntireCliStore` in `src/providers/entire.ts`
-
-**Before** (lines 134-285): Spawns `child_process.exec` to run CLI commands, parses raw JSON stdout.
-
-**After**: Import the TS port's API and call it directly.
-
-```ts
-import { EntireCli } from 'entire-cli'; // or whatever the package exports
-
-export function createEntireCliStore(config: EntireConfig = {}): EntireStore {
-  const timeout = config.timeout ?? 30000;
-  const cwd = config.cwd ?? process.cwd();
-  const cli = new EntireCli({ cwd, timeout });
-
-  return {
-    async getSession(id) {
-      const sessions = await cli.status(); // returns typed objects directly
-      return sessions.find(s => s.id === id) ?? null;
-    },
-    async listSessions() {
-      return cli.status();
-    },
-    async getCheckpoint(id) {
-      const checkpoints = await cli.listCheckpoints();
-      return checkpoints.find(c => c.id === id) ?? null;
-    },
-    async listCheckpoints() {
-      return cli.listCheckpoints();
-    },
-    async search(query) { /* same logic, uses listSessions/listCheckpoints */ },
-  };
-}
-```
-
-Key changes:
-- Remove `child_process` import and `execEntire()` helper
-- Remove `parseSessionJson()` / `parseCheckpointJson()` — the TS port returns typed objects, no raw JSON parsing needed
-- Keep the `EntireStore` interface unchanged (consumers are unaffected)
-- Keep error handling try/catch pattern (return `null` / `[]` on failure)
-
-### 3. Simplify provider creation in `src/providers/from-config.ts`
-
-**Before** (lines 162-187):
-```ts
-if (config.providers.entire.enabled) {
-  const isAvailable = await isCliAvailable(entireConfig.executable);
-  if (isAvailable) {
-    // create provider
-  } else {
-    skipped.push('entire'); // silently skip
-  }
-}
-```
-
-**After**:
-```ts
-if (config.providers.entire.enabled) {
-  try {
-    const entireProvider = createEntireProvider({ timeout: entireConfig.timeout });
-    registry.register(entireProvider);
-    providers.push(entireProvider);
-  } catch (error) {
-    failed.push({ name: 'entire', error: ... });
-  }
-}
-```
-
-- Remove the `isCliAvailable(entireConfig.executable)` check for `entire` — the TS module is always importable since it's a direct dependency
-- No more silent skip path for "enabled but not available"
-- The `isCliAvailable` helper itself stays (still used by `beads` and `sudocode` providers)
-
-### 4. Update config schema in `src/config/schema.ts`
-
-- **Remove** the `executable` field from `EntireProviderConfigSchemaInner` (lines 172-187) — no longer needed since there's no external binary to locate
-- Keep `enabled`, `timeout`, `autoLink`, `autoLinkMinConfidence`
-
-For backward compatibility, the outer schema should still accept (and silently ignore) `executable` so existing `.opentasks/config.json` files don't break on parse:
-```ts
-const EntireProviderConfigSchemaInner = z.object({
-  enabled: z.boolean().default(true),
-  timeout: z.number().min(1000).default(30000),
-  autoLink: z.boolean().default(true),
-  autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).default('medium'),
-});
-```
-
-### 5. Update `EntireConfig` interface in `src/providers/entire.ts`
-
-```ts
-export interface EntireConfig {
-  // Remove: executable?: string;
-  timeout?: number;
-  cwd?: string;
-}
-```
-
-### 6. Update tests in `src/providers/__tests__/entire.test.ts`
-
-**CLI store tests** (lines 614-958): Currently mock `child_process.exec` to simulate CLI output. Replace with:
-- Mock the TS port module (`vi.mock('entire-cli')`)
-- Or: test against the actual TS port (if it's fast enough for unit tests)
-- The mocks become simpler: return typed objects instead of JSON strings
-- Remove `mockExecResponse` / `mockExecError` helpers
-- Test error cases by having the mock throw instead of simulating exec errors
-
-**Provider tests** (lines 92-608): No changes needed — they use the in-memory store and are already decoupled from the CLI.
-
-### 7. Update defaults in `src/config/defaults.ts`
-
-Remove `executable: 'entire'` from the entire provider defaults (if present).
+- `src/daemon/entire-watcher.ts` — Already reads `.git/entire-sessions/*.json` from disk
+- `src/daemon/entire-linker.ts` — Uses GraphStore API directly
+- `src/providers/index.ts` — Re-exports unchanged, signatures match
+- In-memory store, node conversion, URI parsing — All decoupled from store implementation
 
 ## What This Eliminates
 
@@ -148,18 +38,26 @@ Remove `executable: 'entire'` from the entire provider defaults (if present).
 | `brew install entire` or `go install` | `npm install` (automatic) |
 | PATH detection + `--version` check | Always available (direct import) |
 | Silent skip if CLI missing | Feature always works |
-| `child_process.exec` with string commands | Direct function calls with type safety |
-| JSON stdout parsing (`parseSessionJson`) | Typed return values from TS API |
+| `child_process.exec` string commands | Direct typed function calls |
+| JSON stdout parsing | Typed return values |
 | `NO_COLOR=1` env hack | Not needed |
-| Shell injection risk (command string interpolation) | Eliminated |
-| Platform-specific install (Homebrew = macOS only) | Cross-platform via npm |
+| Shell injection risk | Eliminated |
+| Platform-specific install (Homebrew = macOS) | Cross-platform via npm |
 
-## Risk Assessment
+## Key API from entire-cli
 
-- **Low risk**: The `EntireStore` interface is the boundary. Everything above it (provider, linker, watcher) is unchanged.
-- **Dependency**: Need to confirm the TS port's API surface matches what we need (`status()` returning sessions, `listCheckpoints()` returning checkpoints).
-- **Backward compat**: Existing config files with `executable` field should be silently accepted (not error). Handle with `.passthrough()` or by keeping the field as optional/ignored in the outer schema.
+```ts
+import { createNativeEntireStore } from 'entire-cli';
+import type { EntireStore, EntireSession, EntireCheckpoint } from 'entire-cli';
 
-## Open Question
+const store: EntireStore = createNativeEntireStore('/path/to/repo');
+await store.listSessions();      // EntireSession[]
+await store.getSession(id);      // EntireSession | null
+await store.listCheckpoints();   // EntireCheckpoint[]
+await store.getCheckpoint(id);   // EntireCheckpoint | null
+await store.search(query);       // (EntireSession | EntireCheckpoint)[]
+```
 
-What is the exact npm package name / import path for the TS port? Need to confirm the API surface to finalize step 2.
+The `EntireStore` interface is identical to what opentasks already defined locally —
+same 5 methods, same signatures, same types. The local type definitions were replaced
+with re-exports from the package.

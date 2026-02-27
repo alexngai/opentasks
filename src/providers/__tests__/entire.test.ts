@@ -1,12 +1,12 @@
 /**
  * Tests for Entire Provider
  *
- * Tests both the in-memory store (unit tests) and the CLI store
- * (exec-mocked integration tests) to ensure correctness across
+ * Tests both the in-memory store (unit tests) and the native store
+ * (mocked entire-cli integration tests) to ensure correctness across
  * both code paths.
  */
 
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   createEntireProvider,
   createEntireCliStore,
@@ -19,40 +19,27 @@ import type { Provider } from '../types.js';
 import { ProviderError } from '../types.js';
 
 // ============================================================================
-// Mock child_process for CLI store tests
+// Mock entire-cli's createNativeEntireStore
 // ============================================================================
 
-vi.mock('child_process', () => ({
-  exec: vi.fn(),
+const mockNativeStore: EntireStore = {
+  getSession: vi.fn(),
+  listSessions: vi.fn(),
+  getCheckpoint: vi.fn(),
+  listCheckpoints: vi.fn(),
+  search: vi.fn(),
+};
+
+vi.mock('entire-cli', () => ({
+  createNativeEntireStore: vi.fn(() => mockNativeStore),
 }));
 
-import { exec } from 'child_process';
-
-let mockExec: Mock;
-
-function mockExecResponse(stdout: string, stderr: string = '') {
-  mockExec.mockImplementation((cmd: string, options: unknown, callback?: unknown) => {
-    const cb = (typeof callback === 'function' ? callback : options) as (
-      err: Error | null,
-      result: { stdout: string; stderr: string },
-    ) => void;
-    if (typeof cb === 'function') {
-      cb(null, { stdout, stderr });
-    }
-    return { stdout, stderr };
-  });
-}
-
-function mockExecError(error: Error & { code?: string | number }) {
-  mockExec.mockImplementation((cmd: string, options: unknown, callback?: unknown) => {
-    const cb = (typeof callback === 'function' ? callback : options) as (
-      err: Error | null,
-      result: { stdout: string; stderr: string },
-    ) => void;
-    if (typeof cb === 'function') {
-      cb(error, { stdout: '', stderr: error.message });
-    }
-  });
+function resetMockStore() {
+  vi.mocked(mockNativeStore.getSession).mockReset();
+  vi.mocked(mockNativeStore.listSessions).mockReset();
+  vi.mocked(mockNativeStore.getCheckpoint).mockReset();
+  vi.mocked(mockNativeStore.listCheckpoints).mockReset();
+  vi.mocked(mockNativeStore.search).mockReset();
 }
 
 // ============================================================================
@@ -608,445 +595,182 @@ describe('EntireProvider', () => {
 });
 
 // ============================================================================
-// CLI Store Tests (mocked exec)
+// Native Store Tests (mocked entire-cli)
 // ============================================================================
 
-describe('EntireCliStore', () => {
-  let cliStore: EntireStore;
+describe('EntireCliStore (native)', () => {
+  let nativeStore: EntireStore;
 
   beforeEach(() => {
-    mockExec = exec as unknown as Mock;
-    mockExec.mockReset();
-    cliStore = createEntireCliStore({
-      executable: 'entire',
-      timeout: 5000,
-      cwd: '/test/project',
+    resetMockStore();
+    nativeStore = createEntireCliStore({ cwd: '/test/project' });
+  });
+
+  describe('createEntireCliStore', () => {
+    it('should delegate to createNativeEntireStore from entire-cli', async () => {
+      const { createNativeEntireStore } = await import('entire-cli');
+      expect(createNativeEntireStore).toHaveBeenCalledWith('/test/project');
+    });
+
+    it('should default cwd to process.cwd()', () => {
+      createEntireCliStore();
+      // No error means it created successfully with default cwd
     });
   });
 
   describe('getSession', () => {
-    it('should call entire status --json and find session by id', async () => {
-      const sessionData = {
-        id: 'test-session-1',
-        agent: 'claude-code',
-        phase: 'ACTIVE',
-        baseCommit: 'abc123',
-        branch: 'feature/test',
-        startedAt: '2026-02-13T12:00:00Z',
-        checkpoints: ['cp-1'],
-        tokenUsage: { input: 100, output: 50 },
-        filesTouched: ['src/test.ts'],
-        summary: 'Test session',
-      };
+    it('should delegate to native store', async () => {
+      vi.mocked(mockNativeStore.getSession).mockResolvedValue(sampleSession);
 
-      mockExecResponse(JSON.stringify([sessionData]));
+      const result = await nativeStore.getSession('2026-02-13-a1b2c3d4');
 
-      const result = await cliStore.getSession('test-session-1');
-
-      // Verify correct command was called
-      expect(mockExec).toHaveBeenCalled();
-      const callArgs = mockExec.mock.calls[0][0];
-      expect(callArgs).toContain('entire status --json');
-
-      // Verify result
+      expect(mockNativeStore.getSession).toHaveBeenCalledWith('2026-02-13-a1b2c3d4');
       expect(result).not.toBeNull();
-      expect(result?.id).toBe('test-session-1');
+      expect(result?.id).toBe('2026-02-13-a1b2c3d4');
       expect(result?.agent).toBe('claude-code');
       expect(result?.phase).toBe('ACTIVE');
-      expect(result?.branch).toBe('feature/test');
     });
 
     it('should return null when session not found', async () => {
-      mockExecResponse(JSON.stringify([{ id: 'other-session', agent: 'test', phase: 'ACTIVE' }]));
+      vi.mocked(mockNativeStore.getSession).mockResolvedValue(null);
 
-      const result = await cliStore.getSession('nonexistent');
+      const result = await nativeStore.getSession('nonexistent');
       expect(result).toBeNull();
-    });
-
-    it('should return null on CLI error', async () => {
-      const error = new Error('Command failed') as Error & { code?: string };
-      error.code = 'ENOENT';
-      mockExecError(error);
-
-      const result = await cliStore.getSession('any');
-      expect(result).toBeNull();
-    });
-
-    it('should handle single object response (not array)', async () => {
-      mockExecResponse(
-        JSON.stringify({
-          id: 'single-session',
-          agent: 'claude-code',
-          phase: 'IDLE',
-        }),
-      );
-
-      const result = await cliStore.getSession('single-session');
-      expect(result).not.toBeNull();
-      expect(result?.id).toBe('single-session');
-      expect(result?.phase).toBe('IDLE');
-    });
-
-    it('should normalize alternative field names', async () => {
-      mockExecResponse(
-        JSON.stringify({
-          sessionId: 'alt-session',
-          agentType: 'copilot',
-          state: 'active',
-        }),
-      );
-
-      const result = await cliStore.getSession('alt-session');
-      expect(result).not.toBeNull();
-      expect(result?.id).toBe('alt-session');
-      expect(result?.agent).toBe('copilot');
-      expect(result?.phase).toBe('ACTIVE');
-    });
-
-    it('should handle malformed JSON gracefully', async () => {
-      mockExecResponse('not valid json {{{');
-
-      const result = await cliStore.getSession('any');
-      expect(result).toBeNull();
-    });
-
-    it('should set NO_COLOR environment variable', async () => {
-      mockExecResponse(JSON.stringify([]));
-
-      await cliStore.getSession('any');
-
-      const callOptions = mockExec.mock.calls[0][1];
-      expect(callOptions.env.NO_COLOR).toBe('1');
-    });
-
-    it('should pass correct cwd and timeout', async () => {
-      mockExecResponse(JSON.stringify([]));
-
-      await cliStore.getSession('any');
-
-      const callOptions = mockExec.mock.calls[0][1];
-      expect(callOptions.cwd).toBe('/test/project');
-      expect(callOptions.timeout).toBe(5000);
     });
   });
 
   describe('listSessions', () => {
-    it('should list all sessions from CLI', async () => {
-      mockExecResponse(
-        JSON.stringify([
-          { id: 'session-1', agent: 'claude', phase: 'ACTIVE' },
-          { id: 'session-2', agent: 'cursor', phase: 'ENDED' },
-        ]),
-      );
+    it('should delegate to native store', async () => {
+      vi.mocked(mockNativeStore.listSessions).mockResolvedValue([
+        { ...sampleSession, id: 'session-1' },
+        { ...sampleSession, id: 'session-2', phase: 'ENDED' },
+      ]);
 
-      const sessions = await cliStore.listSessions();
+      const sessions = await nativeStore.listSessions();
       expect(sessions).toHaveLength(2);
       expect(sessions[0].id).toBe('session-1');
       expect(sessions[1].id).toBe('session-2');
     });
 
-    it('should return empty array on error', async () => {
-      mockExecError(new Error('CLI not found') as Error & { code?: string });
+    it('should return empty array when no sessions', async () => {
+      vi.mocked(mockNativeStore.listSessions).mockResolvedValue([]);
 
-      const sessions = await cliStore.listSessions();
+      const sessions = await nativeStore.listSessions();
       expect(sessions).toEqual([]);
     });
   });
 
   describe('getCheckpoint', () => {
-    it('should call entire rewind --list and find checkpoint by id', async () => {
-      mockExecResponse(
-        JSON.stringify([
-          {
-            id: 'cp-001',
-            sessionId: 'session-1',
-            commitHash: 'abc123',
-            commitMessage: 'Add feature',
-            promptCount: 3,
-            filesModified: ['src/app.ts'],
-            filesNew: ['src/new.ts'],
-            filesDeleted: ['src/old.ts'],
-            context: 'Added new feature',
-          },
-        ]),
-      );
+    it('should delegate to native store', async () => {
+      vi.mocked(mockNativeStore.getCheckpoint).mockResolvedValue(sampleCheckpoint);
 
-      const result = await cliStore.getCheckpoint('cp-001');
+      const result = await nativeStore.getCheckpoint('a3b2c4d5');
 
-      // Verify correct command
-      expect(mockExec).toHaveBeenCalled();
-      const callArgs = mockExec.mock.calls[0][0];
-      expect(callArgs).toContain('entire rewind --list');
-
-      // Verify result
+      expect(mockNativeStore.getCheckpoint).toHaveBeenCalledWith('a3b2c4d5');
       expect(result).not.toBeNull();
-      expect(result?.id).toBe('cp-001');
-      expect(result?.commitHash).toBe('abc123');
-      expect(result?.commitMessage).toBe('Add feature');
-      expect(result?.filesModified).toEqual(['src/app.ts']);
-      expect(result?.filesNew).toEqual(['src/new.ts']);
-      expect(result?.filesDeleted).toEqual(['src/old.ts']);
+      expect(result?.id).toBe('a3b2c4d5');
+      expect(result?.commitHash).toBe('d7e8f9a');
     });
 
     it('should return null when checkpoint not found', async () => {
-      mockExecResponse(JSON.stringify([{ id: 'other-cp' }]));
+      vi.mocked(mockNativeStore.getCheckpoint).mockResolvedValue(null);
 
-      const result = await cliStore.getCheckpoint('nonexistent');
+      const result = await nativeStore.getCheckpoint('nonexistent');
       expect(result).toBeNull();
-    });
-
-    it('should handle alternative field name checkpointId', async () => {
-      mockExecResponse(
-        JSON.stringify({
-          checkpointId: 'alt-cp',
-          commitHash: 'def456',
-        }),
-      );
-
-      const result = await cliStore.getCheckpoint('alt-cp');
-      expect(result?.id).toBe('alt-cp');
     });
   });
 
   describe('listCheckpoints', () => {
-    it('should list all checkpoints from CLI', async () => {
-      mockExecResponse(
-        JSON.stringify([
-          { id: 'cp-1', commitHash: 'aaa' },
-          { id: 'cp-2', commitHash: 'bbb' },
-        ]),
-      );
+    it('should delegate to native store', async () => {
+      vi.mocked(mockNativeStore.listCheckpoints).mockResolvedValue([
+        { ...sampleCheckpoint, id: 'cp-1' },
+        { ...sampleCheckpoint, id: 'cp-2' },
+      ]);
 
-      const checkpoints = await cliStore.listCheckpoints();
+      const checkpoints = await nativeStore.listCheckpoints();
       expect(checkpoints).toHaveLength(2);
     });
 
-    it('should return empty array on error', async () => {
-      mockExecError(new Error('timeout') as Error & { code?: string });
+    it('should return empty array when no checkpoints', async () => {
+      vi.mocked(mockNativeStore.listCheckpoints).mockResolvedValue([]);
 
-      const checkpoints = await cliStore.listCheckpoints();
+      const checkpoints = await nativeStore.listCheckpoints();
       expect(checkpoints).toEqual([]);
     });
   });
 
   describe('search', () => {
-    it('should search across sessions and checkpoints', async () => {
-      // search calls listSessions then listCheckpoints — mock responds to both
-      let callCount = 0;
-      mockExec.mockImplementation((cmd: string, options: unknown, callback?: unknown) => {
-        const cb = (typeof callback === 'function' ? callback : options) as (
-          err: Error | null,
-          result: { stdout: string; stderr: string },
-        ) => void;
+    it('should delegate to native store', async () => {
+      vi.mocked(mockNativeStore.search).mockResolvedValue([sampleSession, sampleCheckpoint]);
 
-        callCount++;
-        if (callCount === 1) {
-          // First call: status --json (sessions)
-          cb(null, {
-            stdout: JSON.stringify([
-              { id: 's-1', agent: 'claude', phase: 'ACTIVE', summary: 'Authentication work' },
-            ]),
-            stderr: '',
-          });
-        } else {
-          // Second call: rewind --list (checkpoints)
-          cb(null, {
-            stdout: JSON.stringify([
-              { id: 'cp-1', commitMessage: 'Add auth endpoint', context: 'Auth context' },
-              { id: 'cp-2', commitMessage: 'Fix CSS layout', context: 'Styling' },
-            ]),
-            stderr: '',
-          });
-        }
-      });
-
-      const results = await cliStore.search('auth');
-      expect(results.length).toBeGreaterThanOrEqual(2); // session + checkpoint match
-    });
-
-    it('should handle session list error and still return checkpoint results', async () => {
-      let callCount = 0;
-      mockExec.mockImplementation((cmd: string, options: unknown, callback?: unknown) => {
-        const cb = (typeof callback === 'function' ? callback : options) as (
-          err: Error | null,
-          result: { stdout: string; stderr: string },
-        ) => void;
-
-        callCount++;
-        if (callCount === 1) {
-          // Sessions fail
-          const error = new Error('CLI error') as Error & { code?: string };
-          error.code = 'ENOENT';
-          cb(error, { stdout: '', stderr: 'error' });
-        } else {
-          // Checkpoints succeed
-          cb(null, {
-            stdout: JSON.stringify([{ id: 'cp-1', commitMessage: 'Fix bug', context: 'Bug fix' }]),
-            stderr: '',
-          });
-        }
-      });
-
-      const results = await cliStore.search('bug');
-      expect(results).toHaveLength(1);
-      expect((results[0] as { id: string }).id).toBe('cp-1');
-    });
-
-    it('should match on filesTouched for sessions', async () => {
-      let callCount = 0;
-      mockExec.mockImplementation((cmd: string, options: unknown, callback?: unknown) => {
-        const cb = (typeof callback === 'function' ? callback : options) as (
-          err: Error | null,
-          result: { stdout: string; stderr: string },
-        ) => void;
-
-        callCount++;
-        if (callCount === 1) {
-          cb(null, {
-            stdout: JSON.stringify([
-              { id: 's-1', agent: 'claude', phase: 'ACTIVE', filesTouched: ['src/auth.ts'] },
-            ]),
-            stderr: '',
-          });
-        } else {
-          cb(null, { stdout: '[]', stderr: '' });
-        }
-      });
-
-      const results = await cliStore.search('auth.ts');
-      expect(results).toHaveLength(1);
-    });
-
-    it('should match on filesModified and filesNew for checkpoints', async () => {
-      let callCount = 0;
-      mockExec.mockImplementation((cmd: string, options: unknown, callback?: unknown) => {
-        const cb = (typeof callback === 'function' ? callback : options) as (
-          err: Error | null,
-          result: { stdout: string; stderr: string },
-        ) => void;
-
-        callCount++;
-        if (callCount === 1) {
-          cb(null, { stdout: '[]', stderr: '' });
-        } else {
-          cb(null, {
-            stdout: JSON.stringify([
-              { id: 'cp-1', filesModified: ['src/index.ts'], filesNew: ['src/new.ts'] },
-              { id: 'cp-2', filesModified: ['src/other.ts'] },
-            ]),
-            stderr: '',
-          });
-        }
-      });
-
-      const modifiedResults = await cliStore.search('index.ts');
-      expect(modifiedResults).toHaveLength(1);
-    });
-  });
-
-  describe('custom executable', () => {
-    it('should use custom executable path', async () => {
-      const customStore = createEntireCliStore({ executable: '/opt/bin/entire' });
-      mockExecResponse(JSON.stringify([]));
-
-      await customStore.listSessions();
-
-      const callArgs = mockExec.mock.calls[0][0];
-      expect(callArgs).toContain('/opt/bin/entire status --json');
+      const results = await nativeStore.search('auth');
+      expect(mockNativeStore.search).toHaveBeenCalledWith('auth');
+      expect(results).toHaveLength(2);
     });
   });
 });
 
 // ============================================================================
-// Provider with CLI Store (end-to-end with mocked exec)
+// Provider with Native Store (end-to-end with mocked entire-cli)
 // ============================================================================
 
-describe('EntireProvider with CLI store', () => {
+describe('EntireProvider with native store', () => {
   let provider: Provider;
 
   beforeEach(() => {
-    mockExec = exec as unknown as Mock;
-    mockExec.mockReset();
-    // Create provider using CLI store (not in-memory)
-    provider = createEntireProvider({
-      executable: 'entire',
-      timeout: 5000,
-      cwd: '/test/project',
-    });
+    resetMockStore();
+    // Create provider using native store (default, no explicit store passed)
+    provider = createEntireProvider({ cwd: '/test/project' });
   });
 
-  it('should get session through CLI and convert to ProviderNode', async () => {
-    mockExecResponse(
-      JSON.stringify([
-        {
-          id: 'cli-session-1',
-          agent: 'claude-code',
-          phase: 'ACTIVE',
-          baseCommit: 'abc',
-          branch: 'main',
-          startedAt: '2026-02-13T12:00:00Z',
-          summary: 'Working on feature X',
-          filesTouched: ['src/x.ts'],
-        },
-      ]),
-    );
+  it('should get session through native store and convert to ProviderNode', async () => {
+    vi.mocked(mockNativeStore.getSession).mockResolvedValue({
+      id: 'native-session-1',
+      agent: 'claude-code',
+      phase: 'ACTIVE',
+      baseCommit: 'abc',
+      branch: 'main',
+      startedAt: '2026-02-13T12:00:00Z',
+      summary: 'Working on feature X',
+      filesTouched: ['src/x.ts'],
+    });
 
-    const result = await provider.get('entire://session/cli-session-1');
+    const result = await provider.get('entire://session/native-session-1');
 
     expect(result).not.toBeNull();
-    expect(result?.id).toBe('cli-session-1');
+    expect(result?.id).toBe('native-session-1');
     expect(result?.type).toBe('external');
     expect(result?.title).toContain('Working on feature X');
     expect(result?.status).toBe('open');
     expect(result?.rawData?.agent).toBe('claude-code');
   });
 
-  it('should get checkpoint through CLI and convert to ProviderNode', async () => {
-    mockExecResponse(
-      JSON.stringify([
-        {
-          id: 'cli-cp-1',
-          sessionId: 'cli-session-1',
-          commitHash: 'def456',
-          commitMessage: 'Add endpoint',
-          promptCount: 3,
-          context: 'Endpoint for users',
-        },
-      ]),
-    );
+  it('should get checkpoint through native store and convert to ProviderNode', async () => {
+    vi.mocked(mockNativeStore.getCheckpoint).mockResolvedValue({
+      id: 'native-cp-1',
+      sessionId: 'native-session-1',
+      commitHash: 'def456',
+      commitMessage: 'Add endpoint',
+      promptCount: 3,
+      context: 'Endpoint for users',
+    });
 
-    const result = await provider.get('entire://checkpoint/cli-cp-1');
+    const result = await provider.get('entire://checkpoint/native-cp-1');
 
     expect(result).not.toBeNull();
-    expect(result?.id).toBe('cli-cp-1');
+    expect(result?.id).toBe('native-cp-1');
     expect(result?.type).toBe('external');
     expect(result?.status).toBe('closed');
     expect(result?.rawData?.commitHash).toBe('def456');
   });
 
-  it('should list all entities through CLI', async () => {
-    let callCount = 0;
-    mockExec.mockImplementation((cmd: string, options: unknown, callback?: unknown) => {
-      const cb = (typeof callback === 'function' ? callback : options) as (
-        err: Error | null,
-        result: { stdout: string; stderr: string },
-      ) => void;
-
-      callCount++;
-      if (callCount === 1) {
-        cb(null, {
-          stdout: JSON.stringify([
-            { id: 's-1', agent: 'claude', phase: 'ACTIVE', summary: 'Test' },
-          ]),
-          stderr: '',
-        });
-      } else {
-        cb(null, {
-          stdout: JSON.stringify([{ id: 'cp-1', commitHash: 'abc', commitMessage: 'Fix' }]),
-          stderr: '',
-        });
-      }
-    });
+  it('should list all entities through native store', async () => {
+    vi.mocked(mockNativeStore.listSessions).mockResolvedValue([
+      { id: 's-1', agent: 'claude', phase: 'ACTIVE', summary: 'Test' },
+    ]);
+    vi.mocked(mockNativeStore.listCheckpoints).mockResolvedValue([
+      { id: 'cp-1', commitHash: 'abc', commitMessage: 'Fix' },
+    ]);
 
     const results = await provider.list();
     expect(results).toHaveLength(2);
@@ -1054,50 +778,25 @@ describe('EntireProvider with CLI store', () => {
     expect(results[1].rawData?.entityType).toBe('checkpoint');
   });
 
-  it('should search through CLI', async () => {
-    let callCount = 0;
-    mockExec.mockImplementation((cmd: string, options: unknown, callback?: unknown) => {
-      const cb = (typeof callback === 'function' ? callback : options) as (
-        err: Error | null,
-        result: { stdout: string; stderr: string },
-      ) => void;
-
-      callCount++;
-      if (callCount === 1) {
-        cb(null, {
-          stdout: JSON.stringify([
-            { id: 's-1', agent: 'claude', phase: 'ACTIVE', summary: 'Auth feature' },
-          ]),
-          stderr: '',
-        });
-      } else {
-        cb(null, {
-          stdout: JSON.stringify([{ id: 'cp-1', commitMessage: 'Add auth', context: 'Auth work' }]),
-          stderr: '',
-        });
-      }
-    });
+  it('should search through native store', async () => {
+    vi.mocked(mockNativeStore.search).mockResolvedValue([
+      { id: 's-1', agent: 'claude', phase: 'ACTIVE', summary: 'Auth feature' },
+      { id: 'cp-1', commitMessage: 'Add auth', context: 'Auth work' },
+    ]);
 
     const results = await provider.search!('auth');
-    expect(results.length).toBeGreaterThanOrEqual(2);
+    expect(results).toHaveLength(2);
   });
 
-  it('should handle CLI unavailable gracefully for get', async () => {
-    const error = new Error('spawn ENOENT') as Error & { code?: string };
-    error.code = 'ENOENT';
-    mockExecError(error);
+  it('should handle store errors gracefully for get', async () => {
+    vi.mocked(mockNativeStore.getSession).mockRejectedValue(new Error('store error'));
 
-    const result = await provider.get('entire://session/any');
-    expect(result).toBeNull();
+    await expect(provider.get('entire://session/any')).rejects.toThrow(ProviderError);
   });
 
-  it('should handle CLI unavailable gracefully for list', async () => {
-    const error = new Error('spawn ENOENT') as Error & { code?: string };
-    error.code = 'ENOENT';
-    mockExecError(error);
+  it('should handle store errors gracefully for list', async () => {
+    vi.mocked(mockNativeStore.listSessions).mockRejectedValue(new Error('store error'));
 
-    // list catches errors and returns empty
-    const results = await provider.list();
-    expect(results).toEqual([]);
+    await expect(provider.list()).rejects.toThrow(ProviderError);
   });
 });

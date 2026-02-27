@@ -2,8 +2,8 @@
  * Entire Provider
  *
  * Read-only provider that resolves entire:// URIs to Entire session
- * and checkpoint data. Shells out to the Entire CLI for data access,
- * with fallback to direct git/filesystem reads.
+ * and checkpoint data. Uses the entire-cli package for direct
+ * filesystem/git access — no external binary required.
  *
  * URI formats:
  *   entire://session/<session-id>
@@ -23,6 +23,18 @@ import type {
 } from './types.js';
 import { ProviderError } from './types.js';
 
+// Re-export types from entire-cli (canonical source of truth)
+export type {
+  EntireSession,
+  EntireCheckpoint,
+  EntireTokenUsage,
+  EntireSkillUsage,
+  EntireStore,
+} from 'entire-cli';
+
+import type { EntireSession, EntireCheckpoint, EntireStore } from 'entire-cli';
+import { createNativeEntireStore } from 'entire-cli';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -31,87 +43,11 @@ import { ProviderError } from './types.js';
  * Configuration for Entire provider
  */
 export interface EntireConfig {
-  /** Path to entire executable */
-  executable?: string;
-
   /** Command timeout (ms) */
   timeout?: number;
 
-  /** Working directory for CLI commands */
+  /** Working directory */
   cwd?: string;
-}
-
-/**
- * Entire session state (from .git/entire-sessions/<id>.json)
- */
-export interface EntireSession {
-  id: string;
-  agent: string;
-  phase: 'ACTIVE' | 'IDLE' | 'ENDED';
-  baseCommit?: string;
-  branch?: string;
-  startedAt?: string;
-  endedAt?: string;
-  checkpoints?: string[];
-  tokenUsage?: EntireTokenUsage;
-  filesTouched?: string[];
-  summary?: string;
-
-  /** Skills used during this session (populated by SkillTracker) */
-  skillsUsed?: EntireSkillUsage;
-}
-
-/**
- * Skill usage data embedded in session metadata
- */
-export interface EntireSkillUsage {
-  /** Distinct skill names used */
-  skills: string[];
-
-  /** Total invocation count across all skills */
-  totalInvocations: number;
-
-  /** Per-skill invocation counts */
-  counts: Record<string, number>;
-
-  /** Per-skill success/failure counts */
-  outcomes: Record<string, { success: number; failure: number }>;
-}
-
-/**
- * Entire checkpoint metadata
- */
-export interface EntireCheckpoint {
-  id: string;
-  sessionId?: string;
-  commitHash?: string;
-  commitMessage?: string;
-  promptCount?: number;
-  filesModified?: string[];
-  filesNew?: string[];
-  filesDeleted?: string[];
-  tokenUsage?: EntireTokenUsage;
-  context?: string;
-}
-
-/**
- * Token usage statistics
- */
-export interface EntireTokenUsage {
-  input?: number;
-  output?: number;
-  cache?: number;
-}
-
-/**
- * Interface for accessing Entire data (CLI or direct reads)
- */
-export interface EntireStore {
-  getSession(id: string): Promise<EntireSession | null>;
-  listSessions(): Promise<EntireSession[]>;
-  getCheckpoint(id: string): Promise<EntireCheckpoint | null>;
-  listCheckpoints(): Promise<EntireCheckpoint[]>;
-  search(query: string): Promise<Array<EntireSession | EntireCheckpoint>>;
 }
 
 // ============================================================================
@@ -125,163 +61,16 @@ export interface EntireStore {
 const ENTIRE_URI_PATTERN = /^entire:\/\/(session|checkpoint)\/(.+)$/i;
 
 // ============================================================================
-// CLI-Based Store
+// Native Store (replaces CLI-based store)
 // ============================================================================
 
 /**
- * Create an Entire store that shells out to the CLI
+ * Create an Entire store backed by the entire-cli package.
+ * Reads directly from the filesystem and git — no external binary required.
  */
 export function createEntireCliStore(config: EntireConfig = {}): EntireStore {
-  const executable = config.executable ?? 'entire';
-  const timeout = config.timeout ?? 30000;
   const cwd = config.cwd ?? process.cwd();
-
-  async function execEntire(args: string): Promise<string> {
-    const { exec } = await import('child_process');
-    const { promisify } = await import('util');
-    const execAsync = promisify(exec);
-
-    try {
-      const result = await execAsync(`${executable} ${args}`, {
-        cwd,
-        timeout,
-        env: { ...process.env, NO_COLOR: '1' },
-      });
-      return result.stdout.trim();
-    } catch (error) {
-      if (error instanceof Error && 'code' in error) {
-        throw new ProviderError(
-          'OPERATION_FAILED',
-          `Entire CLI failed: ${error.message}`,
-          'entire',
-          error,
-        );
-      }
-      throw error;
-    }
-  }
-
-  function parseSessionJson(json: string): EntireSession[] {
-    try {
-      const data = JSON.parse(json);
-      const sessions = Array.isArray(data) ? data : [data];
-      return sessions.map((s: Record<string, unknown>) => ({
-        id: String(s.id ?? s.sessionId ?? ''),
-        agent: String(s.agent ?? s.agentType ?? 'unknown'),
-        phase: String(s.phase ?? s.state ?? 'ACTIVE').toUpperCase() as EntireSession['phase'],
-        baseCommit: s.baseCommit as string | undefined,
-        branch: s.branch as string | undefined,
-        startedAt: s.startedAt as string | undefined,
-        endedAt: s.endedAt as string | undefined,
-        checkpoints: s.checkpoints as string[] | undefined,
-        tokenUsage: s.tokenUsage as EntireTokenUsage | undefined,
-        filesTouched: s.filesTouched as string[] | undefined,
-        summary: s.summary as string | undefined,
-      }));
-    } catch {
-      return [];
-    }
-  }
-
-  function parseCheckpointJson(json: string): EntireCheckpoint[] {
-    try {
-      const data = JSON.parse(json);
-      const checkpoints = Array.isArray(data) ? data : [data];
-      return checkpoints.map((c: Record<string, unknown>) => ({
-        id: String(c.id ?? c.checkpointId ?? ''),
-        sessionId: c.sessionId as string | undefined,
-        commitHash: c.commitHash as string | undefined,
-        commitMessage: c.commitMessage as string | undefined,
-        promptCount: c.promptCount as number | undefined,
-        filesModified: c.filesModified as string[] | undefined,
-        filesNew: c.filesNew as string[] | undefined,
-        filesDeleted: c.filesDeleted as string[] | undefined,
-        tokenUsage: c.tokenUsage as EntireTokenUsage | undefined,
-        context: c.context as string | undefined,
-      }));
-    } catch {
-      return [];
-    }
-  }
-
-  return {
-    async getSession(id: string): Promise<EntireSession | null> {
-      try {
-        const output = await execEntire(`status --json`);
-        const sessions = parseSessionJson(output);
-        return sessions.find((s) => s.id === id) ?? null;
-      } catch {
-        return null;
-      }
-    },
-
-    async listSessions(): Promise<EntireSession[]> {
-      try {
-        const output = await execEntire(`status --json`);
-        return parseSessionJson(output);
-      } catch {
-        return [];
-      }
-    },
-
-    async getCheckpoint(id: string): Promise<EntireCheckpoint | null> {
-      try {
-        const output = await execEntire(`rewind --list`);
-        const checkpoints = parseCheckpointJson(output);
-        return checkpoints.find((c) => c.id === id) ?? null;
-      } catch {
-        return null;
-      }
-    },
-
-    async listCheckpoints(): Promise<EntireCheckpoint[]> {
-      try {
-        const output = await execEntire(`rewind --list`);
-        return parseCheckpointJson(output);
-      } catch {
-        return [];
-      }
-    },
-
-    async search(query: string): Promise<Array<EntireSession | EntireCheckpoint>> {
-      const results: Array<EntireSession | EntireCheckpoint> = [];
-      const lowerQuery = query.toLowerCase();
-
-      try {
-        const sessions = await this.listSessions();
-        for (const session of sessions) {
-          if (
-            session.summary?.toLowerCase().includes(lowerQuery) ||
-            session.id.toLowerCase().includes(lowerQuery) ||
-            session.filesTouched?.some((f) => f.toLowerCase().includes(lowerQuery))
-          ) {
-            results.push(session);
-          }
-        }
-      } catch {
-        // Continue with checkpoints
-      }
-
-      try {
-        const checkpoints = await this.listCheckpoints();
-        for (const cp of checkpoints) {
-          if (
-            cp.commitMessage?.toLowerCase().includes(lowerQuery) ||
-            cp.id.toLowerCase().includes(lowerQuery) ||
-            cp.context?.toLowerCase().includes(lowerQuery) ||
-            cp.filesModified?.some((f) => f.toLowerCase().includes(lowerQuery)) ||
-            cp.filesNew?.some((f) => f.toLowerCase().includes(lowerQuery))
-          ) {
-            results.push(cp);
-          }
-        }
-      } catch {
-        // Return what we have
-      }
-
-      return results;
-    },
-  };
+  return createNativeEntireStore(cwd);
 }
 
 /**

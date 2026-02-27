@@ -145,7 +145,6 @@ describe('Config Schema', () => {
         },
         entire: {
           enabled: true,
-          executable: 'entire',
           timeout: 30000,
           autoLink: true,
           autoLinkMinConfidence: 'medium',
@@ -236,7 +235,6 @@ describe('Config Schema', () => {
           },
           entire: {
             enabled: true,
-            executable: 'entire',
             timeout: 30000,
             autoLink: true,
             autoLinkMinConfidence: 'medium',
@@ -330,7 +328,6 @@ describe('Config Schema', () => {
           },
           entire: {
             enabled: false,
-            executable: '/opt/entire',
             timeout: 45000,
             autoLink: false,
             autoLinkMinConfidence: 'high',

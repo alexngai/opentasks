@@ -173,9 +173,6 @@ const EntireProviderConfigSchemaInner = z.object({
   /** Enable Entire provider and auto-linking */
   enabled: z.boolean().default(true),
 
-  /** Path to entire executable */
-  executable: z.string().default('entire'),
-
   /** Command timeout (ms) */
   timeout: z.number().min(1000, 'timeout must be >= 1000ms').default(30000),
 
@@ -189,7 +186,7 @@ const EntireProviderConfigSchemaInner = z.object({
 export const EntireProviderConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
-    executable: z.string().optional(),
+    executable: z.string().optional(), // Deprecated: accepted for backward compat, ignored
     timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
     autoLink: z.boolean().optional(),
     autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
