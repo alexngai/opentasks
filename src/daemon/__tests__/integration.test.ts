@@ -90,6 +90,8 @@ function createMockStore(): GraphStore {
       unresolvedFeedback: vi.fn().mockResolvedValue([]),
     },
     transaction: vi.fn(),
+    reload: vi.fn().mockResolvedValue(undefined),
+    setNodeResolver: vi.fn(),
   } as unknown as GraphStore;
 }
 

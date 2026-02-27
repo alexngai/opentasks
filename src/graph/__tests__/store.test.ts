@@ -9,6 +9,7 @@ import type { StoredNode, StoredEdge } from '../../schema/storage.js';
 import type { EdgeType } from '../../schema/edges.js';
 import type { GraphStoreConfig } from '../types.js';
 import { GraphError } from '../types.js';
+import type { NodeResolver } from '../query.js';
 
 // ============================================================================
 // Mock Storage
@@ -612,6 +613,386 @@ describe('GraphStore', () => {
       // Verify persisted
       const context = await store.getNode(result.context.id);
       expect(context).not.toBeNull();
+    });
+  });
+
+  describe('reload', () => {
+    it('should sync new nodes from JSONL', async () => {
+      await store.initialize();
+
+      // Add a node directly to jsonlData (simulating external change, e.g. git pull)
+      jsonlData = {
+        nodes: [
+          {
+            id: 'c-new1',
+            uuid: 'uuid-new1',
+            type: 'context',
+            title: 'Externally Added Context',
+            created_at: '2024-06-01T00:00:00Z',
+            updated_at: '2024-06-01T00:00:00Z',
+            archived: false,
+          },
+        ],
+        edges: [],
+      };
+
+      await store.reload();
+
+      const node = await store.getNode('c-new1');
+      expect(node).not.toBeNull();
+      expect(node?.title).toBe('Externally Added Context');
+    });
+
+    it('should update existing nodes', async () => {
+      // Pre-populate and initialize
+      jsonlData = {
+        nodes: [
+          {
+            id: 'c-upd1',
+            uuid: 'uuid-upd1',
+            type: 'context',
+            title: 'Original Title',
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+            archived: false,
+          },
+        ],
+        edges: [],
+      };
+      await store.initialize();
+
+      // Verify initial state
+      const before = await store.getNode('c-upd1');
+      expect(before?.title).toBe('Original Title');
+
+      // Modify the node in jsonlData (simulating external edit)
+      jsonlData = {
+        nodes: [
+          {
+            id: 'c-upd1',
+            uuid: 'uuid-upd1',
+            type: 'context',
+            title: 'Updated Title',
+            content: 'New content added externally',
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-06-01T00:00:00Z',
+            archived: false,
+          },
+        ],
+        edges: [],
+      };
+
+      await store.reload();
+
+      const after = await store.getNode('c-upd1');
+      expect(after).not.toBeNull();
+      expect(after?.title).toBe('Updated Title');
+      expect(after?.content).toBe('New content added externally');
+    });
+
+    it('should remove deleted nodes', async () => {
+      // Pre-populate and initialize
+      jsonlData = {
+        nodes: [
+          {
+            id: 'c-del1',
+            uuid: 'uuid-del1',
+            type: 'context',
+            title: 'Will Be Removed',
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+            archived: false,
+          },
+        ],
+        edges: [],
+      };
+      await store.initialize();
+
+      // Confirm the node exists
+      const before = await store.getNode('c-del1');
+      expect(before).not.toBeNull();
+
+      // Remove the node from jsonlData (simulating external deletion)
+      jsonlData = { nodes: [], edges: [] };
+
+      await store.reload();
+
+      const after = await store.getNode('c-del1');
+      expect(after).toBeNull();
+    });
+
+    it('should sync tags', async () => {
+      await store.initialize();
+
+      // Add a node with tags in jsonlData
+      jsonlData = {
+        nodes: [
+          {
+            id: 'c-tag1',
+            uuid: 'uuid-tag1',
+            type: 'context',
+            title: 'Tagged Context',
+            created_at: '2024-06-01T00:00:00Z',
+            updated_at: '2024-06-01T00:00:00Z',
+            archived: false,
+            tags: ['urgent', 'backend'],
+          },
+        ],
+        edges: [],
+      };
+
+      await store.reload();
+
+      const tags = await storage.getTags('c-tag1');
+      expect(tags).toContain('urgent');
+      expect(tags).toContain('backend');
+    });
+
+    it('should update nodeCount so createNode generates unique IDs', async () => {
+      await store.initialize();
+
+      // Reload with several nodes
+      jsonlData = {
+        nodes: [
+          {
+            id: 'c-a1',
+            uuid: 'uuid-a1',
+            type: 'context',
+            title: 'Context A',
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+            archived: false,
+          },
+          {
+            id: 'c-b2',
+            uuid: 'uuid-b2',
+            type: 'context',
+            title: 'Context B',
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+            archived: false,
+          },
+          {
+            id: 't-c3',
+            uuid: 'uuid-c3',
+            type: 'task',
+            title: 'Task C',
+            status: 'open',
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+            archived: false,
+          },
+        ],
+        edges: [],
+      };
+
+      await store.reload();
+
+      // Create a new node — its ID should not collide with existing nodes
+      const newNode = await store.createNode({
+        type: 'context',
+        title: 'After Reload',
+      });
+
+      expect(newNode.id).toMatch(/^c-[a-z0-9]+$/);
+      // The new node should have a different ID from all existing ones
+      expect(newNode.id).not.toBe('c-a1');
+      expect(newNode.id).not.toBe('c-b2');
+    });
+  });
+
+  describe('setNodeResolver', () => {
+    beforeEach(async () => {
+      await store.initialize();
+    });
+
+    it('should enable cross-provider blocker resolution (active external blocks)', async () => {
+      // Create a local task
+      const task = await store.createNode({
+        type: 'task',
+        title: 'My Task',
+        status: 'open',
+      });
+
+      // Create a blocks edge from an external URI to the local task
+      // We need to add the edge directly to storage because createEdge validates both endpoints
+      const edgeId = 'x-ext1';
+      await storage.createEdge({
+        id: edgeId,
+        uuid: 'uuid-ext-edge1',
+        from_id: 'global://g-123',
+        to_id: task.id,
+        type: 'blocks',
+        created_at: '2024-06-01T00:00:00Z',
+      });
+
+      // Set a resolver that returns an active (open) external node
+      const resolver: NodeResolver = async (idOrUri: string) => {
+        if (idOrUri === 'global://g-123') {
+          return {
+            id: 'global://g-123',
+            uuid: 'uuid-g123',
+            type: 'task',
+            title: 'External Blocker',
+            status: 'open',
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+            archived: false,
+          };
+        }
+        return null;
+      };
+
+      store.setNodeResolver(resolver);
+
+      // The task should NOT be ready because it has an active external blocker
+      const readyTasks = await store.query.ready();
+      const readyIds = readyTasks.map((t) => t.id);
+      expect(readyIds).not.toContain(task.id);
+    });
+
+    it('should include task in ready when external blocker is closed', async () => {
+      // Create a local task
+      const task = await store.createNode({
+        type: 'task',
+        title: 'My Task',
+        status: 'open',
+      });
+
+      // Create a blocks edge from an external URI to the local task
+      await storage.createEdge({
+        id: 'x-ext2',
+        uuid: 'uuid-ext-edge2',
+        from_id: 'global://g-456',
+        to_id: task.id,
+        type: 'blocks',
+        created_at: '2024-06-01T00:00:00Z',
+      });
+
+      // Set a resolver that returns a closed external node
+      const resolver: NodeResolver = async (idOrUri: string) => {
+        if (idOrUri === 'global://g-456') {
+          return {
+            id: 'global://g-456',
+            uuid: 'uuid-g456',
+            type: 'task',
+            title: 'External Blocker (Done)',
+            status: 'closed',
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-06-01T00:00:00Z',
+            archived: false,
+          };
+        }
+        return null;
+      };
+
+      store.setNodeResolver(resolver);
+
+      // The task SHOULD be ready because the external blocker is closed
+      const readyTasks = await store.query.ready();
+      const readyIds = readyTasks.map((t) => t.id);
+      expect(readyIds).toContain(task.id);
+    });
+
+    it('should use the latest resolver when called multiple times', async () => {
+      const task = await store.createNode({
+        type: 'task',
+        title: 'Resolver Test Task',
+        status: 'open',
+      });
+
+      await storage.createEdge({
+        id: 'x-ext3',
+        uuid: 'uuid-ext-edge3',
+        from_id: 'global://g-789',
+        to_id: task.id,
+        type: 'blocks',
+        created_at: '2024-06-01T00:00:00Z',
+      });
+
+      // First resolver: blocker is active
+      const firstResolver: NodeResolver = async (idOrUri: string) => {
+        if (idOrUri === 'global://g-789') {
+          return {
+            id: 'global://g-789',
+            uuid: 'uuid-g789',
+            type: 'task',
+            title: 'Active Blocker',
+            status: 'open',
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+            archived: false,
+          };
+        }
+        return null;
+      };
+      store.setNodeResolver(firstResolver);
+
+      const readyBefore = await store.query.ready();
+      expect(readyBefore.map((t) => t.id)).not.toContain(task.id);
+
+      // Second resolver: blocker is now closed
+      const secondResolver: NodeResolver = async (idOrUri: string) => {
+        if (idOrUri === 'global://g-789') {
+          return {
+            id: 'global://g-789',
+            uuid: 'uuid-g789',
+            type: 'task',
+            title: 'Closed Blocker',
+            status: 'closed',
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-06-01T00:00:00Z',
+            archived: false,
+          };
+        }
+        return null;
+      };
+      store.setNodeResolver(secondResolver);
+
+      const readyAfter = await store.query.ready();
+      expect(readyAfter.map((t) => t.id)).toContain(task.id);
+    });
+
+    it('should resolve external URIs via query.blockers', async () => {
+      // Create a local task that is blocked by an external node
+      const task = await store.createNode({
+        type: 'task',
+        title: 'Blocked Task',
+        status: 'open',
+      });
+
+      // Create a blocks edge from an external URI
+      await storage.createEdge({
+        id: 'x-ext4',
+        uuid: 'uuid-ext-edge4',
+        from_id: 'beads://./bd-1',
+        to_id: task.id,
+        type: 'blocks',
+        created_at: '2024-06-01T00:00:00Z',
+      });
+
+      // Set a resolver that returns the external node
+      const resolver: NodeResolver = async (idOrUri: string) => {
+        if (idOrUri === 'beads://./bd-1') {
+          return {
+            id: 'beads://./bd-1',
+            uuid: 'uuid-bd1',
+            type: 'task',
+            title: 'External Bead Blocker',
+            status: 'in_progress',
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-03-01T00:00:00Z',
+            archived: false,
+          };
+        }
+        return null;
+      };
+
+      store.setNodeResolver(resolver);
+
+      const blockers = await store.query.blockers(task.id);
+      expect(blockers).toHaveLength(1);
+      expect(blockers[0].title).toBe('External Bead Blocker');
     });
   });
 });

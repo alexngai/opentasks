@@ -8,6 +8,7 @@
  */
 
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { createLockManager, type LockManager } from './lock.js';
 import { createRegistryManager, type RegistryManager } from './registry.js';
@@ -27,11 +28,13 @@ import { createTranscriptExtractor } from '../tracking/transcript-extractor.js';
 import { createProviderAwareStore, type ProviderAwareStore } from '../graph/provider-store.js';
 import { registerProviderMethods } from './methods/provider.js';
 import { registerArchiveMethods } from './methods/archive.js';
+import { registerWatchMethods } from './methods/watch.js';
 import type { PartialOpenTasksConfig } from '../config/index.js';
 import { loadConfigFile } from '../config/loader.js';
 import { createBeadsProvider } from '../providers/beads.js';
 import { createSudocodeProvider } from '../providers/sudocode.js';
 import { createClaudeTasksProvider } from '../providers/claude-tasks.js';
+import { createGlobalProvider } from '../providers/global.js';
 import {
   createLocationState,
   destroyLocationState,
@@ -153,12 +156,14 @@ function isMultiLocationConfig(config: DaemonConfig): config is MultiLocationDae
 function registerConfiguredProviders(
   providerStore: ProviderAwareStore,
   config?: PartialOpenTasksConfig,
+  locationPath?: string,
 ): void {
   const providersConfig = config?.providers as
     | {
         beads?: { enabled?: boolean; executable?: string; timeout?: number };
         claudeTasks?: { enabled?: boolean };
         sudocode?: { enabled?: boolean; executable?: string; timeout?: number };
+        global?: { enabled?: boolean; path?: string; timeout?: number; cacheTTL?: number };
       }
     | undefined;
 
@@ -197,6 +202,25 @@ function registerConfiguredProviders(
       providerStore.providers.register(claudeTasks);
     } catch {
       // Graceful degradation: skip provider if creation fails
+    }
+  }
+
+  // Register Global provider if enabled (and not the global daemon itself)
+  const globalHome = path.join(os.homedir(), '.opentasks');
+  const isGlobalDaemon = locationPath
+    ? path.resolve(locationPath) === path.resolve(globalHome)
+    : false;
+
+  if (!isGlobalDaemon && providersConfig.global?.enabled !== false) {
+    try {
+      const globalProvider = createGlobalProvider({
+        globalPath: providersConfig.global?.path || undefined,
+        timeout: providersConfig.global?.timeout,
+        cacheTTL: providersConfig.global?.cacheTTL,
+      });
+      providerStore.providers.register(globalProvider);
+    } catch {
+      // Graceful degradation: global daemon may not be running
     }
   }
 }
@@ -384,8 +408,28 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         });
 
         // Register external providers from config
-        registerConfiguredProviders(providerStore, openTasksConfig);
+        registerConfiguredProviders(providerStore, openTasksConfig, locationPath);
         activeProviderStore = providerStore;
+
+        // Wire cross-provider node resolver into query engine
+        store.setNodeResolver(async (idOrUri) => {
+          const node = await providerStore.resolveNode(idOrUri);
+          if (!node) return null;
+          // Convert Node/ProviderNode to StoredNode shape for QueryEngine
+          const raw = node as unknown as Record<string, unknown>;
+          return {
+            id: node.id,
+            uuid: (raw.uuid ?? node.id) as string,
+            type: (node.type ?? 'task') as string,
+            title: (node.title ?? '') as string,
+            content: node.content as string | undefined,
+            status: raw.status as string | undefined,
+            priority: raw.priority as number | undefined,
+            archived: (raw.archived as boolean) ?? false,
+            created_at: (raw.created_at ?? new Date().toISOString()) as string,
+            updated_at: (raw.updated_at ?? new Date().toISOString()) as string,
+          };
+        });
 
         const locationState: LocationState = {
           hash: 'primary',
@@ -431,6 +475,11 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         });
 
         registerArchiveMethods({
+          server: ipcServer,
+          locationResolver,
+        });
+
+        registerWatchMethods({
           server: ipcServer,
           locationResolver,
         });
@@ -715,7 +764,27 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
       });
 
       // Register external providers from config
-      registerConfiguredProviders(locState.providerStore, locationConfig);
+      registerConfiguredProviders(locState.providerStore, locationConfig, opentasksPath);
+
+      // Wire cross-provider node resolver into query engine
+      const provStore = locState.providerStore;
+      locState.store.setNodeResolver(async (idOrUri) => {
+        const node = await provStore.resolveNode(idOrUri);
+        if (!node) return null;
+        const raw = node as unknown as Record<string, unknown>;
+        return {
+          id: node.id,
+          uuid: (raw.uuid ?? node.id) as string,
+          type: (node.type ?? 'task') as string,
+          title: (node.title ?? '') as string,
+          content: node.content as string | undefined,
+          status: raw.status as string | undefined,
+          priority: raw.priority as number | undefined,
+          archived: (raw.archived as boolean) ?? false,
+          created_at: (raw.created_at ?? new Date().toISOString()) as string,
+          updated_at: (raw.updated_at ?? new Date().toISOString()) as string,
+        };
+      });
 
       await locState.watcher.start();
 
@@ -899,6 +968,11 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
           server: ipcServer,
           locationResolver,
           gitCommonDir,
+        });
+
+        registerWatchMethods({
+          server: ipcServer,
+          locationResolver,
         });
 
         // 14. Start IPC server

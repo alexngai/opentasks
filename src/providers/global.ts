@@ -30,6 +30,12 @@ import type {
   TaskAction,
   ReadyTaskOptions,
 } from './traits/TaskManageable.js';
+import type {
+  Watchable,
+  WatchGranularity,
+  WatchChangeCallback,
+  ProviderNodeChangeEvent,
+} from './traits/Watchable.js';
 
 // ============================================================================
 // Types
@@ -64,12 +70,14 @@ const GLOBAL_URI_PATTERN = /^global:\/\/(.+)$/i;
  */
 export function createGlobalProvider(
   config: GlobalProviderConfig = {},
-): Provider & TaskManageable {
+): Provider & TaskManageable & Watchable {
   const globalPath = config.globalPath || path.join(os.homedir(), '.opentasks');
   const socketPath = path.join(globalPath, 'daemon.sock');
   const timeout = config.timeout ?? 10000;
 
   let client: IPCClient | null = null;
+  let watchCallback: WatchChangeCallback | null = null;
+  let notificationUnsubscribe: (() => void) | null = null;
 
   /**
    * Get or create a connected IPC client.
@@ -156,7 +164,7 @@ export function createGlobalProvider(
     read: true,
     write: true,
     search: true,
-    watch: false,
+    watch: true,
     mount: true,
     feedback: false,
   };
@@ -389,6 +397,64 @@ export function createGlobalProvider(
         return taskCapabilities.actions;
       }
       return result.data.actions;
+    },
+
+    // =========================================================================
+    // Watchable Trait
+    // =========================================================================
+
+    watchGranularity: {
+      reportsChangedFields: false,
+      reportsPreviousValues: false,
+      reportsEdgeChanges: false,
+      mechanism: 'stream' as const,
+    } satisfies WatchGranularity,
+
+    startWatching(callback: WatchChangeCallback): void {
+      watchCallback = callback;
+
+      // Subscribe via IPC — fire and forget, watch starts when subscribe completes
+      void (async () => {
+        try {
+          const ipc = await getClient();
+
+          // Register notification handler for watch events
+          if (notificationUnsubscribe) {
+            notificationUnsubscribe();
+          }
+          notificationUnsubscribe = ipc.onNotification((method, params) => {
+            if (method === 'watch.event' && watchCallback) {
+              const event = params as ProviderNodeChangeEvent;
+              watchCallback({ kind: 'node', event });
+            }
+          });
+
+          // Send subscribe request
+          await ipc.request('watch.subscribe', {});
+        } catch {
+          // Graceful degradation: watch may fail if global daemon is down
+        }
+      })();
+    },
+
+    stopWatching(): void {
+      const cb = watchCallback;
+      watchCallback = null;
+
+      if (notificationUnsubscribe) {
+        notificationUnsubscribe();
+        notificationUnsubscribe = null;
+      }
+
+      if (cb && client?.connected) {
+        void client.request('watch.unsubscribe', {}).catch(() => {
+          // Ignore errors during teardown
+        });
+      }
+    },
+
+    get isWatching(): boolean {
+      return watchCallback !== null;
     },
   };
 }

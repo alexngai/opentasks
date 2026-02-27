@@ -12,11 +12,18 @@ const mockConnect = vi.fn().mockResolvedValue(undefined);
 const mockDisconnect = vi.fn();
 let mockConnected = false;
 
+let notificationHandler: ((method: string, params: unknown) => void) | null = null;
+const mockOnNotification = vi.fn((handler: (method: string, params: unknown) => void) => {
+  notificationHandler = handler;
+  return () => { notificationHandler = null; };
+});
+
 vi.mock('../../daemon/ipc.js', () => ({
   createIPCClient: vi.fn(() => ({
     connect: mockConnect,
     disconnect: mockDisconnect,
     request: mockRequest,
+    onNotification: mockOnNotification,
     get connected() {
       return mockConnected;
     },
@@ -41,11 +48,13 @@ vi.mock('node:fs', async (importOriginal) => {
 import { createGlobalProvider } from '../global.js';
 import { ProviderError } from '../types.js';
 import { isTaskManageable } from '../traits/TaskManageable.js';
+import { isWatchable } from '../traits/Watchable.js';
 
 describe('Global Provider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockConnected = false;
+    notificationHandler = null;
     mockConnect.mockImplementation(async () => {
       mockConnected = true;
     });
@@ -64,7 +73,7 @@ describe('Global Provider', () => {
         read: true,
         write: true,
         search: true,
-        watch: false,
+        watch: true,
         mount: true,
         feedback: false,
       });
@@ -359,6 +368,148 @@ describe('Global Provider', () => {
 
       // connect called once, then reused since mockConnected is true
       expect(mockConnect).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Watchable trait', () => {
+    it('has correct watchGranularity', () => {
+      const provider = createGlobalProvider();
+      expect(provider.watchGranularity).toEqual({
+        mechanism: 'stream',
+        reportsChangedFields: false,
+        reportsPreviousValues: false,
+        reportsEdgeChanges: false,
+      });
+    });
+
+    it('isWatching is false initially', () => {
+      const provider = createGlobalProvider();
+      expect(provider.isWatching).toBe(false);
+    });
+
+    it('startWatching sets isWatching to true', () => {
+      const provider = createGlobalProvider();
+      const callback = vi.fn();
+
+      provider.startWatching(callback);
+
+      expect(provider.isWatching).toBe(true);
+    });
+
+    it('startWatching sends watch.subscribe', async () => {
+      const provider = createGlobalProvider();
+      const callback = vi.fn();
+      mockRequest.mockResolvedValueOnce(undefined);
+
+      provider.startWatching(callback);
+
+      // Let the async fire-and-forget subscribe complete
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(mockRequest).toHaveBeenCalledWith('watch.subscribe', {});
+    });
+
+    it('startWatching registers notification handler', async () => {
+      const provider = createGlobalProvider();
+      const callback = vi.fn();
+      mockRequest.mockResolvedValueOnce(undefined);
+
+      provider.startWatching(callback);
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(mockOnNotification).toHaveBeenCalled();
+    });
+
+    it('notification dispatches ProviderChangeEvent to callback', async () => {
+      const provider = createGlobalProvider();
+      const callback = vi.fn();
+      mockRequest.mockResolvedValueOnce(undefined);
+
+      provider.startWatching(callback);
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Simulate a watch notification from the daemon
+      const watchEvent = {
+        type: 'created',
+        nodeId: 'g-1',
+        uri: 'global://g-1',
+        timestamp: '2026-02-25T00:00:00.000Z',
+      };
+      notificationHandler!('watch.event', watchEvent);
+
+      expect(callback).toHaveBeenCalledWith({
+        kind: 'node',
+        event: watchEvent,
+      });
+    });
+
+    it('ignores non-watch.event notifications', async () => {
+      const provider = createGlobalProvider();
+      const callback = vi.fn();
+      mockRequest.mockResolvedValueOnce(undefined);
+
+      provider.startWatching(callback);
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Simulate a non-watch notification
+      notificationHandler!('other.method', {});
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+
+    it('stopWatching sets isWatching to false', async () => {
+      const provider = createGlobalProvider();
+      const callback = vi.fn();
+      mockRequest.mockResolvedValueOnce(undefined);
+
+      provider.startWatching(callback);
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      provider.stopWatching();
+
+      expect(provider.isWatching).toBe(false);
+    });
+
+    it('stopWatching sends watch.unsubscribe', async () => {
+      const provider = createGlobalProvider();
+      const callback = vi.fn();
+      mockRequest.mockResolvedValueOnce(undefined); // watch.subscribe
+      mockRequest.mockResolvedValueOnce(undefined); // watch.unsubscribe
+
+      provider.startWatching(callback);
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      provider.stopWatching();
+
+      expect(mockRequest).toHaveBeenCalledWith('watch.unsubscribe', {});
+    });
+
+    it('stopWatching removes notification handler', async () => {
+      const provider = createGlobalProvider();
+      const callback = vi.fn();
+      mockRequest.mockResolvedValueOnce(undefined);
+
+      provider.startWatching(callback);
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      // notificationHandler should be set after startWatching
+      expect(notificationHandler).not.toBeNull();
+
+      provider.stopWatching();
+
+      // The unsubscribe function clears notificationHandler
+      expect(notificationHandler).toBeNull();
+    });
+
+    it('implements Watchable trait', () => {
+      const provider = createGlobalProvider();
+      expect(isWatchable(provider)).toBe(true);
     });
   });
 });
