@@ -70,7 +70,7 @@
     "agent-session-parser": "^0.1.0",
     "better-sqlite3": "^12.6.2",
     "chokidar": "^5.0.0",
-    "entire-cli": "^0.0.3",
+    "sessionlog": "^0.0.3",
     "graphology": "^0.26.0",
     "graphology-shortest-path": "^2.1.0",
     "graphology-traversal": "^0.3.1",
