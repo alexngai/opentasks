@@ -1,7 +1,7 @@
 /**
  * Tests for Entire Provider
  *
- * Tests the in-memory store (unit tests), native store (mocked entire-cli),
+ * Tests the in-memory store (unit tests), native store (mocked sessionlog),
  * exec store (CLI shell-out), and the async store factory with CLI→native fallback.
  */
 
@@ -20,7 +20,7 @@ import type { Provider } from '../types.js';
 import { ProviderError } from '../types.js';
 
 // ============================================================================
-// Mock entire-cli's createNativeEntireStore
+// Mock sessionlog's createNativeSessionlogStore
 // ============================================================================
 
 const mockNativeStore: EntireStore = {
@@ -31,8 +31,8 @@ const mockNativeStore: EntireStore = {
   search: vi.fn(),
 };
 
-vi.mock('entire-cli', () => ({
-  createNativeEntireStore: vi.fn(() => mockNativeStore),
+vi.mock('sessionlog', () => ({
+  createNativeSessionlogStore: vi.fn(() => mockNativeStore),
 }));
 
 function resetMockStore() {
@@ -596,7 +596,7 @@ describe('EntireProvider', () => {
 });
 
 // ============================================================================
-// Native Store Tests (mocked entire-cli)
+// Native Store Tests (mocked sessionlog)
 // ============================================================================
 
 describe('EntireCliStore (native)', () => {
@@ -608,9 +608,9 @@ describe('EntireCliStore (native)', () => {
   });
 
   describe('createEntireCliStore', () => {
-    it('should delegate to createNativeEntireStore from entire-cli', async () => {
-      const { createNativeEntireStore } = await import('entire-cli');
-      expect(createNativeEntireStore).toHaveBeenCalledWith('/test/project');
+    it('should delegate to createNativeSessionlogStore from sessionlog', async () => {
+      const { createNativeSessionlogStore } = await import('sessionlog');
+      expect(createNativeSessionlogStore).toHaveBeenCalledWith('/test/project');
     });
 
     it('should default cwd to process.cwd()', () => {
@@ -712,7 +712,7 @@ describe('EntireCliStore (native)', () => {
 });
 
 // ============================================================================
-// Provider with Native Store (end-to-end with mocked entire-cli)
+// Provider with Native Store (end-to-end with mocked sessionlog)
 // ============================================================================
 
 describe('EntireProvider with native store', () => {
@@ -839,12 +839,12 @@ describe('createEntireCliStoreAsync', () => {
   });
 
   it('should use native store when no executable is configured', async () => {
-    const { createNativeEntireStore } = await import('entire-cli');
-    vi.mocked(createNativeEntireStore).mockClear();
+    const { createNativeSessionlogStore } = await import('sessionlog');
+    vi.mocked(createNativeSessionlogStore).mockClear();
 
     const store = await createEntireCliStoreAsync({ cwd: '/test/repo' });
 
-    expect(createNativeEntireStore).toHaveBeenCalledWith('/test/repo');
+    expect(createNativeSessionlogStore).toHaveBeenCalledWith('/test/repo');
     expect(store).toBeDefined();
   });
 
@@ -855,8 +855,8 @@ describe('createEntireCliStoreAsync', () => {
       return {} as ReturnType<typeof exec>;
     });
 
-    const { createNativeEntireStore } = await import('entire-cli');
-    vi.mocked(createNativeEntireStore).mockClear();
+    const { createNativeSessionlogStore } = await import('sessionlog');
+    vi.mocked(createNativeSessionlogStore).mockClear();
 
     const store = await createEntireCliStoreAsync({
       executable: 'entire',
@@ -864,7 +864,7 @@ describe('createEntireCliStoreAsync', () => {
     });
 
     // Should fall back to native store
-    expect(createNativeEntireStore).toHaveBeenCalledWith('/test/repo');
+    expect(createNativeSessionlogStore).toHaveBeenCalledWith('/test/repo');
     expect(store).toBeDefined();
   });
 
@@ -875,8 +875,8 @@ describe('createEntireCliStoreAsync', () => {
       return {} as ReturnType<typeof exec>;
     });
 
-    const { createNativeEntireStore } = await import('entire-cli');
-    vi.mocked(createNativeEntireStore).mockClear();
+    const { createNativeSessionlogStore } = await import('sessionlog');
+    vi.mocked(createNativeSessionlogStore).mockClear();
 
     const store = await createEntireCliStoreAsync({
       executable: '/usr/local/bin/entire',
@@ -884,17 +884,17 @@ describe('createEntireCliStoreAsync', () => {
     });
 
     // Should NOT fall back to native store
-    expect(createNativeEntireStore).not.toHaveBeenCalled();
+    expect(createNativeSessionlogStore).not.toHaveBeenCalled();
     expect(store).toBeDefined();
   });
 
   it('should default cwd to process.cwd() when not specified', async () => {
-    const { createNativeEntireStore } = await import('entire-cli');
-    vi.mocked(createNativeEntireStore).mockClear();
+    const { createNativeSessionlogStore } = await import('sessionlog');
+    vi.mocked(createNativeSessionlogStore).mockClear();
 
     await createEntireCliStoreAsync();
 
-    expect(createNativeEntireStore).toHaveBeenCalledWith(process.cwd());
+    expect(createNativeSessionlogStore).toHaveBeenCalledWith(process.cwd());
   });
 });
 

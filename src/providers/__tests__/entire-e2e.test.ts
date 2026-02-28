@@ -2,9 +2,9 @@
  * E2E Tests for Entire Provider (no mocking)
  *
  * Tests the full integration path:
- *   real git repo → session JSON files → createNativeEntireStore → createEntireProvider → ProviderNode
+ *   real git repo → session JSON files → createNativeSessionlogStore → createEntireProvider → ProviderNode
  *
- * Uses real filesystem, real git, real entire-cli internals.
+ * Uses real filesystem, real git, real sessionlog internals.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -12,7 +12,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
-import { createNativeEntireStore } from 'entire-cli';
+import { createNativeSessionlogStore } from 'sessionlog';
 import {
   createEntireProvider,
   createEntireCliStore,
@@ -45,7 +45,7 @@ function createTestRepo(): TestRepo {
   execSync('git commit -m "init"', { cwd: rootDir, stdio: 'ignore' });
 
   // Create the sessions directory inside .git
-  const sessionsDir = path.join(rootDir, '.git', 'entire-sessions');
+  const sessionsDir = path.join(rootDir, '.git', 'sessionlog-sessions');
   fs.mkdirSync(sessionsDir, { recursive: true });
 
   return {
@@ -69,10 +69,10 @@ function getHeadCommit(repo: TestRepo): string {
 }
 
 // ============================================================================
-// E2E: Native Store (createNativeEntireStore from entire-cli)
+// E2E: Native Store (createNativeSessionlogStore from sessionlog)
 // ============================================================================
 
-describe('E2E: createNativeEntireStore', () => {
+describe('E2E: createNativeSessionlogStore', () => {
   let repo: TestRepo;
 
   beforeEach(() => {
@@ -83,7 +83,7 @@ describe('E2E: createNativeEntireStore', () => {
     repo.cleanup();
   });
 
-  it('should list sessions from .git/entire-sessions/*.json', async () => {
+  it('should list sessions from .git/sessionlog-sessions/*.json', async () => {
     const baseCommit = getHeadCommit(repo);
 
     writeSession(repo, 'session-e2e-1', {
@@ -113,7 +113,7 @@ describe('E2E: createNativeEntireStore', () => {
       untrackedFilesAtStart: [],
     });
 
-    const store = createNativeEntireStore(repo.rootDir);
+    const store = createNativeSessionlogStore(repo.rootDir);
     const sessions = await store.listSessions();
 
     expect(sessions).toHaveLength(2);
@@ -147,7 +147,7 @@ describe('E2E: createNativeEntireStore', () => {
       firstPrompt: 'Implement login flow',
     });
 
-    const store = createNativeEntireStore(repo.rootDir);
+    const store = createNativeSessionlogStore(repo.rootDir);
     const session = await store.getSession('norm-session');
 
     expect(session).not.toBeNull();
@@ -169,14 +169,14 @@ describe('E2E: createNativeEntireStore', () => {
   });
 
   it('should return null for non-existent session', async () => {
-    const store = createNativeEntireStore(repo.rootDir);
+    const store = createNativeSessionlogStore(repo.rootDir);
     const session = await store.getSession('does-not-exist');
 
     expect(session).toBeNull();
   });
 
   it('should return empty array when no sessions exist', async () => {
-    const store = createNativeEntireStore(repo.rootDir);
+    const store = createNativeSessionlogStore(repo.rootDir);
     const sessions = await store.listSessions();
 
     expect(sessions).toEqual([]);
@@ -225,7 +225,7 @@ describe('E2E: createNativeEntireStore', () => {
       untrackedFilesAtStart: [],
     });
 
-    const store = createNativeEntireStore(repo.rootDir);
+    const store = createNativeSessionlogStore(repo.rootDir);
     const sessions = await store.listSessions();
     const byId = new Map(sessions.map((s) => [s.id, s]));
 
@@ -265,7 +265,7 @@ describe('E2E: createNativeEntireStore', () => {
       firstPrompt: 'Refactor database layer',
     });
 
-    const store = createNativeEntireStore(repo.rootDir);
+    const store = createNativeSessionlogStore(repo.rootDir);
     const results = await store.search('authentication');
 
     expect(results).toHaveLength(1);
@@ -288,7 +288,7 @@ describe('E2E: createNativeEntireStore', () => {
       untrackedFilesAtStart: [],
     });
 
-    const store = createNativeEntireStore(repo.rootDir);
+    const store = createNativeSessionlogStore(repo.rootDir);
 
     const results = await store.search('middleware');
     expect(results).toHaveLength(1);
@@ -311,7 +311,7 @@ describe('E2E: createNativeEntireStore', () => {
       untrackedFilesAtStart: [],
     });
 
-    const store = createNativeEntireStore(repo.rootDir);
+    const store = createNativeSessionlogStore(repo.rootDir);
     const results = await store.search('abc123');
 
     expect(results).toHaveLength(1);
@@ -326,7 +326,7 @@ describe('E2E: createNativeEntireStore', () => {
       baseCommit,
     });
 
-    const store = createNativeEntireStore(repo.rootDir);
+    const store = createNativeSessionlogStore(repo.rootDir);
     const session = await store.getSession('minimal-session');
 
     expect(session).not.toBeNull();
@@ -358,7 +358,7 @@ describe('E2E: createNativeEntireStore', () => {
       untrackedFilesAtStart: [],
     });
 
-    const store = createNativeEntireStore(repo.rootDir);
+    const store = createNativeSessionlogStore(repo.rootDir);
     const sessions = await store.listSessions();
 
     // Should still return the good session, skip the bad one
@@ -382,7 +382,7 @@ describe('E2E: createEntireCliStore (wrapper)', () => {
     repo.cleanup();
   });
 
-  it('should delegate to createNativeEntireStore and return sessions', async () => {
+  it('should delegate to createNativeSessionlogStore and return sessions', async () => {
     const baseCommit = getHeadCommit(repo);
 
     writeSession(repo, 'wrapper-session', {
@@ -446,7 +446,7 @@ describe('E2E: EntireProvider full pipeline', () => {
 
   beforeEach(() => {
     repo = createTestRepo();
-    const store: EntireStore = createNativeEntireStore(repo.rootDir);
+    const store: EntireStore = createNativeSessionlogStore(repo.rootDir);
     provider = createEntireProvider({}, store);
   });
 

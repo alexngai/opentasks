@@ -2,7 +2,7 @@
  * Entire Provider
  *
  * Read-only provider that resolves entire:// URIs to Entire session
- * and checkpoint data. Uses the entire-cli package for direct
+ * and checkpoint data. Uses the sessionlog package for direct
  * filesystem/git access — no external binary required.
  *
  * URI formats:
@@ -23,17 +23,23 @@ import type {
 } from './types.js';
 import { ProviderError } from './types.js';
 
-// Re-export types from entire-cli (canonical source of truth)
+// Re-export types from sessionlog (canonical source of truth)
+// Aliased to preserve existing Entire* naming in the opentasks API
 export type {
-  EntireSession,
-  EntireCheckpoint,
-  EntireTokenUsage,
-  EntireSkillUsage,
-  EntireStore,
-} from 'entire-cli';
+  SessionlogSession as EntireSession,
+  SessionlogCheckpoint as EntireCheckpoint,
+  SessionlogTokenUsage as EntireTokenUsage,
+  SessionlogSkillUsage as EntireSkillUsage,
+  SessionlogStore as EntireStore,
+} from 'sessionlog';
 
-import type { EntireSession, EntireCheckpoint, EntireStore } from 'entire-cli';
-import { createNativeEntireStore } from 'entire-cli';
+import type { SessionlogSession, SessionlogCheckpoint, SessionlogStore } from 'sessionlog';
+import { createNativeSessionlogStore } from 'sessionlog';
+
+// Local aliases matching the opentasks naming convention
+type EntireSession = SessionlogSession;
+type EntireCheckpoint = SessionlogCheckpoint;
+type EntireStore = SessionlogStore;
 
 // ============================================================================
 // Types
@@ -252,7 +258,7 @@ async function isExecutableAvailable(executable: string): Promise<boolean> {
  * Create an Entire store with optional CLI fallback.
  *
  * - If `config.executable` is set and the binary is found, uses the Go CLI.
- * - Otherwise, uses the built-in TS store (entire-cli package).
+ * - Otherwise, uses the built-in TS store (sessionlog package).
  */
 export async function createEntireCliStoreAsync(config: EntireConfig = {}): Promise<EntireStore> {
   const cwd = config.cwd ?? process.cwd();
@@ -268,7 +274,7 @@ export async function createEntireCliStoreAsync(config: EntireConfig = {}): Prom
     }
   }
 
-  return createNativeEntireStore(cwd);
+  return createNativeSessionlogStore(cwd);
 }
 
 /**
@@ -277,7 +283,7 @@ export async function createEntireCliStoreAsync(config: EntireConfig = {}): Prom
  */
 export function createEntireCliStore(config: EntireConfig = {}): EntireStore {
   const cwd = config.cwd ?? process.cwd();
-  return createNativeEntireStore(cwd);
+  return createNativeSessionlogStore(cwd);
 }
 
 /**
