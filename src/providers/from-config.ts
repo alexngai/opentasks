@@ -6,7 +6,7 @@
 
 import { createBeadsProvider } from './beads.js';
 import { createClaudeTasksProvider } from './claude-tasks.js';
-import { createEntireProvider } from './entire.js';
+import { createEntireProvider, createEntireCliStoreAsync } from './entire.js';
 import { createGlobalProvider } from './global.js';
 import { createNativeProvider } from './native.js';
 import { createSudocodeProvider } from './sudocode.js';
@@ -160,13 +160,19 @@ export async function createProvidersFromConfig(
   }
 
   // 5. Entire provider (if enabled)
-  // No CLI availability check needed — entire-cli is a direct npm dependency
+  // Uses built-in TS store by default. If an executable is configured,
+  // tries the Go CLI first and falls back to the TS store if unavailable.
   if (config.providers.entire.enabled) {
     const entireConfig = config.providers.entire;
     try {
-      const entireProvider = createEntireProvider({
+      const store = await createEntireCliStoreAsync({
+        executable: entireConfig.executable,
         timeout: entireConfig.timeout,
       });
+      const entireProvider = createEntireProvider(
+        { timeout: entireConfig.timeout },
+        store,
+      );
       registry.register(entireProvider);
       providers.push(entireProvider);
     } catch (error) {

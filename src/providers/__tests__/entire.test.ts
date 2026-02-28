@@ -1,15 +1,16 @@
 /**
  * Tests for Entire Provider
  *
- * Tests both the in-memory store (unit tests) and the native store
- * (mocked entire-cli integration tests) to ensure correctness across
- * both code paths.
+ * Tests the in-memory store (unit tests), native store (mocked entire-cli),
+ * exec store (CLI shell-out), and the async store factory with CLI→native fallback.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   createEntireProvider,
   createEntireCliStore,
+  createEntireCliStoreAsync,
+  createEntireExecStore,
   createInMemoryEntireStore,
   type EntireSession,
   type EntireCheckpoint,
@@ -798,5 +799,218 @@ describe('EntireProvider with native store', () => {
     vi.mocked(mockNativeStore.listSessions).mockRejectedValue(new Error('store error'));
 
     await expect(provider.list()).rejects.toThrow(ProviderError);
+  });
+});
+
+// ============================================================================
+// Async Store Factory (CLI → native fallback)
+// ============================================================================
+
+// Mock child_process for the async factory and exec store tests
+vi.mock('child_process', () => {
+  const execFn = vi.fn((_cmd: string, _opts: unknown, cb: (err: Error | null, result?: { stdout: string }) => void) => {
+    cb(new Error('not found'));
+  });
+  return {
+    exec: execFn,
+  };
+});
+
+vi.mock('util', async () => {
+  const actual = await vi.importActual('util');
+  return {
+    ...actual,
+    promisify: (fn: Function) => {
+      return (...args: unknown[]) => {
+        return new Promise((resolve, reject) => {
+          fn(...args, (err: Error | null, result?: unknown) => {
+            if (err) reject(err);
+            else resolve(result);
+          });
+        });
+      };
+    },
+  };
+});
+
+describe('createEntireCliStoreAsync', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should use native store when no executable is configured', async () => {
+    const { createNativeEntireStore } = await import('entire-cli');
+    vi.mocked(createNativeEntireStore).mockClear();
+
+    const store = await createEntireCliStoreAsync({ cwd: '/test/repo' });
+
+    expect(createNativeEntireStore).toHaveBeenCalledWith('/test/repo');
+    expect(store).toBeDefined();
+  });
+
+  it('should use native store when executable is configured but not available', async () => {
+    const { exec } = await import('child_process');
+    vi.mocked(exec).mockImplementation((_cmd: unknown, _opts: unknown, cb: unknown) => {
+      (cb as Function)(new Error('command not found'));
+      return {} as ReturnType<typeof exec>;
+    });
+
+    const { createNativeEntireStore } = await import('entire-cli');
+    vi.mocked(createNativeEntireStore).mockClear();
+
+    const store = await createEntireCliStoreAsync({
+      executable: 'entire',
+      cwd: '/test/repo',
+    });
+
+    // Should fall back to native store
+    expect(createNativeEntireStore).toHaveBeenCalledWith('/test/repo');
+    expect(store).toBeDefined();
+  });
+
+  it('should use exec store when executable is configured and available', async () => {
+    const { exec } = await import('child_process');
+    vi.mocked(exec).mockImplementation((_cmd: unknown, _opts: unknown, cb: unknown) => {
+      (cb as Function)(null, { stdout: 'entire v1.2.3\n' });
+      return {} as ReturnType<typeof exec>;
+    });
+
+    const { createNativeEntireStore } = await import('entire-cli');
+    vi.mocked(createNativeEntireStore).mockClear();
+
+    const store = await createEntireCliStoreAsync({
+      executable: '/usr/local/bin/entire',
+      cwd: '/test/repo',
+    });
+
+    // Should NOT fall back to native store
+    expect(createNativeEntireStore).not.toHaveBeenCalled();
+    expect(store).toBeDefined();
+  });
+
+  it('should default cwd to process.cwd() when not specified', async () => {
+    const { createNativeEntireStore } = await import('entire-cli');
+    vi.mocked(createNativeEntireStore).mockClear();
+
+    await createEntireCliStoreAsync();
+
+    expect(createNativeEntireStore).toHaveBeenCalledWith(process.cwd());
+  });
+});
+
+describe('createEntireExecStore', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should create a store with all 5 EntireStore methods', () => {
+    const store = createEntireExecStore({ executable: 'entire' });
+    expect(store.getSession).toBeDefined();
+    expect(store.listSessions).toBeDefined();
+    expect(store.getCheckpoint).toBeDefined();
+    expect(store.listCheckpoints).toBeDefined();
+    expect(store.search).toBeDefined();
+  });
+
+  it('should return null for getSession when CLI fails', async () => {
+    const { exec } = await import('child_process');
+    vi.mocked(exec).mockImplementation((_cmd: unknown, _opts: unknown, cb: unknown) => {
+      (cb as Function)(new Error('CLI error'));
+      return {} as ReturnType<typeof exec>;
+    });
+
+    const store = createEntireExecStore({ executable: 'entire', cwd: '/test' });
+    const result = await store.getSession('some-id');
+    expect(result).toBeNull();
+  });
+
+  it('should return empty array for listSessions when CLI fails', async () => {
+    const { exec } = await import('child_process');
+    vi.mocked(exec).mockImplementation((_cmd: unknown, _opts: unknown, cb: unknown) => {
+      (cb as Function)(new Error('CLI error'));
+      return {} as ReturnType<typeof exec>;
+    });
+
+    const store = createEntireExecStore({ executable: 'entire', cwd: '/test' });
+    const result = await store.listSessions();
+    expect(result).toEqual([]);
+  });
+
+  it('should parse session JSON from CLI output', async () => {
+    const { exec } = await import('child_process');
+    vi.mocked(exec).mockImplementation((_cmd: unknown, _opts: unknown, cb: unknown) => {
+      (cb as Function)(null, {
+        stdout: JSON.stringify([{
+          id: 'sess-1',
+          agent: 'claude-code',
+          phase: 'active',
+          baseCommit: 'abc123',
+          summary: 'Working on feature',
+          filesTouched: ['src/main.ts'],
+        }]),
+      });
+      return {} as ReturnType<typeof exec>;
+    });
+
+    const store = createEntireExecStore({ executable: 'entire', cwd: '/test' });
+    const sessions = await store.listSessions();
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].id).toBe('sess-1');
+    expect(sessions[0].phase).toBe('ACTIVE'); // Uppercased
+    expect(sessions[0].agent).toBe('claude-code');
+  });
+
+  it('should parse checkpoint JSON from CLI output', async () => {
+    const { exec } = await import('child_process');
+    vi.mocked(exec).mockImplementation((_cmd: unknown, _opts: unknown, cb: unknown) => {
+      (cb as Function)(null, {
+        stdout: JSON.stringify([{
+          id: 'cp-1',
+          sessionId: 'sess-1',
+          commitHash: 'def456',
+          commitMessage: 'Add endpoint',
+          filesModified: ['src/api.ts'],
+        }]),
+      });
+      return {} as ReturnType<typeof exec>;
+    });
+
+    const store = createEntireExecStore({ executable: 'entire', cwd: '/test' });
+    const checkpoints = await store.listCheckpoints();
+
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0].id).toBe('cp-1');
+    expect(checkpoints[0].commitHash).toBe('def456');
+  });
+
+  it('should search across sessions and checkpoints', async () => {
+    const { exec } = await import('child_process');
+    let callCount = 0;
+    vi.mocked(exec).mockImplementation((_cmd: unknown, _opts: unknown, cb: unknown) => {
+      callCount++;
+      if (callCount <= 2) {
+        // status --json (called twice: once for search sessions, once for getSession)
+        (cb as Function)(null, {
+          stdout: JSON.stringify([{
+            id: 'sess-1', agent: 'claude', phase: 'ACTIVE',
+            summary: 'Auth feature', filesTouched: ['src/auth.ts'],
+          }]),
+        });
+      } else {
+        // rewind --list
+        (cb as Function)(null, {
+          stdout: JSON.stringify([{
+            id: 'cp-1', commitMessage: 'Add auth', context: 'Auth work',
+          }]),
+        });
+      }
+      return {} as ReturnType<typeof exec>;
+    });
+
+    const store = createEntireExecStore({ executable: 'entire', cwd: '/test' });
+    const results = await store.search('auth');
+
+    expect(results.length).toBeGreaterThanOrEqual(1);
   });
 });

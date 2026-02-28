@@ -43,6 +43,11 @@ import { createNativeEntireStore } from 'entire-cli';
  * Configuration for Entire provider
  */
 export interface EntireConfig {
+  /** Optional path to Entire CLI executable (e.g. 'entire' or '/usr/local/bin/entire').
+   *  When set, the Go CLI is preferred if available, with fallback to the built-in TS store.
+   *  When omitted, the built-in TS store is used directly. */
+  executable?: string;
+
   /** Command timeout (ms) */
   timeout?: number;
 
@@ -61,12 +66,214 @@ export interface EntireConfig {
 const ENTIRE_URI_PATTERN = /^entire:\/\/(session|checkpoint)\/(.+)$/i;
 
 // ============================================================================
-// Native Store (replaces CLI-based store)
+// CLI Exec Store (shells out to Go binary)
 // ============================================================================
 
 /**
- * Create an Entire store backed by the entire-cli package.
- * Reads directly from the filesystem and git — no external binary required.
+ * Create an Entire store that shells out to the Go CLI binary.
+ * Used when the user explicitly configures an executable path.
+ */
+export function createEntireExecStore(config: {
+  executable: string;
+  timeout?: number;
+  cwd?: string;
+}): EntireStore {
+  const { executable, timeout = 30000, cwd = process.cwd() } = config;
+
+  async function execEntire(args: string): Promise<string> {
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+
+    try {
+      const result = await execAsync(`${executable} ${args}`, {
+        cwd,
+        timeout,
+        env: { ...process.env, NO_COLOR: '1' },
+      });
+      return result.stdout.trim();
+    } catch (error) {
+      if (error instanceof Error && 'code' in error) {
+        throw new ProviderError(
+          'OPERATION_FAILED',
+          `Entire CLI failed: ${error.message}`,
+          'entire',
+          error,
+        );
+      }
+      throw error;
+    }
+  }
+
+  function parseSessionJson(json: string): EntireSession[] {
+    try {
+      const data = JSON.parse(json);
+      const sessions = Array.isArray(data) ? data : [data];
+      return sessions.map((s: Record<string, unknown>) => ({
+        id: String(s.id ?? s.sessionId ?? ''),
+        agent: String(s.agent ?? s.agentType ?? 'unknown'),
+        phase: String(s.phase ?? s.state ?? 'ACTIVE').toUpperCase() as EntireSession['phase'],
+        baseCommit: s.baseCommit as string | undefined,
+        branch: s.branch as string | undefined,
+        startedAt: s.startedAt as string | undefined,
+        endedAt: s.endedAt as string | undefined,
+        checkpoints: s.checkpoints as string[] | undefined,
+        tokenUsage: s.tokenUsage as EntireSession['tokenUsage'],
+        filesTouched: s.filesTouched as string[] | undefined,
+        summary: s.summary as string | undefined,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  function parseCheckpointJson(json: string): EntireCheckpoint[] {
+    try {
+      const data = JSON.parse(json);
+      const checkpoints = Array.isArray(data) ? data : [data];
+      return checkpoints.map((c: Record<string, unknown>) => ({
+        id: String(c.id ?? c.checkpointId ?? ''),
+        sessionId: c.sessionId as string | undefined,
+        commitHash: c.commitHash as string | undefined,
+        commitMessage: c.commitMessage as string | undefined,
+        promptCount: c.promptCount as number | undefined,
+        filesModified: c.filesModified as string[] | undefined,
+        filesNew: c.filesNew as string[] | undefined,
+        filesDeleted: c.filesDeleted as string[] | undefined,
+        tokenUsage: c.tokenUsage as EntireCheckpoint['tokenUsage'],
+        context: c.context as string | undefined,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  return {
+    async getSession(id: string): Promise<EntireSession | null> {
+      try {
+        const output = await execEntire(`status --json`);
+        const sessions = parseSessionJson(output);
+        return sessions.find((s) => s.id === id) ?? null;
+      } catch {
+        return null;
+      }
+    },
+
+    async listSessions(): Promise<EntireSession[]> {
+      try {
+        const output = await execEntire(`status --json`);
+        return parseSessionJson(output);
+      } catch {
+        return [];
+      }
+    },
+
+    async getCheckpoint(id: string): Promise<EntireCheckpoint | null> {
+      try {
+        const output = await execEntire(`rewind --list`);
+        const checkpoints = parseCheckpointJson(output);
+        return checkpoints.find((c) => c.id === id) ?? null;
+      } catch {
+        return null;
+      }
+    },
+
+    async listCheckpoints(): Promise<EntireCheckpoint[]> {
+      try {
+        const output = await execEntire(`rewind --list`);
+        return parseCheckpointJson(output);
+      } catch {
+        return [];
+      }
+    },
+
+    async search(query: string): Promise<Array<EntireSession | EntireCheckpoint>> {
+      const results: Array<EntireSession | EntireCheckpoint> = [];
+      const lowerQuery = query.toLowerCase();
+
+      try {
+        const sessions = await this.listSessions();
+        for (const session of sessions) {
+          if (
+            session.summary?.toLowerCase().includes(lowerQuery) ||
+            session.id.toLowerCase().includes(lowerQuery) ||
+            session.filesTouched?.some((f) => f.toLowerCase().includes(lowerQuery))
+          ) {
+            results.push(session);
+          }
+        }
+      } catch {
+        // Continue with checkpoints
+      }
+
+      try {
+        const checkpoints = await this.listCheckpoints();
+        for (const cp of checkpoints) {
+          if (
+            cp.commitMessage?.toLowerCase().includes(lowerQuery) ||
+            cp.id.toLowerCase().includes(lowerQuery) ||
+            cp.context?.toLowerCase().includes(lowerQuery) ||
+            cp.filesModified?.some((f) => f.toLowerCase().includes(lowerQuery)) ||
+            cp.filesNew?.some((f) => f.toLowerCase().includes(lowerQuery))
+          ) {
+            results.push(cp);
+          }
+        }
+      } catch {
+        // Return what we have
+      }
+
+      return results;
+    },
+  };
+}
+
+// ============================================================================
+// Store Factory (with CLI → native fallback)
+// ============================================================================
+
+/**
+ * Check if a CLI executable is available on the system.
+ */
+async function isExecutableAvailable(executable: string): Promise<boolean> {
+  const { exec } = await import('child_process');
+  const { promisify } = await import('util');
+  const execAsync = promisify(exec);
+
+  try {
+    await execAsync(`${executable} --version`, { timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Create an Entire store with optional CLI fallback.
+ *
+ * - If `config.executable` is set and the binary is found, uses the Go CLI.
+ * - Otherwise, uses the built-in TS store (entire-cli package).
+ */
+export async function createEntireCliStoreAsync(config: EntireConfig = {}): Promise<EntireStore> {
+  const cwd = config.cwd ?? process.cwd();
+
+  if (config.executable) {
+    const available = await isExecutableAvailable(config.executable);
+    if (available) {
+      return createEntireExecStore({
+        executable: config.executable,
+        timeout: config.timeout,
+        cwd,
+      });
+    }
+  }
+
+  return createNativeEntireStore(cwd);
+}
+
+/**
+ * Create an Entire store (sync — always uses built-in TS store).
+ * For the CLI-preferred path, use createEntireCliStoreAsync instead.
  */
 export function createEntireCliStore(config: EntireConfig = {}): EntireStore {
   const cwd = config.cwd ?? process.cwd();
@@ -209,7 +416,12 @@ function isSession(item: EntireSession | EntireCheckpoint): item is EntireSessio
 // ============================================================================
 
 /**
- * Create an Entire provider
+ * Create an Entire provider.
+ *
+ * When a pre-built store is provided, it is used directly.
+ * Otherwise, falls back to the sync native store (createEntireCliStore).
+ * For CLI-preferred creation, build the store via createEntireCliStoreAsync
+ * and pass it as the `store` parameter.
  */
 export function createEntireProvider(config: EntireConfig = {}, store?: EntireStore): Provider {
   const entireStore = store ?? createEntireCliStore(config);
