@@ -54,8 +54,13 @@ function readLocationConfig(opentasksDir: string): { hash: string; name: string 
   }
 }
 
+/** Candidate directory names for opentasks config */
+const OPENTASKS_DIR = '.opentasks';
+const SWARM_OPENTASKS_DIR = path.join('.swarm', 'opentasks');
+const CANDIDATES = [SWARM_OPENTASKS_DIR, OPENTASKS_DIR];
+
 /**
- * Walk upward from a directory looking for .opentasks locations
+ * Walk upward from a directory looking for opentasks locations.
  */
 function discoverUp(startDir: string, maxDepth: number): DiscoveredLocation[] {
   const results: DiscoveredLocation[] = [];
@@ -63,18 +68,20 @@ function discoverUp(startDir: string, maxDepth: number): DiscoveredLocation[] {
   let depth = 1;
 
   while (depth <= maxDepth) {
-    // Check if this directory has a .opentasks
-    const opentasksDir = path.join(currentDir, '.opentasks');
-    if (fs.existsSync(opentasksDir)) {
-      const config = readLocationConfig(opentasksDir);
-      if (config) {
-        results.push({
-          opentasksPath: opentasksDir,
-          hash: config.hash,
-          name: config.name,
-          direction: 'up',
-          depth,
-        });
+    for (const dirName of CANDIDATES) {
+      const opentasksDir = path.join(currentDir, dirName);
+      if (fs.existsSync(opentasksDir)) {
+        const config = readLocationConfig(opentasksDir);
+        if (config) {
+          results.push({
+            opentasksPath: opentasksDir,
+            hash: config.hash,
+            name: config.name,
+            direction: 'up',
+            depth,
+          });
+          break;
+        }
       }
     }
 
@@ -89,7 +96,7 @@ function discoverUp(startDir: string, maxDepth: number): DiscoveredLocation[] {
 }
 
 /**
- * Walk downward from a directory looking for .opentasks locations
+ * Walk downward from a directory looking for opentasks locations.
  */
 function discoverDown(startDir: string, maxDepth: number): DiscoveredLocation[] {
   const results: DiscoveredLocation[] = [];
@@ -110,23 +117,30 @@ function discoverDown(startDir: string, maxDepth: number): DiscoveredLocation[] 
       if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
 
       const childDir = path.join(dir, entry.name);
-      const opentasksDir = path.join(childDir, '.opentasks');
 
-      if (fs.existsSync(opentasksDir)) {
-        const config = readLocationConfig(opentasksDir);
-        if (config) {
-          results.push({
-            opentasksPath: opentasksDir,
-            hash: config.hash,
-            name: config.name,
-            direction: 'down',
-            depth,
-          });
+      let found = false;
+      for (const dirName of CANDIDATES) {
+        const opentasksDir = path.join(childDir, dirName);
+        if (fs.existsSync(opentasksDir)) {
+          const config = readLocationConfig(opentasksDir);
+          if (config) {
+            results.push({
+              opentasksPath: opentasksDir,
+              hash: config.hash,
+              name: config.name,
+              direction: 'down',
+              depth,
+            });
+            found = true;
+            break;
+          }
         }
       }
 
-      // Continue walking into subdirectories
-      walk(childDir, depth + 1);
+      // Continue walking into subdirectories (even if found — there may be nested projects)
+      if (!found) {
+        walk(childDir, depth + 1);
+      }
     }
   }
 
@@ -151,18 +165,21 @@ export function discoverLocations(
 
   const results: DiscoveredLocation[] = [];
 
-  // Check self first
-  const selfOpentasks = path.join(resolvedStart, '.opentasks');
-  if (fs.existsSync(selfOpentasks)) {
-    const config = readLocationConfig(selfOpentasks);
-    if (config) {
-      results.push({
-        opentasksPath: selfOpentasks,
-        hash: config.hash,
-        name: config.name,
-        direction: 'self',
-        depth: 0,
-      });
+  // Check self (swarmkit-managed layout first, then standalone)
+  for (const dirName of CANDIDATES) {
+    const selfOpentasks = path.join(resolvedStart, dirName);
+    if (fs.existsSync(selfOpentasks)) {
+      const config = readLocationConfig(selfOpentasks);
+      if (config) {
+        results.push({
+          opentasksPath: selfOpentasks,
+          hash: config.hash,
+          name: config.name,
+          direction: 'self',
+          depth: 0,
+        });
+        break;
+      }
     }
   }
 

@@ -24,7 +24,20 @@ import { discoverLocations } from './core/discover.js';
 import { OpenTasksClient } from './client/client.js';
 
 const OPENTASKS_DIR = '.opentasks';
+const SWARM_OPENTASKS_DIR = '.swarm/opentasks';
 const CONFIG_FILE = 'config.json';
+
+/**
+ * Resolve the project-level opentasks directory.
+ * Priority: OPENTASKS_PROJECT_DIR env var > .swarm/opentasks > .opentasks
+ */
+function resolveProjectDir(baseDir: string = process.cwd()): string {
+  const envDir = process.env.OPENTASKS_PROJECT_DIR;
+  if (envDir) return path.resolve(baseDir, envDir);
+  const swarmDir = path.resolve(baseDir, SWARM_OPENTASKS_DIR);
+  if (fs.existsSync(swarmDir)) return swarmDir;
+  return path.resolve(baseDir, OPENTASKS_DIR);
+}
 
 function printHelp() {
   console.log(`
@@ -127,23 +140,26 @@ function cmdInit(args: string[]): void {
     return;
   }
 
-  const opentasksDir = path.resolve(OPENTASKS_DIR);
+  // Check if already initialized (either layout)
+  const existingDir = resolveProjectDir();
+  const existingConfig = readConfig(existingDir);
+  if (existingConfig.location) {
+    console.log('Location already initialized:');
+    const loc = existingConfig.location as Record<string, string>;
+    console.log(`  hash: ${loc.hash}`);
+    console.log(`  uuid: ${loc.uuid}`);
+    console.log(`  name: ${loc.name}`);
+    return;
+  }
+
+  // Determine target directory (env var override or default)
+  const opentasksDir = resolveProjectDir();
 
   // Create directory if it doesn't exist
   fs.mkdirSync(opentasksDir, { recursive: true });
 
   // Read existing config
   const config = readConfig(opentasksDir);
-
-  // Check if already initialized
-  if (config.location) {
-    console.log('Location already initialized:');
-    const loc = config.location as Record<string, string>;
-    console.log(`  hash: ${loc.hash}`);
-    console.log(`  uuid: ${loc.uuid}`);
-    console.log(`  name: ${loc.name}`);
-    return;
-  }
 
   // Generate location identity
   const identity = generateLocationIdentity(opentasksDir, name);
@@ -204,7 +220,7 @@ function cmdConnect(args: string[]): void {
   const roleIndex = args.indexOf('--role');
   const role = roleIndex !== -1 ? (args[roleIndex + 1] as 'peer' | 'parent' | 'child') : 'peer';
 
-  const opentasksDir = path.resolve(OPENTASKS_DIR);
+  const opentasksDir = resolveProjectDir();
 
   if (!fs.existsSync(path.join(opentasksDir, CONFIG_FILE))) {
     console.error('Not initialized. Run `opentasks init` first.');
@@ -264,7 +280,7 @@ function cmdDisconnect(args: string[]): void {
     process.exit(1);
   }
 
-  const opentasksDir = path.resolve(OPENTASKS_DIR);
+  const opentasksDir = resolveProjectDir();
   const config = readConfig(opentasksDir);
   const connections = (config.connections || []) as Connection[];
 
@@ -284,7 +300,7 @@ function cmdDisconnect(args: string[]): void {
  * List connections with health status
  */
 function cmdConnections(): void {
-  const opentasksDir = path.resolve(OPENTASKS_DIR);
+  const opentasksDir = resolveProjectDir();
   const config = readConfig(opentasksDir);
   const connections = (config.connections || []) as Connection[];
 
@@ -328,7 +344,7 @@ function cmdWorktreeSetup(args: string[]): void {
     process.exit(1);
   }
 
-  const opentasksDir = path.resolve(OPENTASKS_DIR);
+  const opentasksDir = resolveProjectDir();
   if (!fs.existsSync(path.join(opentasksDir, CONFIG_FILE))) {
     console.error('Not initialized. Run `opentasks init` first.');
     process.exit(1);
@@ -409,7 +425,7 @@ function cmdWorktreeTeardown(args: string[]): void {
     process.exit(1);
   }
 
-  const opentasksDir = path.resolve(OPENTASKS_DIR);
+  const opentasksDir = resolveProjectDir();
 
   try {
     const entry = worktreeTeardown(pathOrHash, opentasksDir, {
