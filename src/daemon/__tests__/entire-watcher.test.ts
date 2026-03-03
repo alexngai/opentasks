@@ -43,7 +43,7 @@ describe('EntireWatcher', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'entire-watcher-test-'));
-    sessionsDir = path.join(tmpDir, 'entire-sessions');
+    sessionsDir = path.join(tmpDir, 'sessionlog-sessions');
     fs.mkdirSync(sessionsDir, { recursive: true });
     events = [];
   });

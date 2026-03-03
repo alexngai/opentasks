@@ -92,14 +92,14 @@ function createTestClient(daemon: Daemon): OpenTasksClient {
 }
 
 /**
- * Write an Entire session file to .git/entire-sessions/
+ * Write an Entire session file to .git/sessionlog-sessions/
  */
 async function writeEntireSession(
   gitDir: string,
   sessionId: string,
   session: Record<string, unknown>,
 ): Promise<void> {
-  const sessionsDir = join(gitDir, 'entire-sessions')
+  const sessionsDir = join(gitDir, 'sessionlog-sessions')
   await mkdir(sessionsDir, { recursive: true })
   await writeFile(
     join(sessionsDir, `${sessionId}.json`),
@@ -186,7 +186,7 @@ function makeSampleTranscript(sessionId: string): string {
 }
 
 /**
- * Commit a checkpoint transcript to the entire/checkpoints/v1 branch.
+ * Commit a checkpoint transcript to the sessionlog/checkpoints/v1 branch.
  */
 function commitCheckpoint(
   rootDir: string,
@@ -206,14 +206,14 @@ function commitCheckpoint(
 
   // Create the orphan branch if it doesn't exist
   try {
-    execSync('git rev-parse entire/checkpoints/v1', {
+    execSync('git rev-parse sessionlog/checkpoints/v1', {
       cwd: rootDir,
       stdio: 'ignore',
     })
   } catch {
     // Branch doesn't exist — create orphan
     execSync(
-      'git checkout --orphan entire/checkpoints/v1',
+      'git checkout --orphan sessionlog/checkpoints/v1',
       { cwd: rootDir, stdio: 'ignore' },
     )
     execSync('git rm -rf . 2>/dev/null || true', {
@@ -247,7 +247,7 @@ function commitCheckpoint(
   let existingTree = ''
   try {
     existingTree = execSync(
-      'git ls-tree -r entire/checkpoints/v1',
+      'git ls-tree -r sessionlog/checkpoints/v1',
       { cwd: rootDir, encoding: 'utf-8' },
     ).trim()
   } catch {
@@ -274,7 +274,7 @@ function commitCheckpoint(
   ).trim()
 
   execSync(
-    `git update-ref refs/heads/entire/checkpoints/v1 ${commitHash}`,
+    `git update-ref refs/heads/sessionlog/checkpoints/v1 ${commitHash}`,
     { cwd: rootDir, stdio: 'ignore' },
   )
 }

@@ -173,8 +173,10 @@ const EntireProviderConfigSchemaInner = z.object({
   /** Enable Entire provider and auto-linking */
   enabled: z.boolean().default(true),
 
-  /** Path to entire executable */
-  executable: z.string().default('entire'),
+  /** Optional path to Entire CLI executable (e.g. 'entire' or '/usr/local/bin/entire').
+   *  When set, the Go CLI is preferred if available, with fallback to the built-in TS store.
+   *  When omitted, the built-in TS store is used directly. */
+  executable: z.string().optional(),
 
   /** Command timeout (ms) */
   timeout: z.number().min(1000, 'timeout must be >= 1000ms').default(30000),

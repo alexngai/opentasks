@@ -2,8 +2,8 @@
  * Entire Provider
  *
  * Read-only provider that resolves entire:// URIs to Entire session
- * and checkpoint data. Shells out to the Entire CLI for data access,
- * with fallback to direct git/filesystem reads.
+ * and checkpoint data. Uses the sessionlog package for direct
+ * filesystem/git access — no external binary required.
  *
  * URI formats:
  *   entire://session/<session-id>
@@ -23,6 +23,24 @@ import type {
 } from './types.js';
 import { ProviderError } from './types.js';
 
+// Re-export types from sessionlog (canonical source of truth)
+// Aliased to preserve existing Entire* naming in the opentasks API
+export type {
+  SessionlogSession as EntireSession,
+  SessionlogCheckpoint as EntireCheckpoint,
+  SessionlogTokenUsage as EntireTokenUsage,
+  SessionlogSkillUsage as EntireSkillUsage,
+  SessionlogStore as EntireStore,
+} from 'sessionlog';
+
+import type { SessionlogSession, SessionlogCheckpoint, SessionlogStore } from 'sessionlog';
+import { createNativeSessionlogStore } from 'sessionlog';
+
+// Local aliases matching the opentasks naming convention
+type EntireSession = SessionlogSession;
+type EntireCheckpoint = SessionlogCheckpoint;
+type EntireStore = SessionlogStore;
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -31,87 +49,16 @@ import { ProviderError } from './types.js';
  * Configuration for Entire provider
  */
 export interface EntireConfig {
-  /** Path to entire executable */
+  /** Optional path to Entire CLI executable (e.g. 'entire' or '/usr/local/bin/entire').
+   *  When set, the Go CLI is preferred if available, with fallback to the built-in TS store.
+   *  When omitted, the built-in TS store is used directly. */
   executable?: string;
 
   /** Command timeout (ms) */
   timeout?: number;
 
-  /** Working directory for CLI commands */
+  /** Working directory */
   cwd?: string;
-}
-
-/**
- * Entire session state (from .git/entire-sessions/<id>.json)
- */
-export interface EntireSession {
-  id: string;
-  agent: string;
-  phase: 'ACTIVE' | 'IDLE' | 'ENDED';
-  baseCommit?: string;
-  branch?: string;
-  startedAt?: string;
-  endedAt?: string;
-  checkpoints?: string[];
-  tokenUsage?: EntireTokenUsage;
-  filesTouched?: string[];
-  summary?: string;
-
-  /** Skills used during this session (populated by SkillTracker) */
-  skillsUsed?: EntireSkillUsage;
-}
-
-/**
- * Skill usage data embedded in session metadata
- */
-export interface EntireSkillUsage {
-  /** Distinct skill names used */
-  skills: string[];
-
-  /** Total invocation count across all skills */
-  totalInvocations: number;
-
-  /** Per-skill invocation counts */
-  counts: Record<string, number>;
-
-  /** Per-skill success/failure counts */
-  outcomes: Record<string, { success: number; failure: number }>;
-}
-
-/**
- * Entire checkpoint metadata
- */
-export interface EntireCheckpoint {
-  id: string;
-  sessionId?: string;
-  commitHash?: string;
-  commitMessage?: string;
-  promptCount?: number;
-  filesModified?: string[];
-  filesNew?: string[];
-  filesDeleted?: string[];
-  tokenUsage?: EntireTokenUsage;
-  context?: string;
-}
-
-/**
- * Token usage statistics
- */
-export interface EntireTokenUsage {
-  input?: number;
-  output?: number;
-  cache?: number;
-}
-
-/**
- * Interface for accessing Entire data (CLI or direct reads)
- */
-export interface EntireStore {
-  getSession(id: string): Promise<EntireSession | null>;
-  listSessions(): Promise<EntireSession[]>;
-  getCheckpoint(id: string): Promise<EntireCheckpoint | null>;
-  listCheckpoints(): Promise<EntireCheckpoint[]>;
-  search(query: string): Promise<Array<EntireSession | EntireCheckpoint>>;
 }
 
 // ============================================================================
@@ -125,16 +72,19 @@ export interface EntireStore {
 const ENTIRE_URI_PATTERN = /^entire:\/\/(session|checkpoint)\/(.+)$/i;
 
 // ============================================================================
-// CLI-Based Store
+// CLI Exec Store (shells out to Go binary)
 // ============================================================================
 
 /**
- * Create an Entire store that shells out to the CLI
+ * Create an Entire store that shells out to the Go CLI binary.
+ * Used when the user explicitly configures an executable path.
  */
-export function createEntireCliStore(config: EntireConfig = {}): EntireStore {
-  const executable = config.executable ?? 'entire';
-  const timeout = config.timeout ?? 30000;
-  const cwd = config.cwd ?? process.cwd();
+export function createEntireExecStore(config: {
+  executable: string;
+  timeout?: number;
+  cwd?: string;
+}): EntireStore {
+  const { executable, timeout = 30000, cwd = process.cwd() } = config;
 
   async function execEntire(args: string): Promise<string> {
     const { exec } = await import('child_process');
@@ -174,7 +124,7 @@ export function createEntireCliStore(config: EntireConfig = {}): EntireStore {
         startedAt: s.startedAt as string | undefined,
         endedAt: s.endedAt as string | undefined,
         checkpoints: s.checkpoints as string[] | undefined,
-        tokenUsage: s.tokenUsage as EntireTokenUsage | undefined,
+        tokenUsage: s.tokenUsage as EntireSession['tokenUsage'],
         filesTouched: s.filesTouched as string[] | undefined,
         summary: s.summary as string | undefined,
       }));
@@ -196,7 +146,7 @@ export function createEntireCliStore(config: EntireConfig = {}): EntireStore {
         filesModified: c.filesModified as string[] | undefined,
         filesNew: c.filesNew as string[] | undefined,
         filesDeleted: c.filesDeleted as string[] | undefined,
-        tokenUsage: c.tokenUsage as EntireTokenUsage | undefined,
+        tokenUsage: c.tokenUsage as EntireCheckpoint['tokenUsage'],
         context: c.context as string | undefined,
       }));
     } catch {
@@ -282,6 +232,58 @@ export function createEntireCliStore(config: EntireConfig = {}): EntireStore {
       return results;
     },
   };
+}
+
+// ============================================================================
+// Store Factory (with CLI → native fallback)
+// ============================================================================
+
+/**
+ * Check if a CLI executable is available on the system.
+ */
+async function isExecutableAvailable(executable: string): Promise<boolean> {
+  const { exec } = await import('child_process');
+  const { promisify } = await import('util');
+  const execAsync = promisify(exec);
+
+  try {
+    await execAsync(`${executable} --version`, { timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Create an Entire store with optional CLI fallback.
+ *
+ * - If `config.executable` is set and the binary is found, uses the Go CLI.
+ * - Otherwise, uses the built-in TS store (sessionlog package).
+ */
+export async function createEntireCliStoreAsync(config: EntireConfig = {}): Promise<EntireStore> {
+  const cwd = config.cwd ?? process.cwd();
+
+  if (config.executable) {
+    const available = await isExecutableAvailable(config.executable);
+    if (available) {
+      return createEntireExecStore({
+        executable: config.executable,
+        timeout: config.timeout,
+        cwd,
+      });
+    }
+  }
+
+  return createNativeSessionlogStore(cwd);
+}
+
+/**
+ * Create an Entire store (sync — always uses built-in TS store).
+ * For the CLI-preferred path, use createEntireCliStoreAsync instead.
+ */
+export function createEntireCliStore(config: EntireConfig = {}): EntireStore {
+  const cwd = config.cwd ?? process.cwd();
+  return createNativeSessionlogStore(cwd);
 }
 
 /**
@@ -420,7 +422,12 @@ function isSession(item: EntireSession | EntireCheckpoint): item is EntireSessio
 // ============================================================================
 
 /**
- * Create an Entire provider
+ * Create an Entire provider.
+ *
+ * When a pre-built store is provided, it is used directly.
+ * Otherwise, falls back to the sync native store (createEntireCliStore).
+ * For CLI-preferred creation, build the store via createEntireCliStoreAsync
+ * and pass it as the `store` parameter.
  */
 export function createEntireProvider(config: EntireConfig = {}, store?: EntireStore): Provider {
   const entireStore = store ?? createEntireCliStore(config);
