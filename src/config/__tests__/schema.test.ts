@@ -145,7 +145,6 @@ describe('Config Schema', () => {
         },
         entire: {
           enabled: true,
-          executable: 'entire',
           timeout: 30000,
           autoLink: true,
           autoLinkMinConfidence: 'medium',
@@ -236,7 +235,6 @@ describe('Config Schema', () => {
           },
           entire: {
             enabled: true,
-            executable: 'entire',
             timeout: 30000,
             autoLink: true,
             autoLinkMinConfidence: 'medium',
@@ -271,6 +269,15 @@ describe('Config Schema', () => {
             materializeBeforeArchive: true,
           },
           rematerializeOnStartup: false,
+        },
+        sync: {
+          git: {
+            enabled: false,
+            autoCommit: false,
+            autoPush: false,
+            pushDebounceMs: 60000,
+            pullOnStartup: false,
+          },
         },
         location: undefined,
         connections: [],
@@ -321,7 +328,6 @@ describe('Config Schema', () => {
           },
           entire: {
             enabled: false,
-            executable: '/opt/entire',
             timeout: 45000,
             autoLink: false,
             autoLinkMinConfidence: 'high',
@@ -356,6 +362,15 @@ describe('Config Schema', () => {
             materializeBeforeArchive: true,
           },
           rematerializeOnStartup: false,
+        },
+        sync: {
+          git: {
+            enabled: false,
+            autoCommit: false,
+            autoPush: false,
+            pushDebounceMs: 60000,
+            pullOnStartup: false,
+          },
         },
         location: undefined,
         connections: [],

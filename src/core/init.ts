@@ -20,7 +20,7 @@ import { generateLocationIdentity } from './location.js';
  * @returns The absolute path to ~/.opentasks/
  */
 export function ensureGlobalStoreInitialized(name?: string): string {
-  const globalDir = path.join(os.homedir(), '.opentasks');
+  const globalDir = process.env.OPENTASKS_HOME || path.join(os.homedir(), '.opentasks');
   const configPath = path.join(globalDir, 'config.json');
 
   // Already initialized — return early

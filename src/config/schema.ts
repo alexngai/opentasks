@@ -173,8 +173,10 @@ const EntireProviderConfigSchemaInner = z.object({
   /** Enable Entire provider and auto-linking */
   enabled: z.boolean().default(true),
 
-  /** Path to entire executable */
-  executable: z.string().default('entire'),
+  /** Optional path to Entire CLI executable (e.g. 'entire' or '/usr/local/bin/entire').
+   *  When set, the Go CLI is preferred if available, with fallback to the built-in TS store.
+   *  When omitted, the built-in TS store is used directly. */
+  executable: z.string().optional(),
 
   /** Command timeout (ms) */
   timeout: z.number().min(1000, 'timeout must be >= 1000ms').default(30000),
@@ -421,6 +423,66 @@ export const MaterializationConfigSchema = z
 export type MaterializationConfig = z.infer<typeof MaterializationConfigSchema>;
 
 // ============================================================================
+// Git Graph Sync Configuration
+// ============================================================================
+
+const GitSyncConfigSchemaInner = z.object({
+  /** Enable git-based graph.jsonl sync */
+  enabled: z.boolean().default(false),
+
+  /** Git remote name to push/pull (e.g., 'origin'). Omit to disable push/pull. */
+  remote: z.string().optional(),
+
+  /** Auto-commit graph.jsonl after each daemon flush */
+  autoCommit: z.boolean().default(false),
+
+  /** Auto-push to remote after commit */
+  autoPush: z.boolean().default(false),
+
+  /** Debounce interval for auto-push (ms) */
+  pushDebounceMs: z.number().min(1000, 'pushDebounceMs must be >= 1000ms').default(60000),
+
+  /** Pull from remote on daemon startup */
+  pullOnStartup: z.boolean().default(false),
+});
+
+export const GitSyncConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    remote: z.string().optional(),
+    autoCommit: z.boolean().optional(),
+    autoPush: z.boolean().optional(),
+    pushDebounceMs: z.number().min(1000, 'pushDebounceMs must be >= 1000ms').optional(),
+    pullOnStartup: z.boolean().optional(),
+  })
+  .default({})
+  .transform((val) => GitSyncConfigSchemaInner.parse(val));
+
+export type GitSyncConfig = z.infer<typeof GitSyncConfigSchema>;
+
+const SyncConfigSchemaInner = z.object({
+  git: GitSyncConfigSchema,
+});
+
+export const SyncConfigSchema = z
+  .object({
+    git: z
+      .object({
+        enabled: z.boolean().optional(),
+        remote: z.string().optional(),
+        autoCommit: z.boolean().optional(),
+        autoPush: z.boolean().optional(),
+        pushDebounceMs: z.number().min(1000, 'pushDebounceMs must be >= 1000ms').optional(),
+        pullOnStartup: z.boolean().optional(),
+      })
+      .optional(),
+  })
+  .default({})
+  .transform((val) => SyncConfigSchemaInner.parse(val));
+
+export type SyncConfig = z.infer<typeof SyncConfigSchema>;
+
+// ============================================================================
 // Tracking Configuration
 // ============================================================================
 
@@ -492,6 +554,8 @@ const OpenTasksConfigSchemaInner = z.object({
   defaultProvider: z.string().default('native'),
   /** Materialization archive configuration */
   materialization: MaterializationConfigSchema,
+  /** Graph sync configuration */
+  sync: SyncConfigSchema,
 });
 
 export const OpenTasksConfigSchema = z
@@ -593,6 +657,20 @@ export const OpenTasksConfigSchema = z
       )
       .optional(),
     defaultProvider: z.string().optional(),
+    sync: z
+      .object({
+        git: z
+          .object({
+            enabled: z.boolean().optional(),
+            remote: z.string().optional(),
+            autoCommit: z.boolean().optional(),
+            autoPush: z.boolean().optional(),
+            pushDebounceMs: z.number().min(1000, 'pushDebounceMs must be >= 1000ms').optional(),
+            pullOnStartup: z.boolean().optional(),
+          })
+          .optional(),
+      })
+      .optional(),
     materialization: z
       .object({
         graphId: z.string().optional(),

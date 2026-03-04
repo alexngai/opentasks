@@ -6,7 +6,7 @@
 
 import { createBeadsProvider } from './beads.js';
 import { createClaudeTasksProvider } from './claude-tasks.js';
-import { createEntireProvider } from './entire.js';
+import { createEntireProvider, createEntireCliStoreAsync } from './entire.js';
 import { createGlobalProvider } from './global.js';
 import { createNativeProvider } from './native.js';
 import { createSudocodeProvider } from './sudocode.js';
@@ -160,27 +160,26 @@ export async function createProvidersFromConfig(
   }
 
   // 5. Entire provider (if enabled)
+  // Uses built-in TS store by default. If an executable is configured,
+  // tries the Go CLI first and falls back to the TS store if unavailable.
   if (config.providers.entire.enabled) {
     const entireConfig = config.providers.entire;
-    const isAvailable = await isCliAvailable(entireConfig.executable);
-
-    if (isAvailable) {
-      try {
-        const entireProvider = createEntireProvider({
-          executable: entireConfig.executable,
-          timeout: entireConfig.timeout,
-        });
-        registry.register(entireProvider);
-        providers.push(entireProvider);
-      } catch (error) {
-        failed.push({
-          name: 'entire',
-          error: error instanceof Error ? error : new Error(String(error)),
-        });
-      }
-    } else {
-      // Enabled but not available - skip silently (per spec)
-      skipped.push('entire');
+    try {
+      const store = await createEntireCliStoreAsync({
+        executable: entireConfig.executable,
+        timeout: entireConfig.timeout,
+      });
+      const entireProvider = createEntireProvider(
+        { timeout: entireConfig.timeout },
+        store,
+      );
+      registry.register(entireProvider);
+      providers.push(entireProvider);
+    } catch (error) {
+      failed.push({
+        name: 'entire',
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
     }
   } else {
     skipped.push('entire');

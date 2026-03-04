@@ -88,7 +88,7 @@ function countByCategory(toolCalls: ExtractedToolCall[]): Record<ToolCategory, n
 /**
  * Fetch transcript and metadata from git for a checkpoint.
  *
- * Path format: entire/checkpoints/v1:<shard>/<rest>/1/full.jsonl
+ * Path format: sessionlog/checkpoints/v1:<shard>/<rest>/1/full.jsonl
  * where shard = id.slice(0, 2), rest = id.slice(2)
  */
 function fetchTranscriptFromGit(
@@ -100,8 +100,8 @@ function fetchTranscriptFromGit(
   const basePath = `${shard}/${rest}/1`;
 
   try {
-    const metadataRaw = execGit(`show entire/checkpoints/v1:${basePath}/metadata.json`);
-    const transcript = execGit(`show entire/checkpoints/v1:${basePath}/full.jsonl`);
+    const metadataRaw = execGit(`show sessionlog/checkpoints/v1:${basePath}/metadata.json`);
+    const transcript = execGit(`show sessionlog/checkpoints/v1:${basePath}/full.jsonl`);
     const metadata = JSON.parse(metadataRaw) as Record<string, unknown>;
     return { transcript, metadata };
   } catch {

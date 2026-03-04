@@ -48,6 +48,11 @@ export interface IPCError {
 export type MethodHandler<P = unknown, R = unknown> = (params: P) => Promise<R>;
 
 /**
+ * Handler for server-push notifications (messages with id: null and a method field)
+ */
+export type NotificationHandler = (method: string, params: unknown) => void;
+
+/**
  * IPC server interface
  */
 export interface IPCServer {
@@ -59,6 +64,9 @@ export interface IPCServer {
 
   /** Register a method handler */
   handle<P = unknown, R = unknown>(method: string, handler: MethodHandler<P, R>): void;
+
+  /** Send a JSON-RPC notification to all connected clients */
+  broadcastNotification(method: string, params: unknown): void;
 
   /** Get current connection count */
   getConnectionCount(): number;
@@ -295,6 +303,22 @@ export function createIPCServer(socketPath: string): IPCServer {
       handlers.set(method, handler as MethodHandler);
     },
 
+    broadcastNotification(method: string, params: unknown): void {
+      const notification = JSON.stringify({
+        jsonrpc: '2.0',
+        id: null,
+        method,
+        params,
+      });
+      for (const socket of connections) {
+        try {
+          socket.write(notification + '\n');
+        } catch {
+          // Connection may be dead — ignore
+        }
+      }
+    },
+
     getConnectionCount(): number {
       return connections.size;
     },
@@ -306,7 +330,7 @@ export function createIPCServer(socketPath: string): IPCServer {
 // ============================================================================
 
 /**
- * Simple IPC client for testing
+ * Simple IPC client for testing and internal use
  */
 export interface IPCClient {
   /** Connect to server */
@@ -317,6 +341,9 @@ export interface IPCClient {
 
   /** Send request and wait for response */
   request<R = unknown>(method: string, params?: unknown): Promise<R>;
+
+  /** Register handler for server-push notifications (id: null messages with a method) */
+  onNotification(handler: NotificationHandler): () => void;
 
   /** Check if connected */
   readonly connected: boolean;
@@ -332,6 +359,7 @@ export function createIPCClient(socketPath: string): IPCClient {
     string | number,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
+  const notificationHandlers: NotificationHandler[] = [];
   let buffer = '';
 
   function processBuffer(): void {
@@ -343,7 +371,25 @@ export function createIPCClient(socketPath: string): IPCClient {
       if (line.trim() === '') continue;
 
       try {
-        const response = JSON.parse(line) as IPCResponse;
+        const message = JSON.parse(line) as Record<string, unknown>;
+
+        // Server-push notification: has method but id is null/undefined
+        if (
+          typeof message.method === 'string' &&
+          (message.id === null || message.id === undefined)
+        ) {
+          for (const handler of notificationHandlers) {
+            try {
+              handler(message.method, message.params);
+            } catch {
+              // Don't let handler errors break the processing loop
+            }
+          }
+          continue;
+        }
+
+        // Standard response
+        const response = message as unknown as IPCResponse;
         const pending = pendingRequests.get(response.id!);
         if (pending) {
           pendingRequests.delete(response.id!);
@@ -401,6 +447,14 @@ export function createIPCClient(socketPath: string): IPCClient {
         socket.destroy();
         socket = null;
       }
+    },
+
+    onNotification(handler: NotificationHandler): () => void {
+      notificationHandlers.push(handler);
+      return () => {
+        const idx = notificationHandlers.indexOf(handler);
+        if (idx >= 0) notificationHandlers.splice(idx, 1);
+      };
     },
 
     async request<R = unknown>(method: string, params?: unknown): Promise<R> {

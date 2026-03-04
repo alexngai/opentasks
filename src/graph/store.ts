@@ -56,6 +56,9 @@ export interface GraphStore {
   /** Force immediate flush to JSONL */
   flush(): Promise<void>;
 
+  /** Reload graph from JSONL (for external changes like git pull) */
+  reload(): Promise<void>;
+
   // === Node Operations ===
 
   /** Create a new node */
@@ -99,6 +102,11 @@ export interface GraphStore {
 
   /** Query engine for graph traversal */
   readonly query: QueryEngine;
+
+  // === Node Resolver ===
+
+  /** Set a node resolver for cross-provider query support */
+  setNodeResolver(resolver: import('./query.js').NodeResolver): void;
 
   // === Transactions ===
 
@@ -214,7 +222,7 @@ export function createGraphStore(
   jsonlSave: (nodes: StoredNode[], edges: StoredEdge[]) => Promise<void>,
 ): GraphStore {
   const validation: ValidationService = createValidationService();
-  const queryEngine: QueryEngine = createQueryEngine(storage);
+  let queryEngine: QueryEngine = createQueryEngine(storage);
 
   // Sync configuration
   const syncConfig: SyncConfig = {
@@ -314,6 +322,96 @@ export function createGraphStore(
 
     async flush(): Promise<void> {
       await syncManager.flush();
+    },
+
+    async reload(): Promise<void> {
+      // Re-read JSONL (source of truth) and sync to SQLite
+      const { nodes, edges } = await jsonlLoad();
+
+      // Build sets of current IDs for diffing
+      const newNodeIds = new Set(nodes.map((n) => n.id));
+      const newEdgeIds = new Set(edges.map((e) => e.id));
+
+      // Get existing IDs from storage
+      const existingNodes = await storage.queryNodes({});
+      const existingNodeIds = new Set(existingNodes.map((n) => n.id));
+
+      // Upsert nodes from JSONL
+      for (const node of nodes) {
+        if (existingNodeIds.has(node.id)) {
+          await storage.updateNode(node.id, node);
+        } else {
+          try {
+            await storage.createNode(node);
+          } catch {
+            await storage.updateNode(node.id, node);
+          }
+        }
+        // Sync tags
+        if (node.tags) {
+          const existingTags = await storage.getTags(node.id);
+          for (const tag of existingTags) {
+            if (!node.tags.includes(tag)) {
+              await storage.removeTag(node.id, tag);
+            }
+          }
+          for (const tag of node.tags) {
+            if (!existingTags.includes(tag)) {
+              await storage.addTag(node.id, tag);
+            }
+          }
+        }
+      }
+
+      // Remove nodes that no longer exist in JSONL
+      for (const existingId of existingNodeIds) {
+        if (!newNodeIds.has(existingId)) {
+          try {
+            await storage.deleteNode(existingId);
+          } catch {
+            // Ignore — may have cascade constraints
+          }
+        }
+      }
+
+      // Collect existing edge IDs (before mutations) for stale edge detection
+      const existingEdgeIds = new Set<string>();
+      for (const node of existingNodes) {
+        const fromEdges = await storage.getEdgesFrom(node.id);
+        const toEdges = await storage.getEdgesTo(node.id);
+        for (const edge of [...fromEdges, ...toEdges]) {
+          existingEdgeIds.add(edge.id);
+        }
+      }
+
+      // Upsert edges from JSONL
+      for (const edge of edges) {
+        try {
+          await storage.createEdge(edge);
+        } catch {
+          // Edge already exists — delete and recreate to pick up changes
+          try {
+            await storage.deleteEdge(edge.id);
+            await storage.createEdge(edge);
+          } catch {
+            // Skip if both fail
+          }
+        }
+      }
+
+      // Remove edges that no longer exist in JSONL
+      for (const edgeId of existingEdgeIds) {
+        if (!newEdgeIds.has(edgeId)) {
+          try {
+            await storage.deleteEdge(edgeId);
+          } catch {
+            // Ignore — may have cascade constraints
+          }
+        }
+      }
+
+      // Update node count
+      nodeCount = nodes.length;
     },
 
     // =========================================================================
@@ -605,7 +703,17 @@ export function createGraphStore(
     // Query
     // =========================================================================
 
-    query: queryEngine,
+    get query(): QueryEngine {
+      return queryEngine;
+    },
+
+    // =========================================================================
+    // Node Resolver
+    // =========================================================================
+
+    setNodeResolver(resolver: import('./query.js').NodeResolver): void {
+      queryEngine = createQueryEngine({ storage, nodeResolver: resolver });
+    },
 
     // =========================================================================
     // Transactions

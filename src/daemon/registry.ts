@@ -48,7 +48,8 @@ const REGISTRY_VERSION = '1.0.0';
  * Get the default global registry path
  */
 export function getGlobalRegistryPath(): string {
-  return path.join(os.homedir(), '.opentasks', 'registry.json');
+  const globalDir = process.env.OPENTASKS_HOME || path.join(os.homedir(), '.opentasks');
+  return path.join(globalDir, 'registry.json');
 }
 
 // ============================================================================

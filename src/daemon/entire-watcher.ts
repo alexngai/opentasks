@@ -1,7 +1,7 @@
 /**
  * Entire Session Watcher
  *
- * Watches .git/entire-sessions/ for session state changes and emits
+ * Watches .git/sessionlog-sessions/ for session state changes and emits
  * structured events. Used by the auto-linker to correlate sessions
  * with OpenTasks tasks.
  */
@@ -170,7 +170,7 @@ export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher 
 
   // Resolve git dir
   const gitDir = config.gitDir ?? resolveGitDir(locationPath);
-  const sessionsDir = gitDir ? path.join(gitDir, 'entire-sessions') : '';
+  const sessionsDir = gitDir ? path.join(gitDir, 'sessionlog-sessions') : '';
 
   let watcher: FSWatcher | null = null;
   let watching = false;
