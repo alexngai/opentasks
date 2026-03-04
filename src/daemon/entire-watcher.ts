@@ -322,7 +322,10 @@ export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher 
       }
 
       return new Promise<void>((resolve) => {
-        watcher = chokidar.watch(path.join(sessionsDir, '*.json'), {
+        // Watch the directory (not a glob) — chokidar v5 doesn't support
+        // glob patterns with usePolling. The .json filter is already applied
+        // in handleFileChange/handleFileDelete.
+        watcher = chokidar.watch(sessionsDir, {
           ignoreInitial: true,
           persistent: true,
           ignorePermissionErrors: true,

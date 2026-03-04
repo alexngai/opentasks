@@ -93,6 +93,9 @@ const ENTIRE_URI_PATTERN = /^entire:\/\/(session|checkpoint)\/(.+)$/i;
 /**
  * Create an Entire store that shells out to the Go CLI binary.
  * Used when the user explicitly configures an executable path.
+ *
+ * TODO: Add E2E tests for this store (requires `entire` binary or stub tests).
+ *   See entire-sessionlog-e2e.test.ts for context.
  */
 export function createEntireExecStore(config: {
   executable: string;
