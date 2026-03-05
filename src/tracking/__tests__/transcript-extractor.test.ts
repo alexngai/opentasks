@@ -136,35 +136,6 @@ describe('createTranscriptExtractor', () => {
       });
     });
 
-    it('reconstructs Claude task state', async () => {
-      const extractor = createTranscriptExtractor({
-        execGit: createMockExecGit(),
-      });
-
-      const result = await extractor.extract(makeEndedEvent('sess-1'));
-      expect(result!.claudeTasks).toBeDefined();
-      expect(result!.claudeTasks!.tasks).toHaveLength(1);
-
-      const task = result!.claudeTasks!.tasks[0];
-      expect(task.taskId).toBe('1');
-      expect(task.subject).toBe('Fix bug');
-      expect(task.finalStatus).toBe('completed');
-      expect(task.statusHistory).toHaveLength(3);
-    });
-
-    it('extracts plan mode transitions', async () => {
-      const extractor = createTranscriptExtractor({
-        execGit: createMockExecGit(),
-      });
-
-      const result = await extractor.extract(makeEndedEvent('sess-1'));
-      expect(result!.planModeTransitions).toHaveLength(2);
-      expect(result!.planModeTransitions[0].type).toBe('enter');
-      expect(result!.planModeTransitions[1].type).toBe('exit');
-      expect(result!.planModeTransitions[1].planContent).toBe('## Plan\n1. Fix auth');
-      expect(result!.planModeTransitions[1].approved).toBe(true);
-    });
-
     it('backfills SkillTrackerRegistry', async () => {
       const registry = createSkillTrackerRegistry();
 
@@ -286,8 +257,6 @@ describe('createTranscriptExtractor', () => {
       const result = await extractor.extract(makeEndedEvent('sess-1'));
       expect(result).not.toBeNull();
       expect(result!.toolCalls).toEqual([]);
-      expect(result!.claudeTasks).toBeUndefined();
-      expect(result!.planModeTransitions).toEqual([]);
     });
   });
 });

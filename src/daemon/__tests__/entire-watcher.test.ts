@@ -166,6 +166,354 @@ describe('EntireWatcher', () => {
     });
   });
 
+  describe('session file parsing - task/plan data', () => {
+    it('should parse tasks from session file', async () => {
+      const watcher = createEntireWatcher({
+        locationPath: path.join(tmpDir, '.opentasks'),
+        gitDir: tmpDir,
+        debounceMs: 10,
+        usePolling: true,
+      });
+
+      watcher.onSessionEvent((event) => events.push(event));
+      await watcher.start();
+
+      writeSessionFile('session-tasks', {
+        agent: 'Claude Code',
+        phase: 'ACTIVE',
+        checkpoints: [],
+        tasks: {
+          '1': {
+            id: '1',
+            subject: 'Fix auth bug',
+            status: 'in_progress',
+            createdAt: '2026-03-04T10:00:00Z',
+            updatedAt: '2026-03-04T10:01:00Z',
+          },
+          '2': {
+            id: '2',
+            subject: 'Write tests',
+            status: 'pending',
+            createdAt: '2026-03-04T10:00:00Z',
+            updatedAt: '2026-03-04T10:00:00Z',
+          },
+        },
+      });
+
+      const event = await waitForEvent(events, (e) => e.sessionId === 'session-tasks');
+      expect(event).not.toBeNull();
+      expect(event!.session.tasks).toBeDefined();
+      expect(Object.keys(event!.session.tasks!)).toHaveLength(2);
+      expect(event!.session.tasks!['1'].subject).toBe('Fix auth bug');
+      expect(event!.session.tasks!['1'].status).toBe('in_progress');
+      expect(event!.session.tasks!['2'].subject).toBe('Write tests');
+
+      await watcher.stop();
+    });
+
+    it('should parse plan mode data from session file', async () => {
+      const watcher = createEntireWatcher({
+        locationPath: path.join(tmpDir, '.opentasks'),
+        gitDir: tmpDir,
+        debounceMs: 10,
+        usePolling: true,
+      });
+
+      watcher.onSessionEvent((event) => events.push(event));
+      await watcher.start();
+
+      writeSessionFile('session-plan', {
+        agent: 'Claude Code',
+        phase: 'ACTIVE',
+        checkpoints: [],
+        inPlanMode: true,
+        planModeEntries: 1,
+        planEntries: [
+          {
+            enteredAt: '2026-03-04T10:00:00Z',
+          },
+        ],
+      });
+
+      const event = await waitForEvent(events, (e) => e.sessionId === 'session-plan');
+      expect(event).not.toBeNull();
+      expect(event!.session.inPlanMode).toBe(true);
+      expect(event!.session.planModeEntries).toBe(1);
+      expect(event!.session.planEntries).toHaveLength(1);
+      expect(event!.session.planEntries![0].enteredAt).toBe('2026-03-04T10:00:00Z');
+
+      await watcher.stop();
+    });
+
+    it('should parse completed plan entries with content', async () => {
+      const watcher = createEntireWatcher({
+        locationPath: path.join(tmpDir, '.opentasks'),
+        gitDir: tmpDir,
+        debounceMs: 10,
+        usePolling: true,
+      });
+
+      watcher.onSessionEvent((event) => events.push(event));
+      await watcher.start();
+
+      writeSessionFile('session-plan-done', {
+        agent: 'Claude Code',
+        phase: 'ACTIVE',
+        checkpoints: [],
+        inPlanMode: false,
+        planModeEntries: 1,
+        planEntries: [
+          {
+            enteredAt: '2026-03-04T10:00:00Z',
+            exitedAt: '2026-03-04T10:05:00Z',
+            filePath: 'plan.md',
+            content: '## Plan\n1. Fix auth\n2. Add tests',
+            allowedPrompts: [{ tool: 'Bash', prompt: 'run tests' }],
+          },
+        ],
+      });
+
+      const event = await waitForEvent(events, (e) => e.sessionId === 'session-plan-done');
+      expect(event).not.toBeNull();
+      expect(event!.session.inPlanMode).toBe(false);
+
+      const entry = event!.session.planEntries![0];
+      expect(entry.exitedAt).toBe('2026-03-04T10:05:00Z');
+      expect(entry.content).toContain('Fix auth');
+      expect(entry.allowedPrompts).toHaveLength(1);
+
+      await watcher.stop();
+    });
+
+    it('should parse skillsUsed from session file', async () => {
+      const watcher = createEntireWatcher({
+        locationPath: path.join(tmpDir, '.opentasks'),
+        gitDir: tmpDir,
+        debounceMs: 10,
+        usePolling: true,
+      });
+
+      watcher.onSessionEvent((event) => events.push(event));
+      await watcher.start();
+
+      writeSessionFile('session-skills', {
+        agent: 'Claude Code',
+        phase: 'ACTIVE',
+        checkpoints: [],
+        skillsUsed: [
+          { name: 'commit', usedAt: '2026-03-04T10:00:00Z' },
+          { name: 'review-pr', args: '123', usedAt: '2026-03-04T10:01:00Z' },
+        ],
+      });
+
+      const event = await waitForEvent(events, (e) => e.sessionId === 'session-skills');
+      expect(event).not.toBeNull();
+      expect(event!.session.skillsUsed).toHaveLength(2);
+      expect(event!.session.skillsUsed![0].name).toBe('commit');
+      expect(event!.session.skillsUsed![1].args).toBe('123');
+
+      await watcher.stop();
+    });
+
+    it('should handle session files without task/plan fields gracefully', async () => {
+      const watcher = createEntireWatcher({
+        locationPath: path.join(tmpDir, '.opentasks'),
+        gitDir: tmpDir,
+        debounceMs: 10,
+        usePolling: true,
+      });
+
+      watcher.onSessionEvent((event) => events.push(event));
+      await watcher.start();
+
+      writeSessionFile('session-minimal', {
+        agent: 'Claude Code',
+        phase: 'ACTIVE',
+        checkpoints: [],
+      });
+
+      const event = await waitForEvent(events, (e) => e.sessionId === 'session-minimal');
+      expect(event).not.toBeNull();
+      expect(event!.session.tasks).toBeUndefined();
+      expect(event!.session.inPlanMode).toBeUndefined();
+      expect(event!.session.planEntries).toBeUndefined();
+      expect(event!.session.skillsUsed).toBeUndefined();
+
+      await watcher.stop();
+    });
+  });
+
+  describe('task/plan change detection', () => {
+    it('should emit updated event when a task is added', async () => {
+      writeSessionFile('session-change', {
+        agent: 'Claude Code',
+        phase: 'ACTIVE',
+        checkpoints: [],
+      });
+
+      const watcher = createEntireWatcher({
+        locationPath: path.join(tmpDir, '.opentasks'),
+        gitDir: tmpDir,
+        debounceMs: 10,
+        usePolling: true,
+      });
+
+      watcher.onSessionEvent((event) => events.push(event));
+      await watcher.start();
+
+      // Add a task (same phase, no checkpoint change)
+      writeSessionFile('session-change', {
+        agent: 'Claude Code',
+        phase: 'ACTIVE',
+        checkpoints: [],
+        tasks: {
+          '1': {
+            id: '1',
+            subject: 'New task',
+            status: 'pending',
+            createdAt: '2026-03-04T10:00:00Z',
+            updatedAt: '2026-03-04T10:00:00Z',
+          },
+        },
+      });
+
+      const event = await waitForEvent(events, (e) => e.type === 'updated');
+      expect(event).not.toBeNull();
+      expect(event!.session.tasks).toBeDefined();
+      expect(Object.keys(event!.session.tasks!)).toHaveLength(1);
+
+      await watcher.stop();
+    });
+
+    it('should emit updated event when plan mode is entered', async () => {
+      writeSessionFile('session-plan-change', {
+        agent: 'Claude Code',
+        phase: 'ACTIVE',
+        checkpoints: [],
+        inPlanMode: false,
+      });
+
+      const watcher = createEntireWatcher({
+        locationPath: path.join(tmpDir, '.opentasks'),
+        gitDir: tmpDir,
+        debounceMs: 10,
+        usePolling: true,
+      });
+
+      watcher.onSessionEvent((event) => events.push(event));
+      await watcher.start();
+
+      // Enter plan mode (same phase, no checkpoint change)
+      writeSessionFile('session-plan-change', {
+        agent: 'Claude Code',
+        phase: 'ACTIVE',
+        checkpoints: [],
+        inPlanMode: true,
+        planModeEntries: 1,
+        planEntries: [{ enteredAt: '2026-03-04T10:00:00Z' }],
+      });
+
+      const event = await waitForEvent(events, (e) => e.type === 'updated');
+      expect(event).not.toBeNull();
+      expect(event!.session.inPlanMode).toBe(true);
+
+      await watcher.stop();
+    });
+
+    it('should emit updated event when plan entries count changes', async () => {
+      writeSessionFile('session-plan-exit', {
+        agent: 'Claude Code',
+        phase: 'ACTIVE',
+        checkpoints: [],
+        inPlanMode: true,
+        planModeEntries: 1,
+        planEntries: [{ enteredAt: '2026-03-04T10:00:00Z' }],
+      });
+
+      const watcher = createEntireWatcher({
+        locationPath: path.join(tmpDir, '.opentasks'),
+        gitDir: tmpDir,
+        debounceMs: 10,
+        usePolling: true,
+      });
+
+      watcher.onSessionEvent((event) => events.push(event));
+      await watcher.start();
+
+      // Exit plan mode and enter again (planEntries grows)
+      writeSessionFile('session-plan-exit', {
+        agent: 'Claude Code',
+        phase: 'ACTIVE',
+        checkpoints: [],
+        inPlanMode: true,
+        planModeEntries: 2,
+        planEntries: [
+          { enteredAt: '2026-03-04T10:00:00Z', exitedAt: '2026-03-04T10:05:00Z' },
+          { enteredAt: '2026-03-04T10:10:00Z' },
+        ],
+      });
+
+      const event = await waitForEvent(events, (e) => e.type === 'updated');
+      expect(event).not.toBeNull();
+      expect(event!.session.planEntries).toHaveLength(2);
+
+      await watcher.stop();
+    });
+
+    it('should NOT emit event when only task status changes (same count)', async () => {
+      writeSessionFile('session-no-change', {
+        agent: 'Claude Code',
+        phase: 'ACTIVE',
+        checkpoints: [],
+        tasks: {
+          '1': {
+            id: '1',
+            subject: 'Task',
+            status: 'pending',
+            createdAt: '2026-03-04T10:00:00Z',
+            updatedAt: '2026-03-04T10:00:00Z',
+          },
+        },
+        inPlanMode: false,
+        planEntries: [],
+      });
+
+      const watcher = createEntireWatcher({
+        locationPath: path.join(tmpDir, '.opentasks'),
+        gitDir: tmpDir,
+        debounceMs: 10,
+        usePolling: true,
+      });
+
+      watcher.onSessionEvent((event) => events.push(event));
+      await watcher.start();
+
+      // Change task status but not count, same plan state
+      writeSessionFile('session-no-change', {
+        agent: 'Claude Code',
+        phase: 'ACTIVE',
+        checkpoints: [],
+        tasks: {
+          '1': {
+            id: '1',
+            subject: 'Task',
+            status: 'completed',
+            createdAt: '2026-03-04T10:00:00Z',
+            updatedAt: '2026-03-04T10:01:00Z',
+          },
+        },
+        inPlanMode: false,
+        planEntries: [],
+      });
+
+      // Wait a bit and verify no event was emitted
+      await new Promise((r) => setTimeout(r, 500));
+      expect(events).toHaveLength(0);
+
+      await watcher.stop();
+    });
+  });
+
   // Filesystem-dependent tests that require chokidar to detect real file events.
   // These are inherently environment-dependent (inotify, polling, etc.)
   describe.skipIf(!RUN_SLOW_TESTS)('filesystem integration', () => {

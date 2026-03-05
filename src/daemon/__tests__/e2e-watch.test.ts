@@ -117,8 +117,10 @@ describe('E2E: Watch Notifications', () => {
     await startDaemon();
     const c = await connectClient();
 
-    // Subscribe
+    // Subscribe and let the file watcher fully initialize
     await c.request('watch.subscribe');
+    await new Promise((r) => setTimeout(r, 300));
+
     const { events, stop } = collectNotifications(c);
 
     // Create a node via IPC
@@ -132,7 +134,7 @@ describe('E2E: Watch Notifications', () => {
     await c.request('flush');
 
     // Wait for chokidar + debounce pipeline
-    await waitForEvents(events, 1);
+    await waitForEvents(events, 1, 8000);
     stop();
 
     expect(events.length).toBeGreaterThanOrEqual(1);
