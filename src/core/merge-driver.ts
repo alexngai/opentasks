@@ -242,11 +242,15 @@ export function mergeJsonl(basePath: string, oursPath: string, theirsPath: strin
 /**
  * Install the merge driver in git config and .gitattributes
  *
- * @param worktreePath - Path to the worktree root
+ * Places .gitattributes inside the opentasks directory so it doesn't
+ * pollute the project root. Git supports .gitattributes in subdirectories;
+ * patterns are matched relative to the directory containing the file.
+ *
+ * @param opentasksDir - Path to the opentasks data directory
  */
-export function installMergeDriver(worktreePath: string): void {
-  // 1. Add to .gitattributes
-  const attrPath = `${worktreePath}/.gitattributes`;
+export function installMergeDriver(opentasksDir: string): void {
+  // 1. Add .gitattributes inside the opentasks directory
+  const attrPath = `${opentasksDir}/.gitattributes`;
   let attrContent = '';
   try {
     attrContent = fs.readFileSync(attrPath, 'utf-8');
@@ -256,18 +260,18 @@ export function installMergeDriver(worktreePath: string): void {
 
   if (!attrContent.includes('merge=opentasks')) {
     const addition =
-      '\n# OpenTasks merge driver for graph.jsonl\n' + '.opentasks/graph.jsonl merge=opentasks\n';
+      '\n# OpenTasks merge driver for graph.jsonl\n' + 'graph.jsonl merge=opentasks\n';
     fs.writeFileSync(attrPath, attrContent + addition, 'utf-8');
   }
 
   // 2. Configure merge driver in git config
   try {
     execSync('git config merge.opentasks.name "OpenTasks JSONL merge driver"', {
-      cwd: worktreePath,
+      cwd: opentasksDir,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     execSync('git config merge.opentasks.driver "opentasks merge-driver %O %A %B %L %P"', {
-      cwd: worktreePath,
+      cwd: opentasksDir,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
   } catch {

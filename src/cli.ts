@@ -72,7 +72,7 @@ Update options:
   --metadata <json>             Update metadata (merged)
 
 Setup commands:
-  init [--name <name>] [--global] Initialize .opentasks (--global: ~/.opentasks)
+  init [--name <name>] [--global] [--no-merge-driver] Initialize .opentasks
   connect <path> [--role <role>] Connect to another location
   disconnect <hash>             Disconnect from a location
   connections                   List connections with health status
@@ -863,14 +863,18 @@ async function main() {
       break;
 
     // Setup commands (sync, no daemon needed)
-    case 'init':
-      cmdInit(args.slice(1));
-      try {
-        installMergeDriver(process.cwd());
-      } catch {
-        // Non-fatal
+    case 'init': {
+      const initArgs = args.slice(1);
+      cmdInit(initArgs);
+      if (!initArgs.includes('--no-merge-driver')) {
+        try {
+          installMergeDriver(resolveProjectDir());
+        } catch {
+          // Non-fatal
+        }
       }
       break;
+    }
     case 'connect':
       cmdConnect(args.slice(1));
       break;

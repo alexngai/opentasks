@@ -278,7 +278,7 @@ export function createGitGraphSyncer(config: GitGraphSyncerConfig): GitGraphSync
       // Check if graph.jsonl exists before installing
       if (!fs.existsSync(graphFile)) return;
 
-      installMergeDriver(repoRoot);
+      installMergeDriver(opentasksPath);
     },
 
     startAutoSync(): void {

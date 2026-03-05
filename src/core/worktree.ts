@@ -405,7 +405,7 @@ export function worktreeSetup(
 
   // 7. Install merge driver
   try {
-    installMergeDriver(resolvedTarget);
+    installMergeDriver(workerOpentasksDir);
   } catch {
     // Non-fatal: merge driver installation might fail
   }
