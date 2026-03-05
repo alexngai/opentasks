@@ -183,6 +183,41 @@ describe('EntireAutoLinker', () => {
       );
     });
 
+    it('should include task/plan data in initial session node metadata', async () => {
+      const tasks = {
+        '1': {
+          id: '1',
+          subject: 'Implement feature',
+          status: 'pending',
+          createdAt: '2026-03-04T10:00:00Z',
+          updatedAt: '2026-03-04T10:00:00Z',
+        },
+      };
+
+      await linker.handleSessionEvent(
+        makeEvent({
+          type: 'started',
+          session: makeSession({
+            tasks,
+            inPlanMode: true,
+            planModeEntries: 1,
+            planEntries: [{ enteredAt: '2026-03-04T10:00:00Z' }],
+          }),
+        }),
+      );
+
+      expect(store.createNode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            tasks,
+            inPlanMode: true,
+            planModeEntries: 1,
+            planEntries: [{ enteredAt: '2026-03-04T10:00:00Z' }],
+          }),
+        }),
+      );
+    });
+
     it('should use actual node ID (not URI) for edge creation', async () => {
       // Add a claimed in-progress task
       store._nodes.set('t-task1', {
@@ -643,16 +678,72 @@ describe('EntireAutoLinker', () => {
       );
     });
 
-    it('should be a no-op when session node does not exist', async () => {
-      // Don't create session first — just try to end it
+    it('should persist final task and plan data on ended', async () => {
+      await linker.handleSessionEvent(makeEvent({ type: 'started' }));
+
+      const tasks = {
+        '1': {
+          id: '1',
+          subject: 'Fix auth bug',
+          status: 'completed',
+          createdAt: '2026-03-04T10:00:00Z',
+          updatedAt: '2026-03-04T10:30:00Z',
+        },
+      };
+      const planEntries = [
+        {
+          enteredAt: '2026-03-04T10:00:00Z',
+          exitedAt: '2026-03-04T10:05:00Z',
+          content: '## Plan\n1. Fix auth',
+        },
+      ];
+
       await linker.handleSessionEvent(
         makeEvent({
           type: 'ended',
-          session: makeSession({ phase: 'ENDED' }),
+          session: makeSession({
+            phase: 'ENDED',
+            endedAt: '2026-03-04T10:30:00Z',
+            tasks,
+            planModeEntries: 1,
+            planEntries,
+          }),
         }),
       );
 
-      expect(store.updateNode).not.toHaveBeenCalled();
+      expect(store.updateNode).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            tasks,
+            planModeEntries: 1,
+            planEntries,
+          }),
+        }),
+      );
+    });
+
+    it('should create node then update it when session node does not exist', async () => {
+      // Don't create session first — ended handler should create it
+      await linker.handleSessionEvent(
+        makeEvent({
+          type: 'ended',
+          session: makeSession({ phase: 'ENDED', endedAt: '2024-01-01T01:00:00Z' }),
+        }),
+      );
+
+      // Node should be created first, then updated with ended metadata
+      expect(store.createNode).toHaveBeenCalled();
+      expect(store.updateNode).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          status: 'closed',
+          metadata: expect.objectContaining({
+            phase: 'ENDED',
+            endedAt: '2024-01-01T01:00:00Z',
+          }),
+        }),
+      );
     });
   });
 
@@ -692,6 +783,68 @@ describe('EntireAutoLinker', () => {
         expect.objectContaining({
           metadata: expect.objectContaining({
             lastPromptAt: '2026-02-13T15:30:00Z',
+          }),
+        }),
+      );
+    });
+
+    it('should persist task data in updated metadata', async () => {
+      await linker.handleSessionEvent(makeEvent({ type: 'started' }));
+
+      const tasks = {
+        '1': {
+          id: '1',
+          subject: 'Fix auth bug',
+          status: 'in_progress',
+          createdAt: '2026-03-04T10:00:00Z',
+          updatedAt: '2026-03-04T10:01:00Z',
+        },
+      };
+
+      await linker.handleSessionEvent(
+        makeEvent({
+          type: 'updated',
+          session: makeSession({ tasks }),
+        }),
+      );
+
+      expect(store.updateNode).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          metadata: expect.objectContaining({ tasks }),
+        }),
+      );
+    });
+
+    it('should persist plan mode data in updated metadata', async () => {
+      await linker.handleSessionEvent(makeEvent({ type: 'started' }));
+
+      const planEntries = [
+        {
+          enteredAt: '2026-03-04T10:00:00Z',
+          exitedAt: '2026-03-04T10:05:00Z',
+          content: '## Plan\n1. Fix auth',
+        },
+      ];
+
+      await linker.handleSessionEvent(
+        makeEvent({
+          type: 'updated',
+          session: makeSession({
+            inPlanMode: false,
+            planModeEntries: 1,
+            planEntries,
+          }),
+        }),
+      );
+
+      expect(store.updateNode).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            inPlanMode: false,
+            planModeEntries: 1,
+            planEntries,
           }),
         }),
       );

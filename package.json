@@ -1,6 +1,6 @@
 {
   "name": "opentasks",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Universal task graph data structure",
   "type": "module",
   "main": "./dist/index.js",
@@ -50,6 +50,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.0.10",
     "@types/proper-lockfile": "^4.1.4",
+    "acp-factory": "^0.1.12",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",
@@ -70,11 +71,11 @@
     "agent-session-parser": "^0.1.0",
     "better-sqlite3": "^12.6.2",
     "chokidar": "^5.0.0",
-    "sessionlog": "^0.0.3",
     "graphology": "^0.26.0",
     "graphology-shortest-path": "^2.1.0",
     "graphology-traversal": "^0.3.1",
     "proper-lockfile": "^4.1.2",
+    "sessionlog": "^0.0.5",
     "zod": "^4.3.6"
   }
 }

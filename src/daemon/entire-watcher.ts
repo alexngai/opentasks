@@ -9,6 +9,7 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import chokidar, { type FSWatcher } from 'chokidar';
+import type { TrackedTask, PlanEntry, TrackedSkill } from 'sessionlog';
 
 // ============================================================================
 // Types
@@ -27,6 +28,16 @@ export interface EntireSessionState {
   endedAt?: string;
   checkpoints: string[];
   lastPromptAt?: string;
+  /** Tracked tasks during the session (from sessionlog real-time hooks) */
+  tasks?: Record<string, TrackedTask>;
+  /** Whether the session is currently in plan mode */
+  inPlanMode?: boolean;
+  /** Number of times plan mode was entered */
+  planModeEntries?: number;
+  /** All plan mode enter/exit cycles */
+  planEntries?: PlanEntry[];
+  /** Skills used during the session */
+  skillsUsed?: TrackedSkill[];
 }
 
 /**
@@ -144,6 +155,11 @@ function parseSessionFile(filePath: string): EntireSessionState | null {
       endedAt: data.endedAt as string | undefined,
       checkpoints: Array.isArray(data.checkpoints) ? data.checkpoints.map(String) : [],
       lastPromptAt: data.lastPromptAt as string | undefined,
+      tasks: data.tasks as Record<string, TrackedTask> | undefined,
+      inPlanMode: data.inPlanMode as boolean | undefined,
+      planModeEntries: data.planModeEntries as number | undefined,
+      planEntries: data.planEntries as PlanEntry[] | undefined,
+      skillsUsed: data.skillsUsed as TrackedSkill[] | undefined,
     };
   } catch {
     return null;
@@ -192,6 +208,20 @@ export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher 
     }
   }
 
+  function hasTaskOrPlanChanges(prev: EntireSessionState, curr: EntireSessionState): boolean {
+    const prevTaskCount = prev.tasks ? Object.keys(prev.tasks).length : 0;
+    const currTaskCount = curr.tasks ? Object.keys(curr.tasks).length : 0;
+    if (prevTaskCount !== currTaskCount) return true;
+
+    if (prev.inPlanMode !== curr.inPlanMode) return true;
+
+    const prevPlanCount = prev.planEntries?.length ?? 0;
+    const currPlanCount = curr.planEntries?.length ?? 0;
+    if (prevPlanCount !== currPlanCount) return true;
+
+    return false;
+  }
+
   function determineEventType(
     previous: EntireSessionState | undefined,
     current: EntireSessionState,
@@ -234,6 +264,17 @@ export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher 
 
     // Phase change (ACTIVE → IDLE, etc.)
     if (previous.phase !== current.phase) {
+      return {
+        type: 'updated',
+        sessionId: current.id,
+        session: current,
+        previousPhase: previous.phase,
+        timestamp,
+      };
+    }
+
+    // Task or plan state changes
+    if (hasTaskOrPlanChanges(previous, current)) {
       return {
         type: 'updated',
         sessionId: current.id,
@@ -322,7 +363,10 @@ export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher 
       }
 
       return new Promise<void>((resolve) => {
-        watcher = chokidar.watch(path.join(sessionsDir, '*.json'), {
+        // Watch the directory (not a glob) — chokidar v5 doesn't support
+        // glob patterns with usePolling. The .json filter is already applied
+        // in handleFileChange/handleFileDelete.
+        watcher = chokidar.watch(sessionsDir, {
           ignoreInitial: true,
           persistent: true,
           ignorePermissionErrors: true,

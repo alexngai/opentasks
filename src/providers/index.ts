@@ -59,6 +59,7 @@ export {
   createEntireProvider,
   createInMemoryEntireStore,
   createEntireCliStore,
+  createEntireNativeStore,
   type EntireConfig,
   type EntireSession,
   type EntireCheckpoint,

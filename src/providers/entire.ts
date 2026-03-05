@@ -42,8 +42,23 @@ type EntireCheckpoint = SessionlogCheckpoint;
 type EntireStore = SessionlogStore;
 
 // ============================================================================
-// Types
+// Types — re-exported from the entire package (canonical source of truth)
 // ============================================================================
+
+export type {
+  EntireStore,
+  EntireSession,
+  EntireCheckpoint,
+  EntireTokenUsage,
+  EntireSkillUsage,
+} from '../entire/store/provider-types.js';
+
+import type {
+  EntireStore,
+  EntireSession,
+  EntireCheckpoint,
+  EntireTokenUsage,
+} from '../entire/store/provider-types.js';
 
 /**
  * Configuration for Entire provider
@@ -78,6 +93,9 @@ const ENTIRE_URI_PATTERN = /^entire:\/\/(session|checkpoint)\/(.+)$/i;
 /**
  * Create an Entire store that shells out to the Go CLI binary.
  * Used when the user explicitly configures an executable path.
+ *
+ * TODO: Add E2E tests for this store (requires `entire` binary or stub tests).
+ *   See entire-sessionlog-e2e.test.ts for context.
  */
 export function createEntireExecStore(config: {
   executable: string;
@@ -284,6 +302,17 @@ export async function createEntireCliStoreAsync(config: EntireConfig = {}): Prom
 export function createEntireCliStore(config: EntireConfig = {}): EntireStore {
   const cwd = config.cwd ?? process.cwd();
   return createNativeSessionlogStore(cwd);
+}
+
+/**
+ * Create a native Entire store that reads directly from the filesystem
+ * and git branches, without requiring the Entire CLI binary.
+ *
+ * This is the recommended store for production use.
+ */
+export async function createEntireNativeStore(config: EntireConfig = {}): Promise<EntireStore> {
+  const { createNativeEntireStore } = await import('../entire/store/native-store.js');
+  return createNativeEntireStore(config.cwd);
 }
 
 /**

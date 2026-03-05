@@ -12,11 +12,6 @@ import { execSync } from 'node:child_process';
 import { claude, detectAgentTypeFromContent } from 'agent-session-parser';
 import type { AgentType, TokenUsage } from 'agent-session-parser';
 import { extractToolCalls, type ExtractedToolCall, type ToolCategory } from './claude-tool-categorizer.js';
-import {
-  reconstructClaudeTaskState,
-  type ReconstructedClaudeTaskState,
-} from './claude-task-reconstructor.js';
-import { extractPlanModeTransitions, type PlanModeTransition } from './plan-mode-tracker.js';
 import type { SkillTrackerRegistry } from './skill-tracker.js';
 import type { EntireSessionEvent } from '../daemon/entire-watcher.js';
 
@@ -44,12 +39,6 @@ export interface TranscriptExtractionResult {
 
   /** Tool call counts by category */
   toolCategories: Record<ToolCategory, number>;
-
-  /** Claude native task state reconstructed from tool calls */
-  claudeTasks?: ReconstructedClaudeTaskState;
-
-  /** Plan mode transitions */
-  planModeTransitions: PlanModeTransition[];
 
   /** Token usage (from agent-session-parser) */
   tokenUsage?: TokenUsage;
@@ -155,7 +144,6 @@ export function createTranscriptExtractor(config: TranscriptExtractorConfig): Tr
           agentType,
           toolCalls: [],
           toolCategories: countByCategory([]),
-          planModeTransitions: [],
         };
       }
 
@@ -165,12 +153,6 @@ export function createTranscriptExtractor(config: TranscriptExtractorConfig): Tr
       // Extract tool calls
       const toolCalls = extractToolCalls(lines);
       const toolCategories = countByCategory(toolCalls);
-
-      // Reconstruct Claude task state
-      const claudeTasks = reconstructClaudeTaskState(toolCalls);
-
-      // Extract plan mode transitions
-      const planModeTransitions = extractPlanModeTransitions(toolCalls);
 
       // Token usage
       let tokenUsage: TokenUsage | undefined;
@@ -196,9 +178,6 @@ export function createTranscriptExtractor(config: TranscriptExtractorConfig): Tr
         agentType,
         toolCalls,
         toolCategories,
-        claudeTasks:
-          claudeTasks.tasks.length > 0 ? claudeTasks : undefined,
-        planModeTransitions,
         tokenUsage,
         subagentIds,
       };

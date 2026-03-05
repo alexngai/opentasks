@@ -238,6 +238,10 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
           baseCommit: session.baseCommit,
           branch: session.branch,
           startedAt: session.startedAt,
+          tasks: session.tasks,
+          inPlanMode: session.inPlanMode,
+          planModeEntries: session.planModeEntries,
+          planEntries: session.planEntries,
         },
       });
 
@@ -476,57 +480,55 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
         }
 
         case 'ended': {
-          // Update session node status if it exists
+          // Ensure node exists (may be first event if daemon started after session)
+          // then update it with final status
           try {
-            const nodes = await store.query.nodes({
-              type: 'external',
-              search: `entire://session/${sessionId}`,
-              limit: 1,
-            });
+            const sessionNodeId = await ensureSessionNode(session);
 
-            if (nodes.length > 0) {
-              // Pull skill usage from the tracker registry (if available)
-              const updateMetadata: Record<string, unknown> = {
-                phase: 'ENDED',
-                endedAt: session.endedAt,
-              };
+            // Pull skill usage from the tracker registry (if available)
+            const updateMetadata: Record<string, unknown> = {
+              phase: 'ENDED',
+              endedAt: session.endedAt,
+              tasks: session.tasks,
+              planModeEntries: session.planModeEntries,
+              planEntries: session.planEntries,
+            };
 
-              if (skillTrackerRegistry) {
-                // Finalize the tracker: remove it and get the final summary
-                const skillSummary = skillTrackerRegistry.remove(sessionId);
-                if (skillSummary && skillSummary.totalInvocations > 0) {
-                  // Build the compact skillsUsed structure for the session node
-                  const counts: Record<string, number> = {};
-                  const outcomes: Record<string, { success: number; failure: number }> = {};
-                  for (const stat of skillSummary.stats) {
-                    counts[stat.skill] = stat.count;
-                    outcomes[stat.skill] = {
-                      success: stat.successCount,
-                      failure: stat.failureCount,
-                    };
-                  }
-
-                  updateMetadata.skillsUsed = {
-                    skills: skillSummary.skillsUsed,
-                    totalInvocations: skillSummary.totalInvocations,
-                    counts,
-                    outcomes,
+            if (skillTrackerRegistry) {
+              // Finalize the tracker: remove it and get the final summary
+              const skillSummary = skillTrackerRegistry.remove(sessionId);
+              if (skillSummary && skillSummary.totalInvocations > 0) {
+                // Build the compact skillsUsed structure for the session node
+                const counts: Record<string, number> = {};
+                const outcomes: Record<string, { success: number; failure: number }> = {};
+                for (const stat of skillSummary.stats) {
+                  counts[stat.skill] = stat.count;
+                  outcomes[stat.skill] = {
+                    success: stat.successCount,
+                    failure: stat.failureCount,
                   };
                 }
-              }
 
-              await store.updateNode(nodes[0].id, {
-                status: 'closed',
-                metadata: updateMetadata,
-              });
-              flushManager.markDirty(nodes[0].id);
-              flushManager.schedule();
-
-              // Archive final session state if configured
-              if (archiver) {
-                const sessionUri = `entire://session/${sessionId}`;
-                void archiver.onSessionEvent('ended', sessionUri, store).catch(() => {});
+                updateMetadata.skillsUsed = {
+                  skills: skillSummary.skillsUsed,
+                  totalInvocations: skillSummary.totalInvocations,
+                  counts,
+                  outcomes,
+                };
               }
+            }
+
+            await store.updateNode(sessionNodeId, {
+              status: 'closed',
+              metadata: updateMetadata,
+            });
+            flushManager.markDirty(sessionNodeId);
+            flushManager.schedule();
+
+            // Archive final session state if configured
+            if (archiver) {
+              const sessionUri = `entire://session/${sessionId}`;
+              void archiver.onSessionEvent('ended', sessionUri, store).catch(() => {});
             }
           } catch {
             // Best-effort update
@@ -548,6 +550,10 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
                 metadata: {
                   phase: session.phase,
                   lastPromptAt: session.lastPromptAt,
+                  tasks: session.tasks,
+                  inPlanMode: session.inPlanMode,
+                  planModeEntries: session.planModeEntries,
+                  planEntries: session.planEntries,
                 },
               });
               flushManager.markDirty(nodes[0].id);

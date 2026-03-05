@@ -261,3 +261,10 @@ export type {
 } from './tracking/index.js';
 
 export { createSkillTracker, createSkillTrackerRegistry } from './tracking/index.js';
+
+// =============================================================================
+// Entire (Native TypeScript Implementation)
+// =============================================================================
+
+// Re-export entire module as a namespace for clean boundary
+export * as entire from './entire/index.js';
