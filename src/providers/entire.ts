@@ -41,25 +41,6 @@ type EntireSession = SessionlogSession;
 type EntireCheckpoint = SessionlogCheckpoint;
 type EntireStore = SessionlogStore;
 
-// ============================================================================
-// Types — re-exported from the entire package (canonical source of truth)
-// ============================================================================
-
-export type {
-  EntireStore,
-  EntireSession,
-  EntireCheckpoint,
-  EntireTokenUsage,
-  EntireSkillUsage,
-} from '../entire/store/provider-types.js';
-
-import type {
-  EntireStore,
-  EntireSession,
-  EntireCheckpoint,
-  EntireTokenUsage,
-} from '../entire/store/provider-types.js';
-
 /**
  * Configuration for Entire provider
  */
