@@ -1,6 +1,6 @@
 {
   "name": "opentasks",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Universal task graph data structure",
   "type": "module",
   "main": "./dist/index.js",
