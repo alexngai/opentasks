@@ -377,6 +377,46 @@ Hash-based, collision-resistant. Generated from UUID v4 through SHA256 and base3
 | < 6,000 | 5 chars | t-x7k9p |
 | < 35,000 | 6 chars | t-x7k9pm |
 
+## MAP Integration
+
+OpenTasks integrates with the [Multi-Agent Protocol (MAP)](https://github.com/multi-agent-protocol/multi-agent-protocol) for multi-agent coordination and observability. Two independent components:
+
+### MAP Provider (Inbound)
+
+Surfaces remote MAP tasks in the graph via `map://` URIs. Fully ephemeral — every operation is a direct RPC call to the MAP server, no local cache. When the connection is open, MAP tasks appear alongside native tasks. When it drops, they disappear cleanly.
+
+```typescript
+import { createMAPClient, createMAPProvider } from 'opentasks'
+
+const result = await createMAPClient({ server: 'ws://localhost:8080', scope: 'my-team' });
+if (result) {
+  const provider = createMAPProvider({ client: result.client });
+  // MAP tasks now queryable via provider registry
+}
+```
+
+### MAP Event Bridge (Outbound)
+
+Emits graph changes as MAP task events for external observability. Standalone and agent-owned — not tied to the daemon.
+
+```typescript
+import { createMAPEventBridge } from 'opentasks'
+
+// Agent-side: emit your own actions
+const bridge = createMAPEventBridge({ send: mySendFn, agentId: 'agent-alice' });
+bridge.emitTaskCreated({ id: 'task-1', title: 'Do thing', status: 'open' });
+bridge.emitTaskStatus('task-1', 'open', 'in_progress');
+
+// Or share an existing MAP connection (e.g., with agent-inbox)
+const bridge2 = createMAPEventBridge({
+  connection: mapConnection,
+  scope: 'swarm:my-team',
+  agentId: 'agent-bob',
+});
+```
+
+The bridge accepts either a raw `send` function or a shared `MAPConnection` object, so multiple systems can share one connection. See [PROVIDERS.md](./docs/PROVIDERS.md#map-provider) for full details.
+
 ## What This Is Not
 
 OpenTasks is not a replacement for Claude Tasks, Beads, Jira, or any existing tool. It is not a unified CRUD API. It is not a project management tool. It is not an orchestration platform.

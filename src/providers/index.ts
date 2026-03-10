@@ -48,6 +48,23 @@ export {
   type ClaudeTaskStore,
 } from './claude-tasks.js';
 
+// MAP Provider
+export {
+  createMAPProvider,
+  type MAPProviderConfig,
+  type MAPTaskClient,
+  type MAPTask,
+  type MAPTaskStatus,
+  type MAPTaskEvent,
+} from './map.js';
+
+// MAP Client Factory
+export {
+  createMAPClient,
+  type MAPClientOptions,
+  type MAPClientResult,
+} from './map-client-factory.js';
+
 // Sudocode Provider
 export { createSudocodeProvider, type SudocodeConfig } from './sudocode.js';
 
@@ -118,6 +135,16 @@ export {
   type CreateProvidersOptions,
   type CreateProvidersResult,
 } from './from-config.js';
+
+// MAP Event Bridge
+export {
+  createMAPEventBridge,
+  type MAPEventBridge,
+  type MAPEventBridgeConfig,
+  type MAPEventSender,
+  type MAPConnection,
+  type TaskInfo,
+} from './map-event-bridge.js';
 
 // Sync Extensions
 export type {

@@ -22,6 +22,7 @@ import {
 import { mergeJsonl, installMergeDriver } from './core/merge-driver.js';
 import { discoverLocations } from './core/discover.js';
 import { OpenTasksClient } from './client/client.js';
+import { createDaemonWithStore, createMultiLocationDaemonFromGit, checkExistingDaemon } from './daemon/index.js';
 
 const OPENTASKS_DIR = '.opentasks';
 const SWARM_OPENTASKS_DIR = '.swarm/opentasks';
@@ -70,6 +71,11 @@ Update options:
   --status <s>                  Update status
   --archived                    Archive the node
   --metadata <json>             Update metadata (merged)
+
+Daemon commands:
+  daemon start [--foreground]   Start the daemon (detaches by default)
+  daemon stop                   Stop a running daemon
+  daemon status                 Show daemon status
 
 Setup commands:
   init [--name <name>] [--global] [--no-merge-driver] Initialize .opentasks
@@ -503,6 +509,133 @@ function cmdDiscover(args: string[]): void {
 }
 
 // ============================================================================
+// Daemon Commands
+// ============================================================================
+
+/**
+ * Start the daemon process.
+ *
+ * By default runs in the foreground (keeps the process alive).
+ * The caller (e.g., claude-code-swarm's ensureDaemon) spawns this
+ * as a detached subprocess.
+ */
+async function cmdDaemonStart(args: string[]): Promise<void> {
+  const opentasksDir = resolveProjectDir();
+
+  if (!fs.existsSync(path.join(opentasksDir, CONFIG_FILE))) {
+    // Auto-init if the directory doesn't exist yet
+    fs.mkdirSync(opentasksDir, { recursive: true });
+    const graphPath = path.join(opentasksDir, 'graph.jsonl');
+    if (!fs.existsSync(graphPath)) {
+      fs.writeFileSync(graphPath, '', 'utf-8');
+    }
+  }
+
+  // Check if already running
+  const existing = await checkExistingDaemon(opentasksDir);
+  if (existing.running) {
+    console.log(JSON.stringify({
+      status: 'already_running',
+      pid: existing.pid,
+      socketPath: existing.socketPath,
+    }));
+    return;
+  }
+
+  // Detect multi-location (git worktree) vs single-location mode
+  const gitCommonDir = getGitCommonDir(path.dirname(opentasksDir));
+  const version = '0.0.5';
+
+  let daemon;
+  if (gitCommonDir) {
+    daemon = createMultiLocationDaemonFromGit({
+      gitCommonDir,
+      version,
+      primaryLocationPath: opentasksDir,
+    });
+  } else {
+    daemon = await createDaemonWithStore({
+      locationPath: opentasksDir,
+      version,
+    });
+  }
+
+  await daemon.start();
+
+  console.log(JSON.stringify({
+    status: 'started',
+    pid: process.pid,
+    socketPath: daemon.socketPath,
+  }));
+
+  // Keep the process alive until signaled
+  // Signal handlers are set up inside daemon.start() — they call daemon.stop()
+  // which will let the process exit naturally
+  await new Promise<void>((resolve) => {
+    const check = setInterval(() => {
+      const status = daemon.getStatus();
+      if (status.state === 'stopped') {
+        clearInterval(check);
+        resolve();
+      }
+    }, 1000);
+  });
+}
+
+/**
+ * Stop a running daemon by sending shutdown via IPC
+ */
+async function cmdDaemonStop(): Promise<void> {
+  const opentasksDir = resolveProjectDir();
+
+  const existing = await checkExistingDaemon(opentasksDir);
+  if (!existing.running) {
+    console.log(JSON.stringify({ status: 'not_running' }));
+    return;
+  }
+
+  // Connect to daemon and send shutdown
+  const client = new OpenTasksClient();
+  try {
+    const result = await client.call('shutdown', {});
+    client.disconnect();
+    console.log(JSON.stringify({ status: 'stopped', ...result as Record<string, unknown> }));
+  } catch (error) {
+    client.disconnect();
+    // If the connection was refused or reset, the daemon may have already stopped
+    console.log(JSON.stringify({ status: 'stopped', note: 'daemon may have already exited' }));
+  }
+}
+
+/**
+ * Show daemon status
+ */
+async function cmdDaemonStatus(): Promise<void> {
+  const opentasksDir = resolveProjectDir();
+
+  const existing = await checkExistingDaemon(opentasksDir);
+  if (!existing.running) {
+    console.log(JSON.stringify({ status: 'not_running', locationPath: opentasksDir }));
+    return;
+  }
+
+  // Connect and get full status
+  const client = new OpenTasksClient();
+  try {
+    const result = await client.call('status', {});
+    client.disconnect();
+    console.log(JSON.stringify(result, null, 2));
+  } catch {
+    client.disconnect();
+    console.log(JSON.stringify({
+      status: 'unreachable',
+      pid: existing.pid,
+      socketPath: existing.socketPath,
+    }));
+  }
+}
+
+// ============================================================================
 // Tool Commands (daemon-connected)
 // ============================================================================
 
@@ -909,6 +1042,26 @@ async function main() {
       break;
     case 'skills':
       await cmdSkills(args.slice(1));
+      break;
+    case 'daemon':
+      {
+        const subCmd = args[1];
+        switch (subCmd) {
+          case 'start':
+            await cmdDaemonStart(args.slice(2));
+            break;
+          case 'stop':
+            await cmdDaemonStop();
+            break;
+          case 'status':
+            await cmdDaemonStatus();
+            break;
+          default:
+            console.error(`Unknown daemon command: ${subCmd}`);
+            console.error('Available: start, stop, status');
+            process.exit(1);
+        }
+      }
       break;
     case 'discover':
       cmdDiscover(args.slice(1));

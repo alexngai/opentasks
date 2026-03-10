@@ -156,6 +156,7 @@ describe('createProvidersFromConfig', () => {
           sudocode: { ...defaultConfig.providers.sudocode, enabled: false },
           entire: { ...defaultConfig.providers.entire, enabled: false },
           global: { ...defaultConfig.providers.global, enabled: false },
+          map: { ...defaultConfig.providers.map, enabled: false },
         },
       };
 
@@ -169,6 +170,7 @@ describe('createProvidersFromConfig', () => {
       expect(result.skipped).toContain('sudocode');
       expect(result.skipped).toContain('entire');
       expect(result.skipped).toContain('global');
+      expect(result.skipped).toContain('map');
     });
 
     it('returns empty failed array on success', async () => {

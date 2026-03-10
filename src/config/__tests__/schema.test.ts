@@ -155,6 +155,15 @@ describe('Config Schema', () => {
           timeout: 10000,
           cacheTTL: 300000,
         },
+        map: {
+          enabled: false,
+          server: '',
+          systemId: 'default',
+          timeout: 30000,
+          agentName: 'opentasks-daemon',
+          scope: '',
+          eventBridge: true,
+        },
       });
     });
 
@@ -244,6 +253,15 @@ describe('Config Schema', () => {
             path: '',
             timeout: 10000,
             cacheTTL: 300000,
+          },
+          map: {
+            enabled: false,
+            server: '',
+            systemId: 'default',
+            timeout: 30000,
+            agentName: 'opentasks-daemon',
+            scope: '',
+            eventBridge: true,
           },
         },
         logging: {
@@ -337,6 +355,15 @@ describe('Config Schema', () => {
             path: '',
             timeout: 10000,
             cacheTTL: 300000,
+          },
+          map: {
+            enabled: false,
+            server: '',
+            systemId: 'default',
+            timeout: 30000,
+            agentName: 'opentasks-daemon',
+            scope: '',
+            eventBridge: true,
           },
         },
         logging: {

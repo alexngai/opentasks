@@ -444,6 +444,7 @@ export function createIPCClient(socketPath: string): IPCClient {
 
     disconnect(): void {
       if (socket) {
+        socket.unref();
         socket.destroy();
         socket = null;
       }
@@ -479,12 +480,14 @@ export function createIPCClient(socketPath: string): IPCClient {
         socket!.write(JSON.stringify(request) + '\n');
 
         // Timeout after 30 seconds
-        setTimeout(() => {
+        const timer = setTimeout(() => {
           if (pendingRequests.has(id)) {
             pendingRequests.delete(id);
             reject(new Error('Request timeout'));
           }
         }, 30000);
+        // Don't let this timer keep the process alive after disconnect
+        timer.unref();
       });
     },
   };

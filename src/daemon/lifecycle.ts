@@ -152,6 +152,11 @@ function isMultiLocationConfig(config: DaemonConfig): config is MultiLocationDae
  * Register external providers on a ProviderAwareStore based on config.
  * Reads the `providers` section of the OpenTasks config and instantiates
  * enabled providers, registering them with the store's provider registry.
+ *
+ * Note: The MAP provider is NOT registered here. MAP connections are
+ * agent-specific (different agents may connect to different MAP servers),
+ * so MAP provider and event bridge setup is the responsibility of the
+ * agent process or plugin (e.g., claude-code-swarm), not the daemon.
  */
 function registerConfiguredProviders(
   providerStore: ProviderAwareStore,

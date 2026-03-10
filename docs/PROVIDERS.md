@@ -1381,6 +1381,296 @@ The federated graph model draws inspiration from:
 
 ---
 
+## MAP Provider
+
+[MAP (Multi-Agent Protocol)](https://github.com/multi-agent-protocol/multi-agent-protocol) is a JSON-RPC 2.0 protocol for observing and coordinating multi-agent systems. The MAP integration has two independent components:
+
+1. **MAP Provider** — Inbound: surfaces remote MAP tasks in the OpenTasks graph
+2. **MAP Event Bridge** — Outbound: emits OpenTasks graph changes as MAP task events
+
+These are independent. You can use either or both.
+
+### MAP Provider (Inbound)
+
+The MAP provider bridges `map://` URIs to a remote MAP server's task store. It implements the full Provider interface plus the `TaskManageable` and (optionally) `Watchable` traits.
+
+```typescript
+interface MAPProviderConfig {
+  client: MAPTaskClient;   // MAP SDK connection or adapter
+  systemId?: string;       // URI namespace (default: 'default')
+  timeout?: number;        // Request timeout in ms
+}
+```
+
+#### Ephemeral / Pass-Through Design
+
+The MAP provider has **no local cache or persistence**. Every operation is a direct RPC call to the MAP server:
+
+- `list()` → `client.listTasks()`
+- `get(id)` → `client.listTasks()` + find by ID
+- `create(input)` → `client.createTask()`
+- `update(id, updates)` → `client.updateTask()`
+- `delete(id)` → `client.updateTask({ status: 'failed' })` (MAP has no delete)
+
+When the MAP connection is open, MAP tasks appear in the graph alongside native/beads/claude-tasks nodes — agents query them transparently via the provider registry. When the connection drops, `map://` nodes simply stop being queryable. No stale data lingers.
+
+#### URI Format
+
+```
+map://[systemId]/[taskId]
+
+Examples:
+  map://default/task-abc123     # Default system
+  map://prod-cluster/task-xyz   # Named system
+```
+
+#### Status Mapping
+
+| MAP Status | OpenTasks Status |
+|------------|------------------|
+| `open` | `open` |
+| `in_progress` | `in_progress` |
+| `blocked` | `blocked` |
+| `completed` | `closed` |
+| `failed` | `closed` |
+
+#### TaskManageable Trait
+
+The MAP provider implements `TaskManageable`, supporting semantic task actions:
+
+| Action | MAP Status |
+|--------|------------|
+| `start` | `in_progress` |
+| `complete` | `completed` |
+| `block` | `blocked` |
+| `reopen` | `open` |
+| `close` | `completed` |
+
+It also supports `assignTask()` and `readyTasks()` (filters for `status: 'open'`).
+
+#### Watchable Trait
+
+If the `MAPTaskClient` provides `onTaskEvent()`, the provider implements `Watchable` and translates MAP task events (`task.created`, `task.assigned`, `task.status`, `task.completed`) into `ProviderChangeEvent`s that flow through the graph store's watch system.
+
+#### MAPTaskClient Interface
+
+The provider depends on a `MAPTaskClient` — an abstraction boundary between OpenTasks and MAP:
+
+```typescript
+interface MAPTaskClient {
+  createTask(params: { task: Omit<MAPTask, 'id'> & { id?: string } }): Promise<{ task: MAPTask }>;
+  assignTask(taskId: string, agentId: string): Promise<{ task: MAPTask }>;
+  updateTask(params: { taskId: string; status?: MAPTaskStatus; ... }): Promise<{ task: MAPTask }>;
+  listTasks(params?: { filter?: { ... }; limit?: number; cursor?: string }): Promise<{ tasks: MAPTask[]; hasMore: boolean }>;
+  onTaskEvent?(callback: (event: MAPTaskEvent) => void): () => void;
+}
+```
+
+A MAP SDK `ClientConnection` or `AgentConnection` satisfies this naturally — no adapter needed.
+
+#### Client Factory
+
+`createMAPClient()` connects to a MAP server and returns a `MAPTaskClient` + event sender:
+
+```typescript
+const result = await createMAPClient({
+  server: 'ws://localhost:8080',
+  agentName: 'opentasks-daemon',
+  scope: 'my-team',
+});
+
+if (result) {
+  const provider = createMAPProvider({ client: result.client });
+  const bridge = createMAPEventBridge({ send: result.send });
+  // ... use provider and bridge
+  await result.disconnect();
+}
+```
+
+The factory dynamically imports `@multi-agent-protocol/sdk` — if the SDK isn't installed, it returns `null` and MAP is gracefully skipped. No `package.json` dependency required.
+
+---
+
+### MAP Event Bridge (Outbound)
+
+The event bridge translates OpenTasks graph changes into MAP task events for external observability. It is **standalone** — not owned by the daemon, not tied to any particular MAP server.
+
+```typescript
+interface MAPEventBridgeConfig {
+  send?: MAPEventSender;           // Direct send function
+  connection?: MAPConnection;       // Shared MAP connection (alternative to send)
+  scope?: string;                   // Target scope (used with connection)
+  agentId?: string;                 // Origin stamp for echo prevention
+  filter?: (eventType: string, data: Record<string, unknown>) => boolean;
+}
+```
+
+#### Two Input Modes
+
+**1. Direct send function** — for simple cases or custom transports:
+
+```typescript
+const bridge = createMAPEventBridge({
+  send: (eventType, data) => ws.send(JSON.stringify({ type: eventType, ...data })),
+  agentId: 'agent-alice',
+});
+```
+
+**2. Shared MAP connection** — for sharing a connection with other systems (e.g., agent-inbox handles messaging, bridge handles task events):
+
+```typescript
+const bridge = createMAPEventBridge({
+  connection: mapConnection,  // Compatible with agent-inbox's MapConnection
+  scope: 'swarm:my-team',
+  agentId: 'agent-alice',
+});
+```
+
+The `MAPConnection` interface is minimal — any object with `send(to, payload, meta?)` works:
+
+```typescript
+interface MAPConnection {
+  send(
+    to: { scope?: string; agentId?: string } | string,
+    payload: unknown,
+    meta?: Record<string, unknown>,
+  ): Promise<void>;
+}
+```
+
+If both `send` and `connection` are provided, `send` takes precedence.
+
+#### Two Usage Patterns
+
+**Agent-side (emit your own actions):**
+
+```typescript
+const bridge = createMAPEventBridge({ send, agentId: 'agent-alice' });
+
+bridge.emitTaskCreated({ id: 'task-1', title: 'Do thing', status: 'open' });
+bridge.emitTaskStatus('task-1', 'open', 'in_progress');
+bridge.emitTaskAssigned('task-1', 'agent-bob');
+bridge.emitTaskCompleted('task-1', { output: 'Done' });
+```
+
+**Daemon-side (translate graph watch events):**
+
+```typescript
+const bridge = createMAPEventBridge({ send, agentId: 'daemon' });
+
+// Attach to provider change events
+graphStore.onProviderChange('native', (event) => {
+  bridge.handleProviderChange('native', event);
+});
+```
+
+The `handleProviderChange()` method translates `ProviderChangeEvent`s into the appropriate MAP events:
+- `created` node → `task.created`
+- `updated` node with status change → `task.status` (+ `task.completed` for terminal states)
+- `updated` node with assignee change → `task.assigned`
+- `deleted` node → `task.status` (to `failed`, since MAP has no delete)
+
+#### Echo Prevention
+
+- Events from the `map` provider are skipped (prevents MAP→OpenTasks→MAP loops)
+- All emitted events are stamped with `_origin: agentId` so receivers can filter their own events
+- Non-task node types are ignored
+
+#### Lifecycle
+
+```typescript
+bridge.active;  // true
+bridge.stop();  // prevents further events
+bridge.active;  // false
+```
+
+The bridge does NOT own the connection lifecycle. Calling `stop()` only prevents further events — it does not disconnect the underlying transport.
+
+#### Why Standalone?
+
+MAP connections are an **agent-level concern**, not a daemon-level concern. Different agents may connect to different MAP servers. The bridge is standalone so that:
+
+- An agent can create its own bridge targeting its own MAP server
+- Multiple bridges can coexist (e.g., one per agent in a swarm)
+- The daemon stays dumb about MAP — no single-connection bottleneck
+- A shared connection (e.g., from agent-inbox) can be reused without duplication
+
+---
+
+### MAP Configuration
+
+The MAP provider is configured in `.opentasks/config.json`:
+
+```json
+{
+  "providers": {
+    "map": {
+      "enabled": false,
+      "server": "ws://localhost:8080",
+      "systemId": "default",
+      "timeout": 30000,
+      "agentName": "opentasks-daemon",
+      "scope": "my-team",
+      "eventBridge": true
+    }
+  }
+}
+```
+
+These fields are declarative — agents and plugins read them to configure their own MAP connections. The daemon does not establish the MAP connection itself.
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `enabled` | `false` | Whether MAP integration is active |
+| `server` | `''` | MAP server WebSocket URL |
+| `systemId` | `'default'` | URI namespace for `map://` URIs |
+| `timeout` | `30000` | Request timeout in ms |
+| `agentName` | `'opentasks-daemon'` | Agent name for MAP registration |
+| `scope` | `''` | MAP scope to join |
+| `eventBridge` | `true` | Whether to enable outbound event bridging |
+
+---
+
+### Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      OpenTasks Graph                              │
+│                                                                   │
+│  native://t-abc    beads://bd-xyz    map://default/task-123       │
+│       │                 │                    │                    │
+│       └─────── edges ───┴──────── edges ─────┘                   │
+└──────────────────────────┬────────────────────────────────────────┘
+                           │
+              ┌────────────┼────────────────┐
+              │            │                │
+              ▼            ▼                ▼
+     ┌──────────────┐ ┌──────────┐ ┌──────────────────┐
+     │ Native       │ │ Beads    │ │ MAP Provider     │
+     │ Provider     │ │ Provider │ │ (pass-through)   │
+     │ (graph.jsonl)│ │ (bd CLI) │ │                  │
+     └──────────────┘ └──────────┘ └────────┬─────────┘
+                                             │ RPC calls
+                                             ▼
+                                    ┌──────────────────┐
+                                    │   MAP Server     │
+                                    │  (remote tasks)  │
+                                    └──────────────────┘
+
+              ▲                              ▲
+              │ graph changes                │ task events
+              │                              │
+     ┌────────┴──────────────────────────────┴─────────┐
+     │              MAP Event Bridge                      │
+     │  (standalone — agent-owned, not daemon-owned)      │
+     │                                                    │
+     │  Translates ProviderChangeEvents → MAP events      │
+     │  OR direct emit from agent code                    │
+     └────────────────────────────────────────────────────┘
+```
+
+---
+
 ## Open Questions
 
 ### Resolved

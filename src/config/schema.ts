@@ -249,12 +249,67 @@ export const GlobalProviderConfigSchema = z
 
 export type GlobalProviderConfig = z.infer<typeof GlobalProviderConfigSchema>;
 
+const MAPProviderConfigSchemaInner = z.object({
+  /** Enable MAP provider for cross-system task coordination */
+  enabled: z.boolean().default(false),
+
+  /**
+   * MAP server WebSocket URL (e.g., 'ws://localhost:8080').
+   * Required when enabled. If empty and enabled, provider creation is skipped.
+   */
+  server: z.string().default(''),
+
+  /**
+   * System identifier for this MAP connection.
+   * Used in URIs: map://{systemId}/{taskId}
+   */
+  systemId: z.string().default('default'),
+
+  /** Request timeout (ms) */
+  timeout: z.number().min(1000, 'timeout must be >= 1000ms').default(30000),
+
+  /**
+   * Agent name for the MAP connection.
+   * Defaults to 'opentasks-daemon'.
+   */
+  agentName: z.string().default('opentasks-daemon'),
+
+  /**
+   * MAP scope to join (e.g., 'swarm:team-name').
+   * If empty, no scope is joined.
+   */
+  scope: z.string().default(''),
+
+  /**
+   * Enable the outbound event bridge.
+   * When true, local graph changes are emitted as MAP task events.
+   * Defaults to true (active when the MAP provider is enabled).
+   */
+  eventBridge: z.boolean().default(true),
+});
+
+export const MAPProviderConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    server: z.string().optional(),
+    systemId: z.string().optional(),
+    timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+    agentName: z.string().optional(),
+    scope: z.string().optional(),
+    eventBridge: z.boolean().optional(),
+  })
+  .default({})
+  .transform((val) => MAPProviderConfigSchemaInner.parse(val));
+
+export type MAPProviderConfig = z.infer<typeof MAPProviderConfigSchema>;
+
 const ProvidersConfigSchemaInner = z.object({
   beads: BeadsProviderConfigSchema,
   claudeTasks: ClaudeTasksProviderConfigSchema,
   sudocode: SudocodeProviderConfigSchema,
   entire: EntireProviderConfigSchema,
   global: GlobalProviderConfigSchema,
+  map: MAPProviderConfigSchema,
 });
 
 export const ProvidersConfigSchema = z
@@ -293,6 +348,13 @@ export const ProvidersConfigSchema = z
         path: z.string().optional(),
         timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
         cacheTTL: z.number().min(0, 'cacheTTL must be >= 0').optional(),
+      })
+      .optional(),
+    map: z
+      .object({
+        enabled: z.boolean().optional(),
+        systemId: z.string().optional(),
+        timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
       })
       .optional(),
   })

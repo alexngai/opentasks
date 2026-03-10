@@ -8,6 +8,7 @@ import { createBeadsProvider } from './beads.js';
 import { createClaudeTasksProvider } from './claude-tasks.js';
 import { createEntireProvider, createEntireCliStoreAsync } from './entire.js';
 import { createGlobalProvider } from './global.js';
+import { createMAPProvider, type MAPTaskClient } from './map.js';
 import { createNativeProvider } from './native.js';
 import { createSudocodeProvider } from './sudocode.js';
 import { createProviderRegistry } from './registry.js';
@@ -30,6 +31,9 @@ export interface CreateProvidersOptions {
 
   /** Working directory for Sudocode (default: process.cwd()) */
   sudocodeCwd?: string;
+
+  /** MAP task client for MAP provider (required if map provider is enabled) */
+  mapClient?: MAPTaskClient;
 }
 
 /**
@@ -204,6 +208,32 @@ export async function createProvidersFromConfig(
     }
   } else {
     skipped.push('global');
+  }
+
+  // 7. MAP provider (if enabled and client provided)
+  if (config.providers.map.enabled) {
+    if (options.mapClient) {
+      try {
+        const mapConfig = config.providers.map;
+        const mapProvider = createMAPProvider({
+          client: options.mapClient,
+          systemId: mapConfig.systemId,
+          timeout: mapConfig.timeout,
+        });
+        registry.register(mapProvider);
+        providers.push(mapProvider);
+      } catch (error) {
+        failed.push({
+          name: 'map',
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      }
+    } else {
+      // Enabled but no client provided — skip
+      skipped.push('map');
+    }
+  } else {
+    skipped.push('map');
   }
 
   return { registry, providers, skipped, failed };
