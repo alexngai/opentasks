@@ -113,8 +113,8 @@ export async function createMAPClient(
     const eventCallbacks: Array<(event: MAPTaskEvent) => void> = [];
 
     // Listen for incoming messages that contain task events
-    connection.onMessage((message: Record<string, unknown>) => {
-      const payload = message as { type?: string; [key: string]: unknown };
+    connection.onMessage((message) => {
+      const payload = (message.payload ?? {}) as { type?: string; [key: string]: unknown };
       if (payload.type?.startsWith('task.')) {
         const event: MAPTaskEvent = {
           type: payload.type as MAPTaskEvent['type'],
@@ -159,8 +159,8 @@ export async function createMAPClient(
     const send: MAPEventSender = (eventType: string, data: Record<string, unknown>) => {
       // Send as a message to the scope (observers see message_sent events)
       // The data includes the event type for receivers to dispatch on
-      const target = scope ? { scope } : {};
-      connection.send(target, { type: eventType, ...data }).catch(() => {
+      if (!scope) return; // Cannot send without a target scope
+      connection.send({ scope }, { type: eventType, ...data }).catch(() => {
         // Best effort — don't block on send failures
       });
     };
