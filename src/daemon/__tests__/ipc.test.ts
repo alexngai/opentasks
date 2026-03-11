@@ -144,14 +144,14 @@ describe('IPCServer', () => {
       await expect(client.request('unknown')).rejects.toThrow('Method not found');
     });
 
-    it('should return internal error for handler exceptions', async () => {
+    it('should return detailed error for handler exceptions', async () => {
       server.handle('error', async () => {
         throw new Error('Test error');
       });
       await server.start();
       await client.connect();
 
-      await expect(client.request('error')).rejects.toThrow('Internal error');
+      await expect(client.request('error')).rejects.toThrow('Test error');
     });
   });
 

@@ -394,7 +394,15 @@ export function createIPCClient(socketPath: string): IPCClient {
         if (pending) {
           pendingRequests.delete(response.id!);
           if (response.error) {
-            pending.reject(new Error(response.error.message));
+            // Prefer the detailed data message over the generic JSON-RPC message
+            const errorData = response.error.data;
+            const detail =
+              typeof errorData === 'string'
+                ? errorData
+                : errorData && typeof errorData === 'object' && 'message' in errorData
+                  ? (errorData as { message: string }).message
+                  : response.error.message;
+            pending.reject(new Error(detail));
           } else {
             pending.resolve(response.result);
           }

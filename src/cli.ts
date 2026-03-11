@@ -101,6 +101,11 @@ Skill tracking commands (require running daemon):
   skills --all                                   Get skill usage for all sessions
   skills --end <session-id>                      End tracking and get final summary
 
+MCP server:
+  mcp [--socket <path>] [--scope <scopes>]       Start MCP server (stdio transport)
+                                                  Scopes: tasks (default), graph, annotate, context, all
+                                                  Example: --scope tasks,graph  or  --scope all
+
 All tool commands output JSON to stdout.
 `);
 }
@@ -958,6 +963,35 @@ export async function cmdSkills(args: string[]): Promise<void> {
   }
 }
 
+// ============================================================================
+// MCP Server Command
+// ============================================================================
+
+async function cmdMcp(args: string[]): Promise<void> {
+  let socketPath: string | undefined;
+  let scopeStr: string | undefined;
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--socket' && args[i + 1]) {
+      socketPath = args[++i];
+    } else if (args[i] === '--scope' && args[i + 1]) {
+      scopeStr = args[++i];
+    }
+  }
+
+  const { startMCPServer, ALL_SCOPES } = await import('./mcp/index.js');
+  const scopes = scopeStr === 'all'
+    ? [...ALL_SCOPES]
+    : scopeStr
+      ? (scopeStr.split(',').map((s) => s.trim()) as Array<'tasks' | 'graph' | 'annotate' | 'context'>)
+      : undefined;
+
+  await startMCPServer({
+    clientOptions: socketPath ? { socketPath } : undefined,
+    scopes,
+  });
+}
+
 function padRight(str: string, len: number): string {
   return str.length >= len ? str + '  ' : str + ' '.repeat(len - str.length);
 }
@@ -1068,6 +1102,9 @@ async function main() {
       break;
     case 'merge-driver':
       cmdMergeDriver(args.slice(1));
+      break;
+    case 'mcp':
+      await cmdMcp(args.slice(1));
       break;
     default:
       console.error(`Unknown command: ${command}`);

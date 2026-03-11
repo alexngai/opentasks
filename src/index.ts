@@ -278,3 +278,9 @@ export { createSkillTracker, createSkillTrackerRegistry } from './tracking/index
 
 // Re-export entire module as a namespace for clean boundary
 export * as entire from './entire/index.js';
+
+// =============================================================================
+// MCP Server
+// =============================================================================
+
+export { createMCPServer, startMCPServer, ALL_SCOPES, type MCPServerOptions, type MCPScope } from './mcp/index.js';

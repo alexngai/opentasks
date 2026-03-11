@@ -396,12 +396,12 @@ describe('Git Graph Syncer', () => {
   // --------------------------------------------------------------------------
   describe('installMergeDriver', () => {
     it('should create .gitattributes entry for graph.jsonl', () => {
-      const { repoPath, opentasksPath } = createWorkingRepo('repo-merge');
+      const { opentasksPath } = createWorkingRepo('repo-merge');
       const syncer = createGitGraphSyncer({ opentasksPath });
 
       syncer.installMergeDriver();
 
-      const attrPath = path.join(repoPath, '.gitattributes');
+      const attrPath = path.join(opentasksPath, '.gitattributes');
       expect(fs.existsSync(attrPath)).toBe(true);
 
       const content = fs.readFileSync(attrPath, 'utf-8');
@@ -433,13 +433,13 @@ describe('Git Graph Syncer', () => {
     });
 
     it('should be idempotent - not duplicate the entry', () => {
-      const { repoPath, opentasksPath } = createWorkingRepo('repo-merge-idem');
+      const { opentasksPath } = createWorkingRepo('repo-merge-idem');
       const syncer = createGitGraphSyncer({ opentasksPath });
 
       syncer.installMergeDriver();
       syncer.installMergeDriver();
 
-      const attrPath = path.join(repoPath, '.gitattributes');
+      const attrPath = path.join(opentasksPath, '.gitattributes');
       const content = fs.readFileSync(attrPath, 'utf-8');
       const matches = content.match(/merge=opentasks/g);
       expect(matches).toHaveLength(1);

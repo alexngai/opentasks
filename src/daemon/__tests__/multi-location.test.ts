@@ -651,7 +651,7 @@ describe('Multi-Location Daemon', () => {
       client = createIPCClient(daemon.socketPath);
       await client.connect();
 
-      // The IPC server wraps DaemonError as JSON-RPC Internal error
+      // The IPC client now surfaces the detailed error message
       await expect(
         client.request('graph.create', {
           type: 'task',
@@ -659,7 +659,7 @@ describe('Multi-Location Daemon', () => {
           status: 'open',
           location: 'unknown1',
         }),
-      ).rejects.toThrow('Internal error');
+      ).rejects.toThrow('Location not found');
     });
   });
 
