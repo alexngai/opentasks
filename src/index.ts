@@ -241,6 +241,16 @@ export {
   isWatchable,
 } from './providers/index.js';
 
+// MAP Integration
+export {
+  createMAPEventBridge,
+  type MAPEventBridge,
+  type MAPEventBridgeConfig,
+  type MAPEventSender,
+  type MAPConnection,
+  type TaskInfo as MAPTaskInfo,
+} from './providers/map-event-bridge.js';
+
 // Provider-Aware Store
 export type { ProviderAwareStore, ProviderStoreConfig, ResolveOptions } from './graph/index.js';
 
