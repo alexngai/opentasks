@@ -22,8 +22,8 @@ import type {
 function makeSnapshot(overrides?: Partial<MaterializationSnapshot>): MaterializationSnapshot {
   return {
     version: 1,
-    uri: 'entire://session/test-123',
-    source: 'entire',
+    uri: 'sessionlog://session/test-123',
+    source: 'sessionlog',
     entityType: 'session',
     createdAt: '2026-01-01T00:00:00Z',
     archivedAt: '2026-01-01T01:00:00Z',
@@ -44,7 +44,7 @@ function makeSessionSnapshot(overrides?: Partial<SessionSnapshot>): SessionSnaps
   return {
     ...makeSnapshot({ entityType: 'session' }),
     edges: [
-      { fromUri: 'entire://session/test-123', toUri: 'opentasks://task/1', edgeType: 'linked' },
+      { fromUri: 'sessionlog://session/test-123', toUri: 'opentasks://task/1', edgeType: 'linked' },
     ],
     checkpointIds: ['cp-1'],
     ...overrides,
@@ -54,11 +54,11 @@ function makeSessionSnapshot(overrides?: Partial<SessionSnapshot>): SessionSnaps
 function makeCheckpointSnapshot(overrides?: Partial<CheckpointSnapshot>): CheckpointSnapshot {
   return {
     ...makeSnapshot({
-      uri: 'entire://checkpoint/cp-1',
+      uri: 'sessionlog://checkpoint/cp-1',
       entityType: 'checkpoint',
     }),
     codeCommit: 'abc123',
-    sessionUri: 'entire://session/test-123',
+    sessionUri: 'sessionlog://session/test-123',
     ...overrides,
   } as CheckpointSnapshot;
 }
@@ -179,7 +179,7 @@ describe('Git Remote Store', () => {
       const result = await store.archive(snapshot);
 
       expect(result.stored).toBe(true);
-      expect(result.uri).toBe('entire://session/test-123');
+      expect(result.uri).toBe('sessionlog://session/test-123');
     });
 
     it('should archive a session with edges', async () => {
@@ -209,7 +209,7 @@ describe('Git Remote Store', () => {
       const result = await store.archive(snapshot);
 
       expect(result.stored).toBe(true);
-      expect(result.uri).toBe('entire://checkpoint/cp-1');
+      expect(result.uri).toBe('sessionlog://checkpoint/cp-1');
 
       // Verify file path
       const content = execSync(
@@ -266,8 +266,8 @@ describe('Git Remote Store', () => {
       const store = createGitRemoteStore(makeConfig());
       await store.initialize();
 
-      const r1 = await store.archive(makeSnapshot({ uri: 'entire://session/s1' }));
-      const r2 = await store.archive(makeSnapshot({ uri: 'entire://session/s2' }));
+      const r1 = await store.archive(makeSnapshot({ uri: 'sessionlog://session/s1' }));
+      const r2 = await store.archive(makeSnapshot({ uri: 'sessionlog://session/s2' }));
 
       expect(r1.stored).toBe(true);
       expect(r2.stored).toBe(true);
@@ -280,8 +280,8 @@ describe('Git Remote Store', () => {
       await store.initialize();
 
       const result = await store.archiveBatch([
-        makeSnapshot({ uri: 'entire://session/s1' }),
-        makeSnapshot({ uri: 'entire://session/s2' }),
+        makeSnapshot({ uri: 'sessionlog://session/s1' }),
+        makeSnapshot({ uri: 'sessionlog://session/s2' }),
       ]);
 
       expect(result.successCount).toBe(2);
@@ -297,9 +297,9 @@ describe('Git Remote Store', () => {
       const snapshot = makeSnapshot();
       await store.archive(snapshot);
 
-      const retrieved = await store.retrieve('entire://session/test-123');
+      const retrieved = await store.retrieve('sessionlog://session/test-123');
       expect(retrieved).not.toBeNull();
-      expect(retrieved!.uri).toBe('entire://session/test-123');
+      expect(retrieved!.uri).toBe('sessionlog://session/test-123');
       expect(retrieved!.node.title).toBe('Test Session');
     });
 
@@ -309,9 +309,9 @@ describe('Git Remote Store', () => {
 
       await store.archive(makeCheckpointSnapshot());
 
-      const retrieved = await store.retrieve('entire://checkpoint/cp-1');
+      const retrieved = await store.retrieve('sessionlog://checkpoint/cp-1');
       expect(retrieved).not.toBeNull();
-      expect(retrieved!.uri).toBe('entire://checkpoint/cp-1');
+      expect(retrieved!.uri).toBe('sessionlog://checkpoint/cp-1');
       expect((retrieved as CheckpointSnapshot).codeCommit).toBe('abc123');
     });
 
@@ -319,7 +319,7 @@ describe('Git Remote Store', () => {
       const store = createGitRemoteStore(makeConfig());
       await store.initialize();
 
-      const retrieved = await store.retrieve('entire://session/nonexistent');
+      const retrieved = await store.retrieve('sessionlog://session/nonexistent');
       expect(retrieved).toBeNull();
     });
 
@@ -361,9 +361,9 @@ describe('Git Remote Store', () => {
       await store2.initialize();
 
       // Should be able to retrieve what store1 pushed
-      const retrieved = await store2.retrieve('entire://session/test-123');
+      const retrieved = await store2.retrieve('sessionlog://session/test-123');
       expect(retrieved).not.toBeNull();
-      expect(retrieved!.uri).toBe('entire://session/test-123');
+      expect(retrieved!.uri).toBe('sessionlog://session/test-123');
     });
   });
 
@@ -372,10 +372,10 @@ describe('Git Remote Store', () => {
       const store = createGitRemoteStore(makeConfig());
       await store.initialize();
 
-      await store.archive(makeSnapshot({ uri: 'entire://session/s1' }));
+      await store.archive(makeSnapshot({ uri: 'sessionlog://session/s1' }));
       await store.archive(
         makeSnapshot({
-          uri: 'entire://session/s2',
+          uri: 'sessionlog://session/s2',
           node: {
             title: 'Second Session',
             external_data: {},
@@ -387,7 +387,7 @@ describe('Git Remote Store', () => {
       expect(entries).toHaveLength(2);
 
       const uris = entries.map((e) => e.uri).sort();
-      expect(uris).toEqual(['entire://session/s1', 'entire://session/s2']);
+      expect(uris).toEqual(['sessionlog://session/s1', 'sessionlog://session/s2']);
     });
 
     it('should filter by graphId', async () => {
@@ -396,32 +396,32 @@ describe('Git Remote Store', () => {
 
       await store.archive(
         makeSnapshot({
-          uri: 'entire://session/s1',
+          uri: 'sessionlog://session/s1',
           provenance: { graphId: 'graph-a', graphPath: '/a/.opentasks' },
         }),
       );
       await store.archive(
         makeSnapshot({
-          uri: 'entire://session/s2',
+          uri: 'sessionlog://session/s2',
           provenance: { graphId: 'graph-b', graphPath: '/b/.opentasks' },
         }),
       );
 
       const entries = await store.list({ graphId: 'graph-a' });
       expect(entries).toHaveLength(1);
-      expect(entries[0].uri).toBe('entire://session/s1');
+      expect(entries[0].uri).toBe('sessionlog://session/s1');
     });
 
     it('should filter by source', async () => {
       const store = createGitRemoteStore(makeConfig());
       await store.initialize();
 
-      await store.archive(makeSnapshot({ uri: 'entire://session/s1', source: 'entire' }));
-      await store.archive(makeSnapshot({ uri: 'entire://session/s2', source: 'other' }));
+      await store.archive(makeSnapshot({ uri: 'sessionlog://session/s1', source: 'sessionlog' }));
+      await store.archive(makeSnapshot({ uri: 'sessionlog://session/s2', source: 'other' }));
 
-      const entries = await store.list({ source: 'entire' });
+      const entries = await store.list({ source: 'sessionlog' });
       expect(entries).toHaveLength(1);
-      expect(entries[0].uri).toBe('entire://session/s1');
+      expect(entries[0].uri).toBe('sessionlog://session/s1');
     });
 
     it('should return empty for no archives', async () => {
@@ -514,7 +514,7 @@ describe('Git Remote Store', () => {
       // Store 1 archives first
       await store1.archive(
         makeSnapshot({
-          uri: 'entire://session/s1',
+          uri: 'sessionlog://session/s1',
           provenance: { graphId: 'graph-1', graphPath: '/g1/.opentasks' },
         }),
       );
@@ -522,7 +522,7 @@ describe('Git Remote Store', () => {
       // Store 2 archives second — should handle the conflict
       const result = await store2.archive(
         makeSnapshot({
-          uri: 'entire://session/s2',
+          uri: 'sessionlog://session/s2',
           provenance: { graphId: 'graph-2', graphPath: '/g2/.opentasks' },
         }),
       );

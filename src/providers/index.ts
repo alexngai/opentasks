@@ -71,18 +71,18 @@ export { createSudocodeProvider, type SudocodeConfig } from './sudocode.js';
 // Global Provider
 export { createGlobalProvider, type GlobalProviderConfig } from './global.js';
 
-// Entire Provider
+// Sessionlog Provider
 export {
-  createEntireProvider,
-  createInMemoryEntireStore,
-  createEntireCliStore,
-  createEntireNativeStore,
-  type EntireConfig,
-  type EntireSession,
-  type EntireCheckpoint,
-  type EntireTokenUsage,
-  type EntireStore,
-} from './entire.js';
+  createSessionlogProvider,
+  createInMemorySessionlogStore,
+  createSessionlogCliStore,
+  createSessionlogNativeStore,
+  type SessionlogConfig,
+  type SessionlogSession,
+  type SessionlogCheckpoint,
+  type SessionlogTokenUsage,
+  type SessionlogStore,
+} from './sessionlog.js';
 
 // Materialization
 export {

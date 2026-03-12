@@ -1,13 +1,13 @@
 /**
- * Entire Provider
+ * Sessionlog Provider
  *
- * Read-only provider that resolves entire:// URIs to Entire session
+ * Read-only provider that resolves sessionlog:// URIs to sessionlog session
  * and checkpoint data. Uses the sessionlog package for direct
  * filesystem/git access — no external binary required.
  *
  * URI formats:
- *   entire://session/<session-id>
- *   entire://checkpoint/<checkpoint-id>
+ *   sessionlog://session/<session-id>
+ *   sessionlog://checkpoint/<checkpoint-id>
  */
 
 import type {
@@ -23,28 +23,22 @@ import type {
 } from './types.js';
 import { ProviderError } from './types.js';
 
-// Re-export types from sessionlog (canonical source of truth)
-// Aliased to preserve existing Entire* naming in the opentasks API
+// Re-export types from sessionlog package (canonical source of truth)
 export type {
-  SessionlogSession as EntireSession,
-  SessionlogCheckpoint as EntireCheckpoint,
-  SessionlogTokenUsage as EntireTokenUsage,
-  SessionlogSkillUsage as EntireSkillUsage,
-  SessionlogStore as EntireStore,
+  SessionlogSession,
+  SessionlogCheckpoint,
+  SessionlogTokenUsage,
+  SessionlogSkillUsage,
+  SessionlogStore,
 } from 'sessionlog';
 
 import type { SessionlogSession, SessionlogCheckpoint, SessionlogStore } from 'sessionlog';
 import { createNativeSessionlogStore } from 'sessionlog';
 
-// Local aliases matching the opentasks naming convention
-type EntireSession = SessionlogSession;
-type EntireCheckpoint = SessionlogCheckpoint;
-type EntireStore = SessionlogStore;
-
 /**
- * Configuration for Entire provider
+ * Configuration for Sessionlog provider
  */
-export interface EntireConfig {
+export interface SessionlogConfig {
   /** Optional path to Entire CLI executable (e.g. 'entire' or '/usr/local/bin/entire').
    *  When set, the Go CLI is preferred if available, with fallback to the built-in TS store.
    *  When omitted, the built-in TS store is used directly. */
@@ -71,27 +65,27 @@ export interface EntireConfig {
 // ============================================================================
 
 /**
- * Pattern for entire:// URIs
- * Format: entire://(session|checkpoint)/<id>
+ * Pattern for sessionlog:// URIs
+ * Format: sessionlog://(session|checkpoint)/<id>
  */
-const ENTIRE_URI_PATTERN = /^entire:\/\/(session|checkpoint)\/(.+)$/i;
+const SESSIONLOG_URI_PATTERN = /^sessionlog:\/\/(session|checkpoint)\/(.+)$/i;
 
 // ============================================================================
 // CLI Exec Store (shells out to Go binary)
 // ============================================================================
 
 /**
- * Create an Entire store that shells out to the Go CLI binary.
+ * Create a sessionlog store that shells out to the Go CLI binary.
  * Used when the user explicitly configures an executable path.
  *
  * TODO: Add E2E tests for this store (requires `entire` binary or stub tests).
  *   See entire-sessionlog-e2e.test.ts for context.
  */
-export function createEntireExecStore(config: {
+export function createSessionlogExecStore(config: {
   executable: string;
   timeout?: number;
   cwd?: string;
-}): EntireStore {
+}): SessionlogStore {
   const { executable, timeout = 30000, cwd = process.cwd() } = config;
 
   async function execEntire(args: string): Promise<string> {
@@ -110,8 +104,8 @@ export function createEntireExecStore(config: {
       if (error instanceof Error && 'code' in error) {
         throw new ProviderError(
           'OPERATION_FAILED',
-          `Entire CLI failed: ${error.message}`,
-          'entire',
+          `Sessionlog CLI failed: ${error.message}`,
+          'sessionlog',
           error,
         );
       }
@@ -119,20 +113,20 @@ export function createEntireExecStore(config: {
     }
   }
 
-  function parseSessionJson(json: string): EntireSession[] {
+  function parseSessionJson(json: string): SessionlogSession[] {
     try {
       const data = JSON.parse(json);
       const sessions = Array.isArray(data) ? data : [data];
       return sessions.map((s: Record<string, unknown>) => ({
         id: String(s.id ?? s.sessionId ?? ''),
         agent: String(s.agent ?? s.agentType ?? 'unknown'),
-        phase: String(s.phase ?? s.state ?? 'ACTIVE').toUpperCase() as EntireSession['phase'],
+        phase: String(s.phase ?? s.state ?? 'ACTIVE').toUpperCase() as SessionlogSession['phase'],
         baseCommit: s.baseCommit as string | undefined,
         branch: s.branch as string | undefined,
         startedAt: s.startedAt as string | undefined,
         endedAt: s.endedAt as string | undefined,
         checkpoints: s.checkpoints as string[] | undefined,
-        tokenUsage: s.tokenUsage as EntireSession['tokenUsage'],
+        tokenUsage: s.tokenUsage as SessionlogSession['tokenUsage'],
         filesTouched: s.filesTouched as string[] | undefined,
         summary: s.summary as string | undefined,
       }));
@@ -141,7 +135,7 @@ export function createEntireExecStore(config: {
     }
   }
 
-  function parseCheckpointJson(json: string): EntireCheckpoint[] {
+  function parseCheckpointJson(json: string): SessionlogCheckpoint[] {
     try {
       const data = JSON.parse(json);
       const checkpoints = Array.isArray(data) ? data : [data];
@@ -154,7 +148,7 @@ export function createEntireExecStore(config: {
         filesModified: c.filesModified as string[] | undefined,
         filesNew: c.filesNew as string[] | undefined,
         filesDeleted: c.filesDeleted as string[] | undefined,
-        tokenUsage: c.tokenUsage as EntireCheckpoint['tokenUsage'],
+        tokenUsage: c.tokenUsage as SessionlogCheckpoint['tokenUsage'],
         context: c.context as string | undefined,
       }));
     } catch {
@@ -163,7 +157,7 @@ export function createEntireExecStore(config: {
   }
 
   return {
-    async getSession(id: string): Promise<EntireSession | null> {
+    async getSession(id: string): Promise<SessionlogSession | null> {
       try {
         const output = await execEntire(`status --json`);
         const sessions = parseSessionJson(output);
@@ -173,7 +167,7 @@ export function createEntireExecStore(config: {
       }
     },
 
-    async listSessions(): Promise<EntireSession[]> {
+    async listSessions(): Promise<SessionlogSession[]> {
       try {
         const output = await execEntire(`status --json`);
         return parseSessionJson(output);
@@ -182,7 +176,7 @@ export function createEntireExecStore(config: {
       }
     },
 
-    async getCheckpoint(id: string): Promise<EntireCheckpoint | null> {
+    async getCheckpoint(id: string): Promise<SessionlogCheckpoint | null> {
       try {
         const output = await execEntire(`rewind --list`);
         const checkpoints = parseCheckpointJson(output);
@@ -192,7 +186,7 @@ export function createEntireExecStore(config: {
       }
     },
 
-    async listCheckpoints(): Promise<EntireCheckpoint[]> {
+    async listCheckpoints(): Promise<SessionlogCheckpoint[]> {
       try {
         const output = await execEntire(`rewind --list`);
         return parseCheckpointJson(output);
@@ -201,8 +195,8 @@ export function createEntireExecStore(config: {
       }
     },
 
-    async search(query: string): Promise<Array<EntireSession | EntireCheckpoint>> {
-      const results: Array<EntireSession | EntireCheckpoint> = [];
+    async search(query: string): Promise<Array<SessionlogSession | SessionlogCheckpoint>> {
+      const results: Array<SessionlogSession | SessionlogCheckpoint> = [];
       const lowerQuery = query.toLowerCase();
 
       try {
@@ -263,18 +257,18 @@ async function isExecutableAvailable(executable: string): Promise<boolean> {
 }
 
 /**
- * Create an Entire store with optional CLI fallback.
+ * Create a sessionlog store with optional CLI fallback.
  *
  * - If `config.executable` is set and the binary is found, uses the Go CLI.
  * - Otherwise, uses the built-in TS store (sessionlog package).
  */
-export async function createEntireCliStoreAsync(config: EntireConfig = {}): Promise<EntireStore> {
+export async function createSessionlogCliStoreAsync(config: SessionlogConfig = {}): Promise<SessionlogStore> {
   const cwd = config.cwd ?? process.cwd();
 
   if (config.executable) {
     const available = await isExecutableAvailable(config.executable);
     if (available) {
-      return createEntireExecStore({
+      return createSessionlogExecStore({
         executable: config.executable,
         timeout: config.timeout,
         cwd,
@@ -286,23 +280,23 @@ export async function createEntireCliStoreAsync(config: EntireConfig = {}): Prom
 }
 
 /**
- * Create an Entire store (sync — always uses built-in TS store).
- * For the CLI-preferred path, use createEntireCliStoreAsync instead.
+ * Create a sessionlog store (sync — always uses built-in TS store).
+ * For the CLI-preferred path, use createSessionlogCliStoreAsync instead.
  */
-export function createEntireCliStore(config: EntireConfig = {}): EntireStore {
+export function createSessionlogCliStore(config: SessionlogConfig = {}): SessionlogStore {
   const cwd = config.cwd ?? process.cwd();
   return createNativeSessionlogStore(cwd);
 }
 
 /**
- * Create a native Entire store that reads directly from the filesystem
- * and git branches, without requiring the Entire CLI binary.
+ * Create a native sessionlog store that reads directly from the filesystem
+ * and git branches, without requiring the sessionlog CLI binary.
  *
  * This is the recommended store for production use.
  */
-export async function createEntireNativeStore(config: EntireConfig = {}): Promise<EntireStore> {
-  const { createNativeEntireStore } = await import('../entire/store/native-store.js');
-  return createNativeEntireStore(config.cwd, {
+export async function createSessionlogNativeStore(config: SessionlogConfig = {}): Promise<SessionlogStore> {
+  const { createNativeSessionlogStore } = await import('../sessionlog/store/native-store.js');
+  return createNativeSessionlogStore(config.cwd, {
     sessionDirName: config.sessionDirName,
     checkpointsBranch: config.checkpointsBranch,
     shadowBranchPrefix: config.shadowBranchPrefix,
@@ -310,42 +304,42 @@ export async function createEntireNativeStore(config: EntireConfig = {}): Promis
 }
 
 /**
- * Create an in-memory Entire store for testing
+ * Create an in-memory sessionlog store for testing
  */
-export function createInMemoryEntireStore(): EntireStore & {
-  addSession(session: EntireSession): void;
-  addCheckpoint(checkpoint: EntireCheckpoint): void;
+export function createInMemorySessionlogStore(): SessionlogStore & {
+  addSession(session: SessionlogSession): void;
+  addCheckpoint(checkpoint: SessionlogCheckpoint): void;
 } {
-  const sessions = new Map<string, EntireSession>();
-  const checkpoints = new Map<string, EntireCheckpoint>();
+  const sessions = new Map<string, SessionlogSession>();
+  const checkpoints = new Map<string, SessionlogCheckpoint>();
 
   return {
-    addSession(session: EntireSession): void {
+    addSession(session: SessionlogSession): void {
       sessions.set(session.id, session);
     },
 
-    addCheckpoint(checkpoint: EntireCheckpoint): void {
+    addCheckpoint(checkpoint: SessionlogCheckpoint): void {
       checkpoints.set(checkpoint.id, checkpoint);
     },
 
-    async getSession(id: string): Promise<EntireSession | null> {
+    async getSession(id: string): Promise<SessionlogSession | null> {
       return sessions.get(id) ?? null;
     },
 
-    async listSessions(): Promise<EntireSession[]> {
+    async listSessions(): Promise<SessionlogSession[]> {
       return Array.from(sessions.values());
     },
 
-    async getCheckpoint(id: string): Promise<EntireCheckpoint | null> {
+    async getCheckpoint(id: string): Promise<SessionlogCheckpoint | null> {
       return checkpoints.get(id) ?? null;
     },
 
-    async listCheckpoints(): Promise<EntireCheckpoint[]> {
+    async listCheckpoints(): Promise<SessionlogCheckpoint[]> {
       return Array.from(checkpoints.values());
     },
 
-    async search(query: string): Promise<Array<EntireSession | EntireCheckpoint>> {
-      const results: Array<EntireSession | EntireCheckpoint> = [];
+    async search(query: string): Promise<Array<SessionlogSession | SessionlogCheckpoint>> {
+      const results: Array<SessionlogSession | SessionlogCheckpoint> = [];
       const lowerQuery = query.toLowerCase();
 
       for (const session of sessions.values()) {
@@ -380,12 +374,12 @@ export function createInMemoryEntireStore(): EntireStore & {
 // ============================================================================
 
 /**
- * Convert an Entire session to a ProviderNode
+ * Convert a sessionlog session to a ProviderNode
  */
-function sessionToProviderNode(session: EntireSession): ProviderNode {
+function sessionToProviderNode(session: SessionlogSession): ProviderNode {
   return {
     id: session.id,
-    uri: `entire://session/${session.id}`,
+    uri: `sessionlog://session/${session.id}`,
     type: 'external',
     title: `Session: ${session.summary || session.id}`,
     content: session.summary,
@@ -408,12 +402,12 @@ function sessionToProviderNode(session: EntireSession): ProviderNode {
 }
 
 /**
- * Convert an Entire checkpoint to a ProviderNode
+ * Convert a sessionlog checkpoint to a ProviderNode
  */
-function checkpointToProviderNode(checkpoint: EntireCheckpoint): ProviderNode {
+function checkpointToProviderNode(checkpoint: SessionlogCheckpoint): ProviderNode {
   return {
     id: checkpoint.id,
-    uri: `entire://checkpoint/${checkpoint.id}`,
+    uri: `sessionlog://checkpoint/${checkpoint.id}`,
     type: 'external',
     title: `Checkpoint: ${checkpoint.commitMessage || checkpoint.id}`,
     content: checkpoint.context,
@@ -436,24 +430,24 @@ function checkpointToProviderNode(checkpoint: EntireCheckpoint): ProviderNode {
 /**
  * Check if an item is a session (has 'phase' field)
  */
-function isSession(item: EntireSession | EntireCheckpoint): item is EntireSession {
+function isSession(item: SessionlogSession | SessionlogCheckpoint): item is SessionlogSession {
   return 'phase' in item;
 }
 
 // ============================================================================
-// Entire Provider Implementation
+// Sessionlog Provider Implementation
 // ============================================================================
 
 /**
- * Create an Entire provider.
+ * Create a sessionlog provider.
  *
  * When a pre-built store is provided, it is used directly.
- * Otherwise, falls back to the sync native store (createEntireCliStore).
- * For CLI-preferred creation, build the store via createEntireCliStoreAsync
+ * Otherwise, falls back to the sync native store (createSessionlogCliStore).
+ * For CLI-preferred creation, build the store via createSessionlogCliStoreAsync
  * and pass it as the `store` parameter.
  */
-export function createEntireProvider(config: EntireConfig = {}, store?: EntireStore): Provider {
-  const entireStore = store ?? createEntireCliStore(config);
+export function createSessionlogProvider(config: SessionlogConfig = {}, store?: SessionlogStore): Provider {
+  const sessionlogStore = store ?? createSessionlogCliStore(config);
 
   const capabilities: ProviderCapabilities = {
     read: true,
@@ -465,8 +459,8 @@ export function createEntireProvider(config: EntireConfig = {}, store?: EntireSt
   };
 
   return {
-    name: 'entire',
-    schemes: ['entire'],
+    name: 'sessionlog',
+    schemes: ['sessionlog'],
     capabilities,
 
     // =========================================================================
@@ -474,12 +468,12 @@ export function createEntireProvider(config: EntireConfig = {}, store?: EntireSt
     // =========================================================================
 
     parseUri(uri: string): ParsedUri | null {
-      const match = uri.match(ENTIRE_URI_PATTERN);
+      const match = uri.match(SESSIONLOG_URI_PATTERN);
       if (match) {
         const entityType = match[1].toLowerCase(); // 'session' or 'checkpoint'
         const id = match[2];
         return {
-          scheme: 'entire',
+          scheme: 'sessionlog',
           workspace: entityType,
           id,
           isRelative: false,
@@ -493,7 +487,7 @@ export function createEntireProvider(config: EntireConfig = {}, store?: EntireSt
       if (options?.relative) {
         return id;
       }
-      return `entire://${entityType}/${id}`;
+      return `sessionlog://${entityType}/${id}`;
     },
 
     isValidUri(uri: string): boolean {
@@ -511,11 +505,11 @@ export function createEntireProvider(config: EntireConfig = {}, store?: EntireSt
 
       try {
         if (entityType === 'checkpoint') {
-          const checkpoint = await entireStore.getCheckpoint(entityId);
+          const checkpoint = await sessionlogStore.getCheckpoint(entityId);
           if (!checkpoint) return null;
           return checkpointToProviderNode(checkpoint);
         } else {
-          const session = await entireStore.getSession(entityId);
+          const session = await sessionlogStore.getSession(entityId);
           if (!session) return null;
           return sessionToProviderNode(session);
         }
@@ -523,8 +517,8 @@ export function createEntireProvider(config: EntireConfig = {}, store?: EntireSt
         if (error instanceof ProviderError) throw error;
         throw new ProviderError(
           'OPERATION_FAILED',
-          `Failed to get entire entity: ${error instanceof Error ? error.message : String(error)}`,
-          'entire',
+          `Failed to get sessionlog entity: ${error instanceof Error ? error.message : String(error)}`,
+          'sessionlog',
           error instanceof Error ? error : undefined,
         );
       }
@@ -535,7 +529,7 @@ export function createEntireProvider(config: EntireConfig = {}, store?: EntireSt
         const results: ProviderNode[] = [];
 
         // List sessions
-        const sessions = await entireStore.listSessions();
+        const sessions = await sessionlogStore.listSessions();
         for (const session of sessions) {
           const node = sessionToProviderNode(session);
           if (filter?.status && node.status !== filter.status) continue;
@@ -543,7 +537,7 @@ export function createEntireProvider(config: EntireConfig = {}, store?: EntireSt
         }
 
         // List checkpoints
-        const checkpoints = await entireStore.listCheckpoints();
+        const checkpoints = await sessionlogStore.listCheckpoints();
         for (const cp of checkpoints) {
           const node = checkpointToProviderNode(cp);
           if (filter?.status && node.status !== filter.status) continue;
@@ -560,8 +554,8 @@ export function createEntireProvider(config: EntireConfig = {}, store?: EntireSt
         if (error instanceof ProviderError) throw error;
         throw new ProviderError(
           'OPERATION_FAILED',
-          `Failed to list entire entities: ${error instanceof Error ? error.message : String(error)}`,
-          'entire',
+          `Failed to list sessionlog entities: ${error instanceof Error ? error.message : String(error)}`,
+          'sessionlog',
           error instanceof Error ? error : undefined,
         );
       }
@@ -570,24 +564,24 @@ export function createEntireProvider(config: EntireConfig = {}, store?: EntireSt
     async create(_input: ProviderCreateInput): Promise<ProviderNode> {
       throw new ProviderError(
         'NOT_SUPPORTED',
-        'Entire provider is read-only. Sessions and checkpoints are managed by the Entire CLI.',
-        'entire',
+        'Sessionlog provider is read-only. Sessions and checkpoints are managed by the sessionlog CLI.',
+        'sessionlog',
       );
     },
 
     async update(_id: string, _updates: ProviderUpdateInput): Promise<ProviderNode> {
       throw new ProviderError(
         'NOT_SUPPORTED',
-        'Entire provider is read-only. Sessions and checkpoints are managed by the Entire CLI.',
-        'entire',
+        'Sessionlog provider is read-only. Sessions and checkpoints are managed by the sessionlog CLI.',
+        'sessionlog',
       );
     },
 
     async delete(_id: string): Promise<void> {
       throw new ProviderError(
         'NOT_SUPPORTED',
-        'Entire provider is read-only. Sessions and checkpoints are managed by the Entire CLI.',
-        'entire',
+        'Sessionlog provider is read-only. Sessions and checkpoints are managed by the sessionlog CLI.',
+        'sessionlog',
       );
     },
 
@@ -597,7 +591,7 @@ export function createEntireProvider(config: EntireConfig = {}, store?: EntireSt
 
     async search(query: string, options?: SearchOptions): Promise<ProviderNode[]> {
       try {
-        const results = await entireStore.search(query);
+        const results = await sessionlogStore.search(query);
         let nodes = results.map((item) =>
           isSession(item) ? sessionToProviderNode(item) : checkpointToProviderNode(item),
         );
@@ -611,8 +605,8 @@ export function createEntireProvider(config: EntireConfig = {}, store?: EntireSt
         if (error instanceof ProviderError) throw error;
         throw new ProviderError(
           'OPERATION_FAILED',
-          `Failed to search entire: ${error instanceof Error ? error.message : String(error)}`,
-          'entire',
+          `Failed to search sessionlog: ${error instanceof Error ? error.message : String(error)}`,
+          'sessionlog',
           error instanceof Error ? error : undefined,
         );
       }

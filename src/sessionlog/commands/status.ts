@@ -5,7 +5,7 @@
  * and configuration.
  */
 
-import { type SessionState, type EntireSettings, CHECKPOINTS_BRANCH } from '../types.js';
+import { type SessionState, type SessionlogSettings, CHECKPOINTS_BRANCH } from '../types.js';
 import {
   isGitRepository,
   getWorktreeRoot,
@@ -45,7 +45,7 @@ export interface StatusResult {
   gitHooksInstalled: boolean;
 
   /** Effective settings */
-  settings: EntireSettings;
+  settings: SessionlogSettings;
 }
 
 export interface SessionStatus {

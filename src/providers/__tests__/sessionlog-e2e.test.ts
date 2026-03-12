@@ -1,8 +1,8 @@
 /**
- * E2E Tests for Entire Provider (no mocking)
+ * E2E Tests for Sessionlog Provider (no mocking)
  *
  * Tests the full integration path:
- *   real git repo → session JSON files → createNativeSessionlogStore → createEntireProvider → ProviderNode
+ *   real git repo → session JSON files → createNativeSessionlogStore → createSessionlogProvider → ProviderNode
  *
  * Uses real filesystem, real git, real sessionlog internals.
  */
@@ -14,10 +14,10 @@ import * as os from 'node:os';
 import { execSync } from 'node:child_process';
 import { createNativeSessionlogStore } from 'sessionlog';
 import {
-  createEntireProvider,
-  createEntireCliStore,
-  type EntireStore,
-} from '../entire.js';
+  createSessionlogProvider,
+  createSessionlogCliStore,
+  type SessionlogStore,
+} from '../sessionlog.js';
 import type { Provider } from '../types.js';
 
 // ============================================================================
@@ -31,7 +31,7 @@ interface TestRepo {
 }
 
 function createTestRepo(): TestRepo {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'entire-e2e-'));
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sessionlog-e2e-'));
 
   // Initialize a real git repository with local config (signing disabled for tests)
   execSync('git init', { cwd: rootDir, stdio: 'ignore' });
@@ -368,10 +368,10 @@ describe('E2E: createNativeSessionlogStore', () => {
 });
 
 // ============================================================================
-// E2E: createEntireCliStore (wrapper around native store)
+// E2E: createSessionlogCliStore (wrapper around native store)
 // ============================================================================
 
-describe('E2E: createEntireCliStore (wrapper)', () => {
+describe('E2E: createSessionlogCliStore (wrapper)', () => {
   let repo: TestRepo;
 
   beforeEach(() => {
@@ -399,7 +399,7 @@ describe('E2E: createEntireCliStore (wrapper)', () => {
       firstPrompt: 'Add error handling',
     });
 
-    const store = createEntireCliStore({ cwd: repo.rootDir });
+    const store = createSessionlogCliStore({ cwd: repo.rootDir });
     const sessions = await store.listSessions();
 
     expect(sessions).toHaveLength(1);
@@ -424,7 +424,7 @@ describe('E2E: createEntireCliStore (wrapper)', () => {
       untrackedFilesAtStart: [],
     });
 
-    const store = createEntireCliStore({ cwd: repo.rootDir });
+    const store = createSessionlogCliStore({ cwd: repo.rootDir });
 
     const found = await store.getSession('specific-session');
     expect(found).not.toBeNull();
@@ -440,14 +440,14 @@ describe('E2E: createEntireCliStore (wrapper)', () => {
 // E2E: Full Provider Pipeline (session files → provider → ProviderNodes)
 // ============================================================================
 
-describe('E2E: EntireProvider full pipeline', () => {
+describe('E2E: SessionlogProvider full pipeline', () => {
   let repo: TestRepo;
   let provider: Provider;
 
   beforeEach(() => {
     repo = createTestRepo();
-    const store: EntireStore = createNativeSessionlogStore(repo.rootDir);
-    provider = createEntireProvider({}, store);
+    const store: SessionlogStore = createNativeSessionlogStore(repo.rootDir);
+    provider = createSessionlogProvider({}, store);
   });
 
   afterEach(() => {
@@ -484,7 +484,7 @@ describe('E2E: EntireProvider full pipeline', () => {
     const node = nodes[0];
 
     expect(node.id).toBe('pipeline-session');
-    expect(node.uri).toBe('entire://session/pipeline-session');
+    expect(node.uri).toBe('sessionlog://session/pipeline-session');
     expect(node.type).toBe('external');
     expect(node.title).toContain('Add feature flag support');
     expect(node.content).toBe('Add feature flag support');
@@ -522,7 +522,7 @@ describe('E2E: EntireProvider full pipeline', () => {
       firstPrompt: 'Fix the bug',
     });
 
-    const node = await provider.get('entire://session/uri-session');
+    const node = await provider.get('sessionlog://session/uri-session');
 
     expect(node).not.toBeNull();
     expect(node!.id).toBe('uri-session');
@@ -532,7 +532,7 @@ describe('E2E: EntireProvider full pipeline', () => {
   });
 
   it('should return null for non-existent session URI', async () => {
-    const node = await provider.get('entire://session/no-such-session');
+    const node = await provider.get('sessionlog://session/no-such-session');
     expect(node).toBeNull();
   });
 
@@ -657,7 +657,7 @@ describe('E2E: EntireProvider full pipeline', () => {
     const nodes = await provider.list();
     expect(nodes).toEqual([]);
 
-    const session = await provider.get('entire://session/nonexistent');
+    const session = await provider.get('sessionlog://session/nonexistent');
     expect(session).toBeNull();
 
     const results = await provider.search!('anything');

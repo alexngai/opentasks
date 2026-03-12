@@ -13,8 +13,8 @@ import type { RemoteStoreConfig, MaterializationSnapshot } from '../types.js';
 function makeSnapshot(overrides?: Partial<MaterializationSnapshot>): MaterializationSnapshot {
   return {
     version: 1,
-    uri: 'entire://session/test-123',
-    source: 'entire',
+    uri: 'sessionlog://session/test-123',
+    source: 'sessionlog',
     entityType: 'session',
     createdAt: '2026-01-01T00:00:00Z',
     archivedAt: '2026-01-01T01:00:00Z',
@@ -94,7 +94,7 @@ describe('HTTP Remote Store', () => {
       const result = await store.archive(snapshot);
 
       expect(result.stored).toBe(true);
-      expect(result.uri).toBe('entire://session/test-123');
+      expect(result.uri).toBe('sessionlog://session/test-123');
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledWith(
         'https://example.com/ingest',
@@ -109,7 +109,7 @@ describe('HTTP Remote Store', () => {
       // Verify body
       const callArgs = fetchMock.mock.calls[0];
       const body = JSON.parse(callArgs[1].body);
-      expect(body.uri).toBe('entire://session/test-123');
+      expect(body.uri).toBe('sessionlog://session/test-123');
     });
 
     it('should handle HTTP errors', async () => {
@@ -175,7 +175,7 @@ describe('HTTP Remote Store', () => {
       const store = createHttpRemoteStore(makeConfig());
       const result = await store.archiveBatch([
         makeSnapshot(),
-        makeSnapshot({ uri: 'entire://session/test-456' }),
+        makeSnapshot({ uri: 'sessionlog://session/test-456' }),
       ]);
 
       expect(result.successCount).toBe(2);
@@ -213,7 +213,7 @@ describe('HTTP Remote Store', () => {
   describe('retrieve', () => {
     it('should return null (write-only store)', async () => {
       const store = createHttpRemoteStore(makeConfig());
-      const result = await store.retrieve('entire://session/test-123');
+      const result = await store.retrieve('sessionlog://session/test-123');
       expect(result).toBeNull();
     });
   });

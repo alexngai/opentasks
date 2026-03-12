@@ -7,7 +7,7 @@
  * Data flow:
  * 1. InitializeSession -> Creates SessionState, calculates initial attribution
  * 2. SaveStep/SaveTaskStep -> Writes to shadow branch via CheckpointStore
- * 3. PrepareCommitMsg -> Adds Entire-Checkpoint trailer to commit messages
+ * 3. PrepareCommitMsg -> Adds Sessionlog-Checkpoint trailer to commit messages
  * 4. PostCommit -> Condenses session data, handles carry-forward
  * 5. PrePush -> Pushes metadata branch alongside user push
  */
@@ -1003,7 +1003,7 @@ export function hasUserContent(message: string): boolean {
 }
 
 /**
- * Remove the Entire-Checkpoint trailer line from a commit message.
+ * Remove the Sessionlog-Checkpoint trailer line from a commit message.
  */
 export function stripCheckpointTrailer(message: string): string {
   const trailerPrefix = CheckpointTrailerKey + ':';

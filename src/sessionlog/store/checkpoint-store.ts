@@ -260,7 +260,7 @@ export function createCheckpointStore(
       const sessionIndex = '1'; // First session in this checkpoint
 
       const metadata: CommittedMetadata = {
-        cliVersion: 'opentasks-entire',
+        cliVersion: 'opentasks-sessionlog',
         checkpointID: opts.checkpointID,
         sessionID: opts.sessionID,
         strategy: opts.strategy,
@@ -298,7 +298,7 @@ export function createCheckpointStore(
 
       // Build checkpoint summary
       const summary: CheckpointSummary = {
-        cliVersion: 'opentasks-entire',
+        cliVersion: 'opentasks-sessionlog',
         checkpointID: opts.checkpointID,
         strategy: opts.strategy,
         branch: opts.branch,
@@ -363,7 +363,7 @@ export function createCheckpointStore(
 
       // Create commit
       const author = await getGitAuthor(cwd);
-      const commitMessage = `Entire-Checkpoint: ${opts.checkpointID}\n\nSession: ${opts.sessionID}`;
+      const commitMessage = `Sessionlog-Checkpoint: ${opts.checkpointID}\n\nSession: ${opts.sessionID}`;
       const commitHash = await commitTree(rootTree, parentHash, commitMessage, author, cwd);
 
       // Update branch ref
@@ -433,7 +433,7 @@ export function createCheckpointStore(
 
       const summaries: CheckpointSummary[] = [];
       for (const line of logOutput.split('\n').filter(Boolean)) {
-        const match = line.match(/^([0-9a-f]+)\s+Entire-Checkpoint:\s+([0-9a-f]+)/);
+        const match = line.match(/^([0-9a-f]+)\s+Sessionlog-Checkpoint:\s+([0-9a-f]+)/);
         if (!match) continue;
 
         const id = match[2];

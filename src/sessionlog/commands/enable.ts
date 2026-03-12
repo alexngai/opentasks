@@ -8,7 +8,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
-  type EntireSettings,
+  type SessionlogSettings,
   type AgentName,
   ENTIRE_DIR,
   ENTIRE_METADATA_DIR,
@@ -89,7 +89,7 @@ export async function enable(options: EnableOptions = {}): Promise<EnableResult>
   await createDirectories(root, cwd, options.sessionDirName);
 
   // Save settings
-  const settings: Partial<EntireSettings> = {
+  const settings: Partial<SessionlogSettings> = {
     enabled: true,
     strategy: 'manual-commit',
   };

@@ -25,18 +25,18 @@ export interface EntireSession {
   startedAt?: string;
   endedAt?: string;
   checkpoints?: string[];
-  tokenUsage?: EntireTokenUsage;
+  tokenUsage?: SessionlogTokenUsage;
   filesTouched?: string[];
   summary?: string;
 
   /** Skills used during this session (populated by SkillTracker) */
-  skillsUsed?: EntireSkillUsage;
+  skillsUsed?: SessionlogSkillUsage;
 }
 
 /**
  * Skill usage data embedded in session metadata
  */
-export interface EntireSkillUsage {
+export interface SessionlogSkillUsage {
   /** Distinct skill names used */
   skills: string[];
 
@@ -57,7 +57,7 @@ export interface EntireSkillUsage {
 /**
  * Entire checkpoint metadata
  */
-export interface EntireCheckpoint {
+export interface SessionlogCheckpoint {
   id: string;
   sessionId?: string;
   commitHash?: string;
@@ -66,7 +66,7 @@ export interface EntireCheckpoint {
   filesModified?: string[];
   filesNew?: string[];
   filesDeleted?: string[];
-  tokenUsage?: EntireTokenUsage;
+  tokenUsage?: SessionlogTokenUsage;
   context?: string;
 }
 
@@ -77,7 +77,7 @@ export interface EntireCheckpoint {
 /**
  * Token usage statistics (provider-facing, simplified)
  */
-export interface EntireTokenUsage {
+export interface SessionlogTokenUsage {
   input?: number;
   output?: number;
   cache?: number;
@@ -90,10 +90,10 @@ export interface EntireTokenUsage {
 /**
  * Interface for accessing Entire data (CLI or direct reads)
  */
-export interface EntireStore {
+export interface SessionlogStore {
   getSession(id: string): Promise<EntireSession | null>;
   listSessions(): Promise<EntireSession[]>;
-  getCheckpoint(id: string): Promise<EntireCheckpoint | null>;
-  listCheckpoints(): Promise<EntireCheckpoint[]>;
-  search(query: string): Promise<Array<EntireSession | EntireCheckpoint>>;
+  getCheckpoint(id: string): Promise<SessionlogCheckpoint | null>;
+  listCheckpoints(): Promise<SessionlogCheckpoint[]>;
+  search(query: string): Promise<Array<EntireSession | SessionlogCheckpoint>>;
 }

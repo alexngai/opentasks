@@ -95,7 +95,7 @@ describe('MaterializationArchiver', () => {
 
       const result = await archiver.onSessionEvent(
         'started',
-        'entire://session/abc123',
+        'sessionlog://session/abc123',
         mockGraphStore,
       );
 
@@ -111,8 +111,8 @@ describe('MaterializationArchiver', () => {
           uuid: 'u1',
           type: 'external',
           title: 'Session: abc123',
-          uri: 'entire://session/abc123',
-          source: 'entire',
+          uri: 'sessionlog://session/abc123',
+          source: 'sessionlog',
           materialized: true,
           created_at: '2026-02-14T10:00:00Z',
           updated_at: '2026-02-14T10:15:00Z',
@@ -131,7 +131,7 @@ describe('MaterializationArchiver', () => {
 
       const result = await archiver.onSessionEvent(
         'ended',
-        'entire://session/abc123',
+        'sessionlog://session/abc123',
         mockGraphStore,
       );
 
@@ -151,7 +151,7 @@ describe('MaterializationArchiver', () => {
 
       const result = await archiver.onSessionEvent(
         'ended',
-        'entire://session/nonexistent',
+        'sessionlog://session/nonexistent',
         mockGraphStore,
       );
 
@@ -171,8 +171,8 @@ describe('MaterializationArchiver', () => {
           uuid: 'u1',
           type: 'external',
           title: 'Session: abc123',
-          uri: 'entire://session/abc123',
-          source: 'entire',
+          uri: 'sessionlog://session/abc123',
+          source: 'sessionlog',
           materialized: true,
           created_at: '2026-02-14T10:00:00Z',
           updated_at: '2026-02-14T10:15:00Z',
@@ -191,7 +191,7 @@ describe('MaterializationArchiver', () => {
 
       const result = await archiver.onSessionEvent(
         'ended',
-        'entire://session/abc123',
+        'sessionlog://session/abc123',
         mockGraphStore,
       );
 
@@ -210,8 +210,8 @@ describe('MaterializationArchiver', () => {
           uuid: 'u1',
           type: 'external',
           title: 'Session',
-          uri: 'entire://session/abc123',
-          source: 'entire',
+          uri: 'sessionlog://session/abc123',
+          source: 'sessionlog',
           materialized: true,
           created_at: '2026-02-14T10:00:00Z',
           updated_at: '2026-02-14T10:00:00Z',
@@ -230,7 +230,7 @@ describe('MaterializationArchiver', () => {
 
       const result = await archiver.onSessionEvent(
         'ended',
-        'entire://session/abc123',
+        'sessionlog://session/abc123',
         mockGraphStore,
       );
 
@@ -248,8 +248,8 @@ describe('MaterializationArchiver', () => {
           uuid: 'u1',
           type: 'external',
           title: 'Session',
-          uri: 'entire://session/abc123',
-          source: 'entire',
+          uri: 'sessionlog://session/abc123',
+          source: 'sessionlog',
           materialized: true,
           created_at: '2026-02-14T10:00:00Z',
           updated_at: '2026-02-14T10:00:00Z',
@@ -268,7 +268,7 @@ describe('MaterializationArchiver', () => {
 
       const result = await archiver.onSessionEvent(
         'ended',
-        'entire://session/abc123',
+        'sessionlog://session/abc123',
         mockGraphStore,
       );
 
@@ -290,8 +290,8 @@ describe('MaterializationArchiver', () => {
           uuid: 'u1',
           type: 'external',
           title: 'Session',
-          uri: 'entire://session/abc123',
-          source: 'entire',
+          uri: 'sessionlog://session/abc123',
+          source: 'sessionlog',
           materialized: true,
           created_at: '2026-02-14T10:00:00Z',
           updated_at: '2026-02-14T10:00:00Z',
@@ -310,7 +310,7 @@ describe('MaterializationArchiver', () => {
 
       const result = await archiver.onSessionEvent(
         'ended',
-        'entire://session/abc123',
+        'sessionlog://session/abc123',
         mockGraphStore,
       );
 
@@ -326,8 +326,8 @@ describe('MaterializationArchiver', () => {
     it('should reconstruct node from git archive', async () => {
       const snapshot: MaterializationSnapshot = {
         version: 1,
-        uri: 'entire://session/abc123',
-        source: 'entire',
+        uri: 'sessionlog://session/abc123',
+        source: 'sessionlog',
         entityType: 'session',
         createdAt: '2026-02-14T10:00:00Z',
         archivedAt: '2026-02-14T10:15:00Z',
@@ -352,14 +352,14 @@ describe('MaterializationArchiver', () => {
         graphPath: '/test/.opentasks',
       });
 
-      const result = await archiver.rematerialize('entire://session/abc123', mockGraphStore);
+      const result = await archiver.rematerialize('sessionlog://session/abc123', mockGraphStore);
 
       expect(result).toBe(true);
       expect(mockGraphStore.createNode).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'external',
-          uri: 'entire://session/abc123',
-          source: 'entire',
+          uri: 'sessionlog://session/abc123',
+          source: 'sessionlog',
           title: 'Session: abc123',
         }),
       );
@@ -368,8 +368,8 @@ describe('MaterializationArchiver', () => {
     it('should try remote stores when git has no data', async () => {
       const remoteSnapshot: MaterializationSnapshot = {
         version: 1,
-        uri: 'entire://session/abc123',
-        source: 'entire',
+        uri: 'sessionlog://session/abc123',
+        source: 'sessionlog',
         entityType: 'session',
         createdAt: '2026-02-14T10:00:00Z',
         archivedAt: '2026-02-14T10:15:00Z',
@@ -392,10 +392,10 @@ describe('MaterializationArchiver', () => {
         graphPath: '/test/.opentasks',
       });
 
-      const result = await archiver.rematerialize('entire://session/abc123', mockGraphStore);
+      const result = await archiver.rematerialize('sessionlog://session/abc123', mockGraphStore);
 
       expect(result).toBe(true);
-      expect(remoteStore.retrieve).toHaveBeenCalledWith('entire://session/abc123');
+      expect(remoteStore.retrieve).toHaveBeenCalledWith('sessionlog://session/abc123');
     });
 
     it('should return false when snapshot not in any store', async () => {
@@ -407,7 +407,7 @@ describe('MaterializationArchiver', () => {
         graphPath: '/test/.opentasks',
       });
 
-      const result = await archiver.rematerialize('entire://session/nonexistent', mockGraphStore);
+      const result = await archiver.rematerialize('sessionlog://session/nonexistent', mockGraphStore);
 
       expect(result).toBe(false);
     });
@@ -417,7 +417,7 @@ describe('MaterializationArchiver', () => {
     it('should merge results from all stores', async () => {
       (mockGitStore.list as ReturnType<typeof vi.fn>).mockResolvedValue([
         {
-          uri: 'entire://session/abc',
+          uri: 'sessionlog://session/abc',
           entityType: 'session',
           graphId: 'test',
           archivedAt: '2026-02-14T10:00:00Z',
@@ -429,7 +429,7 @@ describe('MaterializationArchiver', () => {
           .fn()
           .mockResolvedValue([
             {
-              uri: 'entire://session/def',
+              uri: 'sessionlog://session/def',
               entityType: 'session',
               graphId: 'test',
               archivedAt: '2026-02-14T11:00:00Z',
@@ -448,14 +448,14 @@ describe('MaterializationArchiver', () => {
       const entries = await archiver.listArchived();
 
       expect(entries.length).toBe(2);
-      expect(entries[0].uri).toBe('entire://session/abc');
-      expect(entries[1].uri).toBe('entire://session/def');
+      expect(entries[0].uri).toBe('sessionlog://session/abc');
+      expect(entries[1].uri).toBe('sessionlog://session/def');
     });
 
     it('should deduplicate by URI (prefer git)', async () => {
       (mockGitStore.list as ReturnType<typeof vi.fn>).mockResolvedValue([
         {
-          uri: 'entire://session/abc',
+          uri: 'sessionlog://session/abc',
           entityType: 'session',
           graphId: 'test',
           archivedAt: '2026-02-14T10:00:00Z',
@@ -467,7 +467,7 @@ describe('MaterializationArchiver', () => {
           .fn()
           .mockResolvedValue([
             {
-              uri: 'entire://session/abc',
+              uri: 'sessionlog://session/abc',
               entityType: 'session',
               graphId: 'test',
               archivedAt: '2026-02-14T11:00:00Z',

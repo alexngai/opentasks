@@ -1,5 +1,5 @@
 /**
- * Entire Session Watcher
+ * Sessionlog Session Watcher
  *
  * Watches .git/sessionlog-sessions/ for session state changes and emits
  * structured events. Used by the auto-linker to correlate sessions
@@ -16,9 +16,9 @@ import type { TrackedTask, PlanEntry, TrackedSkill } from 'sessionlog';
 // ============================================================================
 
 /**
- * Entire session state from a session file
+ * Sessionlog session state from a session file
  */
-export interface EntireSessionState {
+export interface SessionlogSessionState {
   id: string;
   agent: string;
   phase: 'ACTIVE' | 'IDLE' | 'ENDED';
@@ -43,21 +43,21 @@ export interface EntireSessionState {
 /**
  * Event emitted when a session changes
  */
-export interface EntireSessionEvent {
+export interface SessionlogSessionEvent {
   type: 'started' | 'updated' | 'checkpoint' | 'ended' | 'deleted';
   sessionId: string;
-  session: EntireSessionState;
+  session: SessionlogSessionState;
   previousPhase?: string;
   checkpointId?: string;
   timestamp: string;
 }
 
-export type SessionEventHandler = (event: EntireSessionEvent) => void;
+export type SessionEventHandler = (event: SessionlogSessionEvent) => void;
 
 /**
- * Configuration for the Entire watcher
+ * Configuration for the sessionlog watcher
  */
-export interface EntireWatcherConfig {
+export interface SessionlogWatcherConfig {
   /** Path to .opentasks/ directory (used to resolve .git) */
   locationPath: string;
 
@@ -75,9 +75,9 @@ export interface EntireWatcherConfig {
 }
 
 /**
- * Entire session watcher interface
+ * Sessionlog session watcher interface
  */
-export interface EntireWatcher {
+export interface SessionlogWatcher {
   /** Start watching for session changes */
   start(): Promise<void>;
 
@@ -141,7 +141,7 @@ function resolveGitDir(locationPath: string): string | null {
 /**
  * Parse a session state file
  */
-function parseSessionFile(filePath: string): EntireSessionState | null {
+function parseSessionFile(filePath: string): SessionlogSessionState | null {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
     const data = JSON.parse(content) as Record<string, unknown>;
@@ -169,10 +169,10 @@ function parseSessionFile(filePath: string): EntireSessionState | null {
   }
 }
 
-function normalizePhase(phase: string): EntireSessionState['phase'] {
+function normalizePhase(phase: string): SessionlogSessionState['phase'] {
   const upper = phase.toUpperCase();
   if (upper === 'ACTIVE' || upper === 'IDLE' || upper === 'ENDED') {
-    return upper as EntireSessionState['phase'];
+    return upper as SessionlogSessionState['phase'];
   }
   return 'ACTIVE';
 }
@@ -182,9 +182,9 @@ function normalizePhase(phase: string): EntireSessionState['phase'] {
 // ============================================================================
 
 /**
- * Create an Entire session watcher
+ * Create an Sessionlog session watcher
  */
-export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher {
+export function createSessionlogWatcher(config: SessionlogWatcherConfig): SessionlogWatcher {
   const { locationPath, debounceMs = 200, usePolling = false, sessionDirName = 'sessionlog-sessions' } = config;
 
   // Resolve git dir
@@ -196,12 +196,12 @@ export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher 
   const handlers: SessionEventHandler[] = [];
 
   // Cache of known session states for diff detection
-  const sessionCache = new Map<string, EntireSessionState>();
+  const sessionCache = new Map<string, SessionlogSessionState>();
 
   // Debounce map
   const pendingChanges = new Map<string, ReturnType<typeof setTimeout>>();
 
-  function emitEvent(event: EntireSessionEvent): void {
+  function emitEvent(event: SessionlogSessionEvent): void {
     for (const handler of handlers) {
       try {
         handler(event);
@@ -211,7 +211,7 @@ export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher 
     }
   }
 
-  function hasTaskOrPlanChanges(prev: EntireSessionState, curr: EntireSessionState): boolean {
+  function hasTaskOrPlanChanges(prev: SessionlogSessionState, curr: SessionlogSessionState): boolean {
     const prevTaskCount = prev.tasks ? Object.keys(prev.tasks).length : 0;
     const currTaskCount = curr.tasks ? Object.keys(curr.tasks).length : 0;
     if (prevTaskCount !== currTaskCount) return true;
@@ -226,9 +226,9 @@ export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher 
   }
 
   function determineEventType(
-    previous: EntireSessionState | undefined,
-    current: EntireSessionState,
-  ): EntireSessionEvent | null {
+    previous: SessionlogSessionState | undefined,
+    current: SessionlogSessionState,
+  ): SessionlogSessionEvent | null {
     const timestamp = new Date().toISOString();
 
     if (!previous) {

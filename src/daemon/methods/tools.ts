@@ -66,7 +66,7 @@ function isLocalId(id: string): boolean {
  * Register tools method handlers on an IPC server.
  *
  * Tool handlers route to the correct store via LocationResolver.
- * Skill usage is tracked via TranscriptExtractor (post-hoc from Entire
+ * Skill usage is tracked via TranscriptExtractor (post-hoc from sessionlog
  * session transcripts), not inline in these handlers.
  */
 export function registerToolsMethods(options: ToolsMethodsOptions): void {

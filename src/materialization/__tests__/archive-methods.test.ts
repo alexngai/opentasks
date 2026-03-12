@@ -49,7 +49,7 @@ function createMockLocationState(withArchiver: boolean): LocationState {
           .fn()
           .mockResolvedValue([
             {
-              uri: 'entire://session/abc',
+              uri: 'sessionlog://session/abc',
               entityType: 'session',
               graphId: 'test',
               archivedAt: '2026-01-01T00:00:00Z',
@@ -110,7 +110,7 @@ describe('Archive IPC Methods', () => {
     it('archive.list should call archiver.listArchived', async () => {
       const result = await server.call('archive.list', { filter: { graphId: 'test' } });
       expect(state.archiver!.listArchived).toHaveBeenCalledWith({ graphId: 'test' });
-      expect(result).toEqual([expect.objectContaining({ uri: 'entire://session/abc' })]);
+      expect(result).toEqual([expect.objectContaining({ uri: 'sessionlog://session/abc' })]);
     });
 
     it('archive.list should work without params', async () => {
@@ -120,9 +120,9 @@ describe('Archive IPC Methods', () => {
     });
 
     it('archive.rematerialize should restore a node', async () => {
-      const result = await server.call('archive.rematerialize', { uri: 'entire://session/abc' });
+      const result = await server.call('archive.rematerialize', { uri: 'sessionlog://session/abc' });
       expect(state.archiver!.rematerialize).toHaveBeenCalledWith(
-        'entire://session/abc',
+        'sessionlog://session/abc',
         state.store,
       );
       expect(result).toEqual({ success: true });
@@ -141,8 +141,8 @@ describe('Archive IPC Methods', () => {
     });
 
     it('archive.node should archive a specific node', async () => {
-      const result = await server.call('archive.node', { uri: 'entire://session/abc' });
-      expect(state.archiver!.archiveNode).toHaveBeenCalledWith('entire://session/abc', state.store);
+      const result = await server.call('archive.node', { uri: 'sessionlog://session/abc' });
+      expect(state.archiver!.archiveNode).toHaveBeenCalledWith('sessionlog://session/abc', state.store);
       expect(result).toEqual(expect.objectContaining({ uri: 'test://uri' }));
     });
 

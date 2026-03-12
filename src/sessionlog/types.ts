@@ -374,7 +374,7 @@ export interface SessionChange {
 // Settings
 // ============================================================================
 
-export interface EntireSettings {
+export interface SessionlogSettings {
   enabled: boolean;
   strategy: string;
   logLevel?: string;
@@ -383,7 +383,7 @@ export interface EntireSettings {
   summarizationEnabled?: boolean;
 }
 
-export const DEFAULT_SETTINGS: EntireSettings = {
+export const DEFAULT_SETTINGS: SessionlogSettings = {
   enabled: false,
   strategy: 'manual-commit',
   logLevel: 'warn',
@@ -395,11 +395,22 @@ export const DEFAULT_SETTINGS: EntireSettings = {
 // Constants
 // ============================================================================
 
-export const ENTIRE_DIR = '.entire';
-export const ENTIRE_TMP_DIR = '.entire/tmp';
-export const ENTIRE_METADATA_DIR = '.entire/metadata';
-export const ENTIRE_SETTINGS_FILE = '.entire/settings.json';
-export const ENTIRE_SETTINGS_LOCAL_FILE = '.entire/settings.local.json';
+export const SESSIONLOG_DIR = '.sessionlog';
+export const SESSIONLOG_TMP_DIR = '.sessionlog/tmp';
+export const SESSIONLOG_METADATA_DIR = '.sessionlog/metadata';
+export const SESSIONLOG_SETTINGS_FILE = '.sessionlog/settings.json';
+export const SESSIONLOG_SETTINGS_LOCAL_FILE = '.sessionlog/settings.local.json';
+
+/** @deprecated Use SESSIONLOG_DIR. Kept for interop with the `entire` CLI. */
+export const ENTIRE_DIR = SESSIONLOG_DIR;
+/** @deprecated Use SESSIONLOG_TMP_DIR */
+export const ENTIRE_TMP_DIR = SESSIONLOG_TMP_DIR;
+/** @deprecated Use SESSIONLOG_METADATA_DIR */
+export const ENTIRE_METADATA_DIR = SESSIONLOG_METADATA_DIR;
+/** @deprecated Use SESSIONLOG_SETTINGS_FILE */
+export const ENTIRE_SETTINGS_FILE = SESSIONLOG_SETTINGS_FILE;
+/** @deprecated Use SESSIONLOG_SETTINGS_LOCAL_FILE */
+export const ENTIRE_SETTINGS_LOCAL_FILE = SESSIONLOG_SETTINGS_LOCAL_FILE;
 export const CHECKPOINTS_BRANCH = 'sessionlog/checkpoints/v1';
 export const SHADOW_BRANCH_PREFIX = 'sessionlog/';
 export const SHADOW_BRANCH_HASH_LENGTH = 7;

@@ -1,7 +1,7 @@
 /**
  * Transcript Extractor Orchestrator
  *
- * Fetches Entire session transcripts, dispatches to the correct parser,
+ * Fetches sessionlog session transcripts, dispatches to the correct parser,
  * runs categorization/reconstruction/plan-mode tracking, and backfills
  * the SkillTrackerRegistry before session finalization.
  *
@@ -13,7 +13,7 @@ import { claude, detectAgentTypeFromContent } from 'agent-session-parser';
 import type { AgentType, TokenUsage } from 'agent-session-parser';
 import { extractToolCalls, type ExtractedToolCall, type ToolCategory } from './claude-tool-categorizer.js';
 import type { SkillTrackerRegistry } from './skill-tracker.js';
-import type { EntireSessionEvent } from '../daemon/entire-watcher.js';
+import type { SessionlogSessionEvent } from '../daemon/sessionlog-watcher.js';
 
 // ============================================================================
 // Types
@@ -49,7 +49,7 @@ export interface TranscriptExtractionResult {
 
 export interface TranscriptExtractor {
   /** Extract tool usage from a session's transcript on session end */
-  extract(event: EntireSessionEvent): Promise<TranscriptExtractionResult | null>;
+  extract(event: SessionlogSessionEvent): Promise<TranscriptExtractionResult | null>;
 }
 
 // ============================================================================
@@ -120,7 +120,7 @@ export function createTranscriptExtractor(config: TranscriptExtractorConfig): Tr
   const execGit = config.execGit ?? ((args: string) => defaultExecGit(args, repoPath));
 
   return {
-    async extract(event: EntireSessionEvent): Promise<TranscriptExtractionResult | null> {
+    async extract(event: SessionlogSessionEvent): Promise<TranscriptExtractionResult | null> {
       if (event.type !== 'ended') return null;
 
       const { sessionId, session } = event;

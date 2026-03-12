@@ -6,7 +6,7 @@
 
 import { createBeadsProvider } from './beads.js';
 import { createClaudeTasksProvider } from './claude-tasks.js';
-import { createEntireProvider, createEntireCliStoreAsync } from './entire.js';
+import { createSessionlogProvider, createSessionlogCliStoreAsync } from './sessionlog.js';
 import { createGlobalProvider } from './global.js';
 import { createMAPProvider, type MAPTaskClient } from './map.js';
 import { createNativeProvider } from './native.js';
@@ -163,30 +163,30 @@ export async function createProvidersFromConfig(
     skipped.push('sudocode');
   }
 
-  // 5. Entire provider (if enabled)
+  // 5. Sessionlog provider (if enabled)
   // Uses built-in TS store by default. If an executable is configured,
   // tries the Go CLI first and falls back to the TS store if unavailable.
-  if (config.providers.entire.enabled) {
-    const entireConfig = config.providers.entire;
+  if (config.providers.sessionlog.enabled) {
+    const sessionlogConfig = config.providers.sessionlog;
     try {
-      const store = await createEntireCliStoreAsync({
-        executable: entireConfig.executable,
-        timeout: entireConfig.timeout,
+      const store = await createSessionlogCliStoreAsync({
+        executable: sessionlogConfig.executable,
+        timeout: sessionlogConfig.timeout,
       });
-      const entireProvider = createEntireProvider(
-        { timeout: entireConfig.timeout },
+      const sessionlogProvider = createSessionlogProvider(
+        { timeout: sessionlogConfig.timeout },
         store,
       );
-      registry.register(entireProvider);
-      providers.push(entireProvider);
+      registry.register(sessionlogProvider);
+      providers.push(sessionlogProvider);
     } catch (error) {
       failed.push({
-        name: 'entire',
+        name: 'sessionlog',
         error: error instanceof Error ? error : new Error(String(error)),
       });
     }
   } else {
-    skipped.push('entire');
+    skipped.push('sessionlog');
   }
 
   // 6. Global provider (if enabled)

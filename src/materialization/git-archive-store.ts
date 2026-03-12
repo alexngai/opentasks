@@ -51,7 +51,7 @@ function git(repoPath: string, args: string, options?: { allowFailure?: boolean 
  * Extract session ID from a snapshot URI
  */
 function extractSessionId(uri: string): string | null {
-  const match = uri.match(/entire:\/\/session\/(.+)/);
+  const match = uri.match(/sessionlog:\/\/session\/(.+)/);
   return match ? match[1] : null;
 }
 
@@ -59,7 +59,7 @@ function extractSessionId(uri: string): string | null {
  * Extract checkpoint ID from a snapshot URI
  */
 function extractCheckpointId(uri: string): string | null {
-  const match = uri.match(/entire:\/\/checkpoint\/(.+)/);
+  const match = uri.match(/sessionlog:\/\/checkpoint\/(.+)/);
   return match ? match[1] : null;
 }
 

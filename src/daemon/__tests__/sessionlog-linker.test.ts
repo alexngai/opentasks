@@ -1,5 +1,5 @@
 /**
- * Tests for Entire Auto-Linker
+ * Tests for Sessionlog Auto-Linker
  *
  * Verifies:
  * - Correct session/checkpoint node creation in the graph store
@@ -14,11 +14,11 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
-  createEntireAutoLinker,
-  type EntireAutoLinker,
+  createSessionlogAutoLinker,
+  type SessionlogAutoLinker,
   type CorrelationResult,
-} from '../entire-linker.js';
-import type { EntireSessionEvent, EntireSessionState } from '../entire-watcher.js';
+} from '../sessionlog-linker.js';
+import type { SessionlogSessionEvent, SessionlogSessionState } from '../sessionlog-watcher.js';
 import type { GraphStore } from '../../graph/store.js';
 import type { DaemonFlushManager } from '../flush.js';
 
@@ -132,7 +132,7 @@ function createMockFlushManager(): DaemonFlushManager {
   };
 }
 
-function makeSession(overrides: Partial<EntireSessionState> = {}): EntireSessionState {
+function makeSession(overrides: Partial<SessionlogSessionState> = {}): SessionlogSessionState {
   return {
     id: '2026-02-13-test',
     agent: 'claude-code',
@@ -145,7 +145,7 @@ function makeSession(overrides: Partial<EntireSessionState> = {}): EntireSession
   };
 }
 
-function makeEvent(overrides: Partial<EntireSessionEvent> = {}): EntireSessionEvent {
+function makeEvent(overrides: Partial<SessionlogSessionEvent> = {}): SessionlogSessionEvent {
   return {
     type: 'started',
     sessionId: '2026-02-13-test',
@@ -159,15 +159,15 @@ function makeEvent(overrides: Partial<EntireSessionEvent> = {}): EntireSessionEv
 // Tests
 // ============================================================================
 
-describe('EntireAutoLinker', () => {
+describe('SessionlogAutoLinker', () => {
   let store: ReturnType<typeof createMockStore>;
   let flushManager: ReturnType<typeof createMockFlushManager>;
-  let linker: EntireAutoLinker;
+  let linker: SessionlogAutoLinker;
 
   beforeEach(() => {
     store = createMockStore();
     flushManager = createMockFlushManager();
-    linker = createEntireAutoLinker({ store, flushManager });
+    linker = createSessionlogAutoLinker({ store, flushManager });
   });
 
   describe('handleSessionEvent - started', () => {
@@ -177,8 +177,8 @@ describe('EntireAutoLinker', () => {
       expect(store.createNode).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'external',
-          uri: 'entire://session/2026-02-13-test',
-          source: 'entire',
+          uri: 'sessionlog://session/2026-02-13-test',
+          source: 'sessionlog',
         }),
       );
     });
@@ -300,7 +300,7 @@ describe('EntireAutoLinker', () => {
         archived: false,
       });
 
-      const lowConfLinker = createEntireAutoLinker({
+      const lowConfLinker = createSessionlogAutoLinker({
         store,
         flushManager,
         minConfidence: 'low',
@@ -336,7 +336,7 @@ describe('EntireAutoLinker', () => {
         archived: false,
       });
 
-      const lowConfLinker = createEntireAutoLinker({
+      const lowConfLinker = createSessionlogAutoLinker({
         store,
         flushManager,
         minConfidence: 'low',
@@ -370,7 +370,7 @@ describe('EntireAutoLinker', () => {
       });
 
       // Linker with high minConfidence
-      const highConfLinker = createEntireAutoLinker({
+      const highConfLinker = createSessionlogAutoLinker({
         store,
         flushManager,
         minConfidence: 'high',
@@ -533,8 +533,8 @@ describe('EntireAutoLinker', () => {
       expect(store.createNode).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'external',
-          uri: 'entire://checkpoint/cp-001',
-          source: 'entire',
+          uri: 'sessionlog://checkpoint/cp-001',
+          source: 'sessionlog',
         }),
       );
 
@@ -566,8 +566,8 @@ describe('EntireAutoLinker', () => {
 
       const edgeInput = containsEdge![0] as Record<string, unknown>;
       // Neither from_id nor to_id should be a URI
-      expect(edgeInput.from_id).not.toContain('entire://');
-      expect(edgeInput.to_id).not.toContain('entire://');
+      expect(edgeInput.from_id).not.toContain('sessionlog://');
+      expect(edgeInput.to_id).not.toContain('sessionlog://');
       // Both should be valid mock node IDs
       expect(edgeInput.from_id).toMatch(/^x-mock\d+$/);
       expect(edgeInput.to_id).toMatch(/^x-mock\d+$/);
@@ -631,8 +631,8 @@ describe('EntireAutoLinker', () => {
       expect(createCalls).toHaveLength(2);
 
       const uris = createCalls.map((call: unknown[]) => (call[0] as Record<string, unknown>).uri);
-      expect(uris).toContain('entire://session/2026-02-13-test');
-      expect(uris).toContain('entire://checkpoint/cp-001');
+      expect(uris).toContain('sessionlog://session/2026-02-13-test');
+      expect(uris).toContain('sessionlog://checkpoint/cp-001');
     });
   });
 
@@ -938,7 +938,7 @@ describe('EntireAutoLinker', () => {
 
       for (const id of dirtyIds) {
         expect(id).toMatch(/^x-mock\d+$/);
-        expect(id).not.toContain('entire://');
+        expect(id).not.toContain('sessionlog://');
       }
     });
 

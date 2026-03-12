@@ -13,7 +13,7 @@ src/
 │   ├── claude-tasks.ts # Claude Tasks provider
 │   ├── sudocode.ts     # Sudocode provider
 │   ├── global.ts       # Global store provider (~/.opentasks)
-│   ├── entire.ts       # Entire session provider
+│   ├── sessionlog.ts   # Sessionlog session provider
 │   ├── map.ts          # MAP provider (inbound — remote tasks → graph)
 │   ├── map-event-bridge.ts  # MAP event bridge (outbound — graph → MAP events)
 │   ├── map-client-factory.ts # MAP SDK client factory (dynamic import)
@@ -81,7 +81,7 @@ Defined in `src/config/schema.ts` using Zod. Key sections:
 
 - `storage` — JSONL/SQLite paths, compaction ratio
 - `daemon` — socket path, auto-start, flush interval
-- `providers` — per-provider config (beads, claudeTasks, sudocode, entire, global, map)
+- `providers` — per-provider config (beads, claudeTasks, sudocode, sessionlog, global, map)
 - `providers.map` — `enabled`, `server`, `systemId`, `agentName`, `scope`, `eventBridge`
 - `logging` — level, file
 - `materialization` — git archiving, remote stores, policies

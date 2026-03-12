@@ -230,8 +230,8 @@ export async function updateRef(ref: string, commitHash: string, cwd?: string): 
  * Get the git author from config
  */
 export async function getGitAuthor(cwd?: string): Promise<GitAuthor> {
-  const name = (await gitSafe(['config', 'user.name'], { cwd })) ?? 'Entire';
-  const email = (await gitSafe(['config', 'user.email'], { cwd })) ?? 'entire@localhost';
+  const name = (await gitSafe(['config', 'user.name'], { cwd })) ?? 'Sessionlog';
+  const email = (await gitSafe(['config', 'user.email'], { cwd })) ?? 'sessionlog@localhost';
   return { name, email };
 }
 

@@ -8,7 +8,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
-  type EntireSettings,
+  type SessionlogSettings,
   DEFAULT_SETTINGS,
   ENTIRE_SETTINGS_FILE,
   ENTIRE_SETTINGS_LOCAL_FILE,
@@ -24,7 +24,7 @@ import { atomicWriteFile } from './git-operations.js';
 /**
  * Load effective settings (project merged with local overrides)
  */
-export async function loadSettings(cwd?: string): Promise<EntireSettings> {
+export async function loadSettings(cwd?: string): Promise<SessionlogSettings> {
   const project = await loadProjectSettings(cwd);
   const local = await loadLocalSettings(cwd);
   return mergeSettings(project, local);
@@ -33,7 +33,7 @@ export async function loadSettings(cwd?: string): Promise<EntireSettings> {
 /**
  * Load project-level settings (.entire/settings.json)
  */
-export async function loadProjectSettings(cwd?: string): Promise<EntireSettings> {
+export async function loadProjectSettings(cwd?: string): Promise<SessionlogSettings> {
   const root = cwd ?? (await getWorktreeRoot());
   const settingsPath = path.join(root, ENTIRE_SETTINGS_FILE);
   return loadSettingsFile(settingsPath);
@@ -42,23 +42,23 @@ export async function loadProjectSettings(cwd?: string): Promise<EntireSettings>
 /**
  * Load local settings (.entire/settings.local.json)
  */
-export async function loadLocalSettings(cwd?: string): Promise<EntireSettings> {
+export async function loadLocalSettings(cwd?: string): Promise<SessionlogSettings> {
   const root = cwd ?? (await getWorktreeRoot());
   const settingsPath = path.join(root, ENTIRE_SETTINGS_LOCAL_FILE);
   return loadSettingsFile(settingsPath);
 }
 
-function loadSettingsFile(filePath: string): EntireSettings {
+function loadSettingsFile(filePath: string): SessionlogSettings {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
-    const data = JSON.parse(content) as Partial<EntireSettings>;
+    const data = JSON.parse(content) as Partial<SessionlogSettings>;
     return { ...DEFAULT_SETTINGS, ...data };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
 }
 
-function mergeSettings(project: EntireSettings, local: EntireSettings): EntireSettings {
+function mergeSettings(project: SessionlogSettings, local: SessionlogSettings): SessionlogSettings {
   return {
     enabled: local.enabled !== DEFAULT_SETTINGS.enabled ? local.enabled : project.enabled,
     strategy: local.strategy !== DEFAULT_SETTINGS.strategy ? local.strategy : project.strategy,
@@ -77,12 +77,12 @@ function mergeSettings(project: EntireSettings, local: EntireSettings): EntireSe
  * Save project-level settings
  */
 export async function saveProjectSettings(
-  settings: Partial<EntireSettings>,
+  settings: Partial<SessionlogSettings>,
   cwd?: string,
 ): Promise<void> {
   const root = cwd ?? (await getWorktreeRoot());
   const settingsPath = path.join(root, ENTIRE_SETTINGS_FILE);
-  await ensureEntireDir(root);
+  await ensureSessionlogDir(root);
   await atomicWriteFile(settingsPath, JSON.stringify(settings, null, 2));
 }
 
@@ -90,12 +90,12 @@ export async function saveProjectSettings(
  * Save local settings
  */
 export async function saveLocalSettings(
-  settings: Partial<EntireSettings>,
+  settings: Partial<SessionlogSettings>,
   cwd?: string,
 ): Promise<void> {
   const root = cwd ?? (await getWorktreeRoot());
   const settingsPath = path.join(root, ENTIRE_SETTINGS_LOCAL_FILE);
-  await ensureEntireDir(root);
+  await ensureSessionlogDir(root);
   await atomicWriteFile(settingsPath, JSON.stringify(settings, null, 2));
 }
 
@@ -123,7 +123,7 @@ export async function getStrategy(cwd?: string): Promise<string> {
 // Helpers
 // ============================================================================
 
-async function ensureEntireDir(root: string): Promise<void> {
+async function ensureSessionlogDir(root: string): Promise<void> {
   const dir = path.join(root, ENTIRE_DIR);
   await fs.promises.mkdir(dir, { recursive: true });
 }
@@ -147,7 +147,7 @@ export async function ensureGitignore(cwd?: string): Promise<void> {
     await fs.promises.access(gitignorePath);
     // Already exists
   } catch {
-    await ensureEntireDir(root);
+    await ensureSessionlogDir(root);
     await fs.promises.writeFile(gitignorePath, content);
   }
 }

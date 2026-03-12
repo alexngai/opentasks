@@ -16,8 +16,8 @@ import { DaemonError, type DaemonState, type DaemonStatus, type DaemonEntry } fr
 import { createIPCServer, type IPCServer } from './ipc.js';
 import { createFileWatcher, type FileWatcher } from './watcher.js';
 import { createDaemonFlushManager, type DaemonFlushManager } from './flush.js';
-import { createEntireWatcher, type EntireWatcher } from './entire-watcher.js';
-import { createEntireAutoLinker, type EntireAutoLinker } from './entire-linker.js';
+import { createSessionlogWatcher, type SessionlogWatcher } from './sessionlog-watcher.js';
+import { createSessionlogAutoLinker, type SessionlogAutoLinker } from './sessionlog-linker.js';
 import { registerLifecycleMethods } from './methods/lifecycle.js';
 import { registerGraphMethods } from './methods/graph.js';
 import { registerToolsMethods } from './methods/tools.js';
@@ -308,8 +308,8 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
   let fileWatcher: FileWatcher | null = null;
   let flushManager: DaemonFlushManager | null = null;
   let activeProviderStore: ProviderAwareStore | null = null;
-  let entireWatcher: EntireWatcher | null = null;
-  let entireLinker: EntireAutoLinker | null = null;
+  let sessionlogWatcher: SessionlogWatcher | null = null;
+  let sessionlogLinker: SessionlogAutoLinker | null = null;
 
   // Signal handlers (stored for cleanup)
   let signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = [];
@@ -507,13 +507,13 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         // 12. Start provider watching for watchable providers
         providerStore.startProviderWatching();
 
-        // 13. Initialize Entire watcher + auto-linker + transcript extractor (optional)
+        // 13. Initialize Sessionlog watcher + auto-linker + transcript extractor (optional)
         try {
-          entireWatcher = createEntireWatcher({
+          sessionlogWatcher = createSessionlogWatcher({
             locationPath,
-            sessionDirName: openTasksConfig?.providers?.entire?.sessionDirName as string | undefined,
+            sessionDirName: openTasksConfig?.providers?.sessionlog?.sessionDirName as string | undefined,
           });
-          entireLinker = createEntireAutoLinker({
+          sessionlogLinker = createSessionlogAutoLinker({
             store,
             flushManager,
             skillTrackerRegistry,
@@ -523,7 +523,7 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
             skillTrackerRegistry,
           });
 
-          entireWatcher.onSessionEvent(async (event) => {
+          sessionlogWatcher.onSessionEvent(async (event) => {
             // Step 1: Extract transcript and backfill SkillTracker (BEFORE linker finalizes)
             if (event.type === 'ended') {
               try {
@@ -534,14 +534,14 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
             }
 
             // Step 2: Linker finalizes (calls registry.remove() on ended)
-            await entireLinker!.handleSessionEvent(event);
+            await sessionlogLinker!.handleSessionEvent(event);
           });
 
-          await entireWatcher.start();
+          await sessionlogWatcher.start();
         } catch {
-          // Entire integration is optional — continue without it
-          entireWatcher = null;
-          entireLinker = null;
+          // Sessionlog integration is optional — continue without it
+          sessionlogWatcher = null;
+          sessionlogLinker = null;
         }
 
         // 13. Mark as running
@@ -551,14 +551,14 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         state = 'stopped';
         startedAt = null;
 
-        if (entireWatcher) {
+        if (sessionlogWatcher) {
           try {
-            await entireWatcher.stop();
+            await sessionlogWatcher.stop();
           } catch {
             /* ignore */
           }
-          entireWatcher = null;
-          entireLinker = null;
+          sessionlogWatcher = null;
+          sessionlogLinker = null;
         }
 
         if (fileWatcher) {
@@ -614,11 +614,11 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
             ipcServer = null;
           }
 
-          // Stop Entire watcher before file watcher
-          if (entireWatcher) {
-            await entireWatcher.stop();
-            entireWatcher = null;
-            entireLinker = null;
+          // Stop Sessionlog watcher before file watcher
+          if (sessionlogWatcher) {
+            await sessionlogWatcher.stop();
+            sessionlogWatcher = null;
+            sessionlogLinker = null;
           }
 
           // Stop provider watching before tearing down file watcher and store

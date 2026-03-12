@@ -1,5 +1,5 @@
 /**
- * Tests for Entire Session Watcher
+ * Tests for Sessionlog Session Watcher
  *
  * Unit tests for core watcher logic (event detection, phase normalization, etc.)
  * Filesystem integration tests require RUN_SLOW_TESTS=1 as they depend on
@@ -10,16 +10,16 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { createEntireWatcher, type EntireSessionEvent } from '../entire-watcher.js';
+import { createSessionlogWatcher, type SessionlogSessionEvent } from '../sessionlog-watcher.js';
 
 const RUN_SLOW_TESTS = process.env.RUN_SLOW_TESTS === '1';
 
 // Helper: wait for event with timeout
 function waitForEvent(
-  events: EntireSessionEvent[],
-  predicate: (e: EntireSessionEvent) => boolean,
+  events: SessionlogSessionEvent[],
+  predicate: (e: SessionlogSessionEvent) => boolean,
   timeoutMs = 5000,
-): Promise<EntireSessionEvent | null> {
+): Promise<SessionlogSessionEvent | null> {
   return new Promise((resolve) => {
     const start = Date.now();
     const check = () => {
@@ -36,13 +36,13 @@ function waitForEvent(
   });
 }
 
-describe('EntireWatcher', () => {
+describe('SessionlogWatcher', () => {
   let tmpDir: string;
   let sessionsDir: string;
-  let events: EntireSessionEvent[];
+  let events: SessionlogSessionEvent[];
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'entire-watcher-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sessionlog-watcher-test-'));
     sessionsDir = path.join(tmpDir, 'sessionlog-sessions');
     fs.mkdirSync(sessionsDir, { recursive: true });
     events = [];
@@ -58,7 +58,7 @@ describe('EntireWatcher', () => {
 
   describe('lifecycle', () => {
     it('should not be watching before start', () => {
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
       });
@@ -67,7 +67,7 @@ describe('EntireWatcher', () => {
     });
 
     it('should be watching after start', async () => {
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
       });
@@ -80,7 +80,7 @@ describe('EntireWatcher', () => {
     });
 
     it('should resolve sessions directory', () => {
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
       });
@@ -91,7 +91,7 @@ describe('EntireWatcher', () => {
     it('should handle missing sessions directory gracefully', async () => {
       fs.rmSync(sessionsDir, { recursive: true });
 
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -106,7 +106,7 @@ describe('EntireWatcher', () => {
     });
 
     it('should handle multiple start/stop cycles', async () => {
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
       });
@@ -128,7 +128,7 @@ describe('EntireWatcher', () => {
         checkpoints: [],
       });
 
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -146,7 +146,7 @@ describe('EntireWatcher', () => {
     });
 
     it('should return empty sessionsDir when no git directory found', () => {
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: '/nonexistent/path/.opentasks',
         // No gitDir override — will try to resolve and fail
       });
@@ -155,7 +155,7 @@ describe('EntireWatcher', () => {
     });
 
     it('should not start when sessionsDir is empty', async () => {
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: '/nonexistent/path/.opentasks',
       });
 
@@ -168,7 +168,7 @@ describe('EntireWatcher', () => {
 
   describe('session file parsing - task/plan data', () => {
     it('should parse tasks from session file', async () => {
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -212,7 +212,7 @@ describe('EntireWatcher', () => {
     });
 
     it('should parse plan mode data from session file', async () => {
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -246,7 +246,7 @@ describe('EntireWatcher', () => {
     });
 
     it('should parse completed plan entries with content', async () => {
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -286,7 +286,7 @@ describe('EntireWatcher', () => {
     });
 
     it('should parse skillsUsed from session file', async () => {
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -316,7 +316,7 @@ describe('EntireWatcher', () => {
     });
 
     it('should handle session files without task/plan fields gracefully', async () => {
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -351,7 +351,7 @@ describe('EntireWatcher', () => {
         checkpoints: [],
       });
 
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -393,7 +393,7 @@ describe('EntireWatcher', () => {
         inPlanMode: false,
       });
 
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -430,7 +430,7 @@ describe('EntireWatcher', () => {
         planEntries: [{ enteredAt: '2026-03-04T10:00:00Z' }],
       });
 
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -478,7 +478,7 @@ describe('EntireWatcher', () => {
         planEntries: [],
       });
 
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -518,7 +518,7 @@ describe('EntireWatcher', () => {
   // These are inherently environment-dependent (inotify, polling, etc.)
   describe.skipIf(!RUN_SLOW_TESTS)('filesystem integration', () => {
     it('should emit started event for new session files', async () => {
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -551,7 +551,7 @@ describe('EntireWatcher', () => {
         checkpoints: [],
       });
 
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -581,7 +581,7 @@ describe('EntireWatcher', () => {
         checkpoints: [],
       });
 
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -606,7 +606,7 @@ describe('EntireWatcher', () => {
     });
 
     it('should normalize lowercase phase strings', async () => {
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,
@@ -630,7 +630,7 @@ describe('EntireWatcher', () => {
     });
 
     it('should not crash when handler throws', async () => {
-      const watcher = createEntireWatcher({
+      const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
         debounceMs: 10,

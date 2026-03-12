@@ -135,14 +135,14 @@ export async function buildSessionSnapshot(
   const checkpointIds = edges
     .filter((e) => e.edgeType === 'contains')
     .map((e) => {
-      const match = e.toUri.match(/entire:\/\/checkpoint\/(.+)/);
+      const match = e.toUri.match(/sessionlog:\/\/checkpoint\/(.+)/);
       return match ? match[1] : e.toUri;
     });
 
   return {
     version: 1,
     uri: node.uri,
-    source: node.source ?? 'entire',
+    source: node.source ?? 'sessionlog',
     entityType: 'session',
     createdAt: node.created_at,
     archivedAt: new Date().toISOString(),
@@ -173,7 +173,7 @@ export async function buildCheckpointSnapshot(
   return {
     version: 1,
     uri: node.uri,
-    source: node.source ?? 'entire',
+    source: node.source ?? 'sessionlog',
     entityType: 'checkpoint',
     createdAt: node.created_at,
     archivedAt: new Date().toISOString(),
@@ -187,7 +187,7 @@ export async function buildCheckpointSnapshot(
     },
     provenance,
     codeCommit: externalData.commitHash as string | undefined,
-    sessionUri: externalData.sessionId ? `entire://session/${externalData.sessionId}` : '',
+    sessionUri: externalData.sessionId ? `sessionlog://session/${externalData.sessionId}` : '',
   };
 }
 

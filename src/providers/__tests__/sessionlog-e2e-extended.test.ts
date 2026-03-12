@@ -1,19 +1,19 @@
 /**
  * E2E Tests: Sessionlog Integration (checkpoints, watcher, transcript extractor)
  *
- * Complements entire-e2e.test.ts (which covers sessions) by testing:
+ * Complements sessionlog-e2e.test.ts (which covers sessions) by testing:
  *   - Checkpoint reading from real sessionlog/checkpoints/v1 git branches
  *   - Provider checkpoint pipeline (checkpoint → ProviderNode)
- *   - EntireWatcher filesystem event detection
+ *   - Sessionlog watcher filesystem event detection
  *   - TranscriptExtractor with real git data
  *   - Full session lifecycle (ACTIVE → checkpoint → ENDED)
  *
  * Uses real git repos in temp dirs. No mocks.
  *
- * TODO: Add E2E tests for createEntireExecStore (Go CLI binary path).
+ * TODO: Add E2E tests for createSessionlogExecStore (Go CLI binary path).
  *   - Requires the `entire` binary to be installed, or stub tests that
- *     mock the binary output to verify JSON parsing in createEntireExecStore.
- *   - Could be gated behind RUN_ENTIRE_CLI_TESTS=1 env var.
+ *     mock the binary output to verify JSON parsing in createSessionlogExecStore.
+ *   - Could be gated behind RUN_SESSIONLOG_CLI_TESTS=1 env var.
  *   - The Go CLI path calls `entire status --json` and `entire rewind --list`.
  */
 
@@ -24,11 +24,11 @@ import * as os from 'node:os';
 import { execSync } from 'node:child_process';
 import { createNativeSessionlogStore } from 'sessionlog';
 import {
-  createEntireProvider,
-  type EntireStore,
-} from '../entire.js';
+  createSessionlogProvider,
+  type SessionlogStore,
+} from '../sessionlog.js';
 import type { Provider } from '../types.js';
-import { createEntireWatcher, type EntireSessionEvent } from '../../daemon/entire-watcher.js';
+import { createSessionlogWatcher, type SessionlogSessionEvent } from '../../daemon/sessionlog-watcher.js';
 import { createTranscriptExtractor } from '../../tracking/transcript-extractor.js';
 
 // ============================================================================
@@ -455,8 +455,8 @@ describe('E2E: Provider Checkpoint Pipeline', () => {
 
   beforeEach(() => {
     repo = createTestRepo();
-    const store: EntireStore = createNativeSessionlogStore(repo.rootDir);
-    provider = createEntireProvider({}, store);
+    const store: SessionlogStore = createNativeSessionlogStore(repo.rootDir);
+    provider = createSessionlogProvider({}, store);
   });
 
   afterEach(() => {
@@ -475,7 +475,7 @@ describe('E2E: Provider Checkpoint Pipeline', () => {
     const cpNode = nodes.find((n) => n.id === 'ab12cd34ef56');
 
     expect(cpNode).toBeDefined();
-    expect(cpNode!.uri).toBe('entire://checkpoint/ab12cd34ef56');
+    expect(cpNode!.uri).toBe('sessionlog://checkpoint/ab12cd34ef56');
     expect(cpNode!.type).toBe('external');
     expect(cpNode!.status).toBe('closed'); // Checkpoints are immutable
     expect(cpNode!.rawData?.entityType).toBe('checkpoint');
@@ -489,7 +489,7 @@ describe('E2E: Provider Checkpoint Pipeline', () => {
       summary: { intent: 'Test commit', outcome: 'Done' },
     });
 
-    const node = await provider.get('entire://checkpoint/cd34ef56ab12');
+    const node = await provider.get('sessionlog://checkpoint/cd34ef56ab12');
 
     expect(node).not.toBeNull();
     expect(node!.id).toBe('cd34ef56ab12');
@@ -499,7 +499,7 @@ describe('E2E: Provider Checkpoint Pipeline', () => {
   });
 
   it('should return null for non-existent checkpoint URI', async () => {
-    const node = await provider.get('entire://checkpoint/does-not-exist');
+    const node = await provider.get('sessionlog://checkpoint/does-not-exist');
     expect(node).toBeNull();
   });
 
@@ -561,7 +561,7 @@ describe('E2E: Provider Checkpoint Pipeline', () => {
 
 const SLOW_TESTS = process.env.RUN_SLOW_TESTS === '1' || process.env.RUN_FULL_AGENT_TESTS === '1';
 
-describe.skipIf(!SLOW_TESTS)('E2E: EntireWatcher filesystem events', () => {
+describe.skipIf(!SLOW_TESTS)('E2E: Sessionlog watcher filesystem events', () => {
   let repo: TestRepo;
 
   beforeEach(() => {
@@ -573,9 +573,9 @@ describe.skipIf(!SLOW_TESTS)('E2E: EntireWatcher filesystem events', () => {
   });
 
   it('should emit started event for new session file', async () => {
-    const events: EntireSessionEvent[] = [];
+    const events: SessionlogSessionEvent[] = [];
 
-    const watcher = createEntireWatcher({
+    const watcher = createSessionlogWatcher({
       locationPath: path.join(repo.rootDir, '.opentasks'),
       gitDir: path.join(repo.rootDir, '.git'),
       debounceMs: 10,
@@ -619,9 +619,9 @@ describe.skipIf(!SLOW_TESTS)('E2E: EntireWatcher filesystem events', () => {
       checkpoints: [],
     });
 
-    const events: EntireSessionEvent[] = [];
+    const events: SessionlogSessionEvent[] = [];
 
-    const watcher = createEntireWatcher({
+    const watcher = createSessionlogWatcher({
       locationPath: path.join(repo.rootDir, '.opentasks'),
       gitDir: path.join(repo.rootDir, '.git'),
       debounceMs: 10,
@@ -662,9 +662,9 @@ describe.skipIf(!SLOW_TESTS)('E2E: EntireWatcher filesystem events', () => {
       checkpoints: [],
     });
 
-    const events: EntireSessionEvent[] = [];
+    const events: SessionlogSessionEvent[] = [];
 
-    const watcher = createEntireWatcher({
+    const watcher = createSessionlogWatcher({
       locationPath: path.join(repo.rootDir, '.opentasks'),
       gitDir: path.join(repo.rootDir, '.git'),
       debounceMs: 10,
@@ -703,9 +703,9 @@ describe.skipIf(!SLOW_TESTS)('E2E: EntireWatcher filesystem events', () => {
       checkpoints: [],
     });
 
-    const events: EntireSessionEvent[] = [];
+    const events: SessionlogSessionEvent[] = [];
 
-    const watcher = createEntireWatcher({
+    const watcher = createSessionlogWatcher({
       locationPath: path.join(repo.rootDir, '.opentasks'),
       gitDir: path.join(repo.rootDir, '.git'),
       debounceMs: 10,
@@ -737,9 +737,9 @@ describe.skipIf(!SLOW_TESTS)('E2E: EntireWatcher filesystem events', () => {
       checkpoints: [],
     });
 
-    const events: EntireSessionEvent[] = [];
+    const events: SessionlogSessionEvent[] = [];
 
-    const watcher = createEntireWatcher({
+    const watcher = createSessionlogWatcher({
       locationPath: path.join(repo.rootDir, '.opentasks'),
       gitDir: path.join(repo.rootDir, '.git'),
       debounceMs: 10,
@@ -757,9 +757,9 @@ describe.skipIf(!SLOW_TESTS)('E2E: EntireWatcher filesystem events', () => {
   });
 
   it('should normalize lowercase phase to uppercase', async () => {
-    const events: EntireSessionEvent[] = [];
+    const events: SessionlogSessionEvent[] = [];
 
-    const watcher = createEntireWatcher({
+    const watcher = createSessionlogWatcher({
       locationPath: path.join(repo.rootDir, '.opentasks'),
       gitDir: path.join(repo.rootDir, '.git'),
       debounceMs: 10,
@@ -934,7 +934,7 @@ describe('E2E: Full session lifecycle (store + watcher + extractor)', () => {
     const checkpointId = 'ab12cd34ef56';
     const baseCommit = getHeadCommit(repo);
     const store = createNativeSessionlogStore(repo.rootDir);
-    const provider = createEntireProvider({}, store);
+    const provider = createSessionlogProvider({}, store);
 
     // Phase 1: Create ACTIVE session
     writeSession(repo, sessionId, {
@@ -958,7 +958,7 @@ describe('E2E: Full session lifecycle (store + watcher + extractor)', () => {
     expect(activeSession!.summary).toBe('Implement authentication');
 
     // Verify via provider
-    const activeNode = await provider.get(`entire://session/${sessionId}`);
+    const activeNode = await provider.get(`sessionlog://session/${sessionId}`);
     expect(activeNode).not.toBeNull();
     expect(activeNode!.status).toBe('open');
 
@@ -1016,7 +1016,7 @@ describe('E2E: Full session lifecycle (store + watcher + extractor)', () => {
     const endedSession = await store.getSession(sessionId);
     expect(endedSession!.phase).toBe('ENDED');
 
-    const endedNode = await provider.get(`entire://session/${sessionId}`);
+    const endedNode = await provider.get(`sessionlog://session/${sessionId}`);
     expect(endedNode!.status).toBe('closed');
 
     // Phase 4: Extract transcript
@@ -1052,7 +1052,7 @@ describe('E2E: Full session lifecycle (store + watcher + extractor)', () => {
   it.skipIf(!SLOW_TESTS)('should handle watcher + extractor together on session end', async () => {
     const sessionId = 'watcher-extractor-session';
     const checkpointId = 'ff99ee88dd77';
-    const events: EntireSessionEvent[] = [];
+    const events: SessionlogSessionEvent[] = [];
 
     // Commit transcript to git first
     const transcript = makeSampleTranscript(sessionId);
@@ -1072,7 +1072,7 @@ describe('E2E: Full session lifecycle (store + watcher + extractor)', () => {
     });
 
     // Start watcher
-    const watcher = createEntireWatcher({
+    const watcher = createSessionlogWatcher({
       locationPath: path.join(repo.rootDir, '.opentasks'),
       gitDir: path.join(repo.rootDir, '.git'),
       debounceMs: 10,

@@ -2,8 +2,8 @@
  * E2E Session Pipeline Tests
  *
  * Tests the full pipeline:
- *   session JSON write (simulating sessionlog) → EntireWatcher detects file change
- *   → EntireAutoLinker processes event → real GraphStore persists external node
+ *   session JSON write (simulating sessionlog) → SessionlogWatcher detects file change
+ *   → SessionlogAutoLinker processes event → real GraphStore persists external node
  *
  * Uses real instances of all components (no mocks).
  * Gated behind RUN_SLOW_TESTS=1 because chokidar polling is needed.
@@ -11,7 +11,7 @@
  * Note: The graph store does not persist node metadata (metadata is accepted
  * in CreateNodeInput but not included in StoredNode by buildStoredNode).
  * Task/plan metadata persistence through the linker is verified in the
- * linker unit tests (entire-linker.test.ts) using mocked stores.
+ * linker unit tests (sessionlog-linker.test.ts) using mocked stores.
  * These e2e tests verify that:
  * 1. The watcher correctly detects session files and parses task/plan data
  * 2. The linker creates nodes in the real store in response to watcher events
@@ -23,11 +23,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import {
-  createEntireWatcher,
-  type EntireWatcher,
-  type EntireSessionEvent,
-} from '../entire-watcher.js';
-import { createEntireAutoLinker, type EntireAutoLinker } from '../entire-linker.js';
+  createSessionlogWatcher,
+  type SessionlogWatcher,
+  type SessionlogSessionEvent,
+} from '../sessionlog-watcher.js';
+import { createSessionlogAutoLinker, type SessionlogAutoLinker } from '../sessionlog-linker.js';
 import { createStoreForLocation } from '../location-state.js';
 import { createDaemonFlushManager, type DaemonFlushManager } from '../flush.js';
 import type { GraphStore } from '../../graph/store.js';
@@ -66,10 +66,10 @@ describe.skipIf(!RUN_SLOW_TESTS)('E2E: Session Pipeline (watcher → linker → 
   let sessionsDir: string;
   let store: GraphStore;
   let flushManager: DaemonFlushManager;
-  let watcher: EntireWatcher;
-  let linker: EntireAutoLinker;
+  let watcher: SessionlogWatcher;
+  let linker: SessionlogAutoLinker;
   let linkerErrors: Error[];
-  let watcherEvents: EntireSessionEvent[];
+  let watcherEvents: SessionlogSessionEvent[];
 
   beforeEach(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-session-pipeline-'));
@@ -85,8 +85,8 @@ describe.skipIf(!RUN_SLOW_TESTS)('E2E: Session Pipeline (watcher → linker → 
         await store.flush();
       },
     );
-    linker = createEntireAutoLinker({ store, flushManager });
-    watcher = createEntireWatcher({
+    linker = createSessionlogAutoLinker({ store, flushManager });
+    watcher = createSessionlogWatcher({
       locationPath: opentasksPath,
       gitDir: tmpDir,
       debounceMs: 10,
@@ -179,8 +179,8 @@ describe.skipIf(!RUN_SLOW_TESTS)('E2E: Session Pipeline (watcher → linker → 
     expect(node).toBeTruthy();
     expect(node!.type).toBe('external');
     expect(node!.title).toBe(`Session: ${sessionId}`);
-    expect((node as Record<string, unknown>).uri).toBe(`entire://session/${sessionId}`);
-    expect((node as Record<string, unknown>).source).toBe('entire');
+    expect((node as Record<string, unknown>).uri).toBe(`sessionlog://session/${sessionId}`);
+    expect((node as Record<string, unknown>).source).toBe('sessionlog');
   });
 
   it('watcher emits updated event when tasks are added', async () => {

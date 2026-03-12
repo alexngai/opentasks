@@ -1,14 +1,14 @@
 /**
- * Entire Auto-Linker
+ * Sessionlog Auto-Linker
  *
  * Correlation engine that automatically creates edges between OpenTasks
- * tasks and Entire sessions/checkpoints. Matches sessions to tasks via
+ * tasks and sessionlog sessions/checkpoints. Matches sessions to tasks via
  * claims, in-progress status, and branch association.
  */
 
 import type { GraphStore } from '../graph/store.js';
 import type { DaemonFlushManager } from './flush.js';
-import type { EntireSessionEvent, EntireSessionState } from './entire-watcher.js';
+import type { SessionlogSessionEvent, SessionlogSessionState } from './sessionlog-watcher.js';
 import type { MaterializationArchiver } from '../materialization/types.js';
 import type { SkillTrackerRegistry } from '../tracking/skill-tracker.js';
 
@@ -27,7 +27,7 @@ export type CorrelationConfidence = 'high' | 'medium' | 'low';
 export type CorrelationStrategy = 'claimed-task' | 'in-progress-branch' | 'in-progress-any';
 
 /**
- * A task matched to an Entire session
+ * A task matched to a sessionlog session
  */
 export interface MatchedTask {
   nodeId: string;
@@ -51,7 +51,7 @@ export interface CorrelationResult {
 /**
  * Configuration for the auto-linker
  */
-export interface EntireAutoLinkerConfig {
+export interface SessionlogAutoLinkerConfig {
   /** Graph store for creating nodes and edges */
   store: GraphStore;
 
@@ -71,12 +71,12 @@ export interface EntireAutoLinkerConfig {
 /**
  * Auto-linker interface
  */
-export interface EntireAutoLinker {
+export interface SessionlogAutoLinker {
   /** Handle a session event from the watcher */
-  handleSessionEvent(event: EntireSessionEvent): Promise<void>;
+  handleSessionEvent(event: SessionlogSessionEvent): Promise<void>;
 
   /** Manually trigger correlation for a session */
-  correlate(sessionId: string, session: EntireSessionState): Promise<CorrelationResult>;
+  correlate(sessionId: string, session: SessionlogSessionState): Promise<CorrelationResult>;
 
   /** Get correlation history */
   getCorrelations(): Map<string, CorrelationResult>;
@@ -104,9 +104,9 @@ function meetsConfidenceThreshold(
 // ============================================================================
 
 /**
- * Create an Entire auto-linker
+ * Create a sessionlog auto-linker
  */
-export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAutoLinker {
+export function createSessionlogAutoLinker(config: SessionlogAutoLinkerConfig): SessionlogAutoLinker {
   const { store, flushManager, archiver, skillTrackerRegistry } = config;
   const minConfidence = config.minConfidence ?? 'medium';
 
@@ -119,7 +119,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
   /**
    * Find tasks correlated with a session
    */
-  async function findCorrelatedTasks(session: EntireSessionState): Promise<MatchedTask[]> {
+  async function findCorrelatedTasks(session: SessionlogSessionState): Promise<MatchedTask[]> {
     const matched: MatchedTask[] = [];
 
     // Strategy 1: Claimed tasks (high confidence)
@@ -203,11 +203,11 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
   }
 
   /**
-   * Ensure an external node exists for an Entire session.
+   * Ensure an external node exists for a sessionlog session.
    * Returns the node's actual graph ID (not the URI).
    */
-  async function ensureSessionNode(session: EntireSessionState): Promise<string> {
-    const uri = `entire://session/${session.id}`;
+  async function ensureSessionNode(session: SessionlogSessionState): Promise<string> {
+    const uri = `sessionlog://session/${session.id}`;
 
     const cachedId = createdNodes.get(uri);
     if (cachedId) return cachedId;
@@ -230,7 +230,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
         type: 'external',
         title: `Session: ${session.id}`,
         uri,
-        source: 'entire',
+        source: 'sessionlog',
         metadata: {
           entityType: 'session',
           agent: session.agent,
@@ -270,14 +270,14 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
   }
 
   /**
-   * Ensure an external node exists for an Entire checkpoint.
+   * Ensure an external node exists for a sessionlog checkpoint.
    * Returns the node's actual graph ID (not the URI).
    */
   async function ensureCheckpointNode(
     checkpointId: string,
-    session: EntireSessionState,
+    session: SessionlogSessionState,
   ): Promise<string> {
-    const uri = `entire://checkpoint/${checkpointId}`;
+    const uri = `sessionlog://checkpoint/${checkpointId}`;
 
     const cachedId = createdNodes.get(uri);
     if (cachedId) return cachedId;
@@ -300,7 +300,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
         type: 'external',
         title: `Checkpoint: ${checkpointId}`,
         uri,
-        source: 'entire',
+        source: 'sessionlog',
         metadata: {
           entityType: 'checkpoint',
           sessionId: session.id,
@@ -362,7 +362,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
         metadata: {
           ...metadata,
           _context: {
-            source: 'entire-auto-linker',
+            source: 'sessionlog-auto-linker',
             timestamp: new Date().toISOString(),
             ...(metadata?._context as unknown as Record<string, unknown> | undefined),
           },
@@ -380,7 +380,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
   }
 
   return {
-    async handleSessionEvent(event: EntireSessionEvent): Promise<void> {
+    async handleSessionEvent(event: SessionlogSessionEvent): Promise<void> {
       const { type, sessionId, session } = event;
 
       switch (type) {
@@ -418,7 +418,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
 
           // Archive if configured
           if (archiver) {
-            const sessionUri = `entire://session/${session.id}`;
+            const sessionUri = `sessionlog://session/${session.id}`;
             void archiver.onSessionEvent('started', sessionUri, store).catch(() => {});
           }
           break;
@@ -473,7 +473,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
 
           // Archive checkpoint if configured
           if (archiver) {
-            const sessionUri = `entire://session/${session.id}`;
+            const sessionUri = `sessionlog://session/${session.id}`;
             void archiver.onSessionEvent('checkpoint', sessionUri, store).catch(() => {});
           }
           break;
@@ -527,7 +527,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
 
             // Archive final session state if configured
             if (archiver) {
-              const sessionUri = `entire://session/${sessionId}`;
+              const sessionUri = `sessionlog://session/${sessionId}`;
               void archiver.onSessionEvent('ended', sessionUri, store).catch(() => {});
             }
           } catch {
@@ -541,7 +541,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
           try {
             const nodes = await store.query.nodes({
               type: 'external',
-              search: `entire://session/${sessionId}`,
+              search: `sessionlog://session/${sessionId}`,
               limit: 1,
             });
 
@@ -572,7 +572,7 @@ export function createEntireAutoLinker(config: EntireAutoLinkerConfig): EntireAu
       }
     },
 
-    async correlate(sessionId: string, session: EntireSessionState): Promise<CorrelationResult> {
+    async correlate(sessionId: string, session: SessionlogSessionState): Promise<CorrelationResult> {
       // Create session node
       const sessionNodeId = await ensureSessionNode(session);
 

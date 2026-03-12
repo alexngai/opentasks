@@ -169,11 +169,11 @@ export const ClaudeTasksProviderConfigSchema = z
 
 export type ClaudeTasksProviderConfig = z.infer<typeof ClaudeTasksProviderConfigSchema>;
 
-const EntireProviderConfigSchemaInner = z.object({
-  /** Enable Entire provider and auto-linking */
+const SessionlogProviderConfigSchemaInner = z.object({
+  /** Enable sessionlog provider and auto-linking */
   enabled: z.boolean().default(true),
 
-  /** Optional path to Entire CLI executable (e.g. 'entire' or '/usr/local/bin/entire').
+  /** Optional path to sessionlog CLI executable (e.g. 'entire' or '/usr/local/bin/entire').
    *  When set, the Go CLI is preferred if available, with fallback to the built-in TS store.
    *  When omitted, the built-in TS store is used directly. */
   executable: z.string().optional(),
@@ -197,7 +197,7 @@ const EntireProviderConfigSchemaInner = z.object({
   shadowBranchPrefix: z.string().default('sessionlog/'),
 });
 
-export const EntireProviderConfigSchema = z
+export const SessionlogProviderConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
     executable: z.string().optional(),
@@ -209,9 +209,9 @@ export const EntireProviderConfigSchema = z
     shadowBranchPrefix: z.string().optional(),
   })
   .default({})
-  .transform((val) => EntireProviderConfigSchemaInner.parse(val));
+  .transform((val) => SessionlogProviderConfigSchemaInner.parse(val));
 
-export type EntireProviderConfig = z.infer<typeof EntireProviderConfigSchema>;
+export type SessionlogProviderConfig = z.infer<typeof SessionlogProviderConfigSchema>;
 
 const SudocodeProviderConfigSchemaInner = z.object({
   /** Enable Sudocode provider (auto-detects executable) */
@@ -319,7 +319,7 @@ const ProvidersConfigSchemaInner = z.object({
   beads: BeadsProviderConfigSchema,
   claudeTasks: ClaudeTasksProviderConfigSchema,
   sudocode: SudocodeProviderConfigSchema,
-  entire: EntireProviderConfigSchema,
+  sessionlog: SessionlogProviderConfigSchema,
   global: GlobalProviderConfigSchema,
   map: MAPProviderConfigSchema,
 });
@@ -345,6 +345,19 @@ export const ProvidersConfigSchema = z
         timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
       })
       .optional(),
+    sessionlog: z
+      .object({
+        enabled: z.boolean().optional(),
+        executable: z.string().optional(),
+        timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+        autoLink: z.boolean().optional(),
+        autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
+        sessionDirName: z.string().optional(),
+        checkpointsBranch: z.string().optional(),
+        shadowBranchPrefix: z.string().optional(),
+      })
+      .optional(),
+    /** @deprecated Use `sessionlog` instead. Accepted for backwards compatibility. */
     entire: z
       .object({
         enabled: z.boolean().optional(),
@@ -374,7 +387,15 @@ export const ProvidersConfigSchema = z
       .optional(),
   })
   .default({})
-  .transform((val) => ProvidersConfigSchemaInner.parse(val));
+  .transform((val) => {
+    // Backwards compat: providers.entire -> providers.sessionlog
+    const { entire, ...rest } = val;
+    const merged = { ...rest };
+    if (entire && !rest.sessionlog) {
+      (merged as Record<string, unknown>).sessionlog = entire;
+    }
+    return ProvidersConfigSchemaInner.parse(merged);
+  });
 
 export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>;
 
@@ -673,6 +694,19 @@ export const OpenTasksConfigSchema = z
             timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
           })
           .optional(),
+        sessionlog: z
+          .object({
+            enabled: z.boolean().optional(),
+            executable: z.string().optional(),
+            timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+            autoLink: z.boolean().optional(),
+            autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
+            sessionDirName: z.string().optional(),
+            checkpointsBranch: z.string().optional(),
+            shadowBranchPrefix: z.string().optional(),
+          })
+          .optional(),
+        /** @deprecated Use `sessionlog` instead */
         entire: z
           .object({
             enabled: z.boolean().optional(),

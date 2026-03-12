@@ -1,5 +1,5 @@
 /**
- * Tests for Entire Provider
+ * Tests for Sessionlog Provider
  *
  * Tests the in-memory store (unit tests), native store (mocked sessionlog),
  * exec store (CLI shell-out), and the async store factory with CLI→native fallback.
@@ -7,15 +7,15 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
-  createEntireProvider,
-  createEntireCliStore,
-  createEntireCliStoreAsync,
-  createEntireExecStore,
-  createInMemoryEntireStore,
-  type EntireSession,
-  type EntireCheckpoint,
-  type EntireStore,
-} from '../entire.js';
+  createSessionlogProvider,
+  createSessionlogCliStore,
+  createSessionlogCliStoreAsync,
+  createSessionlogExecStore,
+  createInMemorySessionlogStore,
+  type SessionlogSession,
+  type SessionlogCheckpoint,
+  type SessionlogStore,
+} from '../sessionlog.js';
 import type { Provider } from '../types.js';
 import { ProviderError } from '../types.js';
 
@@ -23,7 +23,7 @@ import { ProviderError } from '../types.js';
 // Mock sessionlog's createNativeSessionlogStore
 // ============================================================================
 
-const mockNativeStore: EntireStore = {
+const mockNativeStore: SessionlogStore = {
   getSession: vi.fn(),
   listSessions: vi.fn(),
   getCheckpoint: vi.fn(),
@@ -47,7 +47,7 @@ function resetMockStore() {
 // Shared Test Data
 // ============================================================================
 
-const sampleSession: EntireSession = {
+const sampleSession: SessionlogSession = {
   id: '2026-02-13-a1b2c3d4',
   agent: 'claude-code',
   phase: 'ACTIVE',
@@ -60,7 +60,7 @@ const sampleSession: EntireSession = {
   summary: 'Implement authentication flow',
 };
 
-const sampleCheckpoint: EntireCheckpoint = {
+const sampleCheckpoint: SessionlogCheckpoint = {
   id: 'a3b2c4d5',
   sessionId: '2026-02-13-a1b2c3d4',
   commitHash: 'd7e8f9a',
@@ -77,22 +77,22 @@ const sampleCheckpoint: EntireCheckpoint = {
 // Provider Tests (using in-memory store)
 // ============================================================================
 
-describe('EntireProvider', () => {
+describe('SessionlogProvider', () => {
   let provider: Provider;
-  let store: ReturnType<typeof createInMemoryEntireStore>;
+  let store: ReturnType<typeof createInMemorySessionlogStore>;
 
   beforeEach(() => {
-    store = createInMemoryEntireStore();
-    provider = createEntireProvider({}, store);
+    store = createInMemorySessionlogStore();
+    provider = createSessionlogProvider({}, store);
   });
 
   describe('metadata', () => {
     it('should have correct name', () => {
-      expect(provider.name).toBe('entire');
+      expect(provider.name).toBe('sessionlog');
     });
 
     it('should have correct schemes', () => {
-      expect(provider.schemes).toEqual(['entire']);
+      expect(provider.schemes).toEqual(['sessionlog']);
     });
 
     it('should have correct capabilities', () => {
@@ -109,9 +109,9 @@ describe('EntireProvider', () => {
 
   describe('parseUri', () => {
     it('should parse session URIs', () => {
-      const result = provider.parseUri('entire://session/2026-02-13-abc');
+      const result = provider.parseUri('sessionlog://session/2026-02-13-abc');
       expect(result).toEqual({
-        scheme: 'entire',
+        scheme: 'sessionlog',
         workspace: 'session',
         id: '2026-02-13-abc',
         isRelative: false,
@@ -119,9 +119,9 @@ describe('EntireProvider', () => {
     });
 
     it('should parse checkpoint URIs', () => {
-      const result = provider.parseUri('entire://checkpoint/a3b2c4d5');
+      const result = provider.parseUri('sessionlog://checkpoint/a3b2c4d5');
       expect(result).toEqual({
-        scheme: 'entire',
+        scheme: 'sessionlog',
         workspace: 'checkpoint',
         id: 'a3b2c4d5',
         isRelative: false,
@@ -129,12 +129,12 @@ describe('EntireProvider', () => {
     });
 
     it('should be case-insensitive for scheme', () => {
-      expect(provider.parseUri('ENTIRE://session/abc')).toMatchObject({
-        scheme: 'entire',
+      expect(provider.parseUri('SESSIONLOG://session/abc')).toMatchObject({
+        scheme: 'sessionlog',
         id: 'abc',
       });
-      expect(provider.parseUri('Entire://Checkpoint/xyz')).toMatchObject({
-        scheme: 'entire',
+      expect(provider.parseUri('Sessionlog://Checkpoint/xyz')).toMatchObject({
+        scheme: 'sessionlog',
         workspace: 'checkpoint',
         id: 'xyz',
       });
@@ -146,18 +146,18 @@ describe('EntireProvider', () => {
       expect(provider.parseUri('beads://./bd-123')).toBeNull();
     });
 
-    it('should return null for invalid entire URIs', () => {
-      expect(provider.parseUri('entire://invalid')).toBeNull();
-      expect(provider.parseUri('entire://')).toBeNull();
-      expect(provider.parseUri('entire://session/')).toBeNull();
+    it('should return null for invalid sessionlog URIs', () => {
+      expect(provider.parseUri('sessionlog://invalid')).toBeNull();
+      expect(provider.parseUri('sessionlog://')).toBeNull();
+      expect(provider.parseUri('sessionlog://session/')).toBeNull();
       expect(provider.parseUri('invalid')).toBeNull();
       expect(provider.parseUri('')).toBeNull();
     });
 
     it('should handle IDs with special characters', () => {
-      const result = provider.parseUri('entire://session/2026-02-13_abc.def');
+      const result = provider.parseUri('sessionlog://session/2026-02-13_abc.def');
       expect(result).toMatchObject({
-        scheme: 'entire',
+        scheme: 'sessionlog',
         workspace: 'session',
         id: '2026-02-13_abc.def',
       });
@@ -166,12 +166,12 @@ describe('EntireProvider', () => {
 
   describe('buildUri', () => {
     it('should build session URI by default', () => {
-      expect(provider.buildUri('2026-02-13-abc')).toBe('entire://session/2026-02-13-abc');
+      expect(provider.buildUri('2026-02-13-abc')).toBe('sessionlog://session/2026-02-13-abc');
     });
 
     it('should build checkpoint URI with workspace', () => {
       expect(provider.buildUri('a3b2c4d5', { workspace: 'checkpoint' })).toBe(
-        'entire://checkpoint/a3b2c4d5',
+        'sessionlog://checkpoint/a3b2c4d5',
       );
     });
 
@@ -180,19 +180,19 @@ describe('EntireProvider', () => {
     });
 
     it('should use session workspace by default', () => {
-      expect(provider.buildUri('test-id')).toBe('entire://session/test-id');
+      expect(provider.buildUri('test-id')).toBe('sessionlog://session/test-id');
     });
   });
 
   describe('isValidUri', () => {
     it('should return true for valid URIs', () => {
-      expect(provider.isValidUri('entire://session/abc')).toBe(true);
-      expect(provider.isValidUri('entire://checkpoint/abc')).toBe(true);
+      expect(provider.isValidUri('sessionlog://session/abc')).toBe(true);
+      expect(provider.isValidUri('sessionlog://checkpoint/abc')).toBe(true);
     });
 
     it('should return false for invalid URIs', () => {
       expect(provider.isValidUri('native://s-abc1')).toBe(false);
-      expect(provider.isValidUri('entire://invalid')).toBe(false);
+      expect(provider.isValidUri('sessionlog://invalid')).toBe(false);
       expect(provider.isValidUri('invalid')).toBe(false);
       expect(provider.isValidUri('')).toBe(false);
     });
@@ -202,11 +202,11 @@ describe('EntireProvider', () => {
     it('should get a session by full URI', async () => {
       store.addSession(sampleSession);
 
-      const result = await provider.get('entire://session/2026-02-13-a1b2c3d4');
+      const result = await provider.get('sessionlog://session/2026-02-13-a1b2c3d4');
 
       expect(result).not.toBeNull();
       expect(result?.id).toBe('2026-02-13-a1b2c3d4');
-      expect(result?.uri).toBe('entire://session/2026-02-13-a1b2c3d4');
+      expect(result?.uri).toBe('sessionlog://session/2026-02-13-a1b2c3d4');
       expect(result?.type).toBe('external');
       expect(result?.title).toContain('Implement authentication flow');
       expect(result?.status).toBe('open');
@@ -217,11 +217,11 @@ describe('EntireProvider', () => {
     it('should get a checkpoint by full URI', async () => {
       store.addCheckpoint(sampleCheckpoint);
 
-      const result = await provider.get('entire://checkpoint/a3b2c4d5');
+      const result = await provider.get('sessionlog://checkpoint/a3b2c4d5');
 
       expect(result).not.toBeNull();
       expect(result?.id).toBe('a3b2c4d5');
-      expect(result?.uri).toBe('entire://checkpoint/a3b2c4d5');
+      expect(result?.uri).toBe('sessionlog://checkpoint/a3b2c4d5');
       expect(result?.type).toBe('external');
       expect(result?.title).toContain('Add login endpoint');
       expect(result?.status).toBe('closed');
@@ -238,33 +238,33 @@ describe('EntireProvider', () => {
     });
 
     it('should return null for non-existent session', async () => {
-      const result = await provider.get('entire://session/nonexistent');
+      const result = await provider.get('sessionlog://session/nonexistent');
       expect(result).toBeNull();
     });
 
     it('should return null for non-existent checkpoint', async () => {
-      const result = await provider.get('entire://checkpoint/nonexistent');
+      const result = await provider.get('sessionlog://checkpoint/nonexistent');
       expect(result).toBeNull();
     });
 
     it('should map ENDED session to closed status', async () => {
       store.addSession({ ...sampleSession, phase: 'ENDED' });
 
-      const result = await provider.get('entire://session/2026-02-13-a1b2c3d4');
+      const result = await provider.get('sessionlog://session/2026-02-13-a1b2c3d4');
       expect(result?.status).toBe('closed');
     });
 
     it('should map ACTIVE session to open status', async () => {
       store.addSession({ ...sampleSession, phase: 'ACTIVE' });
 
-      const result = await provider.get('entire://session/2026-02-13-a1b2c3d4');
+      const result = await provider.get('sessionlog://session/2026-02-13-a1b2c3d4');
       expect(result?.status).toBe('open');
     });
 
     it('should map IDLE session to open status', async () => {
       store.addSession({ ...sampleSession, phase: 'IDLE' });
 
-      const result = await provider.get('entire://session/2026-02-13-a1b2c3d4');
+      const result = await provider.get('sessionlog://session/2026-02-13-a1b2c3d4');
       expect(result?.status).toBe('open');
     });
   });
@@ -446,7 +446,7 @@ describe('EntireProvider', () => {
     it('should include rawData with session details', async () => {
       store.addSession(sampleSession);
 
-      const result = await provider.get('entire://session/2026-02-13-a1b2c3d4');
+      const result = await provider.get('sessionlog://session/2026-02-13-a1b2c3d4');
 
       expect(result?.rawData).toMatchObject({
         entityType: 'session',
@@ -461,7 +461,7 @@ describe('EntireProvider', () => {
     it('should include rawData with checkpoint details', async () => {
       store.addCheckpoint(sampleCheckpoint);
 
-      const result = await provider.get('entire://checkpoint/a3b2c4d5');
+      const result = await provider.get('sessionlog://checkpoint/a3b2c4d5');
 
       expect(result?.rawData).toMatchObject({
         entityType: 'checkpoint',
@@ -476,21 +476,21 @@ describe('EntireProvider', () => {
     it('should include content from session summary', async () => {
       store.addSession(sampleSession);
 
-      const result = await provider.get('entire://session/2026-02-13-a1b2c3d4');
+      const result = await provider.get('sessionlog://session/2026-02-13-a1b2c3d4');
       expect(result?.content).toBe('Implement authentication flow');
     });
 
     it('should include content from checkpoint context', async () => {
       store.addCheckpoint(sampleCheckpoint);
 
-      const result = await provider.get('entire://checkpoint/a3b2c4d5');
+      const result = await provider.get('sessionlog://checkpoint/a3b2c4d5');
       expect(result?.content).toBe('## Session Summary\nImplemented login endpoint with JWT.');
     });
 
     it('should include fetchedAt timestamp', async () => {
       store.addSession(sampleSession);
 
-      const result = await provider.get('entire://session/2026-02-13-a1b2c3d4');
+      const result = await provider.get('sessionlog://session/2026-02-13-a1b2c3d4');
 
       expect(result?.fetchedAt).toBeDefined();
       expect(new Date(result!.fetchedAt).getTime()).toBeLessThanOrEqual(Date.now());
@@ -499,28 +499,28 @@ describe('EntireProvider', () => {
     it('should use session ID in title when no summary', async () => {
       store.addSession({ ...sampleSession, summary: undefined });
 
-      const result = await provider.get('entire://session/2026-02-13-a1b2c3d4');
+      const result = await provider.get('sessionlog://session/2026-02-13-a1b2c3d4');
       expect(result?.title).toBe('Session: 2026-02-13-a1b2c3d4');
     });
 
     it('should use checkpoint ID in title when no commit message', async () => {
       store.addCheckpoint({ ...sampleCheckpoint, commitMessage: undefined });
 
-      const result = await provider.get('entire://checkpoint/a3b2c4d5');
+      const result = await provider.get('sessionlog://checkpoint/a3b2c4d5');
       expect(result?.title).toBe('Checkpoint: a3b2c4d5');
     });
 
     it('should include token usage in rawData', async () => {
       store.addSession(sampleSession);
 
-      const result = await provider.get('entire://session/2026-02-13-a1b2c3d4');
+      const result = await provider.get('sessionlog://session/2026-02-13-a1b2c3d4');
       expect(result?.rawData?.tokenUsage).toEqual({ input: 12500, output: 8300 });
     });
 
     it('should include checkpoint token usage with cache', async () => {
       store.addCheckpoint(sampleCheckpoint);
 
-      const result = await provider.get('entire://checkpoint/a3b2c4d5');
+      const result = await provider.get('sessionlog://checkpoint/a3b2c4d5');
       expect(result?.rawData?.tokenUsage).toEqual({ input: 12500, output: 8300, cache: 4200 });
     });
   });
@@ -599,22 +599,22 @@ describe('EntireProvider', () => {
 // Native Store Tests (mocked sessionlog)
 // ============================================================================
 
-describe('EntireCliStore (native)', () => {
-  let nativeStore: EntireStore;
+describe('SessionlogCliStore (native)', () => {
+  let nativeStore: SessionlogStore;
 
   beforeEach(() => {
     resetMockStore();
-    nativeStore = createEntireCliStore({ cwd: '/test/project' });
+    nativeStore = createSessionlogCliStore({ cwd: '/test/project' });
   });
 
-  describe('createEntireCliStore', () => {
+  describe('createSessionlogCliStore', () => {
     it('should delegate to createNativeSessionlogStore from sessionlog', async () => {
       const { createNativeSessionlogStore } = await import('sessionlog');
       expect(createNativeSessionlogStore).toHaveBeenCalledWith('/test/project');
     });
 
     it('should default cwd to process.cwd()', () => {
-      createEntireCliStore();
+      createSessionlogCliStore();
       // No error means it created successfully with default cwd
     });
   });
@@ -715,13 +715,13 @@ describe('EntireCliStore (native)', () => {
 // Provider with Native Store (end-to-end with mocked sessionlog)
 // ============================================================================
 
-describe('EntireProvider with native store', () => {
+describe('SessionlogProvider with native store', () => {
   let provider: Provider;
 
   beforeEach(() => {
     resetMockStore();
     // Create provider using native store (default, no explicit store passed)
-    provider = createEntireProvider({ cwd: '/test/project' });
+    provider = createSessionlogProvider({ cwd: '/test/project' });
   });
 
   it('should get session through native store and convert to ProviderNode', async () => {
@@ -736,7 +736,7 @@ describe('EntireProvider with native store', () => {
       filesTouched: ['src/x.ts'],
     });
 
-    const result = await provider.get('entire://session/native-session-1');
+    const result = await provider.get('sessionlog://session/native-session-1');
 
     expect(result).not.toBeNull();
     expect(result?.id).toBe('native-session-1');
@@ -756,7 +756,7 @@ describe('EntireProvider with native store', () => {
       context: 'Endpoint for users',
     });
 
-    const result = await provider.get('entire://checkpoint/native-cp-1');
+    const result = await provider.get('sessionlog://checkpoint/native-cp-1');
 
     expect(result).not.toBeNull();
     expect(result?.id).toBe('native-cp-1');
@@ -792,7 +792,7 @@ describe('EntireProvider with native store', () => {
   it('should handle store errors gracefully for get', async () => {
     vi.mocked(mockNativeStore.getSession).mockRejectedValue(new Error('store error'));
 
-    await expect(provider.get('entire://session/any')).rejects.toThrow(ProviderError);
+    await expect(provider.get('sessionlog://session/any')).rejects.toThrow(ProviderError);
   });
 
   it('should handle store errors gracefully for list', async () => {
@@ -833,7 +833,7 @@ vi.mock('util', async () => {
   };
 });
 
-describe('createEntireCliStoreAsync', () => {
+describe('createSessionlogCliStoreAsync', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -842,7 +842,7 @@ describe('createEntireCliStoreAsync', () => {
     const { createNativeSessionlogStore } = await import('sessionlog');
     vi.mocked(createNativeSessionlogStore).mockClear();
 
-    const store = await createEntireCliStoreAsync({ cwd: '/test/repo' });
+    const store = await createSessionlogCliStoreAsync({ cwd: '/test/repo' });
 
     expect(createNativeSessionlogStore).toHaveBeenCalledWith('/test/repo');
     expect(store).toBeDefined();
@@ -858,7 +858,7 @@ describe('createEntireCliStoreAsync', () => {
     const { createNativeSessionlogStore } = await import('sessionlog');
     vi.mocked(createNativeSessionlogStore).mockClear();
 
-    const store = await createEntireCliStoreAsync({
+    const store = await createSessionlogCliStoreAsync({
       executable: 'entire',
       cwd: '/test/repo',
     });
@@ -878,7 +878,7 @@ describe('createEntireCliStoreAsync', () => {
     const { createNativeSessionlogStore } = await import('sessionlog');
     vi.mocked(createNativeSessionlogStore).mockClear();
 
-    const store = await createEntireCliStoreAsync({
+    const store = await createSessionlogCliStoreAsync({
       executable: '/usr/local/bin/entire',
       cwd: '/test/repo',
     });
@@ -892,19 +892,19 @@ describe('createEntireCliStoreAsync', () => {
     const { createNativeSessionlogStore } = await import('sessionlog');
     vi.mocked(createNativeSessionlogStore).mockClear();
 
-    await createEntireCliStoreAsync();
+    await createSessionlogCliStoreAsync();
 
     expect(createNativeSessionlogStore).toHaveBeenCalledWith(process.cwd());
   });
 });
 
-describe('createEntireExecStore', () => {
+describe('createSessionlogExecStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('should create a store with all 5 EntireStore methods', () => {
-    const store = createEntireExecStore({ executable: 'entire' });
+  it('should create a store with all 5 SessionlogStore methods', () => {
+    const store = createSessionlogExecStore({ executable: 'entire' });
     expect(store.getSession).toBeDefined();
     expect(store.listSessions).toBeDefined();
     expect(store.getCheckpoint).toBeDefined();
@@ -919,7 +919,7 @@ describe('createEntireExecStore', () => {
       return {} as ReturnType<typeof exec>;
     });
 
-    const store = createEntireExecStore({ executable: 'entire', cwd: '/test' });
+    const store = createSessionlogExecStore({ executable: 'entire', cwd: '/test' });
     const result = await store.getSession('some-id');
     expect(result).toBeNull();
   });
@@ -931,7 +931,7 @@ describe('createEntireExecStore', () => {
       return {} as ReturnType<typeof exec>;
     });
 
-    const store = createEntireExecStore({ executable: 'entire', cwd: '/test' });
+    const store = createSessionlogExecStore({ executable: 'entire', cwd: '/test' });
     const result = await store.listSessions();
     expect(result).toEqual([]);
   });
@@ -952,7 +952,7 @@ describe('createEntireExecStore', () => {
       return {} as ReturnType<typeof exec>;
     });
 
-    const store = createEntireExecStore({ executable: 'entire', cwd: '/test' });
+    const store = createSessionlogExecStore({ executable: 'entire', cwd: '/test' });
     const sessions = await store.listSessions();
 
     expect(sessions).toHaveLength(1);
@@ -976,7 +976,7 @@ describe('createEntireExecStore', () => {
       return {} as ReturnType<typeof exec>;
     });
 
-    const store = createEntireExecStore({ executable: 'entire', cwd: '/test' });
+    const store = createSessionlogExecStore({ executable: 'entire', cwd: '/test' });
     const checkpoints = await store.listCheckpoints();
 
     expect(checkpoints).toHaveLength(1);
@@ -1008,7 +1008,7 @@ describe('createEntireExecStore', () => {
       return {} as ReturnType<typeof exec>;
     });
 
-    const store = createEntireExecStore({ executable: 'entire', cwd: '/test' });
+    const store = createSessionlogExecStore({ executable: 'entire', cwd: '/test' });
     const results = await store.search('auth');
 
     expect(results.length).toBeGreaterThanOrEqual(1);

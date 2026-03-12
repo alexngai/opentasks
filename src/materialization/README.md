@@ -1,6 +1,6 @@
 # Materialization Stores
 
-Pluggable archival layer for materialized external node snapshots. When an Entire session ends (or at other configured lifecycle points), a full snapshot of the session — its checkpoints, edges, and provenance — is archived to durable storage that survives cloning, forking, and repo transfers.
+Pluggable archival layer for materialized external node snapshots. When a sessionlog session ends (or at other configured lifecycle points), a full snapshot of the session — its checkpoints, edges, and provenance — is archived to durable storage that survives cloning, forking, and repo transfers.
 
 ## What this provides
 
@@ -12,7 +12,7 @@ Pluggable archival layer for materialized external node snapshots. When an Entir
 ## Architecture
 
 ```
-EntireAutoLinker
+SessionlogAutoLinker
   │  (session lifecycle events)
   ▼
 MaterializationArchiver
@@ -47,7 +47,7 @@ MaterializationArchiver
 
 A `MaterializationSnapshot` is a self-contained record with everything needed to reconstruct a node:
 
-- **URI** — canonical identifier (`entire://session/<id>` or `entire://checkpoint/<id>`)
+- **URI** — canonical identifier (`sessionlog://session/<id>` or `sessionlog://checkpoint/<id>`)
 - **Node data** — title, content, status, external_data, tags
 - **Provenance** — graphId, graphPath, git remote/branch/HEAD at archive time
 
@@ -180,7 +180,7 @@ With a git remote store:
 
 ## Integration points
 
-- **`src/daemon/entire-linker.ts`** — Auto-linker calls `archiver.onSessionEvent()` on session lifecycle events
+- **`src/daemon/sessionlog-linker.ts`** — Auto-linker calls `archiver.onSessionEvent()` on session lifecycle events
 - **`src/daemon/location-state.ts`** — Creates and wires the archiver during daemon startup
 - **`src/graph/store.ts`** — Queries nodes/edges for snapshot building and reconstruction
 - **`src/providers/materialization.ts`** — Provider for `materializeBeforeArchive` (fetches fresh external data)

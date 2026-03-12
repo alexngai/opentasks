@@ -15,8 +15,8 @@ import { JSONLPersister } from '../storage/jsonl.js';
 import type { Storage } from '../storage/interface.js';
 import { createFileWatcher, type FileWatcher } from './watcher.js';
 import { createDaemonFlushManager, type DaemonFlushManager } from './flush.js';
-import { createEntireWatcher, type EntireWatcher } from './entire-watcher.js';
-import { createEntireAutoLinker, type EntireAutoLinker } from './entire-linker.js';
+import { createSessionlogWatcher, type SessionlogWatcher } from './sessionlog-watcher.js';
+import { createSessionlogAutoLinker, type SessionlogAutoLinker } from './sessionlog-linker.js';
 import { DaemonError, type LocationInfo } from './types.js';
 import type { SkillTrackerRegistry } from '../tracking/skill-tracker.js';
 import { createTranscriptExtractor } from '../tracking/transcript-extractor.js';
@@ -60,11 +60,11 @@ export interface LocationState {
   /** Whether the location is healthy */
   healthy: boolean;
 
-  /** Entire session watcher (if enabled) */
-  entireWatcher?: EntireWatcher;
+  /** Sessionlog session watcher (if enabled) */
+  sessionlogWatcher?: SessionlogWatcher;
 
-  /** Entire auto-linker (if enabled) */
-  entireLinker?: EntireAutoLinker;
+  /** Sessionlog auto-linker (if enabled) */
+  sessionlogLinker?: SessionlogAutoLinker;
 
   /** Materialization archiver (if enabled) */
   archiver?: MaterializationArchiver;
@@ -258,18 +258,18 @@ export async function createLocationState(
     graphSyncer = undefined;
   }
 
-  // Initialize Entire integration (watcher + auto-linker + transcript extractor)
-  let entireWatcher: EntireWatcher | undefined;
-  let entireLinker: EntireAutoLinker | undefined;
+  // Initialize Sessionlog integration (watcher + auto-linker + transcript extractor)
+  let sessionlogWatcher: SessionlogWatcher | undefined;
+  let sessionlogLinker: SessionlogAutoLinker | undefined;
 
   try {
-    const entireConfig = (await loadConfig(opentasksPath)).providers?.entire;
-    entireWatcher = createEntireWatcher({
+    const sessionlogConfig = (await loadConfig(opentasksPath)).providers?.sessionlog;
+    sessionlogWatcher = createSessionlogWatcher({
       locationPath: opentasksPath,
-      sessionDirName: entireConfig?.sessionDirName,
+      sessionDirName: sessionlogConfig?.sessionDirName,
     });
 
-    entireLinker = createEntireAutoLinker({
+    sessionlogLinker = createSessionlogAutoLinker({
       store,
       flushManager,
       archiver,
@@ -280,7 +280,7 @@ export async function createLocationState(
       skillTrackerRegistry,
     });
 
-    entireWatcher.onSessionEvent(async (event) => {
+    sessionlogWatcher.onSessionEvent(async (event) => {
       // Step 1: Extract transcript and backfill SkillTracker (BEFORE linker finalizes)
       if (event.type === 'ended') {
         try {
@@ -291,14 +291,14 @@ export async function createLocationState(
       }
 
       // Step 2: Linker finalizes (calls registry.remove() on ended)
-      await entireLinker!.handleSessionEvent(event);
+      await sessionlogLinker!.handleSessionEvent(event);
     });
 
-    await entireWatcher.start();
+    await sessionlogWatcher.start();
   } catch {
-    // Entire integration is optional — continue without it
-    entireWatcher = undefined;
-    entireLinker = undefined;
+    // Sessionlog integration is optional — continue without it
+    sessionlogWatcher = undefined;
+    sessionlogLinker = undefined;
   }
 
   return {
@@ -309,8 +309,8 @@ export async function createLocationState(
     watcher,
     primary,
     healthy: true,
-    entireWatcher,
-    entireLinker,
+    sessionlogWatcher,
+    sessionlogLinker,
     archiver,
     graphSyncer,
   };
@@ -333,10 +333,10 @@ export async function destroyLocationState(state: LocationState): Promise<void> 
       /* ignore */
     }
   }
-  // Stop Entire watcher before main watcher
-  if (state.entireWatcher) {
+  // Stop sessionlog watcher before main watcher
+  if (state.sessionlogWatcher) {
     try {
-      await state.entireWatcher.stop();
+      await state.sessionlogWatcher.stop();
     } catch {
       /* ignore */
     }

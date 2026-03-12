@@ -11,11 +11,11 @@ import {
 describe('commit-msg hook helpers', () => {
   describe('hasUserContent', () => {
     it('should return true for message with user text', () => {
-      expect(hasUserContent('feat: add login\n\nEntire-Checkpoint: abc123def456')).toBe(true);
+      expect(hasUserContent('feat: add login\n\nSessionlog-Checkpoint: abc123def456')).toBe(true);
     });
 
     it('should return false for trailer-only message', () => {
-      expect(hasUserContent('\nEntire-Checkpoint: abc123def456\n')).toBe(false);
+      expect(hasUserContent('\nSessionlog-Checkpoint: abc123def456\n')).toBe(false);
     });
 
     it('should return false for comments and trailer only', () => {
@@ -24,7 +24,7 @@ describe('commit-msg hook helpers', () => {
         '# Please enter the commit message',
         '# Lines starting with # are ignored',
         '',
-        'Entire-Checkpoint: abc123def456',
+        'Sessionlog-Checkpoint: abc123def456',
         '',
       ].join('\n');
       expect(hasUserContent(msg)).toBe(false);
@@ -35,7 +35,7 @@ describe('commit-msg hook helpers', () => {
         'fix: resolve race condition',
         '',
         '# Please enter the commit message',
-        'Entire-Checkpoint: abc123def456',
+        'Sessionlog-Checkpoint: abc123def456',
       ].join('\n');
       expect(hasUserContent(msg)).toBe(true);
     });
@@ -55,9 +55,9 @@ describe('commit-msg hook helpers', () => {
 
   describe('stripCheckpointTrailer', () => {
     it('should remove the trailer line', () => {
-      const msg = 'feat: add feature\n\nEntire-Checkpoint: abc123def456\n';
+      const msg = 'feat: add feature\n\nSessionlog-Checkpoint: abc123def456\n';
       const result = stripCheckpointTrailer(msg);
-      expect(result).not.toContain('Entire-Checkpoint');
+      expect(result).not.toContain('Sessionlog-Checkpoint');
       expect(result).toContain('feat: add feature');
     });
 
@@ -66,14 +66,14 @@ describe('commit-msg hook helpers', () => {
         'feat: add feature',
         '',
         'Some body text',
-        'Entire-Checkpoint: abc123def456',
+        'Sessionlog-Checkpoint: abc123def456',
         '# A comment',
       ].join('\n');
       const result = stripCheckpointTrailer(msg);
       expect(result).toContain('feat: add feature');
       expect(result).toContain('Some body text');
       expect(result).toContain('# A comment');
-      expect(result).not.toContain('Entire-Checkpoint');
+      expect(result).not.toContain('Sessionlog-Checkpoint');
     });
 
     it('should handle message without trailer', () => {
@@ -82,7 +82,7 @@ describe('commit-msg hook helpers', () => {
     });
 
     it('should handle trailer-only message', () => {
-      const result = stripCheckpointTrailer('Entire-Checkpoint: abc123def456');
+      const result = stripCheckpointTrailer('Sessionlog-Checkpoint: abc123def456');
       expect(result.trim()).toBe('');
     });
   });

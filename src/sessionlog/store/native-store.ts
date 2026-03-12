@@ -1,16 +1,16 @@
 /**
  * Native Entire Store
  *
- * Replaces the CLI-based EntireStore with direct filesystem and git reads.
+ * Replaces the CLI-based SessionlogStore with direct filesystem and git reads.
  * This is the primary integration point between the Entire module and
  * the existing OpenTasks provider system.
  */
 
 import type {
-  EntireStore,
+  SessionlogStore,
   EntireSession,
-  EntireCheckpoint,
-  EntireTokenUsage,
+  SessionlogCheckpoint,
+  SessionlogTokenUsage,
 } from './provider-types.js';
 import type { SessionState } from '../types.js';
 import { createSessionStore, type SessionStore } from './session-store.js';
@@ -27,18 +27,18 @@ import { createCheckpointStore, type CheckpointStore } from './checkpoint-store.
  * @param cwd Working directory
  * @param options Optional overrides for directory/branch names
  */
-export function createNativeEntireStore(
+export function createNativeSessionlogStore(
   cwd?: string,
   options?: {
     sessionDirName?: string;
     checkpointsBranch?: string;
     shadowBranchPrefix?: string;
   },
-): EntireStore {
+): SessionlogStore {
   const sessionStore = createSessionStore(cwd, options?.sessionDirName);
   const checkpointStore = createCheckpointStore(cwd, options?.checkpointsBranch, options?.shadowBranchPrefix);
 
-  function sessionStateToEntireSession(state: SessionState): EntireSession {
+  function sessionStateToSessionlogSession(state: SessionState): EntireSession {
     return {
       id: state.sessionID,
       agent: state.agentType,
@@ -65,7 +65,7 @@ export function createNativeEntireStore(
       try {
         const state = await sessionStore.load(id);
         if (!state) return null;
-        return sessionStateToEntireSession(state);
+        return sessionStateToSessionlogSession(state);
       } catch {
         return null;
       }
@@ -74,13 +74,13 @@ export function createNativeEntireStore(
     async listSessions(): Promise<EntireSession[]> {
       try {
         const states = await sessionStore.list();
-        return states.map(sessionStateToEntireSession);
+        return states.map(sessionStateToSessionlogSession);
       } catch {
         return [];
       }
     },
 
-    async getCheckpoint(id: string): Promise<EntireCheckpoint | null> {
+    async getCheckpoint(id: string): Promise<SessionlogCheckpoint | null> {
       try {
         const summary = await checkpointStore.readCommitted(id);
         if (!summary) return null;
@@ -111,10 +111,10 @@ export function createNativeEntireStore(
       }
     },
 
-    async listCheckpoints(): Promise<EntireCheckpoint[]> {
+    async listCheckpoints(): Promise<SessionlogCheckpoint[]> {
       try {
         const summaries = await checkpointStore.listCommitted(50);
-        const checkpoints: EntireCheckpoint[] = [];
+        const checkpoints: SessionlogCheckpoint[] = [];
 
         for (const summary of summaries) {
           const content = await checkpointStore.readSessionContent(summary.checkpointID, 0);
@@ -145,8 +145,8 @@ export function createNativeEntireStore(
       }
     },
 
-    async search(query: string): Promise<Array<EntireSession | EntireCheckpoint>> {
-      const results: Array<EntireSession | EntireCheckpoint> = [];
+    async search(query: string): Promise<Array<EntireSession | SessionlogCheckpoint>> {
+      const results: Array<EntireSession | SessionlogCheckpoint> = [];
       const lowerQuery = query.toLowerCase();
 
       // Search sessions
