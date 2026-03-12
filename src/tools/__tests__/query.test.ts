@@ -347,4 +347,217 @@ describe('query tool', () => {
       expect(result.items).toHaveLength(50);
     });
   });
+
+  describe('contextSummary query', () => {
+    const closedTask: Task = {
+      id: 't-closed1',
+      uuid: 'uuid-closed1',
+      type: 'task',
+      title: 'Completed Task',
+      status: 'closed',
+      priority: 1,
+      archived: false,
+      tags: ['api'],
+      branch: 'main',
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-10T00:00:00Z',
+    };
+
+    const activeTask: Task = {
+      id: 't-active1',
+      uuid: 'uuid-active1',
+      type: 'task',
+      title: 'Active Task',
+      status: 'in_progress',
+      priority: 2,
+      archived: false,
+      tags: ['api'],
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-09T00:00:00Z',
+    };
+
+    const blockedTask: Task = {
+      id: 't-blocked1',
+      uuid: 'uuid-blocked1',
+      type: 'task',
+      title: 'Blocked Task',
+      status: 'blocked',
+      priority: 0,
+      archived: false,
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-08T00:00:00Z',
+    };
+
+    const activeContext: Node = {
+      id: 'c-active1',
+      uuid: 'uuid-ctx1',
+      type: 'context',
+      title: 'API Design Spec',
+      status: 'active',
+      priority: 1,
+      archived: false,
+      tags: ['api'],
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-05T00:00:00Z',
+    };
+
+    beforeEach(() => {
+      // Set up mock to return different results based on filter
+      mockStore.query.nodes = vi.fn().mockImplementation((filter: any) => {
+        if (filter.type === 'task' && filter.status === 'closed') {
+          return Promise.resolve([closedTask]);
+        }
+        if (filter.type === 'task' && Array.isArray(filter.status)) {
+          return Promise.resolve([activeTask]);
+        }
+        if (filter.type === 'task' && filter.status === 'blocked') {
+          return Promise.resolve([blockedTask]);
+        }
+        if (filter.type === 'context') {
+          return Promise.resolve([activeContext]);
+        }
+        return Promise.resolve([]);
+      });
+      mockStore.query.unresolvedFeedback = vi.fn().mockResolvedValue([sampleFeedback]);
+    });
+
+    it('should return structured context summary', async () => {
+      const result = await query(mockStore, { contextSummary: {} });
+
+      expect(result.contextSummary).toBeDefined();
+      expect(result.contextSummary!.recentlyCompleted).toHaveLength(1);
+      expect(result.contextSummary!.recentlyCompleted[0].id).toBe('t-closed1');
+      expect(result.contextSummary!.recentlyCompleted[0].relevance).toBe('recent-closed');
+      expect(result.contextSummary!.activeTasks).toHaveLength(1);
+      expect(result.contextSummary!.activeTasks[0].id).toBe('t-active1');
+      expect(result.contextSummary!.blockedTasks).toHaveLength(1);
+      expect(result.contextSummary!.blockedTasks[0].id).toBe('t-blocked1');
+      expect(result.contextSummary!.relatedContexts).toHaveLength(1);
+      expect(result.contextSummary!.relatedContexts[0].id).toBe('c-active1');
+      expect(result.contextSummary!.unresolvedFeedback).toHaveLength(1);
+    });
+
+    it('should return items as empty array', async () => {
+      const result = await query(mockStore, { contextSummary: {} });
+      expect(result.items).toEqual([]);
+    });
+
+    it('should filter by tags', async () => {
+      const result = await query(mockStore, {
+        contextSummary: { tags: ['api'] },
+      });
+
+      // closedTask has tag 'api', so it should be included
+      expect(result.contextSummary!.recentlyCompleted).toHaveLength(1);
+      // activeTask has tag 'api'
+      expect(result.contextSummary!.activeTasks).toHaveLength(1);
+      // blockedTask has no tags, should be filtered out
+      expect(result.contextSummary!.blockedTasks).toHaveLength(0);
+    });
+
+    it('should filter by branch', async () => {
+      const result = await query(mockStore, {
+        contextSummary: { branch: 'main' },
+      });
+
+      // Only closedTask has branch 'main'
+      expect(result.contextSummary!.recentlyCompleted).toHaveLength(1);
+      // activeTask has no branch, should be filtered out
+      expect(result.contextSummary!.activeTasks).toHaveLength(0);
+    });
+
+    it('should respect limit per section', async () => {
+      const manyClosedTasks = Array.from({ length: 20 }, (_, i) => ({
+        ...closedTask,
+        id: `t-closed${i}`,
+        title: `Completed Task ${i}`,
+      }));
+      mockStore.query.nodes = vi.fn().mockImplementation((filter: any) => {
+        if (filter.type === 'task' && filter.status === 'closed') {
+          return Promise.resolve(manyClosedTasks);
+        }
+        return Promise.resolve([]);
+      });
+      mockStore.query.unresolvedFeedback = vi.fn().mockResolvedValue([]);
+
+      const result = await query(mockStore, {
+        contextSummary: { limit: 5 },
+      });
+
+      expect(result.contextSummary!.recentlyCompleted).toHaveLength(5);
+    });
+
+    it('should include breadcrumb fields', async () => {
+      const result = await query(mockStore, { contextSummary: {} });
+
+      const breadcrumb = result.contextSummary!.recentlyCompleted[0];
+      expect(breadcrumb.id).toBe('t-closed1');
+      expect(breadcrumb.type).toBe('task');
+      expect(breadcrumb.title).toBe('Completed Task');
+      expect(breadcrumb.status).toBe('closed');
+      expect(breadcrumb.priority).toBe(1);
+      expect(breadcrumb.relevance).toBe('recent-closed');
+      expect(breadcrumb.tags).toEqual(['api']);
+      expect(breadcrumb.branch).toBe('main');
+      expect(breadcrumb.updatedAt).toBe('2024-01-10T00:00:00Z');
+    });
+
+    it('should include total breadcrumb count', async () => {
+      const result = await query(mockStore, { contextSummary: {} });
+
+      expect(result.total).toBe(5); // 1 closed + 1 active + 1 blocked + 1 context + 1 feedback
+    });
+
+    describe('with taskId', () => {
+      beforeEach(() => {
+        // Add context and tasks query mocks for task-centric queries
+        (mockStore.query as any).context = vi.fn().mockResolvedValue([activeContext]);
+        (mockStore.query as any).tasks = vi.fn().mockResolvedValue([closedTask, activeTask]);
+        mockStore.query.blockers = vi.fn().mockResolvedValue([blockedTask]);
+        mockStore.query.unresolvedFeedback = vi.fn().mockResolvedValue([sampleFeedback]);
+
+        // Broader queries still return results
+        mockStore.query.nodes = vi.fn().mockResolvedValue([]);
+      });
+
+      it('should gather task-centric context', async () => {
+        const result = await query(mockStore, {
+          contextSummary: { taskId: 't-target1' },
+        });
+
+        const summary = result.contextSummary!;
+
+        // Context nodes the task implements
+        expect(summary.relatedContexts).toHaveLength(1);
+        expect(summary.relatedContexts[0].id).toBe('c-active1');
+        expect(summary.relatedContexts[0].relevance).toBe('implements');
+
+        // Blockers
+        expect(summary.blockedTasks.some((b) => b.id === 't-blocked1')).toBe(true);
+
+        // Sibling tasks (via shared context)
+        expect(summary.recentlyCompleted.some((b) => b.id === 't-closed1')).toBe(true);
+        expect(summary.activeTasks.some((b) => b.id === 't-active1')).toBe(true);
+
+        // Unresolved feedback on target
+        expect(summary.unresolvedFeedback).toHaveLength(1);
+      });
+
+      it('should call context query with taskId', async () => {
+        await query(mockStore, {
+          contextSummary: { taskId: 't-target1' },
+        });
+
+        expect((mockStore.query as any).context).toHaveBeenCalledWith('t-target1');
+      });
+
+      it('should call blockers query with taskId', async () => {
+        await query(mockStore, {
+          contextSummary: { taskId: 't-target1' },
+        });
+
+        expect(mockStore.query.blockers).toHaveBeenCalledWith('t-target1', { activeOnly: true });
+      });
+    });
+  });
 });

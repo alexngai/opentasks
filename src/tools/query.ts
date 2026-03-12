@@ -13,6 +13,9 @@ import type {
   EdgeSummary,
   FeedbackSummary,
   OperationContext,
+  ContextSummaryResult,
+  ContextSummaryParams,
+  Breadcrumb,
 } from './types.js';
 
 // ============================================================================
@@ -22,6 +25,7 @@ import type {
 const DEFAULT_LIMIT = 50;
 const DEFAULT_OFFSET = 0;
 const CONTENT_PREVIEW_LENGTH = 100;
+const DEFAULT_BREADCRUMB_LIMIT = 10;
 
 // ============================================================================
 // Summary Converters
@@ -91,6 +95,7 @@ function countQueryTypes(params: QueryParams): number {
   if (params.unresolvedFeedback !== undefined) count++;
   if (params.tasks !== undefined) count++;
   if (params.context !== undefined) count++;
+  if (params.contextSummary !== undefined) count++;
   return count;
 }
 
@@ -107,6 +112,7 @@ function getQueryTypeName(params: QueryParams): string {
   if (params.unresolvedFeedback !== undefined) return 'unresolvedFeedback';
   if (params.tasks !== undefined) return 'tasks';
   if (params.context !== undefined) return 'context';
+  if (params.contextSummary !== undefined) return 'contextSummary';
   return 'unknown';
 }
 
@@ -148,13 +154,13 @@ export async function query(
 
   if (queryTypeCount === 0) {
     throw new Error(
-      'No query type specified. Provide one of: nodes, edges, ready, blockers, blocking, feedback, unresolvedFeedback, tasks, context',
+      'No query type specified. Provide one of: nodes, edges, ready, blockers, blocking, feedback, unresolvedFeedback, tasks, context, contextSummary',
     );
   }
 
   if (queryTypeCount > 1) {
     throw new Error(
-      'Multiple query types specified. Provide exactly one of: nodes, edges, ready, blockers, blocking, feedback, unresolvedFeedback, tasks, context',
+      'Multiple query types specified. Provide exactly one of: nodes, edges, ready, blockers, blocking, feedback, unresolvedFeedback, tasks, context, contextSummary',
     );
   }
 
@@ -197,6 +203,10 @@ export async function query(
 
   if (params.context !== undefined) {
     return queryContext(store, params.context, limit, offset, verbose);
+  }
+
+  if (params.contextSummary !== undefined) {
+    return queryContextSummary(store, params.contextSummary);
   }
 
   // Should never reach here
@@ -464,5 +474,203 @@ async function queryContext(
     items: paginatedContext.map(toNodeSummary),
     total: allContext.length,
     hasMore,
+  };
+}
+
+// ============================================================================
+// Context Summary (Breadcrumbs)
+// ============================================================================
+
+/**
+ * Convert a Node to a Breadcrumb
+ */
+function toBreadcrumb(node: Node, relevance: string): Breadcrumb {
+  const content = node.content || '';
+  const preview =
+    content.length > CONTENT_PREVIEW_LENGTH
+      ? content.substring(0, CONTENT_PREVIEW_LENGTH) + '...'
+      : content || undefined;
+
+  return {
+    id: node.id,
+    type: node.type,
+    title: node.title,
+    status: 'status' in node ? (node as any).status : undefined,
+    priority: node.priority,
+    relevance,
+    contentPreview: preview,
+    tags: node.tags?.length ? node.tags : undefined,
+    branch: node.branch,
+    updatedAt: node.updated_at,
+  };
+}
+
+/**
+ * Check if a node matches the context summary filters
+ */
+function matchesContextFilters(
+  node: Node,
+  params: ContextSummaryParams,
+): boolean {
+  if (params.tags?.length) {
+    const nodeTags = node.tags || [];
+    if (!params.tags.some((t) => nodeTags.includes(t))) return false;
+  }
+
+  if (params.branch && node.branch !== params.branch) return false;
+
+  return true;
+}
+
+async function queryContextSummary(
+  store: GraphStore,
+  params: ContextSummaryParams,
+): Promise<QueryResult> {
+  const limit = params.limit ?? DEFAULT_BREADCRUMB_LIMIT;
+
+  const result: ContextSummaryResult = {
+    recentlyCompleted: [],
+    activeTasks: [],
+    blockedTasks: [],
+    relatedContexts: [],
+    unresolvedFeedback: [],
+  };
+
+  // If a taskId is provided, gather context around that task
+  if (params.taskId) {
+    // Get the task's context nodes (specs/requirements it implements)
+    const contexts = await store.query.context(params.taskId);
+    for (const ctx of contexts.slice(0, limit)) {
+      result.relatedContexts.push(toBreadcrumb(ctx, 'implements'));
+    }
+
+    // Get blockers for this task
+    const blockers = await store.query.blockers(params.taskId, { activeOnly: true });
+    for (const blocker of blockers.slice(0, limit)) {
+      result.blockedTasks.push(toBreadcrumb(blocker, 'blocks-target'));
+    }
+
+    // Get siblings: other tasks implementing the same contexts
+    const siblingIds = new Set<string>();
+    for (const ctx of contexts) {
+      const siblings = await store.query.tasks(ctx.id);
+      for (const sibling of siblings) {
+        if (sibling.id === params.taskId) continue;
+        if (siblingIds.has(sibling.id)) continue;
+        siblingIds.add(sibling.id);
+
+        const relevance = `sibling-via:${ctx.id}`;
+        if (sibling.status === 'closed') {
+          if (result.recentlyCompleted.length < limit) {
+            result.recentlyCompleted.push(toBreadcrumb(sibling, relevance));
+          }
+        } else if (sibling.status === 'blocked') {
+          if (result.blockedTasks.length < limit) {
+            result.blockedTasks.push(toBreadcrumb(sibling, relevance));
+          }
+        } else {
+          if (result.activeTasks.length < limit) {
+            result.activeTasks.push(toBreadcrumb(sibling, relevance));
+          }
+        }
+      }
+    }
+
+    // Get unresolved feedback on this task
+    const feedback = await store.query.unresolvedFeedback(params.taskId);
+    for (const fb of feedback.slice(0, limit)) {
+      result.unresolvedFeedback.push(toBreadcrumb(fb, 'unresolved-on-target'));
+    }
+  }
+
+  // Broader queries: recent tasks by branch/tags
+  // Recently completed tasks
+  const closedTasks = await store.query.nodes({
+    type: 'task',
+    status: 'closed',
+    archived: false,
+    orderBy: 'updated_at',
+    orderDirection: 'desc',
+    limit: limit * 3, // fetch more to filter
+  });
+  for (const task of closedTasks) {
+    if (result.recentlyCompleted.length >= limit) break;
+    if (!matchesContextFilters(task, params)) continue;
+    // Skip if already added via task-specific queries
+    if (result.recentlyCompleted.some((b) => b.id === task.id)) continue;
+    result.recentlyCompleted.push(toBreadcrumb(task, 'recent-closed'));
+  }
+
+  // Active tasks (in_progress + open)
+  const activeTasks = await store.query.nodes({
+    type: 'task',
+    status: ['open', 'in_progress'],
+    archived: false,
+    orderBy: 'updated_at',
+    orderDirection: 'desc',
+    limit: limit * 3,
+  });
+  for (const task of activeTasks) {
+    if (result.activeTasks.length >= limit) break;
+    if (!matchesContextFilters(task, params)) continue;
+    if (result.activeTasks.some((b) => b.id === task.id)) continue;
+    result.activeTasks.push(toBreadcrumb(task, 'active'));
+  }
+
+  // Blocked tasks
+  const blockedTasks = await store.query.nodes({
+    type: 'task',
+    status: 'blocked',
+    archived: false,
+    orderBy: 'updated_at',
+    orderDirection: 'desc',
+    limit: limit * 3,
+  });
+  for (const task of blockedTasks) {
+    if (result.blockedTasks.length >= limit) break;
+    if (!matchesContextFilters(task, params)) continue;
+    if (result.blockedTasks.some((b) => b.id === task.id)) continue;
+    result.blockedTasks.push(toBreadcrumb(task, 'blocked'));
+  }
+
+  // Related context nodes
+  const contexts = await store.query.nodes({
+    type: 'context',
+    status: 'active',
+    archived: false,
+    orderBy: 'updated_at',
+    orderDirection: 'desc',
+    limit: limit * 3,
+  });
+  for (const ctx of contexts) {
+    if (result.relatedContexts.length >= limit) break;
+    if (!matchesContextFilters(ctx, params)) continue;
+    if (result.relatedContexts.some((b) => b.id === ctx.id)) continue;
+    result.relatedContexts.push(toBreadcrumb(ctx, 'active-context'));
+  }
+
+  // Unresolved feedback (global, not already captured)
+  if (!params.taskId) {
+    const allUnresolved = await store.query.unresolvedFeedback();
+    for (const fb of allUnresolved) {
+      if (result.unresolvedFeedback.length >= limit) break;
+      if (!matchesContextFilters(fb, params)) continue;
+      result.unresolvedFeedback.push(toBreadcrumb(fb, 'unresolved'));
+    }
+  }
+
+  // Count total breadcrumbs across all sections
+  const totalBreadcrumbs =
+    result.recentlyCompleted.length +
+    result.activeTasks.length +
+    result.blockedTasks.length +
+    result.relatedContexts.length +
+    result.unresolvedFeedback.length;
+
+  return {
+    items: [],
+    total: totalBreadcrumbs,
+    hasMore: false,
+    contextSummary: result,
   };
 }

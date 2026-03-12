@@ -149,6 +149,9 @@ export interface QueryParams {
   /** Get context nodes that a task implements */
   context?: ContextQueryParams;
 
+  /** Get context summary breadcrumbs for session continuity */
+  contextSummary?: ContextSummaryParams;
+
   /** Return full objects instead of summaries (default: false) */
   verbose?: boolean;
 
@@ -234,6 +237,9 @@ export interface QueryResult {
 
   /** Whether more results exist beyond limit */
   hasMore: boolean;
+
+  /** Context summary (only present for contextSummary queries) */
+  contextSummary?: ContextSummaryResult;
 }
 
 // ============================================================================
@@ -420,6 +426,82 @@ export interface TaskValidActionsData {
   type: 'validActions';
   /** Valid actions for the task's current state */
   actions: string[];
+}
+
+// ============================================================================
+// Context Summary Types
+// ============================================================================
+
+/**
+ * Parameters for querying context summaries (breadcrumbs for future sessions)
+ */
+export interface ContextSummaryParams {
+  /** Find context related to a specific task */
+  taskId?: string;
+
+  /** Filter by tags (nodes matching any of these tags) */
+  tags?: string[];
+
+  /** Filter by branch (nodes created on this branch) */
+  branch?: string;
+
+  /** Maximum breadcrumbs per section (default: 10) */
+  limit?: number;
+}
+
+/**
+ * A breadcrumb pointing to a related piece of work
+ */
+export interface Breadcrumb {
+  /** Node ID */
+  id: string;
+
+  /** Node type */
+  type: NodeType;
+
+  /** Node title */
+  title: string;
+
+  /** Task status (if task) */
+  status?: string;
+
+  /** Priority (0=highest, 4=lowest) */
+  priority?: number;
+
+  /** Why this breadcrumb is relevant */
+  relevance: string;
+
+  /** Content preview (truncated) */
+  contentPreview?: string;
+
+  /** Tags on this node */
+  tags?: string[];
+
+  /** Branch this node was created on */
+  branch?: string;
+
+  /** Last updated timestamp */
+  updatedAt: string;
+}
+
+/**
+ * Structured context summary result
+ */
+export interface ContextSummaryResult {
+  /** Recently completed tasks (potential prior art / context) */
+  recentlyCompleted: Breadcrumb[];
+
+  /** Currently active tasks (in progress or open) */
+  activeTasks: Breadcrumb[];
+
+  /** Blocked tasks needing attention */
+  blockedTasks: Breadcrumb[];
+
+  /** Related context nodes (specs, requirements) */
+  relatedContexts: Breadcrumb[];
+
+  /** Unresolved feedback requiring attention */
+  unresolvedFeedback: Breadcrumb[];
 }
 
 // ============================================================================
