@@ -6,7 +6,7 @@
  */
 
 import type { GraphStore } from '../graph/index.js';
-import type { ExternalNode } from '../schema/index.js';
+import type { Node, ExternalNode } from '../schema/index.js';
 import type {
   Provider,
   ProviderNode,
@@ -20,6 +20,18 @@ import { DEFAULT_MATERIALIZATION_CONFIG } from './types.js';
 // ============================================================================
 // Types
 // ============================================================================
+
+/**
+ * Options for the materialize() call
+ */
+export interface MaterializeOptions {
+  /**
+   * Whether the provider is local (always reachable, compatible status semantics).
+   * When true, materializes as native node type (task/context) with metadata.provider_uri.
+   * When false/undefined, materializes as type:'external' (current behavior).
+   */
+  local?: boolean;
+}
 
 /**
  * Context for materialization decisions
@@ -45,10 +57,15 @@ export interface MaterializationManager {
   /** Get the materialization strategy for a URI */
   getStrategyFor(uri: string): MaterializationStrategy;
 
-  /** Materialize an external node */
-  materialize(uri: string, providerNode: ProviderNode, store: GraphStore): Promise<ExternalNode>;
+  /** Materialize a provider node into the local graph */
+  materialize(
+    uri: string,
+    providerNode: ProviderNode,
+    store: GraphStore,
+    options?: MaterializeOptions,
+  ): Promise<Node>;
 
-  /** Check if a materialized node is stale */
+  /** Check if a materialized node is stale (only applies to remote/external nodes) */
   isStale(node: ExternalNode): boolean;
 
   /** Refresh a stale node */
@@ -57,7 +74,7 @@ export interface MaterializationManager {
     provider: Provider,
     store: GraphStore,
     context?: ProviderOperationContext,
-  ): Promise<ExternalNode | null>;
+  ): Promise<Node | null>;
 
   /** Start background sync */
   startBackgroundSync(store: GraphStore, registry: ProviderRegistry): void;
@@ -98,6 +115,35 @@ async function findByUri(uri: string, store: GraphStore): Promise<ExternalNode |
   }
 
   return null;
+}
+
+/**
+ * Find existing node by provider_uri in metadata (for local-provider nodes)
+ */
+async function findByProviderUri(uri: string, store: GraphStore): Promise<Node | null> {
+  // Search across task and context nodes for a metadata.provider_uri match
+  const nodes = await store.query.nodes({ search: uri });
+  for (const node of nodes) {
+    if (node.metadata?.provider_uri === uri) {
+      return node;
+    }
+  }
+  return null;
+}
+
+/**
+ * Map provider node type to local graph node type
+ */
+function mapProviderTypeToNodeType(providerType: string): 'task' | 'context' {
+  switch (providerType) {
+    case 'spec':
+      return 'context';
+    case 'issue':
+    case 'task':
+    case 'feedback':
+    default:
+      return 'task';
+  }
 }
 
 // ============================================================================
@@ -165,24 +211,72 @@ export function createMaterializationManager(
     },
 
     /**
-     * Materialize an external node from provider data
+     * Materialize a provider node into the local graph.
+     *
+     * When options.local is true, creates a native node (task/context) with
+     * metadata.provider_uri and metadata.provider_source as back-references.
+     * When false/undefined, creates a type:'external' node (remote behavior).
      */
     async materialize(
       uri: string,
       providerNode: ProviderNode,
       store: GraphStore,
-    ): Promise<ExternalNode> {
+      options?: MaterializeOptions,
+    ): Promise<Node> {
       const source = extractSource(uri);
       const now = new Date().toISOString();
 
+      // ── Local provider path ──────────────────────────────────────────
+      if (options?.local) {
+        const nodeType = mapProviderTypeToNodeType(providerNode.type);
+
+        // Check for existing node by provider_uri
+        const existing = await findByProviderUri(uri, store);
+
+        if (existing) {
+          const updated = await store.updateNode(existing.id, {
+            title: providerNode.title,
+            content: providerNode.content,
+            status: providerNode.status,
+            priority: providerNode.priority,
+            metadata: {
+              ...existing.metadata,
+              provider_uri: uri,
+              provider_source: source,
+            },
+          });
+          return updated;
+        }
+
+        // Create new native node with provider back-reference
+        const node = await store.createNode({
+          type: nodeType,
+          title: providerNode.title,
+          content: providerNode.content,
+          status: providerNode.status ?? 'open',
+          priority: providerNode.priority,
+          metadata: {
+            provider_uri: uri,
+            provider_source: source,
+          },
+        });
+        return node;
+      }
+
+      // ── Remote provider path (existing behavior) ─────────────────────
       // Check if already exists
       const existing = await findByUri(uri, store);
 
       if (existing) {
-        // Update existing node
+        // Update existing node — sync top-level ExternalNode fields + metadata
         const updated = await store.updateNode(existing.id, {
           title: providerNode.title,
           content: providerNode.content,
+          external_status: providerNode.status,
+          external_data: providerNode.rawData,
+          cached_at: now,
+          stale: false,
+          materialized: true,
           metadata: {
             ...existing.metadata,
             external_status: providerNode.status,
@@ -196,7 +290,7 @@ export function createMaterializationManager(
         return updated as ExternalNode;
       }
 
-      // Create new ExternalNode
+      // Create new ExternalNode — set top-level fields per schema + metadata
       const node = await store.createNode({
         type: 'external',
         uri,
@@ -204,6 +298,9 @@ export function createMaterializationManager(
         title: providerNode.title,
         content: providerNode.content,
         materialized: true,
+        external_status: providerNode.status,
+        external_data: providerNode.rawData,
+        cached_at: now,
         metadata: {
           external_status: providerNode.status,
           external_data: providerNode.rawData,
@@ -242,7 +339,7 @@ export function createMaterializationManager(
       provider: Provider,
       store: GraphStore,
       context?: ProviderOperationContext,
-    ): Promise<ExternalNode | null> {
+    ): Promise<Node | null> {
       try {
         // Fetch fresh data from provider
         const providerNode = await provider.get(node.uri, context);

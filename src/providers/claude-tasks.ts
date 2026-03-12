@@ -4,8 +4,8 @@
  * Provider that bridges Claude Code's native task system with OpenTasks.
  * Handles claude:// and task:// URI schemes.
  *
- * Since Claude's tasks exist only within a session, this provider
- * acts as a bridge for materializing ephemeral tasks into the persistent graph.
+ * Implements TaskManageable for semantic task lifecycle operations and
+ * Watchable (when tasksDir is configured) for file-based change detection.
  */
 
 import type {
@@ -20,6 +20,18 @@ import type {
   UriOptions,
 } from './types.js';
 import { ProviderError } from './types.js';
+import type {
+  TaskManageable,
+  TaskAction,
+  TaskCapabilities,
+  ReadyTaskOptions,
+} from './traits/TaskManageable.js';
+import type {
+  Watchable,
+  WatchGranularity,
+  WatchChangeCallback,
+  ProviderNodeChangeEvent,
+} from './traits/Watchable.js';
 
 // ============================================================================
 // Types
@@ -37,6 +49,15 @@ export interface ClaudeTasksConfig {
    * If not provided, uses an in-memory store for testing
    */
   taskStore?: ClaudeTaskStore;
+
+  /**
+   * Path to tasks directory on disk.
+   * When set, enables the Watchable trait via chokidar file watching.
+   */
+  tasksDir?: string;
+
+  /** Debounce delay for file watching in ms (default: 200) */
+  watchDebounceMs?: number;
 }
 
 /**
@@ -189,30 +210,186 @@ function taskToProviderNode(task: ClaudeTask, session: string = 'current'): Prov
   };
 }
 
+/**
+ * Valid task actions for each status state
+ */
+function validActionsForStatus(status: string): TaskAction[] {
+  switch (status) {
+    case 'open':
+      return ['start', 'close'];
+    case 'in_progress':
+      return ['complete', 'close'];
+    case 'closed':
+      return ['reopen'];
+    default:
+      return ['start', 'complete', 'reopen', 'close'];
+  }
+}
+
 // ============================================================================
 // Claude Tasks Provider Implementation
 // ============================================================================
 
 /**
- * Create a Claude Tasks provider
+ * Create a Claude Tasks provider with TaskManageable and optional Watchable support
  */
-export function createClaudeTasksProvider(config: ClaudeTasksConfig = {}): Provider {
+export function createClaudeTasksProvider(
+  config: ClaudeTasksConfig = {},
+): Provider & TaskManageable & Partial<Watchable> {
   const session = config.session ?? 'current';
   const taskStore = config.taskStore ?? createInMemoryTaskStore();
+  const tasksDir = config.tasksDir;
+  const watchDebounceMs = config.watchDebounceMs ?? 200;
 
   const capabilities: ProviderCapabilities = {
     read: true,
     write: true,
     search: false,
-    watch: false,
+    watch: !!tasksDir,
     mount: true,
     feedback: false,
   };
+
+  // =========================================================================
+  // Watch State (only active when tasksDir is configured)
+  // =========================================================================
+
+  /** Cached content hashes for change diffing: task id → hash */
+  const cachedHashes = new Map<string, string>();
+
+  /** chokidar watcher instance */
+  let fileWatcher: import('chokidar').FSWatcher | null = null;
+
+  /** Current watch callback */
+  let watchCallback: WatchChangeCallback | null = null;
+
+  /** Debounce timer for coalescing rapid file changes */
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Simple hash for diffing (not cryptographic — just for detecting changes).
+   */
+  function quickHash(input: string): string {
+    let hash = 0;
+    for (let i = 0; i < input.length; i++) {
+      const char = input.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash;
+    }
+    return hash.toString(16);
+  }
+
+  /**
+   * Build a stable hash key for a Claude task (substantive fields only)
+   */
+  function taskHashKey(task: ClaudeTask): string {
+    const substantive = {
+      subject: task.subject,
+      description: task.description,
+      status: task.status,
+      owner: task.owner,
+      blocks: task.blocks ? [...task.blocks].sort() : undefined,
+      blockedBy: task.blockedBy ? [...task.blockedBy].sort() : undefined,
+    };
+    return quickHash(JSON.stringify(substantive));
+  }
+
+  /**
+   * Diff current task state against cached hashes and emit change events.
+   */
+  async function diffAndEmit(): Promise<void> {
+    if (!watchCallback) return;
+
+    try {
+      const tasks = await taskStore.list();
+      const currentIds = new Set<string>();
+
+      for (const task of tasks) {
+        currentIds.add(task.id);
+        const hash = taskHashKey(task);
+        const prevHash = cachedHashes.get(task.id);
+        const providerNode = taskToProviderNode(task, session);
+
+        if (!prevHash) {
+          // New task
+          watchCallback({
+            kind: 'node',
+            event: {
+              type: 'created',
+              nodeId: task.id,
+              uri: providerNode.uri,
+              node: providerNode,
+              timestamp: new Date().toISOString(),
+            },
+          });
+        } else if (prevHash !== hash) {
+          // Changed task
+          const event: ProviderNodeChangeEvent = {
+            type: 'updated',
+            nodeId: task.id,
+            uri: providerNode.uri,
+            node: providerNode,
+            timestamp: new Date().toISOString(),
+          };
+          watchCallback({ kind: 'node', event });
+        }
+
+        cachedHashes.set(task.id, hash);
+      }
+
+      // Detect deleted tasks
+      for (const [id] of cachedHashes) {
+        if (!currentIds.has(id)) {
+          watchCallback({
+            kind: 'node',
+            event: {
+              type: 'deleted',
+              nodeId: id,
+              uri: `claude://${session}/${id}`,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          cachedHashes.delete(id);
+        }
+      }
+    } catch {
+      // Resilient — continue watching despite transient errors
+    }
+  }
+
+  /**
+   * Handle a raw file change event with debouncing
+   */
+  function onFileChange(): void {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      void diffAndEmit();
+    }, watchDebounceMs);
+  }
+
+  /**
+   * Seed the cached hashes from current task state
+   */
+  async function seedCache(): Promise<void> {
+    try {
+      const tasks = await taskStore.list();
+      cachedHashes.clear();
+      for (const task of tasks) {
+        cachedHashes.set(task.id, taskHashKey(task));
+      }
+    } catch {
+      // If we can't seed, first diff will treat everything as 'created'
+    }
+  }
 
   return {
     name: 'claude',
     schemes: ['claude', 'task'],
     capabilities,
+    local: true,
 
     // =========================================================================
     // URI Operations
@@ -397,6 +574,203 @@ export function createClaudeTasksProvider(config: ClaudeTasksConfig = {}): Provi
           error instanceof Error ? error : undefined,
         );
       }
+    },
+
+    // =========================================================================
+    // Watchable Implementation (only functional when tasksDir is configured)
+    // =========================================================================
+
+    watchGranularity: {
+      reportsChangedFields: false,
+      reportsPreviousValues: false,
+      reportsEdgeChanges: false,
+      mechanism: 'file-watch' as const,
+    } satisfies WatchGranularity,
+
+    startWatching(callback: WatchChangeCallback): void {
+      if (!tasksDir) {
+        return; // Watching not configured — silently no-op
+      }
+
+      // Replace callback if already watching
+      watchCallback = callback;
+
+      if (fileWatcher) {
+        return; // Already watching, just updated callback
+      }
+
+      // Seed cache before starting watcher so we only emit real changes
+      void seedCache().then(async () => {
+        if (!watchCallback) return; // Stopped before seed completed
+
+        const chokidar = await import('chokidar');
+        fileWatcher = chokidar.watch(tasksDir, {
+          ignoreInitial: true,
+          persistent: true,
+          awaitWriteFinish: {
+            stabilityThreshold: 100,
+            pollInterval: 20,
+          },
+        });
+
+        fileWatcher.on('add', onFileChange);
+        fileWatcher.on('change', onFileChange);
+        fileWatcher.on('unlink', onFileChange);
+
+        fileWatcher.on('error', () => {
+          // Resilient — continue watching despite transient errors
+        });
+      });
+    },
+
+    stopWatching(): void {
+      watchCallback = null;
+
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+      }
+
+      if (fileWatcher) {
+        void fileWatcher.close();
+        fileWatcher = null;
+      }
+    },
+
+    get isWatching(): boolean {
+      return fileWatcher !== null && watchCallback !== null;
+    },
+
+    // =========================================================================
+    // TaskManageable Implementation
+    // =========================================================================
+
+    taskCapabilities: {
+      actions: ['start', 'complete', 'reopen', 'close'],
+      supportsAssignment: true,
+      supportsReadyQuery: true,
+      statusModel: ['open', 'in_progress', 'closed'],
+    } satisfies TaskCapabilities,
+
+    async transitionTask(
+      id: string,
+      action: TaskAction,
+      _context?: ProviderOperationContext,
+    ): Promise<ProviderNode> {
+      const statusMap: Partial<Record<TaskAction, ClaudeTask['status']>> = {
+        start: 'in_progress',
+        complete: 'completed',
+        reopen: 'pending',
+        close: 'completed',
+      };
+
+      const targetStatus = statusMap[action];
+      if (!targetStatus) {
+        throw new ProviderError(
+          'NOT_SUPPORTED',
+          `Claude tasks do not support the '${action}' action`,
+          'claude',
+        );
+      }
+
+      const parsed = this.parseUri(id);
+      const taskId = parsed?.id ?? id.replace(/^t-/, '');
+
+      // Validate transition is allowed from current state
+      const current = await this.get(taskId);
+      if (current) {
+        const currentStatus = current.status ?? 'open';
+        const allowed = validActionsForStatus(currentStatus);
+        if (!allowed.includes(action)) {
+          throw new ProviderError(
+            'NOT_SUPPORTED',
+            `Cannot ${action} a task in '${currentStatus}' state. Valid actions: ${allowed.join(', ')}`,
+            'claude',
+          );
+        }
+      }
+
+      const task = await taskStore.update(taskId, { status: targetStatus });
+      return taskToProviderNode(task, session);
+    },
+
+    async readyTasks(
+      options?: ReadyTaskOptions,
+      _context?: ProviderOperationContext,
+    ): Promise<ProviderNode[]> {
+      const tasks = await taskStore.list();
+      const readyTasks: ProviderNode[] = [];
+
+      for (const task of tasks) {
+        // Only pending (open) tasks can be ready
+        if (task.status !== 'pending') continue;
+
+        // Apply tag filter
+        if (options?.tags) {
+          const taskTags = (task.metadata?.tags as string[] | undefined) ?? [];
+          if (!options.tags.every((t) => taskTags.includes(t))) continue;
+        }
+
+        // Apply priority filter (Claude tasks default to priority 2)
+        if (options?.priority !== undefined) {
+          const taskPriority = 2; // Claude tasks don't have individual priorities
+          if (taskPriority > options.priority) continue;
+        }
+
+        // Apply assignee filter
+        if (options?.assignee && task.owner !== options.assignee) continue;
+
+        // Check for active blockers
+        let hasActiveBlocker = false;
+        if (task.blockedBy && task.blockedBy.length > 0) {
+          for (const blockerId of task.blockedBy) {
+            const blocker = await taskStore.get(blockerId);
+            if (blocker && blocker.status !== 'completed') {
+              hasActiveBlocker = true;
+              break;
+            }
+          }
+        }
+
+        if (!hasActiveBlocker) {
+          readyTasks.push(taskToProviderNode(task, session));
+        }
+      }
+
+      // Sort by priority (lower = higher priority) — consistent with beads/sudocode
+      readyTasks.sort((a, b) => {
+        const aPriority = a.priority ?? Infinity;
+        const bPriority = b.priority ?? Infinity;
+        return aPriority - bPriority;
+      });
+
+      // Apply limit
+      if (options?.limit && readyTasks.length > options.limit) {
+        return readyTasks.slice(0, options.limit);
+      }
+
+      return readyTasks;
+    },
+
+    async assignTask(
+      id: string,
+      assignee: string,
+      _context?: ProviderOperationContext,
+    ): Promise<ProviderNode> {
+      const parsed = this.parseUri(id);
+      const taskId = parsed?.id ?? id.replace(/^t-/, '');
+
+      const task = await taskStore.update(taskId, { owner: assignee });
+      return taskToProviderNode(task, session);
+    },
+
+    async validActions(id: string, _context?: ProviderOperationContext): Promise<TaskAction[]> {
+      const node = await this.get(id);
+      if (!node) {
+        throw new ProviderError('NOT_FOUND', `Task not found: ${id}`, 'claude');
+      }
+
+      return validActionsForStatus(node.status ?? 'open');
     },
   };
 }

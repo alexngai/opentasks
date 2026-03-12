@@ -12,6 +12,7 @@ import type {
   ProviderNode,
   ProviderCreateInput,
   ProviderUpdateInput,
+  ProviderFilter,
   ProviderRegistry,
   MaterializationConfig,
   ProviderOperationContext,
@@ -84,6 +85,35 @@ export interface ProviderUpdateOptions {
  */
 export interface TaskTransitionOptions {
   /** Operational context forwarded to the provider */
+  context?: ProviderOperationContext;
+}
+
+/**
+ * Options for listing tasks across providers (federated query)
+ */
+export interface FederatedListTasksOptions {
+  /** Filter by status(es) */
+  status?: string | string[];
+
+  /** Filter by tags (AND semantics) */
+  tags?: string[];
+
+  /** Filter by assignee */
+  assignee?: string;
+
+  /** Text search in title and content */
+  search?: string;
+
+  /** Maximum results */
+  limit?: number;
+
+  /** Pagination offset */
+  offset?: number;
+
+  /** Only query these providers (by name). If omitted, queries all. */
+  providers?: string[];
+
+  /** Operational context forwarded to providers */
   context?: ProviderOperationContext;
 }
 
@@ -163,14 +193,14 @@ export interface ProviderAwareStore extends GraphStore {
   resolveNode(idOrUri: string, options?: ResolveOptions): Promise<Node | ProviderNode | null>;
 
   /**
-   * Materialize an external node from provider data
+   * Materialize a provider node into the local graph
    */
-  materializeNode(uri: string): Promise<ExternalNode>;
+  materializeNode(uri: string): Promise<Node>;
 
   /**
    * Refresh a materialized external node
    */
-  refreshNode(id: string): Promise<ExternalNode | null>;
+  refreshNode(id: string): Promise<Node | null>;
 
   /**
    * Start background sync for external nodes
@@ -268,6 +298,13 @@ export interface ProviderAwareStore extends GraphStore {
   ): Promise<TaskTransitionResult>;
 
   /**
+   * List tasks across all providers (federated query).
+   * Queries the native graph store for type:'task' nodes AND each
+   * registered provider's list() method, merging and deduplicating results.
+   */
+  providerListTasks(options?: FederatedListTasksOptions): Promise<Node[]>;
+
+  /**
    * Get tasks that are ready to work on, aggregated across all
    * task-capable providers (Option B: federated aggregation).
    */
@@ -308,6 +345,24 @@ function isLocalId(idOrUri: string): boolean {
 }
 
 /**
+ * Check if a node is backed by an external provider (either type:'external'
+ * or a local-provider node with metadata.provider_uri).
+ */
+function isProviderBacked(node: Node): boolean {
+  return node.type === 'external' || typeof node.metadata?.provider_uri === 'string';
+}
+
+/**
+ * Get the provider URI for a node. For type:'external' nodes, returns the
+ * top-level uri field. For local-provider nodes, returns metadata.provider_uri.
+ * Returns null if the node has no provider binding.
+ */
+function getProviderUri(node: Node): string | null {
+  if (node.type === 'external') return (node as ExternalNode).uri;
+  return (node.metadata?.provider_uri as string) ?? null;
+}
+
+/**
  * Convert CreateNodeInput to ProviderCreateInput.
  * Passes through tags and parent_id via metadata so providers can use them.
  */
@@ -345,16 +400,24 @@ function toProviderUpdateInput(updates: UpdateNodeInput): ProviderUpdateInput {
 }
 
 /**
- * Find external node by URI in the store
+ * Find a materialized node by provider URI.
+ * Searches both type:'external' nodes (by uri field) and local-provider nodes
+ * (by metadata.provider_uri).
  */
-async function findExternalNodeByUri(uri: string, store: GraphStore): Promise<ExternalNode | null> {
-  const nodes = await store.query.nodes({
-    type: 'external',
-  });
-
-  for (const node of nodes) {
+async function findExternalNodeByUri(uri: string, store: GraphStore): Promise<Node | null> {
+  // First check type:'external' nodes
+  const externalNodes = await store.query.nodes({ type: 'external' });
+  for (const node of externalNodes) {
     if (node.type === 'external' && (node as ExternalNode).uri === uri) {
-      return node as ExternalNode;
+      return node;
+    }
+  }
+
+  // Then check local-provider nodes via metadata.provider_uri
+  const allNodes = await store.query.nodes({ search: uri });
+  for (const node of allNodes) {
+    if (node.metadata?.provider_uri === uri) {
+      return node;
     }
   }
 
@@ -453,14 +516,29 @@ export function createProviderAwareStore(
     }
 
     // For 'created' (re-appeared) or 'updated': refresh materialized copy
+    const changeProvider = registry.get(_providerName) ?? registry.resolveProvider(event.uri);
     if (event.node) {
       // Provider included the full node data — materialize directly
-      await materialization.materialize(event.uri, event.node, baseStore);
+      await materialization.materialize(event.uri, event.node, baseStore, {
+        local: changeProvider?.local,
+      });
     } else {
       // No node data in event — fetch fresh from provider
-      const provider = registry.resolveProvider(event.uri);
-      if (provider) {
-        await materialization.refresh(existing, provider, baseStore);
+      if (changeProvider) {
+        if (existing.type === 'external') {
+          await materialization.refresh(existing as ExternalNode, changeProvider, baseStore);
+        } else {
+          // Local-provider node — fetch and re-materialize
+          const parsed = changeProvider.parseUri(event.uri);
+          if (parsed) {
+            const fresh = await changeProvider.get(parsed.id);
+            if (fresh) {
+              await materialization.materialize(event.uri, fresh, baseStore, {
+                local: changeProvider.local,
+              });
+            }
+          }
+        }
       }
     }
   }
@@ -487,7 +565,7 @@ export function createProviderAwareStore(
     /**
      * Explicitly materialize an external node
      */
-    async materializeNode(uri: string): Promise<ExternalNode> {
+    async materializeNode(uri: string): Promise<Node> {
       // Find provider for this URI
       const provider = registry.resolveProvider(uri);
       if (!provider) {
@@ -506,13 +584,15 @@ export function createProviderAwareStore(
       }
 
       // Materialize
-      return materialization.materialize(uri, providerNode, baseStore);
+      return materialization.materialize(uri, providerNode, baseStore, {
+        local: provider.local,
+      });
     },
 
     /**
      * Refresh a materialized external node
      */
-    async refreshNode(id: string): Promise<ExternalNode | null> {
+    async refreshNode(id: string): Promise<Node | null> {
       // Get the existing node
       const node = await baseStore.getNode(id);
       if (!node || node.type !== 'external') {
@@ -634,7 +714,9 @@ export function createProviderAwareStore(
 
       // Build canonical URI and always materialize on create
       const uri = provider.buildUri(providerNode.id);
-      const materializedNode = await materialization.materialize(uri, providerNode, baseStore);
+      const materializedNode = await materialization.materialize(uri, providerNode, baseStore, {
+        local: provider.local,
+      });
 
       return {
         node: materializedNode,
@@ -686,12 +768,12 @@ export function createProviderAwareStore(
         return baseStore.updateNode(node.id, updates);
       }
 
-      // External node but provider not registered — error rather than silent local-only update
+      // Provider-backed node but provider not registered — error rather than silent local-only update
+      const nodeProviderUri = getProviderUri(node);
       if (!owningProvider) {
-        const extNode = node as ExternalNode;
         throw new ProviderError(
           'NOT_FOUND',
-          `Provider not registered for external node URI: ${extNode.uri}. Cannot route update.`,
+          `Provider not registered for node URI: ${nodeProviderUri}. Cannot route update.`,
         );
       }
 
@@ -703,13 +785,12 @@ export function createProviderAwareStore(
         );
       }
 
-      // Route update to external provider
-      const extNode = node as ExternalNode;
-      const parsed = owningProvider.parseUri(extNode.uri);
+      // Route update to owning provider
+      const parsed = owningProvider.parseUri(nodeProviderUri!);
       if (!parsed) {
         throw new ProviderError(
           'INVALID_URI',
-          `Cannot parse URI: ${extNode.uri}`,
+          `Cannot parse URI: ${nodeProviderUri}`,
           owningProvider.name,
         );
       }
@@ -721,11 +802,9 @@ export function createProviderAwareStore(
       );
 
       // Refresh local materialized copy with provider's response
-      return materialization.materialize(
-        extNode.uri,
-        updatedProviderNode,
-        baseStore,
-      ) as Promise<Node>;
+      return materialization.materialize(nodeProviderUri!, updatedProviderNode, baseStore, {
+        local: owningProvider.local,
+      }) as Promise<Node>;
     },
 
     async providerDelete(
@@ -741,12 +820,12 @@ export function createProviderAwareStore(
         return;
       }
 
-      // External node but provider not registered — error rather than silent local-only delete
+      // Provider-backed node but provider not registered — error rather than silent local-only delete
+      const deleteProviderUri = getProviderUri(node);
       if (!owningProvider) {
-        const extNode = node as ExternalNode;
         throw new ProviderError(
           'NOT_FOUND',
-          `Provider not registered for external node URI: ${extNode.uri}. Cannot route delete.`,
+          `Provider not registered for node URI: ${deleteProviderUri}. Cannot route delete.`,
         );
       }
 
@@ -758,13 +837,12 @@ export function createProviderAwareStore(
         );
       }
 
-      // Delete in external provider
-      const extNode = node as ExternalNode;
-      const parsed = owningProvider.parseUri(extNode.uri);
+      // Delete in owning provider
+      const parsed = owningProvider.parseUri(deleteProviderUri!);
       if (!parsed) {
         throw new ProviderError(
           'INVALID_URI',
-          `Cannot parse URI: ${extNode.uri}`,
+          `Cannot parse URI: ${deleteProviderUri}`,
           owningProvider.name,
         );
       }
@@ -797,9 +875,11 @@ export function createProviderAwareStore(
         return { node, provider: provider.name, action };
       }
 
-      // Materialize the result for external providers
+      // Materialize the result for non-native providers
       const uri = provider.buildUri(updatedNode.id);
-      const materialized = await materialization.materialize(uri, updatedNode, baseStore);
+      const materialized = await materialization.materialize(uri, updatedNode, baseStore, {
+        local: provider.local,
+      });
 
       return {
         node: materialized,
@@ -808,8 +888,86 @@ export function createProviderAwareStore(
       };
     },
 
+    async providerListTasks(options?: FederatedListTasksOptions): Promise<Node[]> {
+      const results: Node[] = [];
+      const seenUris = new Set<string>();
+
+      // 1. Query native graph store for type:'task' nodes
+      const nativeFilter: Record<string, unknown> = { type: 'task' as const };
+      if (options?.status) nativeFilter.status = options.status;
+      if (options?.tags) nativeFilter.tags = options.tags;
+      if (options?.assignee) nativeFilter.assignee = options.assignee;
+      if (options?.search) nativeFilter.search = options.search;
+
+      const nativeNodes = await baseStore.query.nodes(nativeFilter);
+      const seenIds = new Set<string>();
+      for (const node of nativeNodes) {
+        results.push(node);
+        seenIds.add(node.id);
+        // Track provider URIs from local-provider nodes to prevent duplicates
+        // when the provider federation loop re-discovers the same tasks
+        const pUri = getProviderUri(node);
+        if (pUri) {
+          seenUris.add(pUri);
+        }
+      }
+
+      // 2. Query each registered provider's list()
+      for (const provider of registry.list()) {
+        if (provider.name === 'native') continue; // already covered above
+        if (options?.providers && !options.providers.includes(provider.name)) continue;
+
+        try {
+          const providerFilter: ProviderFilter = {};
+          if (options?.status) {
+            providerFilter.status = Array.isArray(options.status) ? options.status[0] : options.status;
+          }
+          if (options?.search) providerFilter.search = options.search;
+
+          const providerNodes = await provider.list(providerFilter, options?.context);
+
+          for (const pNode of providerNodes) {
+            const uri = provider.buildUri(pNode.id);
+            if (seenUris.has(uri)) continue;
+            seenUris.add(uri);
+
+            // Check if already materialized in graph
+            const existing = await findExternalNodeByUri(uri, baseStore);
+            if (existing) {
+              // Avoid pushing the same graph node twice (already in results from native query)
+              if (!seenIds.has(existing.id)) {
+                results.push(existing);
+                seenIds.add(existing.id);
+              }
+            } else {
+              // Materialize so callers get Node objects with local IDs
+              const materialized = await materialization.materialize(uri, pNode, baseStore, {
+                local: provider.local,
+              });
+              results.push(materialized);
+              seenIds.add(materialized.id);
+            }
+          }
+        } catch {
+          // Provider unavailable — skip gracefully
+        }
+      }
+
+      // 3. Apply limit after aggregation
+      if (options?.limit && results.length > options.limit) {
+        const offset = options?.offset ?? 0;
+        return results.slice(offset, offset + options.limit);
+      }
+      if (options?.offset) {
+        return results.slice(options.offset);
+      }
+
+      return results;
+    },
+
     async taskReady(options?: FederatedReadyTaskOptions): Promise<Node[]> {
       const results: Node[] = [];
+      const seenIds = new Set<string>();
 
       for (const provider of registry.list()) {
         if (!isTaskManageable(provider)) continue;
@@ -829,22 +987,31 @@ export function createProviderAwareStore(
         if (provider.name === 'native') {
           for (const pNode of readyNodes) {
             const node = await baseStore.getNode(pNode.id);
-            if (node) {
+            if (node && !seenIds.has(node.id)) {
               results.push(node);
+              seenIds.add(node.id);
             }
           }
           continue;
         }
 
-        // Materialize each ready task from external providers so callers get Node objects
+        // Materialize each ready task from non-native providers so callers get Node objects
         for (const pNode of readyNodes) {
           const uri = provider.buildUri(pNode.id);
           const existing = await findExternalNodeByUri(uri, baseStore);
           if (existing) {
-            results.push(existing);
+            if (!seenIds.has(existing.id)) {
+              results.push(existing);
+              seenIds.add(existing.id);
+            }
           } else {
-            const materialized = await materialization.materialize(uri, pNode, baseStore);
-            results.push(materialized);
+            const materialized = await materialization.materialize(uri, pNode, baseStore, {
+              local: provider.local,
+            });
+            if (!seenIds.has(materialized.id)) {
+              results.push(materialized);
+              seenIds.add(materialized.id);
+            }
           }
         }
       }
@@ -884,7 +1051,9 @@ export function createProviderAwareStore(
       }
 
       const uri = provider.buildUri(updatedNode.id);
-      return materialization.materialize(uri, updatedNode, baseStore) as Promise<Node>;
+      return materialization.materialize(uri, updatedNode, baseStore, {
+        local: provider.local,
+      }) as Promise<Node>;
     },
 
     async taskValidActions(idOrUri: string): Promise<TaskAction[]> {
@@ -907,17 +1076,17 @@ export function createProviderAwareStore(
     provider: Provider & import('../providers/traits/TaskManageable.js').TaskManageable;
     providerId: string;
   }> {
-    // If it's a local ID, check if it's an external node with a provider URI
+    // If it's a local ID, check if it's a provider-backed node
     if (isLocalId(idOrUri)) {
       const node = await baseStore.getNode(idOrUri);
       if (!node) {
         throw new ProviderError('NOT_FOUND', `Node not found: ${idOrUri}`);
       }
-      if (node.type === 'external') {
-        const extNode = node as ExternalNode;
-        const provider = registry.resolveProvider(extNode.uri);
+      const taskProviderUri = getProviderUri(node);
+      if (taskProviderUri) {
+        const provider = registry.resolveProvider(taskProviderUri);
         if (!provider) {
-          throw new ProviderError('NOT_FOUND', `No provider found for URI: ${extNode.uri}`);
+          throw new ProviderError('NOT_FOUND', `No provider found for URI: ${taskProviderUri}`);
         }
         if (!isTaskManageable(provider)) {
           throw new ProviderError(
@@ -926,13 +1095,17 @@ export function createProviderAwareStore(
             provider.name,
           );
         }
-        const parsed = provider.parseUri(extNode.uri);
+        const parsed = provider.parseUri(taskProviderUri);
         if (!parsed) {
-          throw new ProviderError('INVALID_URI', `Cannot parse URI: ${extNode.uri}`, provider.name);
+          throw new ProviderError(
+            'INVALID_URI',
+            `Cannot parse URI: ${taskProviderUri}`,
+            provider.name,
+          );
         }
         return { provider, providerId: parsed.id };
       }
-      // Local non-external node — check native provider
+      // Local non-provider node — check native provider
       const nativeProvider = registry.get('native');
       if (!nativeProvider || !isTaskManageable(nativeProvider)) {
         throw new ProviderError(
@@ -983,8 +1156,11 @@ export function createProviderAwareStore(
     // 2. Check for cached materialized node (unless refresh requested)
     if (!options?.refresh) {
       const existing = await findExternalNodeByUri(idOrUri, baseStore);
-      if (existing && !materialization.isStale(existing)) {
-        return existing;
+      if (existing) {
+        // Local-provider nodes (type !== 'external') are never stale
+        if (existing.type !== 'external' || !materialization.isStale(existing as ExternalNode)) {
+          return existing;
+        }
       }
     }
 
@@ -1012,7 +1188,9 @@ export function createProviderAwareStore(
     });
 
     if (shouldMaterialize) {
-      return materialization.materialize(idOrUri, providerNode, baseStore);
+      return materialization.materialize(idOrUri, providerNode, baseStore, {
+        local: provider.local,
+      });
     }
 
     // Return provider node directly
@@ -1052,7 +1230,9 @@ export function createProviderAwareStore(
         throw new ProviderError('NOT_FOUND', `Node not found: ${idOrUri}`, provider.name);
       }
 
-      const materialized = await materialization.materialize(idOrUri, providerNode, baseStore);
+      const materialized = await materialization.materialize(idOrUri, providerNode, baseStore, {
+        local: provider.local,
+      });
       return { node: materialized, provider, isExternal: true };
     }
 
@@ -1062,14 +1242,14 @@ export function createProviderAwareStore(
       throw new ProviderError('NOT_FOUND', `Node not found: ${idOrUri}`);
     }
 
-    // Check if it's a materialized external node
-    if (node.type === 'external') {
-      const extNode = node as ExternalNode;
-      const provider = registry.resolveProvider(extNode.uri);
+    // Check if it's a provider-backed node (external OR local-provider with metadata.provider_uri)
+    const providerUri = getProviderUri(node);
+    if (providerUri) {
+      const provider = registry.resolveProvider(providerUri);
       return { node, provider, isExternal: true };
     }
 
-    // Pure local node
+    // Pure local node (no provider binding)
     return { node, provider: null, isExternal: false };
   }
 

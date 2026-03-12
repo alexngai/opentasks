@@ -5,7 +5,7 @@
  */
 
 import { createBeadsProvider } from './beads.js';
-import { createClaudeTasksProvider } from './claude-tasks.js';
+import { createClaudeTasksProvider, type ClaudeTasksConfig } from './claude-tasks.js';
 import { createSessionlogProvider, createSessionlogCliStoreAsync } from './sessionlog.js';
 import { createGlobalProvider } from './global.js';
 import { createMAPProvider, type MAPTaskClient } from './map.js';
@@ -122,7 +122,15 @@ export async function createProvidersFromConfig(
   // 3. Claude Tasks provider (if enabled)
   if (config.providers.claudeTasks.enabled) {
     try {
-      const claudeTasksProvider = createClaudeTasksProvider();
+      const claudeConfig: ClaudeTasksConfig = {};
+      if (config.providers.claudeTasks.tasksDir) {
+        const { createFilesystemTaskStore } = await import('./claude-tasks-fs.js');
+        claudeConfig.taskStore = createFilesystemTaskStore({
+          basePath: config.providers.claudeTasks.tasksDir,
+        });
+        claudeConfig.tasksDir = config.providers.claudeTasks.tasksDir;
+      }
+      const claudeTasksProvider = createClaudeTasksProvider(claudeConfig);
       registry.register(claudeTasksProvider);
       providers.push(claudeTasksProvider);
     } catch (error) {

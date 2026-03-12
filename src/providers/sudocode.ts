@@ -766,6 +766,7 @@ export function createSudocodeProvider(
     name: 'sudocode',
     schemes: ['sudocode', 'sc'],
     capabilities,
+    local: true,
 
     // =========================================================================
     // URI Operations

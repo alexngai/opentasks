@@ -6,6 +6,7 @@
 
 import type { Node, Edge, Feedback } from '../schema/index.js';
 import type { GraphStore } from '../graph/store.js';
+import type { ProviderAwareStore } from '../graph/provider-store.js';
 import type {
   QueryParams,
   QueryResult,
@@ -142,6 +143,7 @@ export async function query(
   store: GraphStore,
   params: QueryParams,
   _context?: OperationContext,
+  providerStore?: ProviderAwareStore,
 ): Promise<QueryResult> {
   // Validate exactly one query type
   const queryTypeCount = countQueryTypes(params);
@@ -164,7 +166,7 @@ export async function query(
 
   // Dispatch to appropriate query handler
   if (params.nodes !== undefined) {
-    return queryNodes(store, params.nodes, limit, offset, verbose);
+    return queryNodes(store, params.nodes, limit, offset, verbose, providerStore);
   }
 
   if (params.edges !== undefined) {
@@ -213,9 +215,22 @@ async function queryNodes(
   limit: number,
   offset: number,
   verbose: boolean,
+  providerStore?: ProviderAwareStore,
 ): Promise<QueryResult> {
-  // Query without limit/offset first to get total
-  const allNodes = await store.query.nodes({ ...filter, limit: undefined, offset: undefined });
+  // For task queries with a providerStore, federate across providers
+  const isTaskQuery = filter?.type === 'task' || (Array.isArray(filter?.type) && filter.type.includes('task'));
+  let allNodes: Node[];
+
+  if (isTaskQuery && providerStore) {
+    allNodes = await providerStore.providerListTasks({
+      status: filter?.status,
+      tags: filter?.tags,
+      assignee: filter?.assignee,
+      search: filter?.search,
+    });
+  } else {
+    allNodes = await store.query.nodes({ ...filter, limit: undefined, offset: undefined });
+  }
 
   const { items: paginatedNodes, hasMore } = paginate(allNodes, limit, offset);
 

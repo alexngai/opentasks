@@ -592,6 +592,7 @@ export function createBeadsProvider(
     name: 'beads',
     schemes: ['beads', 'bd'],
     capabilities,
+    local: true,
 
     // =========================================================================
     // URI Operations

@@ -240,6 +240,22 @@ function registerTaskTools(server: McpServer, client: OpenTasksClient): void {
   );
 
   server.tool(
+    'delete_task',
+    'Delete a task by ID or provider URI. For provider-backed tasks, deletes from both the provider and the local graph.',
+    {
+      id: z.string().describe('Task ID or provider URI'),
+    },
+    async (args) => {
+      try {
+        await client.deleteNode(args.id);
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ success: true, id: args.id }) }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
     'list_tasks',
     'List and filter tasks. Get ready tasks, find blockers, or query by status/tags/assignee.',
     {

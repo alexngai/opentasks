@@ -266,6 +266,16 @@ export interface Provider {
   /** What operations this provider supports */
   readonly capabilities: ProviderCapabilities;
 
+  /**
+   * Whether this provider is local (always reachable, compatible status semantics).
+   * Local providers (beads, sudocode, claude) materialize as native node types
+   * (type:'task', type:'context') with a provider_uri back-reference in metadata.
+   * Remote providers (jira, linear) materialize as type:'external' with three-stage
+   * phantom model.
+   * Default: false
+   */
+  readonly local?: boolean;
+
   // ===========================================================================
   // URI Operations
   // ===========================================================================

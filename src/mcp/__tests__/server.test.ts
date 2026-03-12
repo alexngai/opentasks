@@ -74,7 +74,7 @@ describe('MCP Server - Scopes', () => {
     const client = await createTestClient();
     const tools = await listToolNames(client);
 
-    expect(tools).toEqual(['create_task', 'get_task', 'list_tasks', 'update_task']);
+    expect(tools).toEqual(['create_task', 'delete_task', 'get_task', 'list_tasks', 'update_task']);
   });
 
   it('should register graph tools when graph scope enabled', async () => {
@@ -106,15 +106,16 @@ describe('MCP Server - Scopes', () => {
     expect(tools).toContain('list_contexts');
   });
 
-  it('should register all 12 tools with all scopes', async () => {
+  it('should register all 13 tools with all scopes', async () => {
     const client = await createTestClient([...ALL_SCOPES]);
     const tools = await listToolNames(client);
 
-    expect(tools).toHaveLength(12);
+    expect(tools).toHaveLength(13);
     expect(tools).toEqual([
       'annotate',
       'create_context',
       'create_task',
+      'delete_task',
       'get_context',
       'get_task',
       'link',
@@ -351,6 +352,39 @@ describe('MCP Server - Task Tools', () => {
       expect(parsed.operations[1].op).toBe('transition');
       expect(parsed.operations[1].success).toBe(false);
       expect(parsed.operations[1].error).toBe('Provider not available');
+    });
+  });
+
+  describe('delete_task', () => {
+    it('should delete a task by local ID', async () => {
+      mockClient.deleteNode.mockResolvedValue(undefined);
+
+      const { parsed, isError } = await callTool(client, 'delete_task', { id: 't-abc1' });
+
+      expect(isError).toBeFalsy();
+      expect(parsed.success).toBe(true);
+      expect(parsed.id).toBe('t-abc1');
+      expect(mockClient.deleteNode).toHaveBeenCalledWith('t-abc1');
+    });
+
+    it('should delete a task by provider URI', async () => {
+      mockClient.deleteNode.mockResolvedValue(undefined);
+
+      const { parsed, isError } = await callTool(client, 'delete_task', { id: 'beads://project/i-123' });
+
+      expect(isError).toBeFalsy();
+      expect(parsed.success).toBe(true);
+      expect(parsed.id).toBe('beads://project/i-123');
+      expect(mockClient.deleteNode).toHaveBeenCalledWith('beads://project/i-123');
+    });
+
+    it('should return error when delete fails', async () => {
+      mockClient.deleteNode.mockRejectedValue(new Error('Node not found: t-missing'));
+
+      const { parsed, isError } = await callTool(client, 'delete_task', { id: 't-missing' });
+
+      expect(isError).toBe(true);
+      expect(parsed.error).toBe('Node not found: t-missing');
     });
   });
 

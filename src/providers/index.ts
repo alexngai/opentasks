@@ -89,6 +89,7 @@ export {
   createMaterializationManager,
   type MaterializationManager,
   type MaterializationContext,
+  type MaterializeOptions,
 } from './materialization.js';
 
 // Traits - RelationshipQueryable

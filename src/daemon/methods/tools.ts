@@ -99,6 +99,7 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
   });
 
   // tools.query - Query the graph with unified interface
+  // When providerStore is available, task queries are federated across providers
   server.handle<QueryParams & { location?: string }, QueryResult>(
     'tools.query',
     async (params) => {
@@ -109,7 +110,7 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
       const { location, ...queryParams } = params;
       const state = locationResolver.resolve(location);
 
-      return await query(state.store, queryParams);
+      return await query(state.store, queryParams, undefined, state.providerStore ?? undefined);
     },
   );
 

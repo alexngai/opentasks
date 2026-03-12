@@ -158,11 +158,14 @@ export type BeadsProviderConfig = z.infer<typeof BeadsProviderConfigSchema>;
 const ClaudeTasksProviderConfigSchemaInner = z.object({
   /** Enable Claude Tasks provider */
   enabled: z.boolean().default(true),
+  /** Optional filesystem directory for persistent task storage */
+  tasksDir: z.string().optional(),
 });
 
 export const ClaudeTasksProviderConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
+    tasksDir: z.string().optional(),
   })
   .default({})
   .transform((val) => ClaudeTasksProviderConfigSchemaInner.parse(val));
@@ -336,6 +339,7 @@ export const ProvidersConfigSchema = z
     claudeTasks: z
       .object({
         enabled: z.boolean().optional(),
+        tasksDir: z.string().optional(),
       })
       .optional(),
     sudocode: z
@@ -685,6 +689,7 @@ export const OpenTasksConfigSchema = z
         claudeTasks: z
           .object({
             enabled: z.boolean().optional(),
+            tasksDir: z.string().optional(),
           })
           .optional(),
         sudocode: z

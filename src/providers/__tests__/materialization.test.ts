@@ -519,6 +519,148 @@ describe('MaterializationManager', () => {
     });
   });
 
+  describe('local materialization', () => {
+    const claudeProviderNode: ProviderNode = {
+      id: '1',
+      uri: 'claude://current/1',
+      type: 'task',
+      title: 'Fix auth',
+      content: 'Fix auth token expiry',
+      status: 'open',
+      priority: 2,
+      rawData: { subject: 'Fix auth' },
+      fetchedAt: '2024-01-01T00:00:00.000Z',
+    };
+
+    const specProviderNode: ProviderNode = {
+      id: 's-1',
+      uri: 'sudocode://proj/s-1',
+      type: 'spec',
+      title: 'Auth Spec',
+      content: 'Spec content',
+      status: 'active',
+      rawData: {},
+      fetchedAt: '2024-01-01T00:00:00.000Z',
+    };
+
+    it('should create type:task node with provider_uri for local provider', async () => {
+      vi.mocked(mockStore.query.nodes).mockResolvedValue([]);
+      const createdNode = {
+        id: 't-abc1',
+        uuid: 'uuid-2',
+        type: 'task' as const,
+        title: 'Fix auth',
+        status: 'open',
+        created_at: '2024-01-01T00:00:00.000Z',
+        updated_at: '2024-01-01T00:00:00.000Z',
+        metadata: { provider_uri: 'claude://current/1', provider_source: 'claude' },
+      };
+      vi.mocked(mockStore.createNode).mockResolvedValue(createdNode as unknown as Node);
+
+      await manager.materialize('claude://current/1', claudeProviderNode, mockStore, {
+        local: true,
+      });
+
+      expect(mockStore.createNode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'task',
+          title: 'Fix auth',
+          status: 'open',
+          metadata: {
+            provider_uri: 'claude://current/1',
+            provider_source: 'claude',
+          },
+        }),
+      );
+    });
+
+    it('should create type:context node for spec provider nodes', async () => {
+      vi.mocked(mockStore.query.nodes).mockResolvedValue([]);
+      vi.mocked(mockStore.createNode).mockResolvedValue({
+        id: 's-abc1',
+        type: 'context',
+        title: 'Auth Spec',
+      } as unknown as Node);
+
+      await manager.materialize('sudocode://proj/s-1', specProviderNode, mockStore, {
+        local: true,
+      });
+
+      expect(mockStore.createNode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'context',
+          title: 'Auth Spec',
+          metadata: {
+            provider_uri: 'sudocode://proj/s-1',
+            provider_source: 'sudocode',
+          },
+        }),
+      );
+    });
+
+    it('should update existing local-provider node in place', async () => {
+      const existingNode = {
+        id: 't-abc1',
+        type: 'task' as const,
+        title: 'Fix auth (old)',
+        metadata: { provider_uri: 'claude://current/1', provider_source: 'claude' },
+      };
+      vi.mocked(mockStore.query.nodes).mockResolvedValue([existingNode as unknown as Node]);
+      vi.mocked(mockStore.updateNode).mockResolvedValue(existingNode as unknown as Node);
+
+      await manager.materialize('claude://current/1', claudeProviderNode, mockStore, {
+        local: true,
+      });
+
+      expect(mockStore.updateNode).toHaveBeenCalledWith(
+        't-abc1',
+        expect.objectContaining({
+          title: 'Fix auth',
+          status: 'open',
+          metadata: expect.objectContaining({
+            provider_uri: 'claude://current/1',
+            provider_source: 'claude',
+          }),
+        }),
+      );
+      // Should NOT create a new node
+      expect(mockStore.createNode).not.toHaveBeenCalled();
+    });
+
+    it('should create type:external for remote provider (local=false)', async () => {
+      vi.mocked(mockStore.query.nodes).mockResolvedValue([]);
+      vi.mocked(mockStore.createNode).mockResolvedValue(
+        createMockExternalNode() as unknown as Node,
+      );
+
+      await manager.materialize('jira://PROJ-123', mockProviderNode, mockStore, {
+        local: false,
+      });
+
+      expect(mockStore.createNode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'external',
+          uri: 'jira://PROJ-123',
+        }),
+      );
+    });
+
+    it('should create type:external when local option not provided', async () => {
+      vi.mocked(mockStore.query.nodes).mockResolvedValue([]);
+      vi.mocked(mockStore.createNode).mockResolvedValue(
+        createMockExternalNode() as unknown as Node,
+      );
+
+      await manager.materialize('beads://./bd-123', mockProviderNode, mockStore);
+
+      expect(mockStore.createNode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'external',
+        }),
+      );
+    });
+  });
+
   describe('provider strategy overrides', () => {
     it('should use provider-specific strategies', () => {
       const multiStrategyManager = createMaterializationManager({
