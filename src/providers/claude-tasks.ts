@@ -390,6 +390,13 @@ export function createClaudeTasksProvider(
     schemes: ['claude', 'task'],
     capabilities,
     local: true,
+    description: 'Claude Code native task system. Bridges Claude task lifecycle (pending/in_progress/completed) with OpenTasks. Assignee maps to task owner.',
+    metadataSchema: {
+      fields: {
+        tags: { type: 'string[]', description: 'Tags for categorization and ready-task filtering (stored inside metadata)' },
+      },
+      description: 'Arbitrary metadata is persisted on the Claude task. Tags are stored in metadata.tags and used by ready-task queries.',
+    },
 
     // =========================================================================
     // URI Operations

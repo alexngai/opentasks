@@ -325,6 +325,11 @@ export function createNativeProvider(
     name: 'native',
     schemes: ['native', 'opentasks'],
     capabilities,
+    description: 'Built-in graph store. Stores tasks as nodes in the local JSONL graph. Tags, assignee, parent_id, and priority are top-level task fields. The metadata bag accepts arbitrary key/value pairs.',
+    metadataSchema: {
+      fields: {},
+      description: 'Accepts arbitrary metadata key/value pairs. Note: tags, assignee, parent_id, and priority are top-level fields on create_task/update_task — do not put them in metadata.',
+    },
 
     // =========================================================================
     // URI Operations

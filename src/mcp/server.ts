@@ -256,6 +256,20 @@ function registerTaskTools(server: McpServer, client: OpenTasksClient): void {
   );
 
   server.tool(
+    'list_providers',
+    'List all registered providers and their capabilities (schemes, status models, supported actions).',
+    {},
+    async () => {
+      try {
+        const result = await client.listProviders();
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
     'list_tasks',
     'List and filter tasks. Get ready tasks, find blockers, or query by status/tags/assignee.',
     {
@@ -434,19 +448,6 @@ function registerGraphTools(server: McpServer, client: OpenTasksClient): void {
     },
   );
 
-  server.tool(
-    'list_providers',
-    'List all registered providers and their capabilities.',
-    {},
-    async () => {
-      try {
-        const result = await client.listProviders();
-        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
-      } catch (error) {
-        return errorResult(error);
-      }
-    },
-  );
 }
 
 // ============================================================================

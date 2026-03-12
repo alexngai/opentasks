@@ -26,6 +26,8 @@ export type {
   MaterializationConfig,
   ProviderRegistry,
   ProviderErrorCode,
+  MetadataFieldSchema,
+  ProviderMetadataSchema,
 } from './types.js';
 
 export { ProviderError, DEFAULT_MATERIALIZATION_CONFIG } from './types.js';

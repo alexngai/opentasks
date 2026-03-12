@@ -74,7 +74,7 @@ describe('MCP Server - Scopes', () => {
     const client = await createTestClient();
     const tools = await listToolNames(client);
 
-    expect(tools).toEqual(['create_task', 'delete_task', 'get_task', 'list_tasks', 'update_task']);
+    expect(tools).toEqual(['create_task', 'delete_task', 'get_task', 'list_providers', 'list_tasks', 'update_task']);
   });
 
   it('should register graph tools when graph scope enabled', async () => {
@@ -83,6 +83,7 @@ describe('MCP Server - Scopes', () => {
 
     expect(tools).toContain('link');
     expect(tools).toContain('query');
+    // list_providers is in tasks scope (always available)
     expect(tools).toContain('list_providers');
     // Should still have task tools
     expect(tools).toContain('create_task');
@@ -132,7 +133,7 @@ describe('MCP Server - Scopes', () => {
     const client = await createTestClient(['graph']);
     const tools = await listToolNames(client);
 
-    expect(tools).toEqual(['link', 'list_providers', 'query']);
+    expect(tools).toEqual(['link', 'query']);
     expect(tools).not.toContain('create_task');
   });
 });
@@ -465,6 +466,55 @@ describe('MCP Server - Task Tools', () => {
       });
     });
   });
+
+  describe('list_providers', () => {
+    it('should list providers', async () => {
+      const providers = [
+        { name: 'native', schemes: ['native', 'opentasks'], capabilities: { read: true, write: true } },
+        { name: 'beads', schemes: ['beads'], capabilities: { read: true, write: true } },
+      ];
+      mockClient.listProviders.mockResolvedValue(providers);
+
+      const { parsed } = await callTool(client, 'list_providers');
+
+      expect(parsed).toEqual(providers);
+    });
+
+    it('should include description and metadataSchema when present', async () => {
+      const providers = [
+        {
+          name: 'native',
+          schemes: ['native'],
+          capabilities: { read: true, write: true },
+          description: 'Built-in graph store.',
+          metadataSchema: {
+            fields: {},
+            description: 'Accepts arbitrary metadata.',
+          },
+        },
+        {
+          name: 'claude',
+          schemes: ['claude'],
+          capabilities: { read: true, write: true },
+          description: 'Claude Code native task system.',
+          metadataSchema: {
+            fields: {
+              tags: { type: 'string[]', description: 'Tags for filtering' },
+            },
+            description: 'Tags stored in metadata.tags.',
+          },
+        },
+      ];
+      mockClient.listProviders.mockResolvedValue(providers);
+
+      const { parsed } = await callTool(client, 'list_providers');
+
+      expect(parsed[0].description).toBe('Built-in graph store.');
+      expect(parsed[0].metadataSchema.fields).toEqual({});
+      expect(parsed[0].metadataSchema.description).toBe('Accepts arbitrary metadata.');
+      expect(parsed[1].metadataSchema.fields.tags.type).toBe('string[]');
+    });
+  });
 });
 
 // ============================================================================
@@ -570,19 +620,6 @@ describe('MCP Server - Graph Tools', () => {
     });
   });
 
-  describe('list_providers', () => {
-    it('should list providers', async () => {
-      const providers = [
-        { name: 'native', schemes: ['native', 'opentasks'], capabilities: { read: true, write: true } },
-        { name: 'beads', schemes: ['beads'], capabilities: { read: true, write: true } },
-      ];
-      mockClient.listProviders.mockResolvedValue(providers);
-
-      const { parsed } = await callTool(client, 'list_providers');
-
-      expect(parsed).toEqual(providers);
-    });
-  });
 });
 
 // ============================================================================

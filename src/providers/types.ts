@@ -33,6 +33,37 @@ export interface ProviderCapabilities {
 }
 
 // ============================================================================
+// Metadata Schema Types
+// ============================================================================
+
+/**
+ * Schema for a single metadata field.
+ * Describes what an agent can pass in the `metadata` bag on create/update.
+ */
+export interface MetadataFieldSchema {
+  /** Field type */
+  type: 'string' | 'number' | 'boolean' | 'string[]' | 'object';
+
+  /** Human/agent-readable description of this field */
+  description: string;
+
+  /** Whether this field is required on create */
+  required?: boolean;
+}
+
+/**
+ * Declares the metadata fields a provider accepts.
+ * Used by agents to construct valid create/update calls.
+ */
+export interface ProviderMetadataSchema {
+  /** Known metadata fields and their types */
+  fields: Record<string, MetadataFieldSchema>;
+
+  /** General note about metadata handling (e.g., "accepts arbitrary keys" or "ignores metadata") */
+  description?: string;
+}
+
+// ============================================================================
 // URI Types
 // ============================================================================
 
@@ -275,6 +306,12 @@ export interface Provider {
    * Default: false
    */
   readonly local?: boolean;
+
+  /** Human/agent-readable description of this provider and how to interact with it */
+  readonly description?: string;
+
+  /** Declares what metadata fields this provider accepts on create/update */
+  readonly metadataSchema?: ProviderMetadataSchema;
 
   // ===========================================================================
   // URI Operations

@@ -767,6 +767,11 @@ export function createSudocodeProvider(
     schemes: ['sudocode', 'sc'],
     capabilities,
     local: true,
+    description: 'Sudocode git-native agent orchestration. Manages specs and issues via CLI. Issues support task lifecycle; specs are context/requirement nodes. Only title, content, and priority are passed through on create. Status is supported on issue update.',
+    metadataSchema: {
+      fields: {},
+      description: 'Metadata is not passed through to Sudocode. Tags and assignee set via top-level fields are also not forwarded on create/update.',
+    },
 
     // =========================================================================
     // URI Operations

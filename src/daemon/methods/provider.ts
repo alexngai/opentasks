@@ -7,7 +7,7 @@
 
 import type { IPCServer } from '../ipc.js';
 import type { LocationResolver } from '../location-state.js';
-import type { Provider } from '../../providers/types.js';
+import type { Provider, ProviderMetadataSchema } from '../../providers/types.js';
 import { isTaskManageable } from '../../providers/traits/TaskManageable.js';
 import type { TaskCapabilities } from '../../providers/traits/TaskManageable.js';
 
@@ -51,6 +51,12 @@ interface ProviderSummary {
 
   /** Task lifecycle capabilities (only present if provider supports tasks) */
   taskCapabilities?: TaskCapabilities;
+
+  /** Human/agent-readable description of this provider */
+  description?: string;
+
+  /** Metadata fields this provider accepts on create/update */
+  metadataSchema?: ProviderMetadataSchema;
 }
 
 /**
@@ -100,6 +106,13 @@ function toProviderSummary(provider: Provider, defaultProvider: string): Provide
 
   if (isTaskManageable(provider)) {
     summary.taskCapabilities = { ...provider.taskCapabilities };
+  }
+
+  if (provider.description) {
+    summary.description = provider.description;
+  }
+  if (provider.metadataSchema) {
+    summary.metadataSchema = provider.metadataSchema;
   }
 
   return summary;
