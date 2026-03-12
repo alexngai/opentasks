@@ -37,6 +37,9 @@ export interface EnableOptions {
 
   /** Save to local settings instead of project settings */
   local?: boolean;
+
+  /** Session directory name under .git/ (default: SESSION_DIR_NAME) */
+  sessionDirName?: string;
 }
 
 export interface EnableResult {
@@ -83,7 +86,7 @@ export async function enable(options: EnableOptions = {}): Promise<EnableResult>
   }
 
   // Create directories
-  await createDirectories(root, cwd);
+  await createDirectories(root, cwd, options.sessionDirName);
 
   // Save settings
   const settings: Partial<EntireSettings> = {
@@ -127,17 +130,17 @@ export async function enable(options: EnableOptions = {}): Promise<EnableResult>
   };
 }
 
-async function createDirectories(root: string, cwd: string): Promise<void> {
+async function createDirectories(root: string, cwd: string, sessionDirName?: string): Promise<void> {
   const dirs = [
     path.join(root, ENTIRE_DIR),
     path.join(root, ENTIRE_METADATA_DIR),
     path.join(root, ENTIRE_TMP_DIR),
   ];
 
-  // Also create .git/entire-sessions/
+  // Also create .git/<sessionDirName>/
   try {
     const gitDir = await getGitDir(cwd);
-    const sessionsDir = path.resolve(root, gitDir, SESSION_DIR_NAME);
+    const sessionsDir = path.resolve(root, gitDir, sessionDirName ?? SESSION_DIR_NAME);
     dirs.push(sessionsDir);
   } catch {
     // Ignore if git dir resolution fails

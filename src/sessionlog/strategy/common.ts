@@ -104,11 +104,15 @@ export async function isInsideWorktree(cwd?: string): Promise<boolean> {
 // ============================================================================
 
 /**
- * Ensure the metadata branch (entire/checkpoints/v1) exists.
+ * Ensure the metadata branch exists.
  * Creates it with an initial empty-tree commit if it doesn't exist.
+ *
+ * @param cwd Working directory
+ * @param checkpointsBranch Branch name override (default: CHECKPOINTS_BRANCH)
  */
-export async function ensureMetadataBranch(cwd?: string): Promise<void> {
-  const branchRef = `refs/heads/${CHECKPOINTS_BRANCH}`;
+export async function ensureMetadataBranch(cwd?: string, checkpointsBranch?: string): Promise<void> {
+  const branch = checkpointsBranch ?? CHECKPOINTS_BRANCH;
+  const branchRef = `refs/heads/${branch}`;
   const exists = await refExists(branchRef, cwd);
   if (exists) return;
 
@@ -124,7 +128,7 @@ export async function ensureMetadataBranch(cwd?: string): Promise<void> {
   );
 
   // Create the branch pointing to this commit
-  await git(['branch', CHECKPOINTS_BRANCH, commitHash], { cwd });
+  await git(['branch', branch, commitHash], { cwd });
 }
 
 /**
@@ -133,12 +137,14 @@ export async function ensureMetadataBranch(cwd?: string): Promise<void> {
 export async function readCheckpointMetadata(
   checkpointID: CheckpointID,
   cwd?: string,
+  checkpointsBranch?: string,
 ): Promise<CommittedMetadata | null> {
+  const branch = checkpointsBranch ?? CHECKPOINTS_BRANCH;
   const checkpointPath = checkpointIDPath(checkpointID);
 
   try {
     const content = await showFile(
-      CHECKPOINTS_BRANCH,
+      branch,
       `${checkpointPath}/metadata.json`,
       cwd,
     );
@@ -155,12 +161,14 @@ export async function readSessionPromptFromTree(
   checkpointID: CheckpointID,
   sessionIndex: number,
   cwd?: string,
+  checkpointsBranch?: string,
 ): Promise<string> {
+  const branch = checkpointsBranch ?? CHECKPOINTS_BRANCH;
   const checkpointPath = checkpointIDPath(checkpointID);
 
   try {
     return await showFile(
-      CHECKPOINTS_BRANCH,
+      branch,
       `${checkpointPath}/${sessionIndex}/prompt.txt`,
       cwd,
     );
@@ -175,8 +183,9 @@ export async function readSessionPromptFromTree(
 export async function readAgentTypeFromTree(
   checkpointID: CheckpointID,
   cwd?: string,
+  checkpointsBranch?: string,
 ): Promise<string> {
-  const metadata = await readCheckpointMetadata(checkpointID, cwd);
+  const metadata = await readCheckpointMetadata(checkpointID, cwd, checkpointsBranch);
   return metadata?.agent ?? '';
 }
 

@@ -54,6 +54,7 @@ export interface ExplainOptions {
   sessionFilter?: string;
   maxDepth?: number;
   searchAll?: boolean;
+  checkpointsBranch?: string;
 }
 
 export interface CommitExplainResult {
@@ -150,12 +151,13 @@ export async function getCheckpointDetail(
   options: ExplainOptions = {},
 ): Promise<CheckpointDetail | null> {
   const cwd = options.cwd;
+  const branch = options.checkpointsBranch ?? CHECKPOINTS_BRANCH;
 
   // Try to read committed metadata from the checkpoints branch
   const metadataPath = `${checkpointIDPath(checkpointID)}/metadata.json`;
 
   try {
-    const content = await catFile(`${CHECKPOINTS_BRANCH}:${metadataPath}`, cwd);
+    const content = await catFile(`${branch}:${metadataPath}`, cwd);
     const metadata = JSON.parse(content) as CommittedMetadata;
 
     return {
@@ -187,10 +189,11 @@ export async function getCheckpointTranscript(
   options: ExplainOptions = {},
 ): Promise<Buffer | null> {
   const cwd = options.cwd;
+  const branch = options.checkpointsBranch ?? CHECKPOINTS_BRANCH;
   const transcriptPath = `${checkpointIDPath(checkpointID)}/transcript`;
 
   try {
-    const content = await catFile(`${CHECKPOINTS_BRANCH}:${transcriptPath}`, cwd);
+    const content = await catFile(`${branch}:${transcriptPath}`, cwd);
     return Buffer.from(content, 'utf-8');
   } catch {
     return null;
@@ -255,8 +258,10 @@ export async function findCheckpointByPrefix(
   const shardPrefix = prefix.slice(0, 2);
   const remainder = prefix.slice(2);
 
+  const branch = options.checkpointsBranch ?? CHECKPOINTS_BRANCH;
+
   try {
-    const entries = await lsTree(CHECKPOINTS_BRANCH, shardPrefix, cwd);
+    const entries = await lsTree(branch, shardPrefix, cwd);
 
     for (const entry of entries) {
       if (entry.name.startsWith(remainder)) {

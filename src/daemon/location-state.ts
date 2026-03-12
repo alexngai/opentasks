@@ -263,8 +263,10 @@ export async function createLocationState(
   let entireLinker: EntireAutoLinker | undefined;
 
   try {
+    const entireConfig = (await loadConfig(opentasksPath)).providers?.entire;
     entireWatcher = createEntireWatcher({
       locationPath: opentasksPath,
+      sessionDirName: entireConfig?.sessionDirName,
     });
 
     entireLinker = createEntireAutoLinker({

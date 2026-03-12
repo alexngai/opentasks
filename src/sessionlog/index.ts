@@ -584,6 +584,7 @@ export {
   isShadowBranch,
   listShadowBranches,
   deleteShadowBranches,
+  type ShadowBranchOptions,
 } from './utils/shadow-branch.js';
 
 // =============================================================================

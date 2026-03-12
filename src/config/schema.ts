@@ -186,6 +186,15 @@ const EntireProviderConfigSchemaInner = z.object({
 
   /** Minimum confidence for auto-linking */
   autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).default('medium'),
+
+  /** Session directory name under .git/ (default: 'sessionlog-sessions') */
+  sessionDirName: z.string().default('sessionlog-sessions'),
+
+  /** Git branch for committed checkpoints (default: 'sessionlog/checkpoints/v1') */
+  checkpointsBranch: z.string().default('sessionlog/checkpoints/v1'),
+
+  /** Prefix for shadow branches (default: 'sessionlog/') */
+  shadowBranchPrefix: z.string().default('sessionlog/'),
 });
 
 export const EntireProviderConfigSchema = z
@@ -195,6 +204,9 @@ export const EntireProviderConfigSchema = z
     timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
     autoLink: z.boolean().optional(),
     autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
+    sessionDirName: z.string().optional(),
+    checkpointsBranch: z.string().optional(),
+    shadowBranchPrefix: z.string().optional(),
   })
   .default({})
   .transform((val) => EntireProviderConfigSchemaInner.parse(val));
@@ -340,6 +352,9 @@ export const ProvidersConfigSchema = z
         timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
         autoLink: z.boolean().optional(),
         autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
+        sessionDirName: z.string().optional(),
+        checkpointsBranch: z.string().optional(),
+        shadowBranchPrefix: z.string().optional(),
       })
       .optional(),
     global: z
@@ -665,6 +680,9 @@ export const OpenTasksConfigSchema = z
             timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
             autoLink: z.boolean().optional(),
             autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
+            sessionDirName: z.string().optional(),
+            checkpointsBranch: z.string().optional(),
+            shadowBranchPrefix: z.string().optional(),
           })
           .optional(),
         global: z

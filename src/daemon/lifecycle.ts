@@ -509,7 +509,10 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
 
         // 13. Initialize Entire watcher + auto-linker + transcript extractor (optional)
         try {
-          entireWatcher = createEntireWatcher({ locationPath });
+          entireWatcher = createEntireWatcher({
+            locationPath,
+            sessionDirName: openTasksConfig?.providers?.entire?.sessionDirName as string | undefined,
+          });
           entireLinker = createEntireAutoLinker({
             store,
             flushManager,

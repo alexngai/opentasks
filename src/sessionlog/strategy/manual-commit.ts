@@ -104,12 +104,18 @@ export interface ManualCommitStrategyConfig {
   sessionStore: SessionStore;
   checkpointStore: CheckpointStore;
   cwd?: string;
+  /** Git branch for committed checkpoints (default: CHECKPOINTS_BRANCH from types) */
+  checkpointsBranch?: string;
+  /** Prefix for shadow branches (default: SHADOW_BRANCH_PREFIX from types) */
+  shadowBranchPrefix?: string;
 }
 
 export function createManualCommitStrategy(
   config: ManualCommitStrategyConfig,
 ): Strategy {
   const { sessionStore, checkpointStore, cwd } = config;
+  const resolvedCheckpointsBranch = config.checkpointsBranch ?? CHECKPOINTS_BRANCH;
+  const resolvedShadowPrefix = config.shadowBranchPrefix ?? SHADOW_BRANCH_PREFIX;
 
   // ========================================================================
   // Session State Helpers
@@ -386,13 +392,13 @@ export function createManualCommitStrategy(
     // ======================================================================
     async prePush(remote: string): Promise<void> {
       const branchExists = await refExists(
-        `refs/heads/${CHECKPOINTS_BRANCH}`,
+        `refs/heads/${resolvedCheckpointsBranch}`,
         cwd,
       );
       if (!branchExists) return;
 
       try {
-        await pushBranch(remote, CHECKPOINTS_BRANCH, false, cwd);
+        await pushBranch(remote, resolvedCheckpointsBranch, false, cwd);
       } catch {
         // Non-fatal: metadata push failure shouldn't block user push
       }
@@ -665,8 +671,8 @@ export function createManualCommitStrategy(
       const allBranches = await listBranches(cwd);
       for (const branch of allBranches) {
         if (
-          branch.startsWith(SHADOW_BRANCH_PREFIX) &&
-          branch !== CHECKPOINTS_BRANCH
+          branch.startsWith(resolvedShadowPrefix) &&
+          branch !== resolvedCheckpointsBranch
         ) {
           items.push({
             type: 'shadow-branch',
@@ -793,7 +799,7 @@ export function createManualCommitStrategy(
 
     // Check if checkpoints branch exists
     const branchExists = await refExists(
-      `refs/heads/${CHECKPOINTS_BRANCH}`,
+      `refs/heads/${resolvedCheckpointsBranch}`,
       cwd,
     );
     if (!branchExists) return points;

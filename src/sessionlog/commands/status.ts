@@ -69,7 +69,10 @@ export interface SessionStatus {
 /**
  * Get the current status of Entire
  */
-export async function status(cwd?: string): Promise<StatusResult> {
+export async function status(
+  cwd?: string,
+  options?: { sessionDirName?: string; checkpointsBranch?: string },
+): Promise<StatusResult> {
   const isRepo = await isGitRepository(cwd);
 
   if (!isRepo) {
@@ -88,7 +91,8 @@ export async function status(cwd?: string): Promise<StatusResult> {
   const root = await getWorktreeRoot(cwd);
   const settings = await loadSettings(cwd);
   const branch = await getCurrentBranch(cwd);
-  const hasCheckpoints = await refExists(`refs/heads/${CHECKPOINTS_BRANCH}`, cwd);
+  const resolvedBranch = options?.checkpointsBranch ?? CHECKPOINTS_BRANCH;
+  const hasCheckpoints = await refExists(`refs/heads/${resolvedBranch}`, cwd);
   const gitHooks = await areGitHooksInstalled(root);
 
   // Detect agents with hooks
@@ -102,7 +106,7 @@ export async function status(cwd?: string): Promise<StatusResult> {
   }
 
   // Load sessions
-  const sessionStore = createSessionStore(cwd);
+  const sessionStore = createSessionStore(cwd, options?.sessionDirName);
   const allSessions = await sessionStore.list();
 
   const sessions: SessionStatus[] = allSessions.map((s) => ({

@@ -6,7 +6,6 @@
  */
 
 import type { RewindPoint, CheckpointID, CheckpointSummary } from '../types.js';
-import { CHECKPOINTS_BRANCH } from '../types.js';
 import {
   git,
   gitSafe,
@@ -26,6 +25,12 @@ export interface RewindOptions {
   cwd?: string;
   /** Maximum number of rewind points to return */
   limit?: number;
+  /** Override session directory name */
+  sessionDirName?: string;
+  /** Override checkpoints branch */
+  checkpointsBranch?: string;
+  /** Override shadow branch prefix */
+  shadowBranchPrefix?: string;
 }
 
 export interface RewindResult {
@@ -46,7 +51,7 @@ export async function listRewindPoints(options: RewindOptions = {}): Promise<Rew
   const limit = options.limit ?? 20;
   const points: RewindPoint[] = [];
 
-  const checkpointStore = createCheckpointStore(cwd);
+  const checkpointStore = createCheckpointStore(cwd, options.checkpointsBranch, options.shadowBranchPrefix);
 
   // 1. Shadow branch checkpoints (temporary, most recent)
   const temporaryBranches = await checkpointStore.listTemporary();

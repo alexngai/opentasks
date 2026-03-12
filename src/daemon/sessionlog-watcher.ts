@@ -69,6 +69,9 @@ export interface EntireWatcherConfig {
 
   /** Use polling instead of native fs events (useful for containers/tests) */
   usePolling?: boolean;
+
+  /** Session directory name under .git/ (default: 'sessionlog-sessions') */
+  sessionDirName?: string;
 }
 
 /**
@@ -182,11 +185,11 @@ function normalizePhase(phase: string): EntireSessionState['phase'] {
  * Create an Entire session watcher
  */
 export function createEntireWatcher(config: EntireWatcherConfig): EntireWatcher {
-  const { locationPath, debounceMs = 200, usePolling = false } = config;
+  const { locationPath, debounceMs = 200, usePolling = false, sessionDirName = 'sessionlog-sessions' } = config;
 
   // Resolve git dir
   const gitDir = config.gitDir ?? resolveGitDir(locationPath);
-  const sessionsDir = gitDir ? path.join(gitDir, 'sessionlog-sessions') : '';
+  const sessionsDir = gitDir ? path.join(gitDir, sessionDirName) : '';
 
   let watcher: FSWatcher | null = null;
   let watching = false;

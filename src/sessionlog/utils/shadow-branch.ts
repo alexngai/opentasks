@@ -18,10 +18,15 @@ import { listBranches, deleteBranch } from '../git-operations.js';
 /** Worktree ID hash length (6 hex characters) */
 const WORKTREE_ID_HASH_LENGTH = 6;
 
-/** Pattern for shadow branches: entire/<hex7+>(-<hex6+>)? */
-const SHADOW_BRANCH_PATTERN = new RegExp(
-  `^${SHADOW_BRANCH_PREFIX.replace('/', '\\/')}[0-9a-f]{${SHADOW_BRANCH_HASH_LENGTH},}(-[0-9a-f]{${WORKTREE_ID_HASH_LENGTH},})?$`,
-);
+/**
+ * Options for overriding default branch naming.
+ */
+export interface ShadowBranchOptions {
+  /** Prefix for shadow branches (default: SHADOW_BRANCH_PREFIX from types) */
+  shadowBranchPrefix?: string;
+  /** Git branch for committed checkpoints (default: CHECKPOINTS_BRANCH from types) */
+  checkpointsBranch?: string;
+}
 
 /**
  * Hash a worktree identifier to a short hex string.
@@ -36,15 +41,20 @@ export function hashWorktreeID(worktreeID: string): string {
 
 /**
  * Returns the shadow branch name for a base commit hash and worktree identifier.
- * Format: entire/<commit[:7]>-<hash(worktreeID)[:6]>
+ * Format: <prefix><commit[:7]>-<hash(worktreeID)[:6]>
  */
-export function shadowBranchNameForCommit(baseCommit: string, worktreeID?: string): string {
+export function shadowBranchNameForCommit(
+  baseCommit: string,
+  worktreeID?: string,
+  options?: ShadowBranchOptions,
+): string {
+  const prefix = options?.shadowBranchPrefix ?? SHADOW_BRANCH_PREFIX;
   const commitPart = baseCommit.slice(0, SHADOW_BRANCH_HASH_LENGTH);
   if (worktreeID) {
     const worktreeHash = hashWorktreeID(worktreeID);
-    return `${SHADOW_BRANCH_PREFIX}${commitPart}-${worktreeHash}`;
+    return `${prefix}${commitPart}-${worktreeHash}`;
   }
-  return `${SHADOW_BRANCH_PREFIX}${commitPart}`;
+  return `${prefix}${commitPart}`;
 }
 
 /**
@@ -53,11 +63,15 @@ export function shadowBranchNameForCommit(baseCommit: string, worktreeID?: strin
  */
 export function parseShadowBranchName(
   branchName: string,
+  options?: ShadowBranchOptions,
 ): { commitPrefix: string; worktreeHash: string } | null {
-  if (!branchName.startsWith(SHADOW_BRANCH_PREFIX)) return null;
-  if (branchName === CHECKPOINTS_BRANCH) return null;
+  const prefix = options?.shadowBranchPrefix ?? SHADOW_BRANCH_PREFIX;
+  const checkpointsBranch = options?.checkpointsBranch ?? CHECKPOINTS_BRANCH;
 
-  const suffix = branchName.slice(SHADOW_BRANCH_PREFIX.length);
+  if (!branchName.startsWith(prefix)) return null;
+  if (branchName === checkpointsBranch) return null;
+
+  const suffix = branchName.slice(prefix.length);
   const lastDash = suffix.lastIndexOf('-');
 
   if (lastDash === -1 || lastDash === 0 || lastDash === suffix.length - 1) {
@@ -73,20 +87,26 @@ export function parseShadowBranchName(
 
 /**
  * Returns true if the branch name matches the shadow branch pattern.
- * The "entire/checkpoints/v1" branch is NOT a shadow branch.
+ * The checkpoints branch is NOT a shadow branch.
  */
-export function isShadowBranch(branchName: string): boolean {
-  if (branchName === CHECKPOINTS_BRANCH) return false;
-  return SHADOW_BRANCH_PATTERN.test(branchName);
+export function isShadowBranch(branchName: string, options?: ShadowBranchOptions): boolean {
+  const prefix = options?.shadowBranchPrefix ?? SHADOW_BRANCH_PREFIX;
+  const checkpointsBranch = options?.checkpointsBranch ?? CHECKPOINTS_BRANCH;
+
+  if (branchName === checkpointsBranch) return false;
+  const pattern = new RegExp(
+    `^${prefix.replace('/', '\\/')}[0-9a-f]{${SHADOW_BRANCH_HASH_LENGTH},}(-[0-9a-f]{${WORKTREE_ID_HASH_LENGTH},})?$`,
+  );
+  return pattern.test(branchName);
 }
 
 /**
  * List all shadow branches in the repository.
  * Returns an empty array if no shadow branches exist.
  */
-export async function listShadowBranches(cwd?: string): Promise<string[]> {
+export async function listShadowBranches(cwd?: string, options?: ShadowBranchOptions): Promise<string[]> {
   const allBranches = await listBranches(cwd);
-  return allBranches.filter(isShadowBranch);
+  return allBranches.filter((b) => isShadowBranch(b, options));
 }
 
 /**

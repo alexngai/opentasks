@@ -45,12 +45,12 @@ export interface SessionStore {
 // Filesystem Session Store
 // ============================================================================
 
-export function createSessionStore(cwd?: string): SessionStore {
+export function createSessionStore(cwd?: string, sessionDirName?: string): SessionStore {
   let sessionsDirCache: string | null = null;
 
   async function getDir(): Promise<string> {
     if (sessionsDirCache) return sessionsDirCache;
-    sessionsDirCache = await getSessionsDir(cwd);
+    sessionsDirCache = await getSessionsDir(cwd, sessionDirName);
     return sessionsDirCache;
   }
 

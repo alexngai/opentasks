@@ -134,11 +134,15 @@ export async function isGitRepository(cwd?: string): Promise<boolean> {
 }
 
 /**
- * Get the sessions directory path (.git/entire-sessions/)
+ * Get the sessions directory path (.git/<sessionDirName>/)
+ *
+ * @param cwd Working directory
+ * @param sessionDirName Directory name under .git/ (default: SESSION_DIR_NAME)
  */
-export async function getSessionsDir(cwd?: string): Promise<string> {
+export async function getSessionsDir(cwd?: string, sessionDirName?: string): Promise<string> {
+  const { SESSION_DIR_NAME: defaultDirName } = await import('./types.js');
   const gitDir = await getGitDir(cwd);
-  return path.resolve(cwd ?? process.cwd(), gitDir, 'entire-sessions');
+  return path.resolve(cwd ?? process.cwd(), gitDir, sessionDirName ?? defaultDirName);
 }
 
 // ============================================================================

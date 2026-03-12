@@ -23,10 +23,20 @@ import { createCheckpointStore, type CheckpointStore } from './checkpoint-store.
 /**
  * Create a native Entire store that reads directly from
  * the filesystem and git, without shelling out to the CLI.
+ *
+ * @param cwd Working directory
+ * @param options Optional overrides for directory/branch names
  */
-export function createNativeEntireStore(cwd?: string): EntireStore {
-  const sessionStore = createSessionStore(cwd);
-  const checkpointStore = createCheckpointStore(cwd);
+export function createNativeEntireStore(
+  cwd?: string,
+  options?: {
+    sessionDirName?: string;
+    checkpointsBranch?: string;
+    shadowBranchPrefix?: string;
+  },
+): EntireStore {
+  const sessionStore = createSessionStore(cwd, options?.sessionDirName);
+  const checkpointStore = createCheckpointStore(cwd, options?.checkpointsBranch, options?.shadowBranchPrefix);
 
   function sessionStateToEntireSession(state: SessionState): EntireSession {
     return {

@@ -148,6 +148,9 @@ describe('Config Schema', () => {
           timeout: 30000,
           autoLink: true,
           autoLinkMinConfidence: 'medium',
+          sessionDirName: 'sessionlog-sessions',
+          checkpointsBranch: 'sessionlog/checkpoints/v1',
+          shadowBranchPrefix: 'sessionlog/',
         },
         global: {
           enabled: true,
@@ -247,6 +250,9 @@ describe('Config Schema', () => {
             timeout: 30000,
             autoLink: true,
             autoLinkMinConfidence: 'medium',
+            sessionDirName: 'sessionlog-sessions',
+            checkpointsBranch: 'sessionlog/checkpoints/v1',
+            shadowBranchPrefix: 'sessionlog/',
           },
           global: {
             enabled: true,
@@ -349,6 +355,9 @@ describe('Config Schema', () => {
             timeout: 45000,
             autoLink: false,
             autoLinkMinConfidence: 'high',
+            sessionDirName: 'sessionlog-sessions',
+            checkpointsBranch: 'sessionlog/checkpoints/v1',
+            shadowBranchPrefix: 'sessionlog/',
           },
           global: {
             enabled: false,

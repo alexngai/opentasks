@@ -55,6 +55,15 @@ export interface EntireConfig {
 
   /** Working directory */
   cwd?: string;
+
+  /** Session directory name under .git/ (default: 'sessionlog-sessions') */
+  sessionDirName?: string;
+
+  /** Git branch for committed checkpoints (default: 'sessionlog/checkpoints/v1') */
+  checkpointsBranch?: string;
+
+  /** Prefix for shadow branches (default: 'sessionlog/') */
+  shadowBranchPrefix?: string;
 }
 
 // ============================================================================
@@ -293,7 +302,11 @@ export function createEntireCliStore(config: EntireConfig = {}): EntireStore {
  */
 export async function createEntireNativeStore(config: EntireConfig = {}): Promise<EntireStore> {
   const { createNativeEntireStore } = await import('../entire/store/native-store.js');
-  return createNativeEntireStore(config.cwd);
+  return createNativeEntireStore(config.cwd, {
+    sessionDirName: config.sessionDirName,
+    checkpointsBranch: config.checkpointsBranch,
+    shadowBranchPrefix: config.shadowBranchPrefix,
+  });
 }
 
 /**

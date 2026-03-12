@@ -31,6 +31,12 @@ export interface CleanOptions {
   cwd?: string;
   /** Actually delete (default: preview only) */
   force?: boolean;
+  /** Session directory name under .git/ */
+  sessionDirName?: string;
+  /** Git branch for committed checkpoints */
+  checkpointsBranch?: string;
+  /** Prefix for shadow branches */
+  shadowBranchPrefix?: string;
 }
 
 // ============================================================================
@@ -40,20 +46,25 @@ export interface CleanOptions {
 /**
  * Find orphaned items
  */
-export async function findOrphaned(cwd?: string): Promise<CleanupItem[]> {
+export async function findOrphaned(
+  cwd?: string,
+  options?: { sessionDirName?: string; checkpointsBranch?: string; shadowBranchPrefix?: string },
+): Promise<CleanupItem[]> {
   const items: CleanupItem[] = [];
-  const sessionStore = createSessionStore(cwd);
+  const resolvedShadowPrefix = options?.shadowBranchPrefix ?? SHADOW_BRANCH_PREFIX;
+  const resolvedCheckpointsBranch = options?.checkpointsBranch ?? CHECKPOINTS_BRANCH;
+  const sessionStore = createSessionStore(cwd, options?.sessionDirName);
   const sessions = await sessionStore.list();
   const activeSessionIDs = new Set(sessions.map((s) => s.sessionID));
   const activeBaseCommits = new Set(sessions.map((s) => s.baseCommit).filter(Boolean));
 
   // 1. Orphaned shadow branches
-  const branches = await listBranches(`${SHADOW_BRANCH_PREFIX}*`, cwd);
+  const branches = await listBranches(`${resolvedShadowPrefix}*`, cwd);
   for (const branch of branches) {
-    if (branch === CHECKPOINTS_BRANCH) continue;
+    if (branch === resolvedCheckpointsBranch) continue;
 
     // Extract base commit from branch name
-    const hashPart = branch.slice(SHADOW_BRANCH_PREFIX.length);
+    const hashPart = branch.slice(resolvedShadowPrefix.length);
     const baseCommit = hashPart.split('-')[0];
 
     // A shadow branch is orphaned if no active session references its base commit
@@ -104,7 +115,11 @@ export async function findOrphaned(cwd?: string): Promise<CleanupItem[]> {
  */
 export async function clean(options: CleanOptions = {}): Promise<CleanResult> {
   const cwd = options.cwd;
-  const items = await findOrphaned(cwd);
+  const items = await findOrphaned(cwd, {
+    sessionDirName: options.sessionDirName,
+    checkpointsBranch: options.checkpointsBranch,
+    shadowBranchPrefix: options.shadowBranchPrefix,
+  });
   const errors: string[] = [];
   let deletedCount = 0;
 
