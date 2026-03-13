@@ -55,6 +55,7 @@ Tool commands (require running daemon):
   get     <id>                  Get a node by ID
   update  <id> [options]        Update a node
   delete  <id> [--hard]         Delete a node
+  context-summary [options]     Get context summary breadcrumbs for session continuity
 
 Create options:
   --status <s>                  Status (required for tasks)
@@ -71,6 +72,12 @@ Update options:
   --status <s>                  Update status
   --archived                    Archive the node
   --metadata <json>             Update metadata (merged)
+
+Context-summary options:
+  --task <id>                   Find context related to a specific task
+  --tags <t1,t2>                Filter by tags
+  --branch <name>               Filter by branch
+  --limit <n>                   Max breadcrumbs per section (default: 10)
 
 Daemon commands:
   daemon start [--foreground]   Start the daemon (detaches by default)
@@ -817,6 +824,27 @@ export async function cmdUpdate(args: string[]): Promise<void> {
   });
 }
 
+export async function cmdContextSummary(args: string[]): Promise<void> {
+  const params: Record<string, unknown> = {};
+
+  const taskId = getFlag(args, '--task');
+  const tagsStr = getFlag(args, '--tags');
+  const branch = getFlag(args, '--branch');
+  const limitStr = getFlag(args, '--limit');
+
+  if (taskId) params.taskId = taskId;
+  if (tagsStr) params.tags = tagsStr.split(',').map((t) => t.trim());
+  if (branch) params.branch = branch;
+  if (limitStr) params.limit = parseInt(limitStr, 10);
+
+  const client = new OpenTasksClient();
+  await runToolCommand(async () => {
+    const result = await client.contextSummary(params);
+    client.disconnect();
+    return result;
+  });
+}
+
 export async function cmdDelete(args: string[]): Promise<void> {
   const id = args[0];
   if (!id) {
@@ -1027,6 +1055,9 @@ async function main() {
       break;
     case 'delete':
       await cmdDelete(args.slice(1));
+      break;
+    case 'context-summary':
+      await cmdContextSummary(args.slice(1));
       break;
 
     // Setup commands (sync, no daemon needed)

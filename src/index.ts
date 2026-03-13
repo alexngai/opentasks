@@ -177,6 +177,9 @@ export type {
   CreateFeedbackParams,
   FeedbackAnchor,
   FeedbackType,
+  ContextSummaryParams,
+  ContextSummaryResult,
+  Breadcrumb,
   ToolErrorCode,
 } from './tools/index.js';
 

@@ -29,4 +29,7 @@ export type {
   ReadyOptions,
   BlockerOptions,
   FeedbackOptions,
+  ContextSummaryParams,
+  ContextSummaryResult,
+  Breadcrumb,
 } from '../tools/types.js';

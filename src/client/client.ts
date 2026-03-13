@@ -25,6 +25,8 @@ import type {
   ReadyOptions,
   BlockerOptions,
   FeedbackOptions,
+  ContextSummaryParams,
+  ContextSummaryResult,
 } from '../tools/types.js';
 import type { CreateNodeInput, UpdateNodeInput, DeleteOptions } from '../graph/types.js';
 
@@ -373,6 +375,21 @@ export class OpenTasksClient {
       feedback: { nodeId, ...options },
     });
     return result.items as FeedbackSummary[];
+  }
+
+  /**
+   * Get context summary breadcrumbs for session continuity.
+   *
+   * Returns structured breadcrumbs: recently completed tasks, active tasks,
+   * blocked tasks, related context nodes, and unresolved feedback.
+   * Useful at session start to understand what was being worked on.
+   *
+   * @param params - Context summary parameters (taskId, tags, branch, limit)
+   * @returns Structured context summary with breadcrumbs
+   */
+  async contextSummary(params?: ContextSummaryParams): Promise<ContextSummaryResult> {
+    const result = await this.query({ contextSummary: params || {} });
+    return result.contextSummary!;
   }
 
   /**
