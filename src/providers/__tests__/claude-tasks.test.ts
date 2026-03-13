@@ -10,6 +10,8 @@ import {
 } from '../claude-tasks.js';
 import type { Provider } from '../types.js';
 import { ProviderError } from '../types.js';
+import { isTaskManageable, type TaskManageable } from '../traits/TaskManageable.js';
+import { isWatchable } from '../traits/Watchable.js';
 
 describe('ClaudeTasksProvider', () => {
   let provider: Provider;
@@ -480,6 +482,144 @@ describe('ClaudeTasksProvider', () => {
 
       const fetched = await taskStore.get(created.id);
       expect(fetched).toBeNull();
+    });
+  });
+
+  describe('TaskManageable trait', () => {
+    let tmProvider: Provider & TaskManageable;
+
+    beforeEach(() => {
+      taskStore = createInMemoryTaskStore();
+      tmProvider = createClaudeTasksProvider({ taskStore }) as Provider & TaskManageable;
+    });
+
+    it('should satisfy isTaskManageable type guard', () => {
+      expect(isTaskManageable(tmProvider)).toBe(true);
+    });
+
+    it('should declare correct task capabilities', () => {
+      expect(tmProvider.taskCapabilities.actions).toContain('start');
+      expect(tmProvider.taskCapabilities.actions).toContain('complete');
+      expect(tmProvider.taskCapabilities.actions).toContain('reopen');
+      expect(tmProvider.taskCapabilities.actions).toContain('close');
+      expect(tmProvider.taskCapabilities.supportsAssignment).toBe(true);
+      expect(tmProvider.taskCapabilities.supportsReadyQuery).toBe(true);
+      expect(tmProvider.taskCapabilities.statusModel).toEqual(['open', 'in_progress', 'closed']);
+    });
+
+    it('should transition task: start (pending → in_progress)', async () => {
+      const task = await taskStore.create({ subject: 'Task', status: 'pending' });
+      const result = await tmProvider.transitionTask(task.id, 'start');
+      expect(result.status).toBe('in_progress');
+    });
+
+    it('should transition task: complete (in_progress → closed)', async () => {
+      const task = await taskStore.create({ subject: 'Task', status: 'in_progress' });
+      const result = await tmProvider.transitionTask(task.id, 'complete');
+      expect(result.status).toBe('closed');
+    });
+
+    it('should transition task: reopen (closed → open)', async () => {
+      const task = await taskStore.create({ subject: 'Task', status: 'completed' });
+      const result = await tmProvider.transitionTask(task.id, 'reopen');
+      expect(result.status).toBe('open');
+    });
+
+    it('should reject invalid transition', async () => {
+      const task = await taskStore.create({ subject: 'Task', status: 'pending' });
+      await expect(tmProvider.transitionTask(task.id, 'complete')).rejects.toThrow(ProviderError);
+    });
+
+    it('should reject block action (Claude has no blocked status)', async () => {
+      const task = await taskStore.create({ subject: 'Task', status: 'pending' });
+      await expect(tmProvider.transitionTask(task.id, 'block')).rejects.toThrow(ProviderError);
+    });
+
+    it('should return ready tasks (pending with no blockers)', async () => {
+      await taskStore.create({ subject: 'Ready', status: 'pending' });
+      await taskStore.create({ subject: 'In Progress', status: 'in_progress' });
+      await taskStore.create({ subject: 'Done', status: 'completed' });
+
+      const ready = await tmProvider.readyTasks();
+      expect(ready).toHaveLength(1);
+      expect(ready[0].title).toBe('Ready');
+    });
+
+    it('should exclude tasks with active blockers from ready', async () => {
+      const blocker = await taskStore.create({ subject: 'Blocker', status: 'pending' });
+      await taskStore.create({
+        subject: 'Blocked',
+        status: 'pending',
+        blockedBy: [blocker.id],
+      });
+
+      const ready = await tmProvider.readyTasks();
+      // Only the blocker itself is ready (it has no blockers)
+      expect(ready).toHaveLength(1);
+      expect(ready[0].title).toBe('Blocker');
+    });
+
+    it('should include tasks whose blockers are completed', async () => {
+      const blocker = await taskStore.create({ subject: 'Blocker', status: 'completed' });
+      await taskStore.create({
+        subject: 'Unblocked',
+        status: 'pending',
+        blockedBy: [blocker.id],
+      });
+
+      const ready = await tmProvider.readyTasks();
+      expect(ready).toHaveLength(1);
+      expect(ready[0].title).toBe('Unblocked');
+    });
+
+    it('should assign task', async () => {
+      const task = await taskStore.create({ subject: 'Task', status: 'pending' });
+      const result = await tmProvider.assignTask!(task.id, 'alice');
+      expect(result.rawData).toHaveProperty('owner', 'alice');
+    });
+
+    it('should return valid actions for open (pending) state', async () => {
+      const task = await taskStore.create({ subject: 'Task', status: 'pending' });
+      const actions = await tmProvider.validActions!(task.id);
+      expect(actions).toContain('start');
+      expect(actions).toContain('close');
+      expect(actions).not.toContain('complete');
+      expect(actions).not.toContain('reopen');
+    });
+
+    it('should return valid actions for in_progress state', async () => {
+      const task = await taskStore.create({ subject: 'Task', status: 'in_progress' });
+      const actions = await tmProvider.validActions!(task.id);
+      expect(actions).toContain('complete');
+      expect(actions).toContain('close');
+      expect(actions).not.toContain('start');
+    });
+
+    it('should return valid actions for closed (completed) state', async () => {
+      const task = await taskStore.create({ subject: 'Task', status: 'completed' });
+      const actions = await tmProvider.validActions!(task.id);
+      expect(actions).toContain('reopen');
+      expect(actions).not.toContain('start');
+      expect(actions).not.toContain('complete');
+    });
+  });
+
+  describe('Watchable trait', () => {
+    it('should not be watchable without tasksDir', () => {
+      const p = createClaudeTasksProvider({ taskStore });
+      expect(isWatchable(p)).toBe(true); // has the methods
+      expect(p.capabilities.watch).toBe(false); // but watch capability is false
+    });
+
+    it('should be watchable with tasksDir', () => {
+      const p = createClaudeTasksProvider({ taskStore, tasksDir: '/tmp/test-tasks' });
+      expect(p.capabilities.watch).toBe(true);
+    });
+  });
+
+  describe('local flag', () => {
+    it('should have local: true', () => {
+      expect(provider.local).toBe(true);
     });
   });
 });

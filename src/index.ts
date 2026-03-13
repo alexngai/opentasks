@@ -276,11 +276,11 @@ export type {
 export { createSkillTracker, createSkillTrackerRegistry } from './tracking/index.js';
 
 // =============================================================================
-// Entire (Native TypeScript Implementation)
+// Sessionlog (Native TypeScript Implementation)
 // =============================================================================
 
-// Re-export entire module as a namespace for clean boundary
-export * as entire from './entire/index.js';
+// Re-export sessionlog module as a namespace for clean boundary
+export * as sessionlog from './sessionlog/index.js';
 
 // =============================================================================
 // MCP Server

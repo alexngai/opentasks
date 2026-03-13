@@ -1088,4 +1088,446 @@ describe('ProviderAwareStore', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // Reconciliation
+  // ==========================================================================
+
+  describe('reconcileProviders', () => {
+    const makeAuthoritativeNode = (overrides: Partial<Task> = {}): Task => ({
+      id: 't-rec1',
+      uuid: 'uuid-rec-1',
+      type: 'task',
+      title: 'Cached title',
+      content: 'Cached content',
+      status: 'open',
+      created_at: '2024-01-01T00:00:00.000Z',
+      updated_at: '2024-01-01T00:00:00.000Z',
+      metadata: {
+        provider_uri: 'beads://./bd-rec1',
+        provider_source: 'beads',
+        provider_cached_at: '2024-01-01T00:00:00.000Z',
+        provider_authoritative: true,
+      },
+      ...overrides,
+    });
+
+    it('should return empty result when no authoritative nodes exist', async () => {
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([]);
+
+      const result = await providerStore.reconcileProviders();
+
+      expect(result.totalNodes).toBe(0);
+      expect(result.results).toEqual([]);
+      expect(result.skippedProviders).toEqual([]);
+    });
+
+    it('should update node when provider returns different data', async () => {
+      const node = makeAuthoritativeNode();
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([node as unknown as Node]);
+      vi.mocked(baseStore.updateNode).mockResolvedValue(node as unknown as Node);
+
+      providerStore.providers.register(mockBeadsProvider);
+      vi.mocked(mockBeadsProvider.get).mockResolvedValue({
+        id: 'bd-rec1',
+        uri: 'beads://./bd-rec1',
+        type: 'issue',
+        title: 'Updated title',
+        content: 'Cached content',
+        status: 'open',
+        fetchedAt: new Date().toISOString(),
+      });
+
+      const result = await providerStore.reconcileProviders();
+
+      expect(result.totalNodes).toBe(1);
+      expect(result.results[0].status).toBe('updated');
+      expect(baseStore.updateNode).toHaveBeenCalledWith(
+        't-rec1',
+        expect.objectContaining({
+          title: 'Updated title',
+          metadata: expect.objectContaining({
+            provider_cached_at: expect.any(String),
+          }),
+        }),
+      );
+    });
+
+    it('should stamp provider_cached_at when data is unchanged', async () => {
+      const node = makeAuthoritativeNode();
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([node as unknown as Node]);
+      vi.mocked(baseStore.updateNode).mockResolvedValue(node as unknown as Node);
+
+      providerStore.providers.register(mockBeadsProvider);
+      vi.mocked(mockBeadsProvider.get).mockResolvedValue({
+        id: 'bd-rec1',
+        uri: 'beads://./bd-rec1',
+        type: 'issue',
+        title: 'Cached title',
+        content: 'Cached content',
+        status: 'open',
+        fetchedAt: new Date().toISOString(),
+      });
+
+      const result = await providerStore.reconcileProviders();
+
+      expect(result.results[0].status).toBe('unchanged');
+      expect(baseStore.updateNode).toHaveBeenCalledWith(
+        't-rec1',
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            provider_cached_at: expect.any(String),
+          }),
+        }),
+      );
+    });
+
+    it('should skip provider when isAvailable returns false (positive-writes-only)', async () => {
+      const node = makeAuthoritativeNode();
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([node as unknown as Node]);
+
+      const unavailableProvider = {
+        ...mockBeadsProvider,
+        isAvailable: vi.fn().mockResolvedValue(false),
+      };
+      providerStore.providers.register(unavailableProvider);
+
+      const result = await providerStore.reconcileProviders();
+
+      expect(result.skippedProviders).toContain('beads');
+      expect(result.results[0].status).toBe('unavailable');
+      expect(baseStore.updateNode).not.toHaveBeenCalled();
+    });
+
+    it('should skip unregistered providers', async () => {
+      const node = makeAuthoritativeNode({
+        metadata: {
+          provider_uri: 'jira://PROJ/JIRA-1',
+          provider_source: 'jira',
+          provider_authoritative: true,
+        },
+      });
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([node as unknown as Node]);
+
+      const result = await providerStore.reconcileProviders();
+
+      expect(result.skippedProviders).toContain('jira');
+      expect(result.results[0].status).toBe('unavailable');
+    });
+
+    it('should not delete/archive when provider returns null (positive-writes-only)', async () => {
+      const node = makeAuthoritativeNode();
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([node as unknown as Node]);
+
+      providerStore.providers.register(mockBeadsProvider);
+      vi.mocked(mockBeadsProvider.get).mockResolvedValue(null);
+
+      const result = await providerStore.reconcileProviders();
+
+      expect(result.results[0].status).toBe('unchanged');
+      // Should NOT call updateNode to archive/delete
+      expect(baseStore.updateNode).not.toHaveBeenCalled();
+      expect(baseStore.deleteNode).not.toHaveBeenCalled();
+    });
+
+    it('should handle errors gracefully and preserve cached data', async () => {
+      const node = makeAuthoritativeNode();
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([node as unknown as Node]);
+
+      providerStore.providers.register(mockBeadsProvider);
+      vi.mocked(mockBeadsProvider.get).mockRejectedValue(new Error('Network error'));
+
+      const result = await providerStore.reconcileProviders();
+
+      expect(result.results[0].status).toBe('error');
+      expect(result.results[0].error).toBe('Network error');
+      expect(baseStore.updateNode).not.toHaveBeenCalled();
+    });
+
+    it('should filter by providers option', async () => {
+      const beadsNode = makeAuthoritativeNode();
+      const claudeNode = makeAuthoritativeNode({
+        id: 't-rec2',
+        metadata: {
+          provider_uri: 'claude://current/1',
+          provider_source: 'claude',
+          provider_authoritative: true,
+        },
+      });
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([
+        beadsNode as unknown as Node,
+        claudeNode as unknown as Node,
+      ]);
+
+      providerStore.providers.register(mockBeadsProvider);
+
+      const result = await providerStore.reconcileProviders({ providers: ['claude'] });
+
+      // Should only process claude, not beads
+      expect(result.totalNodes).toBe(1);
+      expect(mockBeadsProvider.get).not.toHaveBeenCalled();
+    });
+
+    it('should filter by nodeIds option', async () => {
+      const node1 = makeAuthoritativeNode({ id: 't-rec1' });
+      const node2 = makeAuthoritativeNode({ id: 't-rec2' });
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([
+        node1 as unknown as Node,
+        node2 as unknown as Node,
+      ]);
+      vi.mocked(baseStore.updateNode).mockResolvedValue(node1 as unknown as Node);
+
+      providerStore.providers.register(mockBeadsProvider);
+      vi.mocked(mockBeadsProvider.get).mockResolvedValue({
+        id: 'bd-rec1',
+        uri: 'beads://./bd-rec1',
+        type: 'issue',
+        title: 'Cached title',
+        content: 'Cached content',
+        status: 'open',
+        fetchedAt: new Date().toISOString(),
+      });
+
+      const result = await providerStore.reconcileProviders({ nodeIds: ['t-rec1'] });
+
+      expect(result.totalNodes).toBe(1);
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0].nodeId).toBe('t-rec1');
+    });
+
+    it('should clear provider_needs_reconcile flag on successful reconciliation', async () => {
+      const node = makeAuthoritativeNode({
+        metadata: {
+          provider_uri: 'beads://./bd-rec1',
+          provider_source: 'beads',
+          provider_authoritative: true,
+          provider_needs_reconcile: true,
+        },
+      });
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([node as unknown as Node]);
+      vi.mocked(baseStore.updateNode).mockResolvedValue(node as unknown as Node);
+
+      providerStore.providers.register(mockBeadsProvider);
+      vi.mocked(mockBeadsProvider.get).mockResolvedValue({
+        id: 'bd-rec1',
+        uri: 'beads://./bd-rec1',
+        type: 'issue',
+        title: 'Cached title',
+        content: 'Cached content',
+        status: 'open',
+        fetchedAt: new Date().toISOString(),
+      });
+
+      await providerStore.reconcileProviders();
+
+      expect(baseStore.updateNode).toHaveBeenCalledWith(
+        't-rec1',
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            provider_needs_reconcile: undefined,
+          }),
+        }),
+      );
+    });
+
+    it('should not cache data for pointer-only nodes during reconciliation', async () => {
+      const node = makeAuthoritativeNode({
+        metadata: {
+          provider_uri: 'beads://./bd-rec1',
+          provider_source: 'beads',
+          provider_authoritative: true,
+          provider_pointer_only: true,
+        },
+      });
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([node as unknown as Node]);
+      vi.mocked(baseStore.updateNode).mockResolvedValue(node as unknown as Node);
+
+      providerStore.providers.register(mockBeadsProvider);
+      vi.mocked(mockBeadsProvider.get).mockResolvedValue({
+        id: 'bd-rec1',
+        uri: 'beads://./bd-rec1',
+        type: 'issue',
+        title: 'New title from provider',
+        content: 'New content',
+        status: 'closed',
+        fetchedAt: new Date().toISOString(),
+      });
+
+      await providerStore.reconcileProviders();
+
+      // updateNode should NOT include title/content/status for pointer-only
+      const updateCall = vi.mocked(baseStore.updateNode).mock.calls[0];
+      expect(updateCall[1]).not.toHaveProperty('title');
+      expect(updateCall[1]).not.toHaveProperty('content');
+      expect(updateCall[1]).not.toHaveProperty('status');
+    });
+
+    it('uses batch path when provider implements Reconcilable', async () => {
+      const node = makeAuthoritativeNode({
+        id: 't-batch1',
+        title: 'Old title',
+        metadata: {
+          provider_authoritative: true,
+          provider_source: 'beads',
+          provider_uri: 'beads://./bd-batch1',
+          provider_content_hash: 'hash-old',
+        },
+      });
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([node as unknown as Node]);
+      vi.mocked(baseStore.updateNode).mockResolvedValue(node as unknown as Node);
+
+      // Add Reconcilable trait
+      const reconcilableProvider = {
+        ...mockBeadsProvider,
+        listForReconciliation: vi.fn().mockResolvedValue([
+          { id: 'bd-batch1', uri: 'beads://./bd-batch1', contentHash: 'hash-old' },
+        ]),
+      };
+      providerStore.providers.register(reconcilableProvider);
+
+      const result = await providerStore.reconcileProviders();
+
+      // Hash matches → should NOT call provider.get()
+      expect(reconcilableProvider.get).not.toHaveBeenCalled();
+      expect(result.results[0].status).toBe('unchanged');
+    });
+
+    it('falls back to individual get() when batch hash differs', async () => {
+      const node = makeAuthoritativeNode({
+        id: 't-batch2',
+        title: 'Old title',
+        metadata: {
+          provider_authoritative: true,
+          provider_source: 'beads',
+          provider_uri: 'beads://./bd-batch2',
+          provider_content_hash: 'hash-old',
+        },
+      });
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([node as unknown as Node]);
+      vi.mocked(baseStore.updateNode).mockResolvedValue(node as unknown as Node);
+
+      const reconcilableProvider = {
+        ...mockBeadsProvider,
+        listForReconciliation: vi.fn().mockResolvedValue([
+          { id: 'bd-batch2', uri: 'beads://./bd-batch2', contentHash: 'hash-NEW' },
+        ]),
+      };
+      providerStore.providers.register(reconcilableProvider);
+
+      vi.mocked(mockBeadsProvider.get).mockResolvedValue({
+        id: 'bd-batch2',
+        uri: 'beads://./bd-batch2',
+        type: 'issue',
+        title: 'Updated title',
+        content: 'Updated content',
+        fetchedAt: new Date().toISOString(),
+        contentHash: 'hash-NEW',
+      });
+
+      const result = await providerStore.reconcileProviders();
+
+      // Hash changed → should call provider.get()
+      expect(reconcilableProvider.get).toHaveBeenCalled();
+      expect(result.results[0].status).toBe('updated');
+    });
+
+    it('stamps provider_content_hash on reconciled nodes', async () => {
+      const node = makeAuthoritativeNode({
+        id: 't-hash1',
+        title: 'Matching title',
+        metadata: {
+          provider_authoritative: true,
+          provider_source: 'beads',
+          provider_uri: 'beads://./bd-hash1',
+        },
+      });
+      vi.mocked(baseStore.query.nodes).mockResolvedValue([node as unknown as Node]);
+      vi.mocked(baseStore.updateNode).mockResolvedValue(node as unknown as Node);
+
+      providerStore.providers.register(mockBeadsProvider);
+      vi.mocked(mockBeadsProvider.get).mockResolvedValue({
+        id: 'bd-hash1',
+        uri: 'beads://./bd-hash1',
+        type: 'issue',
+        title: 'Matching title',
+        fetchedAt: new Date().toISOString(),
+        contentHash: 'abc123',
+      });
+
+      await providerStore.reconcileProviders();
+
+      const updateCall = vi.mocked(baseStore.updateNode).mock.calls[0];
+      expect(updateCall[1].metadata).toHaveProperty('provider_content_hash', 'abc123');
+    });
+  });
+
+  describe('pointer cache', () => {
+    it('resolves pointer-only nodes transparently from provider', async () => {
+      const pointerNode: Task = {
+        id: 't-ptr1',
+        uuid: 'uuid-ptr-1',
+        type: 'task',
+        title: '',
+        status: 'open',
+        created_at: '2024-01-01T00:00:00.000Z',
+        updated_at: '2024-01-01T00:00:00.000Z',
+        metadata: {
+          provider_pointer_only: true,
+          provider_uri: 'beads://./bd-ptr1',
+          provider_source: 'beads',
+        },
+      };
+      vi.mocked(baseStore.getNode).mockResolvedValue(pointerNode as unknown as Node);
+
+      providerStore.providers.register(mockBeadsProvider);
+      vi.mocked(mockBeadsProvider.get).mockResolvedValue({
+        id: 'bd-ptr1',
+        uri: 'beads://./bd-ptr1',
+        type: 'issue',
+        title: 'Real title from provider',
+        content: 'Real content',
+        fetchedAt: new Date().toISOString(),
+      });
+
+      const resolved = await providerStore.resolveNode('t-ptr1');
+      expect(resolved).toBeTruthy();
+      expect(resolved!.title).toBe('Real title from provider');
+    });
+
+    it('uses cached pointer data on second resolve', async () => {
+      const pointerNode: Task = {
+        id: 't-ptr2',
+        uuid: 'uuid-ptr-2',
+        type: 'task',
+        title: '',
+        status: 'open',
+        created_at: '2024-01-01T00:00:00.000Z',
+        updated_at: '2024-01-01T00:00:00.000Z',
+        metadata: {
+          provider_pointer_only: true,
+          provider_uri: 'beads://./bd-ptr2',
+          provider_source: 'beads',
+        },
+      };
+      vi.mocked(baseStore.getNode).mockResolvedValue(pointerNode as unknown as Node);
+
+      providerStore.providers.register(mockBeadsProvider);
+      vi.mocked(mockBeadsProvider.get).mockResolvedValue({
+        id: 'bd-ptr2',
+        uri: 'beads://./bd-ptr2',
+        type: 'issue',
+        title: 'Cached title',
+        fetchedAt: new Date().toISOString(),
+      });
+
+      // First call — fetches from provider
+      await providerStore.resolveNode('t-ptr2');
+      expect(mockBeadsProvider.get).toHaveBeenCalledTimes(1);
+
+      // Second call — uses cache
+      const resolved = await providerStore.resolveNode('t-ptr2');
+      expect(mockBeadsProvider.get).toHaveBeenCalledTimes(1); // still 1
+      expect(resolved!.title).toBe('Cached title');
+    });
+  });
 });

@@ -63,6 +63,13 @@ function rowToNode(row: Record<string, unknown>): StoredNode {
   if (row.lock_until != null) node.lock_until = row.lock_until as string;
   if (row.location != null) node.location = row.location as string;
   if (row.branch != null) node.branch = row.branch as string;
+  if (row.metadata != null) {
+    try {
+      node.metadata = JSON.parse(row.metadata as string);
+    } catch {
+      // Ignore parse errors
+    }
+  }
 
   return node;
 }
@@ -172,13 +179,13 @@ export class SQLitePersister implements Storage {
         assignee, parent_id, source, archived, created_at, updated_at,
         target_id, feedback_type, thread_id, reply_to_id, resolved, dismissed,
         uri, materialized, cached_at, stale, external_status,
-        claimed_by, claimed_at, lock_until, location, branch
+        claimed_by, claimed_at, lock_until, location, branch, metadata
       ) VALUES (
         @id, @uuid, @type, @title, @content, @content_hash, @status, @priority,
         @assignee, @parent_id, @source, @archived, @created_at, @updated_at,
         @target_id, @feedback_type, @thread_id, @reply_to_id, @resolved, @dismissed,
         @uri, @materialized, @cached_at, @stale, @external_status,
-        @claimed_by, @claimed_at, @lock_until, @location, @branch
+        @claimed_by, @claimed_at, @lock_until, @location, @branch, @metadata
       )
     `);
 
@@ -213,6 +220,7 @@ export class SQLitePersister implements Storage {
       lock_until: node.lock_until ?? null,
       location: node.location ?? null,
       branch: node.branch ?? null,
+      metadata: node.metadata ? JSON.stringify(node.metadata) : null,
     });
   }
 
@@ -562,13 +570,13 @@ export class SQLitePersister implements Storage {
         assignee, parent_id, source, archived, created_at, updated_at,
         target_id, feedback_type, thread_id, reply_to_id, resolved, dismissed,
         uri, materialized, cached_at, stale, external_status,
-        claimed_by, claimed_at, lock_until, location, branch
+        claimed_by, claimed_at, lock_until, location, branch, metadata
       ) VALUES (
         @id, @uuid, @type, @title, @content, @content_hash, @status, @priority,
         @assignee, @parent_id, @source, @archived, @created_at, @updated_at,
         @target_id, @feedback_type, @thread_id, @reply_to_id, @resolved, @dismissed,
         @uri, @materialized, @cached_at, @stale, @external_status,
-        @claimed_by, @claimed_at, @lock_until, @location, @branch
+        @claimed_by, @claimed_at, @lock_until, @location, @branch, @metadata
       )
     `);
 
@@ -603,6 +611,7 @@ export class SQLitePersister implements Storage {
       lock_until: node.lock_until ?? null,
       location: node.location ?? null,
       branch: node.branch ?? null,
+      metadata: node.metadata ? JSON.stringify(node.metadata) : null,
     });
   }
 
@@ -638,6 +647,7 @@ export class SQLitePersister implements Storage {
       'lock_until',
       'location',
       'branch',
+      'metadata',
     ];
 
     for (const field of updateableFields) {
@@ -647,6 +657,8 @@ export class SQLitePersister implements Storage {
 
         if (typeof value === 'boolean') {
           value = value ? 1 : 0;
+        } else if (field === 'metadata' && typeof value === 'object' && value !== null) {
+          value = JSON.stringify(value);
         }
 
         values[field] = value ?? null;

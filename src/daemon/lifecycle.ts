@@ -16,8 +16,8 @@ import { DaemonError, type DaemonState, type DaemonStatus, type DaemonEntry } fr
 import { createIPCServer, type IPCServer } from './ipc.js';
 import { createFileWatcher, type FileWatcher } from './watcher.js';
 import { createDaemonFlushManager, type DaemonFlushManager } from './flush.js';
-import { createEntireWatcher, type EntireWatcher } from './entire-watcher.js';
-import { createEntireAutoLinker, type EntireAutoLinker } from './entire-linker.js';
+import { createSessionlogWatcher, type SessionlogWatcher } from './sessionlog-watcher.js';
+import { createSessionlogAutoLinker, type SessionlogAutoLinker } from './sessionlog-linker.js';
 import { registerLifecycleMethods } from './methods/lifecycle.js';
 import { registerGraphMethods } from './methods/graph.js';
 import { registerToolsMethods } from './methods/tools.js';
@@ -25,7 +25,11 @@ import { registerLocationMethods } from './methods/location.js';
 import type { GraphStore } from '../graph/store.js';
 import { createSkillTrackerRegistry } from '../tracking/skill-tracker.js';
 import { createTranscriptExtractor } from '../tracking/transcript-extractor.js';
-import { createProviderAwareStore, type ProviderAwareStore } from '../graph/provider-store.js';
+import {
+  createProviderAwareStore,
+  type ProviderAwareStore,
+  type ReconcileResult,
+} from '../graph/provider-store.js';
 import { registerProviderMethods } from './methods/provider.js';
 import { registerArchiveMethods } from './methods/archive.js';
 import { registerWatchMethods } from './methods/watch.js';
@@ -231,6 +235,36 @@ function registerConfiguredProviders(
 }
 
 // ============================================================================
+// Reconciliation Helpers
+// ============================================================================
+
+type ReconciliationTrigger = 'async' | 'blocking' | 'none';
+
+/**
+ * Trigger provider reconciliation based on the configured mode.
+ *
+ * - 'blocking': await the reconciliation before returning
+ * - 'async': fire-and-forget (errors logged but not thrown)
+ * - 'none': skip entirely
+ */
+async function triggerReconciliation(
+  providerStore: ProviderAwareStore,
+  mode: ReconciliationTrigger,
+): Promise<ReconcileResult | null> {
+  if (mode === 'none') return null;
+
+  const run = providerStore.reconcileProviders().catch(() => null);
+
+  if (mode === 'blocking') {
+    return await run;
+  }
+
+  // 'async' — fire and forget
+  void run;
+  return null;
+}
+
+// ============================================================================
 // Shared Helpers
 // ============================================================================
 
@@ -308,8 +342,10 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
   let fileWatcher: FileWatcher | null = null;
   let flushManager: DaemonFlushManager | null = null;
   let activeProviderStore: ProviderAwareStore | null = null;
-  let entireWatcher: EntireWatcher | null = null;
-  let entireLinker: EntireAutoLinker | null = null;
+  let sessionlogWatcher: SessionlogWatcher | null = null;
+  let sessionlogLinker: SessionlogAutoLinker | null = null;
+  let reconciliationIntervalHandle: ReturnType<typeof setInterval> | null = null;
+  let providerIntervalHandles: Map<string, ReturnType<typeof setInterval>> | null = null;
 
   // Signal handlers (stored for cleanup)
   let signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = [];
@@ -408,8 +444,12 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         // 8. Create single-location resolver wrapping store + flushManager
         const defaultProvider =
           (openTasksConfig?.defaultProvider as string | undefined) ?? 'native';
+        const reconciliationConfig = openTasksConfig?.reconciliation as
+          | { onStartup?: ReconciliationTrigger; onReload?: ReconciliationTrigger; backgroundInterval?: number; providerIntervals?: Record<string, number> }
+          | undefined;
         const providerStore = createProviderAwareStore(store, {
           defaultProvider,
+          reconciliation: reconciliationConfig,
         });
 
         // Register external providers from config
@@ -495,8 +535,12 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         // 11. Create and start file watcher
         fileWatcher = createFileWatcher({ locationPath });
 
-        fileWatcher.onchange((_event) => {
-          // External changes detected. Full reload deferred.
+        const onReload = reconciliationConfig?.onReload ?? 'async';
+        fileWatcher.onchange((event) => {
+          if (event.category === 'graph' && onReload !== 'none' && activeProviderStore) {
+            // After external graph changes, reconcile provider-backed nodes
+            void activeProviderStore.reconcileProviders().catch(() => {});
+          }
         });
 
         await fileWatcher.start();
@@ -507,10 +551,45 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         // 12. Start provider watching for watchable providers
         providerStore.startProviderWatching();
 
-        // 13. Initialize Entire watcher + auto-linker + transcript extractor (optional)
+        // 12b. Trigger startup reconciliation
+        const onStartup = reconciliationConfig?.onStartup ?? 'async';
+        await triggerReconciliation(providerStore, onStartup);
+
+        // 12c. Start background reconciliation interval
+        const bgInterval = reconciliationConfig?.backgroundInterval ?? 300000;
+        if (bgInterval > 0) {
+          reconciliationIntervalHandle = setInterval(() => {
+            if (activeProviderStore) {
+              void activeProviderStore.reconcileProviders().catch(() => {});
+            }
+          }, bgInterval);
+        }
+
+        // 12d. Start per-provider reconciliation intervals
+        const providerIntervals = reconciliationConfig?.providerIntervals as Record<string, number> | undefined;
+        if (providerIntervals && Object.keys(providerIntervals).length > 0) {
+          providerIntervalHandles = new Map();
+          for (const [providerName, interval] of Object.entries(providerIntervals)) {
+            if (interval > 0) {
+              providerIntervalHandles.set(
+                providerName,
+                setInterval(() => {
+                  if (activeProviderStore) {
+                    void activeProviderStore.reconcileProviders({ providers: [providerName] }).catch(() => {});
+                  }
+                }, interval),
+              );
+            }
+          }
+        }
+
+        // 13. Initialize Sessionlog watcher + auto-linker + transcript extractor (optional)
         try {
-          entireWatcher = createEntireWatcher({ locationPath });
-          entireLinker = createEntireAutoLinker({
+          sessionlogWatcher = createSessionlogWatcher({
+            locationPath,
+            sessionDirName: openTasksConfig?.providers?.sessionlog?.sessionDirName as string | undefined,
+          });
+          sessionlogLinker = createSessionlogAutoLinker({
             store,
             flushManager,
             skillTrackerRegistry,
@@ -520,7 +599,7 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
             skillTrackerRegistry,
           });
 
-          entireWatcher.onSessionEvent(async (event) => {
+          sessionlogWatcher.onSessionEvent(async (event) => {
             // Step 1: Extract transcript and backfill SkillTracker (BEFORE linker finalizes)
             if (event.type === 'ended') {
               try {
@@ -531,14 +610,14 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
             }
 
             // Step 2: Linker finalizes (calls registry.remove() on ended)
-            await entireLinker!.handleSessionEvent(event);
+            await sessionlogLinker!.handleSessionEvent(event);
           });
 
-          await entireWatcher.start();
+          await sessionlogWatcher.start();
         } catch {
-          // Entire integration is optional — continue without it
-          entireWatcher = null;
-          entireLinker = null;
+          // Sessionlog integration is optional — continue without it
+          sessionlogWatcher = null;
+          sessionlogLinker = null;
         }
 
         // 13. Mark as running
@@ -548,14 +627,23 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         state = 'stopped';
         startedAt = null;
 
-        if (entireWatcher) {
+        if (reconciliationIntervalHandle) {
+          clearInterval(reconciliationIntervalHandle);
+          reconciliationIntervalHandle = null;
+        }
+        if (providerIntervalHandles) {
+          for (const handle of providerIntervalHandles.values()) clearInterval(handle);
+          providerIntervalHandles = null;
+        }
+
+        if (sessionlogWatcher) {
           try {
-            await entireWatcher.stop();
+            await sessionlogWatcher.stop();
           } catch {
             /* ignore */
           }
-          entireWatcher = null;
-          entireLinker = null;
+          sessionlogWatcher = null;
+          sessionlogLinker = null;
         }
 
         if (fileWatcher) {
@@ -611,11 +699,21 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
             ipcServer = null;
           }
 
-          // Stop Entire watcher before file watcher
-          if (entireWatcher) {
-            await entireWatcher.stop();
-            entireWatcher = null;
-            entireLinker = null;
+          // Stop Sessionlog watcher before file watcher
+          if (sessionlogWatcher) {
+            await sessionlogWatcher.stop();
+            sessionlogWatcher = null;
+            sessionlogLinker = null;
+          }
+
+          // Stop background reconciliation
+          if (reconciliationIntervalHandle) {
+            clearInterval(reconciliationIntervalHandle);
+            reconciliationIntervalHandle = null;
+          }
+          if (providerIntervalHandles) {
+            for (const handle of providerIntervalHandles.values()) clearInterval(handle);
+            providerIntervalHandles = null;
           }
 
           // Stop provider watching before tearing down file watcher and store
@@ -761,12 +859,20 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
         sharedSkillTrackerRegistry = createSkillTrackerRegistry();
       }
 
+      const locReconciliationConfig = locationConfig?.reconciliation as
+        | { onStartup?: ReconciliationTrigger; onReload?: ReconciliationTrigger; backgroundInterval?: number; providerIntervals?: Record<string, number> }
+        | undefined;
+
       const locState = await createLocationState(opentasksPath, hash, isPrimary, sharedSkillTrackerRegistry);
       // Wrap store with provider-aware dispatch
       const defaultProvider = (locationConfig?.defaultProvider as string | undefined) ?? 'native';
       locState.providerStore = createProviderAwareStore(locState.store, {
         defaultProvider,
+        reconciliation: locReconciliationConfig,
       });
+
+      // Set reconciliation onReload mode for the watcher handler
+      locState.reconciliationOnReload = locReconciliationConfig?.onReload ?? 'async';
 
       // Register external providers from config
       registerConfiguredProviders(locState.providerStore, locationConfig, opentasksPath);
@@ -795,6 +901,38 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
 
       // Start provider watching for watchable providers
       locState.providerStore.startProviderWatching();
+
+      // Trigger startup reconciliation
+      const onStartup = locReconciliationConfig?.onStartup ?? 'async';
+      await triggerReconciliation(locState.providerStore, onStartup);
+
+      // Start background reconciliation interval
+      const bgInterval = locReconciliationConfig?.backgroundInterval ?? 300000;
+      if (bgInterval > 0) {
+        locState.reconciliationInterval = setInterval(() => {
+          if (locState.providerStore) {
+            void locState.providerStore.reconcileProviders().catch(() => {});
+          }
+        }, bgInterval);
+      }
+
+      // Start per-provider reconciliation intervals
+      const providerIntervals = locReconciliationConfig?.providerIntervals;
+      if (providerIntervals && Object.keys(providerIntervals).length > 0) {
+        locState.providerReconciliationIntervals = new Map();
+        for (const [providerName, interval] of Object.entries(providerIntervals)) {
+          if (interval > 0) {
+            locState.providerReconciliationIntervals.set(
+              providerName,
+              setInterval(() => {
+                if (locState.providerStore) {
+                  void locState.providerStore.reconcileProviders({ providers: [providerName] }).catch(() => {});
+                }
+              }, interval),
+            );
+          }
+        }
+      }
 
       return locState;
     } catch {

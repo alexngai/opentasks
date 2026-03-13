@@ -1,0 +1,149 @@
+/**
+ * Clean Command
+ *
+ * Removes orphaned Entire data: shadow branches, stale session files,
+ * and temporary files that are no longer referenced.
+ */
+
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { ENTIRE_TMP_DIR, SHADOW_BRANCH_PREFIX, CHECKPOINTS_BRANCH, SESSION_DIR_NAME } from '../types.js';
+import { getWorktreeRoot, getGitDir, listBranches, deleteBranch } from '../git-operations.js';
+import { createSessionStore } from '../store/session-store.js';
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface CleanupItem {
+  type: 'shadow-branch' | 'session-file' | 'temp-file';
+  path: string;
+  reason: string;
+}
+
+export interface CleanResult {
+  items: CleanupItem[];
+  deletedCount: number;
+  errors: string[];
+}
+
+export interface CleanOptions {
+  cwd?: string;
+  /** Actually delete (default: preview only) */
+  force?: boolean;
+  /** Session directory name under .git/ */
+  sessionDirName?: string;
+  /** Git branch for committed checkpoints */
+  checkpointsBranch?: string;
+  /** Prefix for shadow branches */
+  shadowBranchPrefix?: string;
+}
+
+// ============================================================================
+// Implementation
+// ============================================================================
+
+/**
+ * Find orphaned items
+ */
+export async function findOrphaned(
+  cwd?: string,
+  options?: { sessionDirName?: string; checkpointsBranch?: string; shadowBranchPrefix?: string },
+): Promise<CleanupItem[]> {
+  const items: CleanupItem[] = [];
+  const resolvedShadowPrefix = options?.shadowBranchPrefix ?? SHADOW_BRANCH_PREFIX;
+  const resolvedCheckpointsBranch = options?.checkpointsBranch ?? CHECKPOINTS_BRANCH;
+  const sessionStore = createSessionStore(cwd, options?.sessionDirName);
+  const sessions = await sessionStore.list();
+  const activeSessionIDs = new Set(sessions.map((s) => s.sessionID));
+  const activeBaseCommits = new Set(sessions.map((s) => s.baseCommit).filter(Boolean));
+
+  // 1. Orphaned shadow branches
+  const branches = await listBranches(`${resolvedShadowPrefix}*`, cwd);
+  for (const branch of branches) {
+    if (branch === resolvedCheckpointsBranch) continue;
+
+    // Extract base commit from branch name
+    const hashPart = branch.slice(resolvedShadowPrefix.length);
+    const baseCommit = hashPart.split('-')[0];
+
+    // A shadow branch is orphaned if no active session references its base commit
+    if (!activeBaseCommits.has(baseCommit)) {
+      // Check against full base commits (the hash part is a short hash)
+      const isReferenced = sessions.some(
+        (s) => s.baseCommit && s.baseCommit.startsWith(baseCommit),
+      );
+
+      if (!isReferenced) {
+        items.push({
+          type: 'shadow-branch',
+          path: branch,
+          reason: 'No active session references this branch',
+        });
+      }
+    }
+  }
+
+  // 2. Orphaned temp files
+  try {
+    const root = await getWorktreeRoot(cwd);
+    const tmpDir = path.join(root, ENTIRE_TMP_DIR);
+
+    const files = await fs.promises.readdir(tmpDir).catch(() => []);
+    for (const file of files) {
+      const filePath = path.join(tmpDir, file);
+      const stat = await fs.promises.stat(filePath);
+
+      // Consider temp files older than 24 hours as orphaned
+      if (Date.now() - stat.mtimeMs > 24 * 60 * 60 * 1000) {
+        items.push({
+          type: 'temp-file',
+          path: filePath,
+          reason: 'Temporary file older than 24 hours',
+        });
+      }
+    }
+  } catch {
+    // Temp dir may not exist
+  }
+
+  return items;
+}
+
+/**
+ * Clean orphaned items
+ */
+export async function clean(options: CleanOptions = {}): Promise<CleanResult> {
+  const cwd = options.cwd;
+  const items = await findOrphaned(cwd, {
+    sessionDirName: options.sessionDirName,
+    checkpointsBranch: options.checkpointsBranch,
+    shadowBranchPrefix: options.shadowBranchPrefix,
+  });
+  const errors: string[] = [];
+  let deletedCount = 0;
+
+  if (!options.force) {
+    return { items, deletedCount: 0, errors: [] };
+  }
+
+  for (const item of items) {
+    try {
+      switch (item.type) {
+        case 'shadow-branch':
+          await deleteBranch(item.path, true, cwd);
+          deletedCount++;
+          break;
+        case 'session-file':
+        case 'temp-file':
+          await fs.promises.unlink(item.path);
+          deletedCount++;
+          break;
+      }
+    } catch (e) {
+      errors.push(`Failed to delete ${item.path}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  return { items, deletedCount, errors };
+}

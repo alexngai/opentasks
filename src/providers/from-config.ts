@@ -5,8 +5,8 @@
  */
 
 import { createBeadsProvider } from './beads.js';
-import { createClaudeTasksProvider } from './claude-tasks.js';
-import { createEntireProvider, createEntireCliStoreAsync } from './entire.js';
+import { createClaudeTasksProvider, type ClaudeTasksConfig } from './claude-tasks.js';
+import { createSessionlogProvider, createSessionlogCliStoreAsync } from './sessionlog.js';
 import { createGlobalProvider } from './global.js';
 import { createMAPProvider, type MAPTaskClient } from './map.js';
 import { createNativeProvider } from './native.js';
@@ -54,6 +54,20 @@ export interface CreateProvidersResult {
 }
 
 /**
+ * Apply materializeMode config override to a provider.
+ * Only sets the property if the config specifies a non-default mode.
+ */
+function applyMaterializeMode<T extends Provider>(
+  provider: T,
+  mode: 'cached' | 'pointer',
+): T {
+  if (mode !== 'cached') {
+    return Object.assign(provider, { materializeMode: mode });
+  }
+  return provider;
+}
+
+/**
  * Check if a CLI executable is available
  */
 async function isCliAvailable(executable: string): Promise<boolean> {
@@ -98,11 +112,14 @@ export async function createProvidersFromConfig(
 
     if (isAvailable) {
       try {
-        const beadsProvider = createBeadsProvider({
-          executable: beadsConfig.executable,
-          timeout: beadsConfig.timeout,
-          cwd: beadsCwd,
-        });
+        const beadsProvider = applyMaterializeMode(
+          createBeadsProvider({
+            executable: beadsConfig.executable,
+            timeout: beadsConfig.timeout,
+            cwd: beadsCwd,
+          }),
+          beadsConfig.materializeMode,
+        );
         registry.register(beadsProvider);
         providers.push(beadsProvider);
       } catch (error) {
@@ -122,7 +139,18 @@ export async function createProvidersFromConfig(
   // 3. Claude Tasks provider (if enabled)
   if (config.providers.claudeTasks.enabled) {
     try {
-      const claudeTasksProvider = createClaudeTasksProvider();
+      const claudeConfig: ClaudeTasksConfig = {};
+      if (config.providers.claudeTasks.tasksDir) {
+        const { createFilesystemTaskStore } = await import('./claude-tasks-fs.js');
+        claudeConfig.taskStore = createFilesystemTaskStore({
+          basePath: config.providers.claudeTasks.tasksDir,
+        });
+        claudeConfig.tasksDir = config.providers.claudeTasks.tasksDir;
+      }
+      const claudeTasksProvider = applyMaterializeMode(
+        createClaudeTasksProvider(claudeConfig),
+        config.providers.claudeTasks.materializeMode,
+      );
       registry.register(claudeTasksProvider);
       providers.push(claudeTasksProvider);
     } catch (error) {
@@ -142,11 +170,14 @@ export async function createProvidersFromConfig(
 
     if (isAvailable) {
       try {
-        const sudocodeProvider = createSudocodeProvider({
-          executable: sudocodeConfig.executable,
-          timeout: sudocodeConfig.timeout,
-          cwd: sudocodeCwd,
-        });
+        const sudocodeProvider = applyMaterializeMode(
+          createSudocodeProvider({
+            executable: sudocodeConfig.executable,
+            timeout: sudocodeConfig.timeout,
+            cwd: sudocodeCwd,
+          }),
+          sudocodeConfig.materializeMode,
+        );
         registry.register(sudocodeProvider);
         providers.push(sudocodeProvider);
       } catch (error) {
@@ -163,30 +194,30 @@ export async function createProvidersFromConfig(
     skipped.push('sudocode');
   }
 
-  // 5. Entire provider (if enabled)
+  // 5. Sessionlog provider (if enabled)
   // Uses built-in TS store by default. If an executable is configured,
   // tries the Go CLI first and falls back to the TS store if unavailable.
-  if (config.providers.entire.enabled) {
-    const entireConfig = config.providers.entire;
+  if (config.providers.sessionlog.enabled) {
+    const sessionlogConfig = config.providers.sessionlog;
     try {
-      const store = await createEntireCliStoreAsync({
-        executable: entireConfig.executable,
-        timeout: entireConfig.timeout,
+      const store = await createSessionlogCliStoreAsync({
+        executable: sessionlogConfig.executable,
+        timeout: sessionlogConfig.timeout,
       });
-      const entireProvider = createEntireProvider(
-        { timeout: entireConfig.timeout },
+      const sessionlogProvider = createSessionlogProvider(
+        { timeout: sessionlogConfig.timeout },
         store,
       );
-      registry.register(entireProvider);
-      providers.push(entireProvider);
+      registry.register(sessionlogProvider);
+      providers.push(sessionlogProvider);
     } catch (error) {
       failed.push({
-        name: 'entire',
+        name: 'sessionlog',
         error: error instanceof Error ? error : new Error(String(error)),
       });
     }
   } else {
-    skipped.push('entire');
+    skipped.push('sessionlog');
   }
 
   // 6. Global provider (if enabled)

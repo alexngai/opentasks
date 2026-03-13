@@ -93,12 +93,12 @@ function git(
 }
 
 function extractSessionId(uri: string): string | null {
-  const match = uri.match(/entire:\/\/session\/(.+)/);
+  const match = uri.match(/sessionlog:\/\/session\/(.+)/);
   return match ? match[1] : null;
 }
 
 function extractCheckpointId(uri: string): string | null {
-  const match = uri.match(/entire:\/\/checkpoint\/(.+)/);
+  const match = uri.match(/sessionlog:\/\/checkpoint\/(.+)/);
   return match ? match[1] : null;
 }
 

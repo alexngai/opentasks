@@ -23,8 +23,8 @@ function createMockExternalNode(overrides: Partial<ExternalNode> = {}): External
     uuid: 'uuid-1',
     type: 'external',
     title: 'Session: 2026-02-14-abc123',
-    uri: 'entire://session/2026-02-14-abc123',
-    source: 'entire',
+    uri: 'sessionlog://session/2026-02-14-abc123',
+    source: 'sessionlog',
     materialized: true,
     created_at: '2026-02-14T10:00:00.000Z',
     updated_at: '2026-02-14T10:15:00.000Z',
@@ -92,8 +92,8 @@ describe('Snapshot Assembly', () => {
       const snapshot = await buildSessionSnapshot(node, store, mockProvenance);
 
       expect(snapshot.version).toBe(1);
-      expect(snapshot.uri).toBe('entire://session/2026-02-14-abc123');
-      expect(snapshot.source).toBe('entire');
+      expect(snapshot.uri).toBe('sessionlog://session/2026-02-14-abc123');
+      expect(snapshot.source).toBe('sessionlog');
       expect(snapshot.entityType).toBe('session');
       expect(snapshot.createdAt).toBe('2026-02-14T10:00:00.000Z');
       expect(snapshot.archivedAt).toBeTruthy();
@@ -128,7 +128,7 @@ describe('Snapshot Assembly', () => {
         {
           id: 'x-cp1',
           type: 'external',
-          uri: 'entire://checkpoint/cp-001',
+          uri: 'sessionlog://checkpoint/cp-001',
         },
       ]);
 
@@ -143,7 +143,7 @@ describe('Snapshot Assembly', () => {
   describe('buildCheckpointSnapshot', () => {
     it('should build a checkpoint snapshot with code commit', async () => {
       const node = createMockExternalNode({
-        uri: 'entire://checkpoint/cp-001',
+        uri: 'sessionlog://checkpoint/cp-001',
         title: 'Checkpoint: cp-001',
         external_data: {
           sessionId: '2026-02-14-abc123',
@@ -161,7 +161,7 @@ describe('Snapshot Assembly', () => {
 
       expect(snapshot.entityType).toBe('checkpoint');
       expect(snapshot.codeCommit).toBe('fa3bc91');
-      expect(snapshot.sessionUri).toBe('entire://session/2026-02-14-abc123');
+      expect(snapshot.sessionUri).toBe('sessionlog://session/2026-02-14-abc123');
     });
   });
 
@@ -180,7 +180,7 @@ describe('Snapshot Assembly', () => {
 
     it('should dispatch to checkpoint builder for checkpoint nodes', async () => {
       const node = createMockExternalNode({
-        uri: 'entire://checkpoint/cp-001',
+        uri: 'sessionlog://checkpoint/cp-001',
         external_data: {
           sessionId: '2026-02-14-abc123',
           commitHash: 'xyz',

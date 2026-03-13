@@ -33,6 +33,37 @@ export interface ProviderCapabilities {
 }
 
 // ============================================================================
+// Metadata Schema Types
+// ============================================================================
+
+/**
+ * Schema for a single metadata field.
+ * Describes what an agent can pass in the `metadata` bag on create/update.
+ */
+export interface MetadataFieldSchema {
+  /** Field type */
+  type: 'string' | 'number' | 'boolean' | 'string[]' | 'object';
+
+  /** Human/agent-readable description of this field */
+  description: string;
+
+  /** Whether this field is required on create */
+  required?: boolean;
+}
+
+/**
+ * Declares the metadata fields a provider accepts.
+ * Used by agents to construct valid create/update calls.
+ */
+export interface ProviderMetadataSchema {
+  /** Known metadata fields and their types */
+  fields: Record<string, MetadataFieldSchema>;
+
+  /** General note about metadata handling (e.g., "accepts arbitrary keys" or "ignores metadata") */
+  description?: string;
+}
+
+// ============================================================================
 // URI Types
 // ============================================================================
 
@@ -103,6 +134,9 @@ export interface ProviderNode {
 
   /** When this data was fetched (ISO 8601) */
   fetchedAt: string;
+
+  /** Optional content hash for fast change detection during reconciliation */
+  contentHash?: string;
 }
 
 // ============================================================================
@@ -266,6 +300,32 @@ export interface Provider {
   /** What operations this provider supports */
   readonly capabilities: ProviderCapabilities;
 
+  /**
+   * Whether this provider is local (always reachable, compatible status semantics).
+   * Local providers (beads, sudocode, claude) materialize as native node types
+   * (type:'task', type:'context') with a provider_uri back-reference in metadata.
+   * Remote providers (jira, linear) materialize as type:'external' with three-stage
+   * phantom model.
+   * Default: false
+   */
+  readonly local?: boolean;
+
+  /**
+   * How provider-backed nodes are materialized in the graph.
+   * - 'cached': Data is cached in the graph node (title, content, status).
+   *   Provider is source of truth; cached data may be stale.
+   * - 'pointer': Only the provider_uri reference is stored. Data is resolved
+   *   from the provider on every access (session-cached in memory).
+   * Default: 'cached'
+   */
+  readonly materializeMode?: 'cached' | 'pointer';
+
+  /** Human/agent-readable description of this provider and how to interact with it */
+  readonly description?: string;
+
+  /** Declares what metadata fields this provider accepts on create/update */
+  readonly metadataSchema?: ProviderMetadataSchema;
+
   // ===========================================================================
   // URI Operations
   // ===========================================================================
@@ -340,6 +400,42 @@ export interface Provider {
    * Only available if capabilities.watch is true
    */
   watch?(callback: WatchCallback): Unsubscribe;
+
+  /**
+   * Lightweight availability check for reconciliation.
+   * Returns true if the provider's backing store is reachable.
+   * Implementations should use provider-side caching (see createIsAvailable helper)
+   * to avoid redundant checks during reconciliation cycles.
+   * Providers that don't implement this are assumed always available.
+   */
+  isAvailable?(): Promise<boolean>;
+}
+
+// ============================================================================
+// Provider Availability Helpers
+// ============================================================================
+
+/**
+ * Create a cached isAvailable() function with TTL.
+ * Avoids redundant checks when reconciliation iterates over many nodes
+ * grouped by the same provider.
+ *
+ * @param checkFn - The actual availability check (e.g., fs.access, IPC ping)
+ * @param ttlMs - Cache TTL in milliseconds (default: 5000)
+ */
+export function createIsAvailable(
+  checkFn: () => Promise<boolean>,
+  ttlMs = 5000,
+): () => Promise<boolean> {
+  let cached: { value: boolean; expiresAt: number } | null = null;
+
+  return async (): Promise<boolean> => {
+    const now = Date.now();
+    if (cached && now < cached.expiresAt) return cached.value;
+    const value = await checkFn();
+    cached = { value, expiresAt: now + ttlMs };
+    return value;
+  };
 }
 
 // ============================================================================

@@ -133,6 +133,9 @@ export type DaemonConfig = z.infer<typeof DaemonConfigSchema>;
 // Provider Configuration
 // ============================================================================
 
+/** Materialization mode for provider-backed nodes */
+const MaterializeModeSchema = z.enum(['cached', 'pointer']).default('cached');
+
 const BeadsProviderConfigSchemaInner = z.object({
   /** Enable beads provider (auto-detects executable) */
   enabled: z.boolean().default(true),
@@ -142,6 +145,9 @@ const BeadsProviderConfigSchemaInner = z.object({
 
   /** Command timeout (ms) */
   timeout: z.number().min(1000, 'timeout must be >= 1000ms').default(30000),
+
+  /** How provider-backed nodes are materialized ('cached' or 'pointer') */
+  materializeMode: MaterializeModeSchema,
 });
 
 export const BeadsProviderConfigSchema = z
@@ -149,6 +155,7 @@ export const BeadsProviderConfigSchema = z
     enabled: z.boolean().optional(),
     executable: z.string().optional(),
     timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+    materializeMode: z.enum(['cached', 'pointer']).optional(),
   })
   .default({})
   .transform((val) => BeadsProviderConfigSchemaInner.parse(val));
@@ -158,22 +165,28 @@ export type BeadsProviderConfig = z.infer<typeof BeadsProviderConfigSchema>;
 const ClaudeTasksProviderConfigSchemaInner = z.object({
   /** Enable Claude Tasks provider */
   enabled: z.boolean().default(true),
+  /** Optional filesystem directory for persistent task storage */
+  tasksDir: z.string().optional(),
+  /** How provider-backed nodes are materialized ('cached' or 'pointer') */
+  materializeMode: MaterializeModeSchema,
 });
 
 export const ClaudeTasksProviderConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
+    tasksDir: z.string().optional(),
+    materializeMode: z.enum(['cached', 'pointer']).optional(),
   })
   .default({})
   .transform((val) => ClaudeTasksProviderConfigSchemaInner.parse(val));
 
 export type ClaudeTasksProviderConfig = z.infer<typeof ClaudeTasksProviderConfigSchema>;
 
-const EntireProviderConfigSchemaInner = z.object({
-  /** Enable Entire provider and auto-linking */
+const SessionlogProviderConfigSchemaInner = z.object({
+  /** Enable sessionlog provider and auto-linking */
   enabled: z.boolean().default(true),
 
-  /** Optional path to Entire CLI executable (e.g. 'entire' or '/usr/local/bin/entire').
+  /** Optional path to sessionlog CLI executable (e.g. 'entire' or '/usr/local/bin/entire').
    *  When set, the Go CLI is preferred if available, with fallback to the built-in TS store.
    *  When omitted, the built-in TS store is used directly. */
   executable: z.string().optional(),
@@ -186,20 +199,32 @@ const EntireProviderConfigSchemaInner = z.object({
 
   /** Minimum confidence for auto-linking */
   autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).default('medium'),
+
+  /** Session directory name under .git/ (default: 'sessionlog-sessions') */
+  sessionDirName: z.string().default('sessionlog-sessions'),
+
+  /** Git branch for committed checkpoints (default: 'sessionlog/checkpoints/v1') */
+  checkpointsBranch: z.string().default('sessionlog/checkpoints/v1'),
+
+  /** Prefix for shadow branches (default: 'sessionlog/') */
+  shadowBranchPrefix: z.string().default('sessionlog/'),
 });
 
-export const EntireProviderConfigSchema = z
+export const SessionlogProviderConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
     executable: z.string().optional(),
     timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
     autoLink: z.boolean().optional(),
     autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
+    sessionDirName: z.string().optional(),
+    checkpointsBranch: z.string().optional(),
+    shadowBranchPrefix: z.string().optional(),
   })
   .default({})
-  .transform((val) => EntireProviderConfigSchemaInner.parse(val));
+  .transform((val) => SessionlogProviderConfigSchemaInner.parse(val));
 
-export type EntireProviderConfig = z.infer<typeof EntireProviderConfigSchema>;
+export type SessionlogProviderConfig = z.infer<typeof SessionlogProviderConfigSchema>;
 
 const SudocodeProviderConfigSchemaInner = z.object({
   /** Enable Sudocode provider (auto-detects executable) */
@@ -210,6 +235,9 @@ const SudocodeProviderConfigSchemaInner = z.object({
 
   /** Command timeout (ms) */
   timeout: z.number().min(1000, 'timeout must be >= 1000ms').default(30000),
+
+  /** How provider-backed nodes are materialized ('cached' or 'pointer') */
+  materializeMode: MaterializeModeSchema,
 });
 
 export const SudocodeProviderConfigSchema = z
@@ -217,6 +245,7 @@ export const SudocodeProviderConfigSchema = z
     enabled: z.boolean().optional(),
     executable: z.string().optional(),
     timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+    materializeMode: z.enum(['cached', 'pointer']).optional(),
   })
   .default({})
   .transform((val) => SudocodeProviderConfigSchemaInner.parse(val));
@@ -307,7 +336,7 @@ const ProvidersConfigSchemaInner = z.object({
   beads: BeadsProviderConfigSchema,
   claudeTasks: ClaudeTasksProviderConfigSchema,
   sudocode: SudocodeProviderConfigSchema,
-  entire: EntireProviderConfigSchema,
+  sessionlog: SessionlogProviderConfigSchema,
   global: GlobalProviderConfigSchema,
   map: MAPProviderConfigSchema,
 });
@@ -324,6 +353,7 @@ export const ProvidersConfigSchema = z
     claudeTasks: z
       .object({
         enabled: z.boolean().optional(),
+        tasksDir: z.string().optional(),
       })
       .optional(),
     sudocode: z
@@ -333,6 +363,19 @@ export const ProvidersConfigSchema = z
         timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
       })
       .optional(),
+    sessionlog: z
+      .object({
+        enabled: z.boolean().optional(),
+        executable: z.string().optional(),
+        timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+        autoLink: z.boolean().optional(),
+        autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
+        sessionDirName: z.string().optional(),
+        checkpointsBranch: z.string().optional(),
+        shadowBranchPrefix: z.string().optional(),
+      })
+      .optional(),
+    /** @deprecated Use `sessionlog` instead. Accepted for backwards compatibility. */
     entire: z
       .object({
         enabled: z.boolean().optional(),
@@ -340,6 +383,9 @@ export const ProvidersConfigSchema = z
         timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
         autoLink: z.boolean().optional(),
         autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
+        sessionDirName: z.string().optional(),
+        checkpointsBranch: z.string().optional(),
+        shadowBranchPrefix: z.string().optional(),
       })
       .optional(),
     global: z
@@ -359,7 +405,15 @@ export const ProvidersConfigSchema = z
       .optional(),
   })
   .default({})
-  .transform((val) => ProvidersConfigSchemaInner.parse(val));
+  .transform((val) => {
+    // Backwards compat: providers.entire -> providers.sessionlog
+    const { entire, ...rest } = val;
+    const merged = { ...rest };
+    if (entire && !rest.sessionlog) {
+      (merged as Record<string, unknown>).sessionlog = entire;
+    }
+    return ProvidersConfigSchemaInner.parse(merged);
+  });
 
 export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>;
 
@@ -593,6 +647,40 @@ export const LoggingConfigSchema = z
 export type LoggingConfig = z.infer<typeof LoggingConfigSchema>;
 
 // ============================================================================
+// Reconciliation Configuration
+// ============================================================================
+
+const ReconciliationTriggerSchema = z.enum(['async', 'blocking', 'none']).default('async');
+
+const PerProviderIntervalSchema = z.record(z.string(), z.number().min(0));
+
+const ReconciliationConfigSchemaInner = z.object({
+  /** Reconcile provider-backed nodes when daemon starts */
+  onStartup: ReconciliationTriggerSchema,
+
+  /** Reconcile after store.reload() (git pull, branch switch) */
+  onReload: ReconciliationTriggerSchema,
+
+  /** Periodic reconciliation interval in ms (0 to disable) */
+  backgroundInterval: z.number().min(0).default(300000),
+
+  /** Per-provider override intervals in ms (e.g. { "jira": 60000, "linear": 120000 }) */
+  providerIntervals: PerProviderIntervalSchema.default({}),
+});
+
+export const ReconciliationConfigSchema = z
+  .object({
+    onStartup: z.enum(['async', 'blocking', 'none']).optional(),
+    onReload: z.enum(['async', 'blocking', 'none']).optional(),
+    backgroundInterval: z.number().min(0).optional(),
+    providerIntervals: PerProviderIntervalSchema.optional(),
+  })
+  .default({})
+  .transform((val) => ReconciliationConfigSchemaInner.parse(val));
+
+export type ReconciliationConfig = z.infer<typeof ReconciliationConfigSchema>;
+
+// ============================================================================
 // Root Configuration Schema
 // ============================================================================
 
@@ -618,6 +706,8 @@ const OpenTasksConfigSchemaInner = z.object({
   materialization: MaterializationConfigSchema,
   /** Graph sync configuration */
   sync: SyncConfigSchema,
+  /** Provider reconciliation configuration */
+  reconciliation: ReconciliationConfigSchema,
 });
 
 export const OpenTasksConfigSchema = z
@@ -644,11 +734,14 @@ export const OpenTasksConfigSchema = z
             enabled: z.boolean().optional(),
             executable: z.string().optional(),
             timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+            materializeMode: z.enum(['cached', 'pointer']).optional(),
           })
           .optional(),
         claudeTasks: z
           .object({
             enabled: z.boolean().optional(),
+            tasksDir: z.string().optional(),
+            materializeMode: z.enum(['cached', 'pointer']).optional(),
           })
           .optional(),
         sudocode: z
@@ -656,8 +749,22 @@ export const OpenTasksConfigSchema = z
             enabled: z.boolean().optional(),
             executable: z.string().optional(),
             timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+            materializeMode: z.enum(['cached', 'pointer']).optional(),
           })
           .optional(),
+        sessionlog: z
+          .object({
+            enabled: z.boolean().optional(),
+            executable: z.string().optional(),
+            timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+            autoLink: z.boolean().optional(),
+            autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
+            sessionDirName: z.string().optional(),
+            checkpointsBranch: z.string().optional(),
+            shadowBranchPrefix: z.string().optional(),
+          })
+          .optional(),
+        /** @deprecated Use `sessionlog` instead */
         entire: z
           .object({
             enabled: z.boolean().optional(),
@@ -665,6 +772,9 @@ export const OpenTasksConfigSchema = z
             timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
             autoLink: z.boolean().optional(),
             autoLinkMinConfidence: z.enum(['high', 'medium', 'low']).optional(),
+            sessionDirName: z.string().optional(),
+            checkpointsBranch: z.string().optional(),
+            shadowBranchPrefix: z.string().optional(),
           })
           .optional(),
         global: z
@@ -767,6 +877,14 @@ export const OpenTasksConfigSchema = z
           })
           .optional(),
         rematerializeOnStartup: z.boolean().optional(),
+      })
+      .optional(),
+    reconciliation: z
+      .object({
+        onStartup: z.enum(['async', 'blocking', 'none']).optional(),
+        onReload: z.enum(['async', 'blocking', 'none']).optional(),
+        backgroundInterval: z.number().min(0).optional(),
+        providerIntervals: z.record(z.string(), z.number().min(0)).optional(),
       })
       .optional(),
   })

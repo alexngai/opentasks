@@ -13,7 +13,7 @@ src/
 │   ├── claude-tasks.ts # Claude Tasks provider
 │   ├── sudocode.ts     # Sudocode provider
 │   ├── global.ts       # Global store provider (~/.opentasks)
-│   ├── entire.ts       # Entire session provider
+│   ├── sessionlog.ts   # Sessionlog session provider
 │   ├── map.ts          # MAP provider (inbound — remote tasks → graph)
 │   ├── map-event-bridge.ts  # MAP event bridge (outbound — graph → MAP events)
 │   ├── map-client-factory.ts # MAP SDK client factory (dynamic import)
@@ -81,7 +81,7 @@ Defined in `src/config/schema.ts` using Zod. Key sections:
 
 - `storage` — JSONL/SQLite paths, compaction ratio
 - `daemon` — socket path, auto-start, flush interval
-- `providers` — per-provider config (beads, claudeTasks, sudocode, entire, global, map)
+- `providers` — per-provider config (beads, claudeTasks, sudocode, sessionlog, global, map); each supports `materializeMode: 'cached' | 'pointer'`
 - `providers.map` — `enabled`, `server`, `systemId`, `agentName`, `scope`, `eventBridge`
 - `logging` — level, file
 - `materialization` — git archiving, remote stores, policies
@@ -113,8 +113,34 @@ Providers can implement optional traits (in `src/providers/traits/`):
 - **TaskManageable** — semantic task actions (`start`, `complete`, `block`, `reopen`, `close`), assignment, ready queries
 - **Watchable** — real-time change events with configurable granularity
 - **RelationshipQueryable** — edge queries from the provider's perspective
+- **Reconcilable** — batch reconciliation with content hashes (optimization for remote providers)
 
-Check with `isTaskManageable(provider)`, `isWatchable(provider)`, `isRelationshipQueryable(provider)`.
+Check with `isTaskManageable(provider)`, `isWatchable(provider)`, `isRelationshipQueryable(provider)`, `isReconcilable(provider)`.
+
+## Provider Reconciliation
+
+Provider-backed nodes cache data from the provider but mark it non-authoritative. See [docs/PROVIDER-RECONCILIATION.md](./docs/PROVIDER-RECONCILIATION.md) for full design.
+
+**Key metadata fields** (on `node.metadata`):
+- `provider_uri` — canonical URI in the owning provider
+- `provider_source` — provider scheme name
+- `provider_cached_at` — ISO timestamp of last fetch from provider
+- `provider_authoritative` — flag marking provider as source of truth
+- `provider_content_hash` — optional hash for fast diff during reconciliation
+- `provider_pointer_only` — opt-in mode: data resolved on access, not cached
+
+**Materialization modes** (per-provider via `materializeMode`):
+- `cached` (default) — full data (title, content, status) stored in graph node
+- `pointer` — only `provider_uri` stored; data fetched transparently on access with session-scoped cache
+
+**Reconciliation** (`providerStore.reconcileProviders()`):
+- Scans nodes with `metadata.provider_authoritative === true`
+- Checks `provider.isAvailable()` before processing (skips unavailable providers)
+- Positive-writes-only: never deletes/archives when provider is unavailable
+- Edge reconciliation via `rawData` extraction (zero extra provider calls)
+- Triggered on `store.reload()` (file watcher detects `graph.jsonl` changes)
+
+**Storage layer**: SQLite `nodes` table has a `metadata TEXT` column (JSON). `findByProviderUri()` and `findExternalNodeByUri()` scan by node type since SQLite `search` only checks title/content, not metadata.
 
 ## Common Patterns
 

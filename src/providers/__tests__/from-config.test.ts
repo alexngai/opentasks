@@ -154,7 +154,7 @@ describe('createProvidersFromConfig', () => {
           beads: { ...defaultConfig.providers.beads, enabled: false },
           claudeTasks: { enabled: false },
           sudocode: { ...defaultConfig.providers.sudocode, enabled: false },
-          entire: { ...defaultConfig.providers.entire, enabled: false },
+          sessionlog: { ...defaultConfig.providers.sessionlog, enabled: false },
           global: { ...defaultConfig.providers.global, enabled: false },
           map: { ...defaultConfig.providers.map, enabled: false },
         },
@@ -168,7 +168,7 @@ describe('createProvidersFromConfig', () => {
       expect(result.skipped).toContain('beads');
       expect(result.skipped).toContain('claude');
       expect(result.skipped).toContain('sudocode');
-      expect(result.skipped).toContain('entire');
+      expect(result.skipped).toContain('sessionlog');
       expect(result.skipped).toContain('global');
       expect(result.skipped).toContain('map');
     });

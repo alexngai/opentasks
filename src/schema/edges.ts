@@ -27,9 +27,9 @@ export type ExtendedEdgeType =
   | 'discovered-from'; // found while working on
 
 /**
- * Entire integration edge types (auto-created by EntireAutoLinker)
+ * Sessionlog integration edge types (auto-created by SessionlogAutoLinker)
  */
-export type EntireEdgeType =
+export type SessionlogEdgeType =
   | 'worked-on' // task → session: "this task was worked on during this session"
   | 'implemented-by' // task → checkpoint: "this checkpoint implements this task"
   | 'contains'; // session → checkpoint: "this session produced this checkpoint"
@@ -43,7 +43,7 @@ export type SkillEdgeType =
 /**
  * All edge types (extensible via string)
  */
-export type EdgeType = CoreEdgeType | ExtendedEdgeType | EntireEdgeType | SkillEdgeType | string;
+export type EdgeType = CoreEdgeType | ExtendedEdgeType | SessionlogEdgeType | SkillEdgeType | string;
 
 /**
  * Edge - Represents a relationship between nodes

@@ -461,7 +461,9 @@ export async function linkBeadsTasks(
   blockerId: string,
   blockedId: string
 ): Promise<void> {
-  await execBd(workspace, ['dep', blockerId, '--blocks', blockedId])
+  // bd dep add [issue-id] [depends-on-id]: issue-id depends on depends-on-id
+  // blocker blocks blocked → blocked depends on blocker
+  await execBd(workspace, ['dep', 'add', blockedId, blockerId, '--type', 'blocks'])
 }
 
 /**

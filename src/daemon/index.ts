@@ -99,22 +99,22 @@ export { createFileWatcher } from './watcher.js';
 export type { DaemonFlushManager, FlushManagerConfig, FlushOperation } from './flush.js';
 export { createDaemonFlushManager, DEFAULT_FLUSH_CONFIG } from './flush.js';
 
-// Entire Integration
+// Sessionlog Integration
 export type {
-  EntireWatcher,
-  EntireWatcherConfig,
-  EntireSessionState,
-  EntireSessionEvent,
+  SessionlogWatcher,
+  SessionlogWatcherConfig,
+  SessionlogSessionState,
+  SessionlogSessionEvent,
   SessionEventHandler,
-} from './entire-watcher.js';
-export { createEntireWatcher } from './entire-watcher.js';
+} from './sessionlog-watcher.js';
+export { createSessionlogWatcher } from './sessionlog-watcher.js';
 
 export type {
-  EntireAutoLinker,
-  EntireAutoLinkerConfig,
+  SessionlogAutoLinker,
+  SessionlogAutoLinkerConfig,
   CorrelationResult,
   MatchedTask,
   CorrelationStrategy,
   CorrelationConfidence,
-} from './entire-linker.js';
-export { createEntireAutoLinker } from './entire-linker.js';
+} from './sessionlog-linker.js';
+export { createSessionlogAutoLinker } from './sessionlog-linker.js';

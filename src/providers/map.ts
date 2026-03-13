@@ -256,6 +256,11 @@ export function createMAPProvider(
     name: 'map',
     schemes: ['map'],
     capabilities,
+    description: 'Multi-Agent Protocol (MAP) provider. Surfaces remote MAP tasks as map:// nodes. All operations are direct RPC calls with no local cache.',
+    metadataSchema: {
+      fields: {},
+      description: 'Metadata is passed through as MAP task meta. Priority is stored in meta.priority. Assignee is a top-level field handled via task assignment, not metadata.',
+    },
 
     // =========================================================================
     // URI Operations

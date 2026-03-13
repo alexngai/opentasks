@@ -57,6 +57,9 @@ export type {
   ProviderStoreConfig,
   ResolveOptions,
   ProviderChangeHandler,
+  ReconcileOptions,
+  ReconcileNodeResult,
+  ReconcileResult,
 } from './provider-store.js';
 export { createProviderAwareStore } from './provider-store.js';
 

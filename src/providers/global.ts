@@ -181,6 +181,11 @@ export function createGlobalProvider(
     schemes: ['global'],
     capabilities,
     taskCapabilities,
+    description: 'Global task store at ~/.opentasks/. Federates tasks across projects via the global daemon.',
+    metadataSchema: {
+      fields: {},
+      description: 'Delegates to native provider in the global store. Tags and assignee are top-level fields. Arbitrary metadata key/value pairs are accepted.',
+    },
 
     // =========================================================================
     // URI Operations

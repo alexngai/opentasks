@@ -26,7 +26,7 @@ import type {
   UriOptions,
   SearchOptions,
 } from './types.js';
-import { ProviderError as ProviderErrorClass } from './types.js';
+import { ProviderError as ProviderErrorClass, createIsAvailable } from './types.js';
 import type {
   RelationshipQueryable,
   ProviderEdge,
@@ -762,10 +762,27 @@ export function createSudocodeProvider(
     }
   }
 
+  const isAvailable = createIsAvailable(async () => {
+    try {
+      await execAsync(`which ${executable}`, { timeout: 5000 });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
   return {
     name: 'sudocode',
     schemes: ['sudocode', 'sc'],
     capabilities,
+    local: true,
+    description: 'Sudocode git-native agent orchestration. Manages specs and issues via CLI. Issues support task lifecycle; specs are context/requirement nodes. Only title, content, and priority are passed through on create. Status is supported on issue update.',
+    metadataSchema: {
+      fields: {},
+      description: 'Metadata is not passed through to Sudocode. Tags and assignee set via top-level fields are also not forwarded on create/update.',
+    },
+
+    isAvailable,
 
     // =========================================================================
     // URI Operations

@@ -3,7 +3,7 @@
  *
  * Spawns a real Claude Code agent via acp-factory, lets sessionlog hooks write
  * real session files to `.git/sessionlog-sessions/`, and verifies that the
- * EntireWatcher + EntireAutoLinker pipeline detects tasks and plan mode data.
+ * SessionlogWatcher + SessionlogAutoLinker pipeline detects tasks and plan mode data.
  *
  * Requires:
  * - `claude` CLI in PATH (Anthropic Max or API key configured)
@@ -19,11 +19,11 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { AgentFactory, type AgentHandle, type Session, type ExtendedSessionUpdate } from 'acp-factory';
 import {
-  createEntireWatcher,
-  type EntireWatcher,
-  type EntireSessionEvent,
-} from '../entire-watcher.js';
-import { createEntireAutoLinker, type EntireAutoLinker } from '../entire-linker.js';
+  createSessionlogWatcher,
+  type SessionlogWatcher,
+  type SessionlogSessionEvent,
+} from '../sessionlog-watcher.js';
+import { createSessionlogAutoLinker, type SessionlogAutoLinker } from '../sessionlog-linker.js';
 import { createStoreForLocation } from '../location-state.js';
 import { createDaemonFlushManager, type DaemonFlushManager } from '../flush.js';
 import type { GraphStore } from '../../graph/store.js';
@@ -107,9 +107,9 @@ describe.skipIf(!LIVE)('Live Agent E2E: Session Pipeline', () => {
   let opentasksPath: string;
   let store: GraphStore;
   let flushManager: DaemonFlushManager;
-  let watcher: EntireWatcher;
-  let linker: EntireAutoLinker;
-  let watcherEvents: EntireSessionEvent[];
+  let watcher: SessionlogWatcher;
+  let linker: SessionlogAutoLinker;
+  let watcherEvents: SessionlogSessionEvent[];
   let linkerErrors: Error[];
   let agentHandle: AgentHandle | null = null;
   let agentSession: Session | null = null;
@@ -146,10 +146,10 @@ describe.skipIf(!LIVE)('Live Agent E2E: Session Pipeline', () => {
         await store.flush();
       },
     );
-    linker = createEntireAutoLinker({ store, flushManager });
+    linker = createSessionlogAutoLinker({ store, flushManager });
 
     // 4. Watcher pointing at real .git/sessionlog-sessions/
-    watcher = createEntireWatcher({
+    watcher = createSessionlogWatcher({
       locationPath: opentasksPath,
       gitDir: path.join(tmpDir, '.git'),
       debounceMs: 10,

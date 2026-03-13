@@ -86,6 +86,7 @@ describe('Config Schema', () => {
         enabled: true,
         executable: 'bd',
         timeout: 30000,
+        materializeMode: 'cached',
       });
     });
 
@@ -117,6 +118,7 @@ describe('Config Schema', () => {
       const result = ClaudeTasksProviderConfigSchema.parse({});
       expect(result).toEqual({
         enabled: true,
+        materializeMode: 'cached',
       });
     });
 
@@ -134,20 +136,26 @@ describe('Config Schema', () => {
           enabled: true,
           executable: 'bd',
           timeout: 30000,
+          materializeMode: 'cached',
         },
         claudeTasks: {
           enabled: true,
+          materializeMode: 'cached',
         },
         sudocode: {
           enabled: true,
           executable: 'sudocode',
           timeout: 30000,
+          materializeMode: 'cached',
         },
-        entire: {
+        sessionlog: {
           enabled: true,
           timeout: 30000,
           autoLink: true,
           autoLinkMinConfidence: 'medium',
+          sessionDirName: 'sessionlog-sessions',
+          checkpointsBranch: 'sessionlog/checkpoints/v1',
+          shadowBranchPrefix: 'sessionlog/',
         },
         global: {
           enabled: true,
@@ -233,20 +241,26 @@ describe('Config Schema', () => {
             enabled: true,
             executable: 'bd',
             timeout: 30000,
+            materializeMode: 'cached',
           },
           claudeTasks: {
             enabled: true,
+            materializeMode: 'cached',
           },
           sudocode: {
             enabled: true,
             executable: 'sudocode',
             timeout: 30000,
+            materializeMode: 'cached',
           },
-          entire: {
+          sessionlog: {
             enabled: true,
             timeout: 30000,
             autoLink: true,
             autoLinkMinConfidence: 'medium',
+            sessionDirName: 'sessionlog-sessions',
+            checkpointsBranch: 'sessionlog/checkpoints/v1',
+            shadowBranchPrefix: 'sessionlog/',
           },
           global: {
             enabled: true,
@@ -302,6 +316,12 @@ describe('Config Schema', () => {
         role: 'standalone',
         redirects: [],
         defaultProvider: 'native',
+        reconciliation: {
+          onStartup: 'async',
+          onReload: 'async',
+          backgroundInterval: 300000,
+          providerIntervals: {},
+        },
       });
     });
 
@@ -335,20 +355,26 @@ describe('Config Schema', () => {
             enabled: false,
             executable: '/opt/bd',
             timeout: 45000,
+            materializeMode: 'cached',
           },
           claudeTasks: {
             enabled: false,
+            materializeMode: 'cached',
           },
           sudocode: {
             enabled: false,
             executable: '/opt/sudocode',
             timeout: 45000,
+            materializeMode: 'cached',
           },
-          entire: {
+          sessionlog: {
             enabled: false,
             timeout: 45000,
             autoLink: false,
             autoLinkMinConfidence: 'high',
+            sessionDirName: 'sessionlog-sessions',
+            checkpointsBranch: 'sessionlog/checkpoints/v1',
+            shadowBranchPrefix: 'sessionlog/',
           },
           global: {
             enabled: false,
@@ -404,10 +430,39 @@ describe('Config Schema', () => {
         role: 'standalone',
         redirects: [],
         defaultProvider: 'native',
+        reconciliation: {
+          onStartup: 'async',
+          onReload: 'async',
+          backgroundInterval: 300000,
+          providerIntervals: {},
+        },
       };
 
       const result = OpenTasksConfigSchema.parse(config);
       expect(result).toEqual(config);
+    });
+  });
+
+  describe('reconciliation config', () => {
+    it('accepts per-provider intervals', () => {
+      const result = OpenTasksConfigSchema.parse({
+        reconciliation: {
+          providerIntervals: { jira: 60000, linear: 120000 },
+        },
+      });
+
+      expect(result.reconciliation.providerIntervals).toEqual({ jira: 60000, linear: 120000 });
+      expect(result.reconciliation.backgroundInterval).toBe(300000); // default
+    });
+
+    it('rejects negative provider intervals', () => {
+      expect(() =>
+        OpenTasksConfigSchema.parse({
+          reconciliation: {
+            providerIntervals: { jira: -1 },
+          },
+        }),
+      ).toThrow();
     });
   });
 
@@ -468,6 +523,113 @@ describe('Config Schema', () => {
           logging: { level: 'invalid' },
         }),
       ).toThrow();
+    });
+  });
+
+  describe('providers.sessionlog backwards compatibility', () => {
+    it('accepts providers.entire and maps to providers.sessionlog', () => {
+      const result = parseConfig({
+        providers: {
+          entire: {
+            enabled: true,
+            autoLink: true,
+          },
+        },
+      });
+      expect(result.providers.sessionlog.enabled).toBe(true);
+      expect(result.providers.sessionlog.autoLink).toBe(true);
+    });
+
+    it('prefers providers.sessionlog over providers.entire when both exist', () => {
+      const result = parseConfig({
+        providers: {
+          sessionlog: {
+            enabled: true,
+            autoLink: true,
+          },
+          entire: {
+            enabled: false,
+            autoLink: false,
+          },
+        },
+      });
+      expect(result.providers.sessionlog.enabled).toBe(true);
+      expect(result.providers.sessionlog.autoLink).toBe(true);
+    });
+
+    it('threads entire config overrides through to sessionlog', () => {
+      const result = parseConfig({
+        providers: {
+          entire: {
+            sessionDirName: 'entire-sessions',
+            checkpointsBranch: 'entire/checkpoints/v1',
+            shadowBranchPrefix: 'entire/',
+          },
+        },
+      });
+      expect(result.providers.sessionlog.sessionDirName).toBe('entire-sessions');
+      expect(result.providers.sessionlog.checkpointsBranch).toBe('entire/checkpoints/v1');
+      expect(result.providers.sessionlog.shadowBranchPrefix).toBe('entire/');
+    });
+  });
+
+  describe('sessionlog config override defaults', () => {
+    it('uses sessionlog defaults when no overrides provided', () => {
+      const result = parseConfig({});
+      expect(result.providers.sessionlog.sessionDirName).toBe('sessionlog-sessions');
+      expect(result.providers.sessionlog.checkpointsBranch).toBe('sessionlog/checkpoints/v1');
+      expect(result.providers.sessionlog.shadowBranchPrefix).toBe('sessionlog/');
+    });
+
+    it('respects custom sessionDirName override', () => {
+      const result = parseConfig({
+        providers: {
+          sessionlog: {
+            sessionDirName: 'custom-sessions',
+          },
+        },
+      });
+      expect(result.providers.sessionlog.sessionDirName).toBe('custom-sessions');
+      // Others keep defaults
+      expect(result.providers.sessionlog.checkpointsBranch).toBe('sessionlog/checkpoints/v1');
+      expect(result.providers.sessionlog.shadowBranchPrefix).toBe('sessionlog/');
+    });
+
+    it('respects custom checkpointsBranch override', () => {
+      const result = parseConfig({
+        providers: {
+          sessionlog: {
+            checkpointsBranch: 'my-checkpoints/v2',
+          },
+        },
+      });
+      expect(result.providers.sessionlog.checkpointsBranch).toBe('my-checkpoints/v2');
+    });
+
+    it('respects custom shadowBranchPrefix override', () => {
+      const result = parseConfig({
+        providers: {
+          sessionlog: {
+            shadowBranchPrefix: 'my-shadow/',
+          },
+        },
+      });
+      expect(result.providers.sessionlog.shadowBranchPrefix).toBe('my-shadow/');
+    });
+
+    it('supports entire-compatible directory names for interop', () => {
+      const result = parseConfig({
+        providers: {
+          sessionlog: {
+            sessionDirName: 'entire-sessions',
+            checkpointsBranch: 'entire/checkpoints/v1',
+            shadowBranchPrefix: 'entire/',
+          },
+        },
+      });
+      expect(result.providers.sessionlog.sessionDirName).toBe('entire-sessions');
+      expect(result.providers.sessionlog.checkpointsBranch).toBe('entire/checkpoints/v1');
+      expect(result.providers.sessionlog.shadowBranchPrefix).toBe('entire/');
     });
   });
 });

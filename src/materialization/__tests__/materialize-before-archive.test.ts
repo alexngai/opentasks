@@ -50,8 +50,8 @@ function createMockExternalNode(overrides?: Partial<ExternalNode>): ExternalNode
     id: 'node-123',
     uuid: 'uuid-123',
     type: 'external',
-    uri: 'entire://session/test-session',
-    source: 'entire',
+    uri: 'sessionlog://session/test-session',
+    source: 'sessionlog',
     title: 'Test Session',
     content: 'Test content',
     created_at: '2026-01-01T00:00:00Z',
@@ -104,10 +104,10 @@ describe('materializeBeforeArchive', () => {
       materializationProvider: provider,
     });
 
-    await archiver.onSessionEvent('ended', 'entire://session/test-session', graphStore as never);
+    await archiver.onSessionEvent('ended', 'sessionlog://session/test-session', graphStore as never);
 
     // Should have called materializeNode
-    expect(provider.materializeNode).toHaveBeenCalledWith('entire://session/test-session');
+    expect(provider.materializeNode).toHaveBeenCalledWith('sessionlog://session/test-session');
 
     // The archive should have received the materialized snapshot (with full data)
     expect(gitStore.archive).toHaveBeenCalled();
@@ -139,7 +139,7 @@ describe('materializeBeforeArchive', () => {
       materializationProvider: provider,
     });
 
-    await archiver.onSessionEvent('ended', 'entire://session/test-session', graphStore as never);
+    await archiver.onSessionEvent('ended', 'sessionlog://session/test-session', graphStore as never);
 
     // Should NOT have called materializeNode
     expect(provider.materializeNode).not.toHaveBeenCalled();
@@ -166,7 +166,7 @@ describe('materializeBeforeArchive', () => {
       // No materializationProvider
     });
 
-    await archiver.onSessionEvent('ended', 'entire://session/test-session', graphStore as never);
+    await archiver.onSessionEvent('ended', 'sessionlog://session/test-session', graphStore as never);
 
     // Should still archive with existing data
     expect(gitStore.archive).toHaveBeenCalled();
@@ -197,7 +197,7 @@ describe('materializeBeforeArchive', () => {
       materializationProvider: provider,
     });
 
-    await archiver.onSessionEvent('ended', 'entire://session/test-session', graphStore as never);
+    await archiver.onSessionEvent('ended', 'sessionlog://session/test-session', graphStore as never);
 
     // Should still archive with existing (minimal) data
     expect(gitStore.archive).toHaveBeenCalled();
@@ -225,7 +225,7 @@ describe('materializeBeforeArchive', () => {
     });
 
     // Initially no provider — should archive without materialization
-    await archiver.onSessionEvent('ended', 'entire://session/test-session', graphStore as never);
+    await archiver.onSessionEvent('ended', 'sessionlog://session/test-session', graphStore as never);
     expect(gitStore.archive).toHaveBeenCalledTimes(1);
 
     // Set provider
@@ -239,7 +239,7 @@ describe('materializeBeforeArchive', () => {
     archiver.setMaterializationProvider(provider);
 
     // Now should materialize before archive
-    await archiver.onSessionEvent('ended', 'entire://session/test-session', graphStore as never);
+    await archiver.onSessionEvent('ended', 'sessionlog://session/test-session', graphStore as never);
     expect(provider.materializeNode).toHaveBeenCalled();
     expect(gitStore.archive).toHaveBeenCalledTimes(2);
   });

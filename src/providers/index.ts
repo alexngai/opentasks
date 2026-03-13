@@ -26,9 +26,11 @@ export type {
   MaterializationConfig,
   ProviderRegistry,
   ProviderErrorCode,
+  MetadataFieldSchema,
+  ProviderMetadataSchema,
 } from './types.js';
 
-export { ProviderError, DEFAULT_MATERIALIZATION_CONFIG } from './types.js';
+export { ProviderError, DEFAULT_MATERIALIZATION_CONFIG, createIsAvailable } from './types.js';
 
 // Registry
 export { createProviderRegistry } from './registry.js';
@@ -71,24 +73,25 @@ export { createSudocodeProvider, type SudocodeConfig } from './sudocode.js';
 // Global Provider
 export { createGlobalProvider, type GlobalProviderConfig } from './global.js';
 
-// Entire Provider
+// Sessionlog Provider
 export {
-  createEntireProvider,
-  createInMemoryEntireStore,
-  createEntireCliStore,
-  createEntireNativeStore,
-  type EntireConfig,
-  type EntireSession,
-  type EntireCheckpoint,
-  type EntireTokenUsage,
-  type EntireStore,
-} from './entire.js';
+  createSessionlogProvider,
+  createInMemorySessionlogStore,
+  createSessionlogCliStore,
+  createSessionlogNativeStore,
+  type SessionlogConfig,
+  type SessionlogSession,
+  type SessionlogCheckpoint,
+  type SessionlogTokenUsage,
+  type SessionlogStore,
+} from './sessionlog.js';
 
 // Materialization
 export {
   createMaterializationManager,
   type MaterializationManager,
   type MaterializationContext,
+  type MaterializeOptions,
 } from './materialization.js';
 
 // Traits - RelationshipQueryable
@@ -128,6 +131,15 @@ export type {
 } from './traits/index.js';
 
 export { isTaskManageable } from './traits/index.js';
+
+// Traits - Reconcilable
+export type {
+  Reconcilable,
+  ReconcilableNodeSummary,
+  ListReconcilableOptions,
+} from './traits/index.js';
+
+export { isReconcilable } from './traits/index.js';
 
 // Config-based Provider Factory
 export {

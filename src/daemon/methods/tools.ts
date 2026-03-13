@@ -66,7 +66,7 @@ function isLocalId(id: string): boolean {
  * Register tools method handlers on an IPC server.
  *
  * Tool handlers route to the correct store via LocationResolver.
- * Skill usage is tracked via TranscriptExtractor (post-hoc from Entire
+ * Skill usage is tracked via TranscriptExtractor (post-hoc from sessionlog
  * session transcripts), not inline in these handlers.
  */
 export function registerToolsMethods(options: ToolsMethodsOptions): void {
@@ -99,6 +99,7 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
   });
 
   // tools.query - Query the graph with unified interface
+  // When providerStore is available, task queries are federated across providers
   server.handle<QueryParams & { location?: string }, QueryResult>(
     'tools.query',
     async (params) => {
@@ -109,7 +110,7 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
       const { location, ...queryParams } = params;
       const state = locationResolver.resolve(location);
 
-      return await query(state.store, queryParams);
+      return await query(state.store, queryParams, undefined, state.providerStore ?? undefined);
     },
   );
 

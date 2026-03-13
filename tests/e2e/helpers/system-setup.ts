@@ -418,6 +418,9 @@ export async function setupE2ESystem(options: E2ESystemOptions = {}): Promise<E2
       // Stop IPC server
       await server.stop()
 
+      // Final flush: cancel pending timers and flush remaining dirty nodes
+      await flushManager.finalFlush()
+
       // Close graph store (flushes pending changes)
       await store.close()
 

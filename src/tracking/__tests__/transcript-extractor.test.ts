@@ -5,7 +5,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createTranscriptExtractor } from '../transcript-extractor.js';
 import { createSkillTrackerRegistry } from '../skill-tracker.js';
-import type { EntireSessionEvent, EntireSessionState } from '../../daemon/entire-watcher.js';
+import type { SessionlogSessionEvent, SessionlogSessionState } from '../../daemon/sessionlog-watcher.js';
 
 // ============================================================================
 // Sample Transcript Data
@@ -76,8 +76,8 @@ const SAMPLE_METADATA = JSON.stringify({ agent: 'Claude Code', checkpoint_id: 'a
 function makeEndedEvent(
   sessionId: string,
   checkpoints: string[] = ['ab12cd34ef56'],
-): EntireSessionEvent {
-  const session: EntireSessionState = {
+): SessionlogSessionEvent {
+  const session: SessionlogSessionState = {
     id: sessionId,
     agent: 'Claude Code',
     phase: 'ENDED',
@@ -171,7 +171,7 @@ describe('createTranscriptExtractor', () => {
         execGit: createMockExecGit(),
       });
 
-      const event: EntireSessionEvent = {
+      const event: SessionlogSessionEvent = {
         type: 'started',
         sessionId: 'sess-1',
         session: { id: 'sess-1', agent: 'Claude Code', phase: 'ACTIVE', checkpoints: [] },

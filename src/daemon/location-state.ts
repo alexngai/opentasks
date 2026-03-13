@@ -15,8 +15,8 @@ import { JSONLPersister } from '../storage/jsonl.js';
 import type { Storage } from '../storage/interface.js';
 import { createFileWatcher, type FileWatcher } from './watcher.js';
 import { createDaemonFlushManager, type DaemonFlushManager } from './flush.js';
-import { createEntireWatcher, type EntireWatcher } from './entire-watcher.js';
-import { createEntireAutoLinker, type EntireAutoLinker } from './entire-linker.js';
+import { createSessionlogWatcher, type SessionlogWatcher } from './sessionlog-watcher.js';
+import { createSessionlogAutoLinker, type SessionlogAutoLinker } from './sessionlog-linker.js';
 import { DaemonError, type LocationInfo } from './types.js';
 import type { SkillTrackerRegistry } from '../tracking/skill-tracker.js';
 import { createTranscriptExtractor } from '../tracking/transcript-extractor.js';
@@ -60,17 +60,26 @@ export interface LocationState {
   /** Whether the location is healthy */
   healthy: boolean;
 
-  /** Entire session watcher (if enabled) */
-  entireWatcher?: EntireWatcher;
+  /** Sessionlog session watcher (if enabled) */
+  sessionlogWatcher?: SessionlogWatcher;
 
-  /** Entire auto-linker (if enabled) */
-  entireLinker?: EntireAutoLinker;
+  /** Sessionlog auto-linker (if enabled) */
+  sessionlogLinker?: SessionlogAutoLinker;
 
   /** Materialization archiver (if enabled) */
   archiver?: MaterializationArchiver;
 
   /** Git graph syncer (if enabled) */
   graphSyncer?: GitGraphSyncer;
+
+  /** Reconciliation trigger mode for reload events (default: 'async') */
+  reconciliationOnReload?: 'async' | 'blocking' | 'none';
+
+  /** Background reconciliation interval handle */
+  reconciliationInterval?: ReturnType<typeof setInterval>;
+
+  /** Per-provider reconciliation interval handles */
+  providerReconciliationIntervals?: Map<string, ReturnType<typeof setInterval>>;
 }
 
 /**
@@ -170,11 +179,27 @@ export async function createLocationState(
     },
   );
 
+  // Container for the state object — set before return so the reload handler
+  // can access providerStore (which is wired up after createLocationState returns).
+  let stateRef: LocationState | null = null;
+
   watcher.onchange((event) => {
     if (event.category === 'graph') {
       // External change to graph.jsonl detected — reload into SQLite
       flushManager.pause();
-      void store.reload().finally(() => {
+      void store.reload().then(async () => {
+        flushManager.resume();
+
+        // Trigger onReload reconciliation if a provider store is attached
+        const providerStore = stateRef?.providerStore;
+        const onReload = stateRef?.reconciliationOnReload ?? 'async';
+        if (providerStore && onReload !== 'none') {
+          const run = providerStore.reconcileProviders().catch(() => null);
+          if (onReload === 'blocking') {
+            await run;
+          }
+        }
+      }).catch(() => {
         flushManager.resume();
       });
     }
@@ -258,16 +283,18 @@ export async function createLocationState(
     graphSyncer = undefined;
   }
 
-  // Initialize Entire integration (watcher + auto-linker + transcript extractor)
-  let entireWatcher: EntireWatcher | undefined;
-  let entireLinker: EntireAutoLinker | undefined;
+  // Initialize Sessionlog integration (watcher + auto-linker + transcript extractor)
+  let sessionlogWatcher: SessionlogWatcher | undefined;
+  let sessionlogLinker: SessionlogAutoLinker | undefined;
 
   try {
-    entireWatcher = createEntireWatcher({
+    const sessionlogConfig = (await loadConfig(opentasksPath)).providers?.sessionlog;
+    sessionlogWatcher = createSessionlogWatcher({
       locationPath: opentasksPath,
+      sessionDirName: sessionlogConfig?.sessionDirName,
     });
 
-    entireLinker = createEntireAutoLinker({
+    sessionlogLinker = createSessionlogAutoLinker({
       store,
       flushManager,
       archiver,
@@ -278,7 +305,7 @@ export async function createLocationState(
       skillTrackerRegistry,
     });
 
-    entireWatcher.onSessionEvent(async (event) => {
+    sessionlogWatcher.onSessionEvent(async (event) => {
       // Step 1: Extract transcript and backfill SkillTracker (BEFORE linker finalizes)
       if (event.type === 'ended') {
         try {
@@ -289,17 +316,17 @@ export async function createLocationState(
       }
 
       // Step 2: Linker finalizes (calls registry.remove() on ended)
-      await entireLinker!.handleSessionEvent(event);
+      await sessionlogLinker!.handleSessionEvent(event);
     });
 
-    await entireWatcher.start();
+    await sessionlogWatcher.start();
   } catch {
-    // Entire integration is optional — continue without it
-    entireWatcher = undefined;
-    entireLinker = undefined;
+    // Sessionlog integration is optional — continue without it
+    sessionlogWatcher = undefined;
+    sessionlogLinker = undefined;
   }
 
-  return {
+  const locationState: LocationState = {
     hash,
     opentasksPath,
     store,
@@ -307,17 +334,34 @@ export async function createLocationState(
     watcher,
     primary,
     healthy: true,
-    entireWatcher,
-    entireLinker,
+    sessionlogWatcher,
+    sessionlogLinker,
     archiver,
     graphSyncer,
   };
+
+  // Allow the reload watcher closure to access providerStore
+  stateRef = locationState;
+
+  return locationState;
 }
 
 /**
  * Tear down a LocationState, releasing all resources.
  */
 export async function destroyLocationState(state: LocationState): Promise<void> {
+  // Stop background reconciliation intervals
+  if (state.reconciliationInterval) {
+    clearInterval(state.reconciliationInterval);
+    state.reconciliationInterval = undefined;
+  }
+  if (state.providerReconciliationIntervals) {
+    for (const handle of state.providerReconciliationIntervals.values()) {
+      clearInterval(handle);
+    }
+    state.providerReconciliationIntervals = undefined;
+  }
+
   // Stop provider watching/sync before tearing down store
   if (state.providerStore) {
     try {
@@ -331,10 +375,10 @@ export async function destroyLocationState(state: LocationState): Promise<void> 
       /* ignore */
     }
   }
-  // Stop Entire watcher before main watcher
-  if (state.entireWatcher) {
+  // Stop sessionlog watcher before main watcher
+  if (state.sessionlogWatcher) {
     try {
-      await state.entireWatcher.stop();
+      await state.sessionlogWatcher.stop();
     } catch {
       /* ignore */
     }

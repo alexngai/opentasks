@@ -21,7 +21,7 @@ import type {
   SearchOptions,
   ProviderError,
 } from './types.js';
-import { ProviderError as ProviderErrorClass } from './types.js';
+import { ProviderError as ProviderErrorClass, createIsAvailable } from './types.js';
 import type {
   RelationshipQueryable,
   ProviderEdge,
@@ -588,10 +588,27 @@ export function createBeadsProvider(
     }
   }
 
+  const isAvailable = createIsAvailable(async () => {
+    try {
+      await execAsync(`which ${executable}`, { timeout: 5000 });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
   return {
     name: 'beads',
     schemes: ['beads', 'bd'],
     capabilities,
+    local: true,
+    description: 'Beads issue tracker (CLI-based). Creates and manages issues via the bd CLI. Only title, content, status, and priority are passed through on create/update. Tags, assignee, and metadata are not currently forwarded to Beads.',
+    metadataSchema: {
+      fields: {},
+      description: 'Metadata is not passed through to Beads. Tags and assignee set via top-level fields are also not forwarded on create/update.',
+    },
+
+    isAvailable,
 
     // =========================================================================
     // URI Operations

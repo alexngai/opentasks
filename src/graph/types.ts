@@ -78,6 +78,15 @@ export interface CreateNodeInput {
   /** Whether this external node has been materialized from a provider */
   materialized?: boolean;
 
+  /** Status from external system (their semantics, not ours) */
+  external_status?: string;
+
+  /** Raw data from external system */
+  external_data?: Record<string, unknown>;
+
+  /** When data was last fetched (ISO 8601) */
+  cached_at?: string;
+
   // === Extensibility ===
 
   /** Additional metadata */
@@ -114,6 +123,21 @@ export interface UpdateNodeInput {
 
   /** Mark feedback as dismissed */
   dismissed?: boolean;
+
+  /** Whether cached data is known to be stale */
+  stale?: boolean;
+
+  /** Whether this external node has been materialized */
+  materialized?: boolean;
+
+  /** Status from external system */
+  external_status?: string;
+
+  /** Raw data from external system */
+  external_data?: Record<string, unknown>;
+
+  /** When data was last fetched (ISO 8601) */
+  cached_at?: string;
 
   /** Update metadata (merged with existing) */
   metadata?: Record<string, unknown>;
