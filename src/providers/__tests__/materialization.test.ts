@@ -566,10 +566,12 @@ describe('MaterializationManager', () => {
           type: 'task',
           title: 'Fix auth',
           status: 'open',
-          metadata: {
+          metadata: expect.objectContaining({
             provider_uri: 'claude://current/1',
             provider_source: 'claude',
-          },
+            provider_authoritative: true,
+            provider_cached_at: expect.any(String),
+          }),
         }),
       );
     });
@@ -590,10 +592,12 @@ describe('MaterializationManager', () => {
         expect.objectContaining({
           type: 'context',
           title: 'Auth Spec',
-          metadata: {
+          metadata: expect.objectContaining({
             provider_uri: 'sudocode://proj/s-1',
             provider_source: 'sudocode',
-          },
+            provider_authoritative: true,
+            provider_cached_at: expect.any(String),
+          }),
         }),
       );
     });

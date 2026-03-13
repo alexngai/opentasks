@@ -596,7 +596,7 @@ describe('Claude Tasks E2E: ProviderAwareStore read bridge', () => {
       fs.writeFileSync(path.join(tasksDir, '.highwatermark'), '1', 'utf-8');
 
       // Verify provider is accessible through MCP list_providers
-      const client = await createClient(socketPath, ['graph']);
+      const client = await createClient(socketPath, ['tasks']);
       const { parsed } = await callTool(client, 'list_providers', {});
 
       // Should include both 'native' and 'claude' providers

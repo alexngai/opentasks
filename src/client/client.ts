@@ -500,6 +500,17 @@ export class OpenTasksClient {
     return this.client!.request('provider.info', { name });
   }
 
+  /**
+   * Trigger provider reconciliation
+   *
+   * @param options - Optional reconciliation options (providers, nodeIds)
+   * @returns Reconciliation result with per-node status
+   */
+  async reconcileProviders(options?: { providers?: string[]; nodeIds?: string[] }): Promise<unknown> {
+    await this.ensureConnected();
+    return this.client!.request('provider.reconcile', options ?? {});
+  }
+
   // ==========================================================================
   // Skill Tracking
   // ==========================================================================

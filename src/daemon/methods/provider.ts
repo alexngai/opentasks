@@ -10,6 +10,7 @@ import type { LocationResolver } from '../location-state.js';
 import type { Provider, ProviderMetadataSchema } from '../../providers/types.js';
 import { isTaskManageable } from '../../providers/traits/TaskManageable.js';
 import type { TaskCapabilities } from '../../providers/traits/TaskManageable.js';
+import type { ReconcileOptions, ReconcileResult } from '../../graph/provider-store.js';
 
 // ============================================================================
 // Types
@@ -167,6 +168,21 @@ export function registerProviderMethods(options: ProviderMethodsOptions): void {
       return {
         provider: toProviderSummary(provider, defaultProvider),
       };
+    },
+  );
+
+  // provider.reconcile - Trigger provider reconciliation
+  server.handle<ReconcileOptions & { location?: string }, ReconcileResult>(
+    'provider.reconcile',
+    async (params) => {
+      const { location, ...reconcileOptions } = params || {};
+      const state = locationResolver.resolve(location);
+
+      if (!state.providerStore) {
+        return { totalNodes: 0, results: [], skippedProviders: [] };
+      }
+
+      return await state.providerStore.reconcileProviders(reconcileOptions);
     },
   );
 }

@@ -111,12 +111,32 @@ function pickByNewerTimestamp(a: JsonLine, b: JsonLine): JsonLine {
 }
 
 /**
+ * Fields that contain cached provider data.
+ * When both sides modify a provider-authoritative node, these fields are
+ * NOT three-way merged — instead the node is flagged for reconciliation.
+ */
+const PROVIDER_CACHED_FIELDS = new Set(['title', 'content', 'status', 'priority']);
+
+/**
+ * Check if a JSONL entry is a provider-authoritative node
+ */
+function isProviderAuthoritative(entry: JsonLine): boolean {
+  const metadata = entry.metadata as Record<string, unknown> | undefined;
+  return metadata?.provider_authoritative === true;
+}
+
+/**
  * Field-level three-way merge
  *
  * For each field:
  * - Both sides agree → use that value
  * - Only one side changed → use the changed value
  * - Both changed differently → last-writer-wins by updated_at
+ *
+ * For provider-authoritative nodes where both sides modified:
+ * - Structural fields (id, type, metadata) merge normally
+ * - Cached data fields (title, content, status, priority) take whichever side
+ *   but are marked for re-fetch via provider_needs_reconcile
  */
 export function fieldLevelMerge(base: JsonLine, ours: JsonLine, theirs: JsonLine): JsonLine {
   const result = { ...base };
@@ -166,6 +186,25 @@ export function fieldLevelMerge(base: JsonLine, ours: JsonLine, theirs: JsonLine
   const times = [ours.updated_at as string, theirs.updated_at as string].filter(Boolean);
   if (times.length > 0) {
     result.updated_at = times.sort().pop()!;
+  }
+
+  // Provider-authoritative handling: if both sides modified cached data fields,
+  // mark for reconciliation instead of trusting the merge result.
+  if (isProviderAuthoritative(result)) {
+    const hasCachedFieldConflict = [...PROVIDER_CACHED_FIELDS].some((key) => {
+      const bVal = base[key];
+      const oVal = ours[key];
+      const tVal = theirs[key];
+      // True conflict: both changed differently from base
+      return !deepEqual(bVal, oVal) && !deepEqual(bVal, tVal) && !deepEqual(oVal, tVal);
+    });
+
+    if (hasCachedFieldConflict) {
+      const metadata = (result.metadata ?? {}) as Record<string, unknown>;
+      metadata.provider_needs_reconcile = true;
+      metadata.provider_cached_at = null;
+      result.metadata = metadata;
+    }
   }
 
   return result;

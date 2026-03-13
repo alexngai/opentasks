@@ -26,12 +26,15 @@ import {
   isWatchable,
   type ProviderChangeEvent,
   type ProviderNodeChangeEvent,
+  type ProviderEdgeChangeEvent,
 } from '../providers/traits/Watchable.js';
 import {
   isTaskManageable,
   type TaskAction,
   type ReadyTaskOptions,
 } from '../providers/traits/TaskManageable.js';
+import { isReconcilable } from '../providers/traits/Reconcilable.js';
+
 import type { GraphStore } from './store.js';
 import type { CreateNodeInput, UpdateNodeInput, DeleteOptions } from './types.js';
 
@@ -129,6 +132,43 @@ export interface FederatedReadyTaskOptions extends ReadyTaskOptions {
 }
 
 /**
+ * Options for reconciliation
+ */
+export interface ReconcileOptions {
+  /** Only reconcile nodes from these providers */
+  providers?: string[];
+
+  /** Only reconcile specific node IDs */
+  nodeIds?: string[];
+}
+
+/**
+ * Result from reconciling a single node
+ */
+export interface ReconcileNodeResult {
+  /** Graph node ID */
+  nodeId: string;
+  /** Provider URI */
+  providerUri: string;
+  /** What happened */
+  status: 'unchanged' | 'updated' | 'unavailable' | 'error';
+  /** Error message if status is 'error' */
+  error?: string;
+}
+
+/**
+ * Result from a full reconciliation run
+ */
+export interface ReconcileResult {
+  /** Total provider-backed nodes found */
+  totalNodes: number;
+  /** Per-node results */
+  results: ReconcileNodeResult[];
+  /** Providers that were skipped (unavailable) */
+  skippedProviders: string[];
+}
+
+/**
  * Result from a task transition
  */
 export interface TaskTransitionResult {
@@ -167,6 +207,14 @@ export interface ProviderStoreConfig {
 
   /** Default provider for CRUD operations ('native' = local GraphStore) */
   defaultProvider?: string;
+
+  /** Reconciliation configuration */
+  reconciliation?: {
+    onStartup?: 'async' | 'blocking' | 'none';
+    onReload?: 'async' | 'blocking' | 'none';
+    backgroundInterval?: number;
+    providerIntervals?: Record<string, number>;
+  };
 }
 
 /**
@@ -322,6 +370,18 @@ export interface ProviderAwareStore extends GraphStore {
    * provider doesn't implement `validActions`.
    */
   taskValidActions(idOrUri: string): Promise<TaskAction[]>;
+
+  // ===========================================================================
+  // Reconciliation
+  // ===========================================================================
+
+  /**
+   * Reconcile provider-backed nodes with their source providers.
+   * Scans graph for nodes with metadata.provider_authoritative === true,
+   * checks provider availability, and re-fetches current state.
+   * Only performs positive writes (never deletes/archives on unavailable).
+   */
+  reconcileProviders(options?: ReconcileOptions): Promise<ReconcileResult>;
 }
 
 // ============================================================================
@@ -414,14 +474,92 @@ async function findExternalNodeByUri(uri: string, store: GraphStore): Promise<No
   }
 
   // Then check local-provider nodes via metadata.provider_uri
-  const allNodes = await store.query.nodes({ search: uri });
-  for (const node of allNodes) {
+  // Note: search only checks title/content, not metadata. Scan all task/context
+  // nodes and check metadata.provider_uri. Acceptable for local graph sizes.
+  const taskNodes = await store.query.nodes({ type: 'task' });
+  for (const node of taskNodes) {
+    if (node.metadata?.provider_uri === uri) {
+      return node;
+    }
+  }
+  const contextNodes = await store.query.nodes({ type: 'context' });
+  for (const node of contextNodes) {
     if (node.metadata?.provider_uri === uri) {
       return node;
     }
   }
 
   return null;
+}
+
+/**
+ * Extract edge information from a ProviderNode's rawData.
+ * Provider-specific: beads uses blocks/blockedBy/dependencies,
+ * sudocode uses relationships, claude-tasks uses blocks/blockedBy.
+ * Returns normalized edge descriptors with URIs.
+ */
+function extractEdgesFromRawData(
+  providerNode: ProviderNode,
+  nodeUri: string,
+  provider: Provider,
+): Array<{ fromUri: string; toUri: string; type: string }> {
+  const raw = providerNode.rawData as Record<string, unknown> | undefined;
+  if (!raw) return [];
+
+  const edges: Array<{ fromUri: string; toUri: string; type: string }> = [];
+
+  // blocks: this node blocks the listed IDs
+  if (Array.isArray(raw.blocks)) {
+    for (const id of raw.blocks) {
+      if (typeof id === 'string') {
+        edges.push({ fromUri: nodeUri, toUri: provider.buildUri(id), type: 'blocks' });
+      }
+    }
+  }
+
+  // blockedBy: listed IDs block this node
+  if (Array.isArray(raw.blockedBy)) {
+    for (const id of raw.blockedBy) {
+      if (typeof id === 'string') {
+        edges.push({ fromUri: provider.buildUri(id), toUri: nodeUri, type: 'blocks' });
+      }
+    }
+  }
+
+  // dependencies: structured format (beads v0.49+)
+  if (Array.isArray(raw.dependencies)) {
+    for (const dep of raw.dependencies) {
+      const d = dep as Record<string, unknown>;
+      if (typeof d.depends_on_id === 'string' && typeof d.issue_id === 'string') {
+        edges.push({
+          fromUri: provider.buildUri(d.depends_on_id as string),
+          toUri: provider.buildUri(d.issue_id as string),
+          type: 'blocks',
+        });
+      }
+    }
+  }
+
+  // relationships: sudocode format
+  if (Array.isArray(raw.relationships)) {
+    for (const rel of raw.relationships) {
+      const r = rel as Record<string, unknown>;
+      if (typeof r.target_id === 'string' && typeof r.type === 'string') {
+        edges.push({
+          fromUri: nodeUri,
+          toUri: provider.buildUri(r.target_id as string),
+          type: r.type as string,
+        });
+      }
+    }
+  }
+
+  // parent_id: sudocode parent relationship
+  if (typeof raw.parent_id === 'string') {
+    edges.push({ fromUri: provider.buildUri(raw.parent_id), toUri: nodeUri, type: 'parent' });
+  }
+
+  return edges;
 }
 
 // ============================================================================
@@ -460,6 +598,30 @@ export function createProviderAwareStore(
   /** Track which providers are currently being watched */
   const watchedProviders = new Set<string>();
 
+  // =========================================================================
+  // Pointer-Only Node Cache (session-scoped, in-memory)
+  // =========================================================================
+
+  /** TTL for pointer cache entries (30 seconds) */
+  const POINTER_CACHE_TTL_MS = 30_000;
+
+  /** In-memory cache for pointer-only node data resolved from providers */
+  const pointerCache = new Map<string, { node: ProviderNode; expiresAt: number }>();
+
+  function getFromPointerCache(nodeId: string): ProviderNode | null {
+    const entry = pointerCache.get(nodeId);
+    if (!entry) return null;
+    if (Date.now() >= entry.expiresAt) {
+      pointerCache.delete(nodeId);
+      return null;
+    }
+    return entry.node;
+  }
+
+  function setInPointerCache(nodeId: string, node: ProviderNode): void {
+    pointerCache.set(nodeId, { node, expiresAt: Date.now() + POINTER_CACHE_TTL_MS });
+  }
+
   /**
    * Handle an inbound provider change event.
    * Auto-refreshes materialized nodes, then notifies external handlers.
@@ -470,10 +632,9 @@ export function createProviderAwareStore(
   ): Promise<void> {
     if (event.kind === 'node') {
       await handleNodeChange(providerName, event.event);
+    } else if (event.kind === 'edge') {
+      await handleEdgeChange(providerName, event.event);
     }
-    // Edge events: no auto-action needed for now — consumers can
-    // react via onProviderChange handlers. In the future, the
-    // federated graph could invalidate cached edge data here.
 
     // Notify external handlers
     for (const handler of changeHandlers) {
@@ -520,7 +681,7 @@ export function createProviderAwareStore(
     if (event.node) {
       // Provider included the full node data — materialize directly
       await materialization.materialize(event.uri, event.node, baseStore, {
-        local: changeProvider?.local,
+        local: changeProvider?.local, materializeMode: changeProvider?.materializeMode,
       });
     } else {
       // No node data in event — fetch fresh from provider
@@ -534,10 +695,58 @@ export function createProviderAwareStore(
             const fresh = await changeProvider.get(parsed.id);
             if (fresh) {
               await materialization.materialize(event.uri, fresh, baseStore, {
-                local: changeProvider.local,
+                local: changeProvider.local, materializeMode: changeProvider.materializeMode,
               });
             }
           }
+        }
+      }
+    }
+  }
+
+  /**
+   * Handle an edge change from a provider watch event.
+   * Creates or deletes edges in the graph, stamped with edge_source.
+   */
+  async function handleEdgeChange(
+    providerName: string,
+    event: ProviderEdgeChangeEvent,
+  ): Promise<void> {
+    // Resolve source and target URIs to local node IDs
+    const fromNode = await findExternalNodeByUri(event.sourceUri, baseStore);
+    const toNode = await findExternalNodeByUri(event.targetUri, baseStore);
+
+    if (!fromNode || !toNode) {
+      // One or both nodes not materialized — skip edge
+      return;
+    }
+
+    if (event.type === 'created') {
+      // Check if edge already exists
+      const existingEdges = await baseStore.query.edgesFrom(fromNode.id, event.edge.type);
+      const alreadyExists = existingEdges.some(
+        (e) => e.to_id === toNode.id && e.source === providerName,
+      );
+      if (!alreadyExists) {
+        await baseStore.createEdge({
+          from_id: fromNode.id,
+          to_id: toNode.id,
+          type: event.edge.type,
+          metadata: {
+            edge_source: providerName,
+            from_uri: event.sourceUri,
+            to_uri: event.targetUri,
+            ...event.edge.metadata,
+          },
+        });
+      }
+    } else if (event.type === 'deleted') {
+      // Find and delete the provider-owned edge
+      const existingEdges = await baseStore.query.edgesFrom(fromNode.id, event.edge.type);
+      for (const edge of existingEdges) {
+        if (edge.to_id === toNode.id &&
+            (edge.source === providerName || edge.metadata?.edge_source === providerName)) {
+          await baseStore.deleteEdge(edge.id);
         }
       }
     }
@@ -585,7 +794,7 @@ export function createProviderAwareStore(
 
       // Materialize
       return materialization.materialize(uri, providerNode, baseStore, {
-        local: provider.local,
+        local: provider.local, materializeMode: provider.materializeMode,
       });
     },
 
@@ -715,7 +924,7 @@ export function createProviderAwareStore(
       // Build canonical URI and always materialize on create
       const uri = provider.buildUri(providerNode.id);
       const materializedNode = await materialization.materialize(uri, providerNode, baseStore, {
-        local: provider.local,
+        local: provider.local, materializeMode: provider.materializeMode,
       });
 
       return {
@@ -803,7 +1012,7 @@ export function createProviderAwareStore(
 
       // Refresh local materialized copy with provider's response
       return materialization.materialize(nodeProviderUri!, updatedProviderNode, baseStore, {
-        local: owningProvider.local,
+        local: owningProvider.local, materializeMode: owningProvider.materializeMode,
       }) as Promise<Node>;
     },
 
@@ -878,7 +1087,7 @@ export function createProviderAwareStore(
       // Materialize the result for non-native providers
       const uri = provider.buildUri(updatedNode.id);
       const materialized = await materialization.materialize(uri, updatedNode, baseStore, {
-        local: provider.local,
+        local: provider.local, materializeMode: provider.materializeMode,
       });
 
       return {
@@ -942,7 +1151,7 @@ export function createProviderAwareStore(
             } else {
               // Materialize so callers get Node objects with local IDs
               const materialized = await materialization.materialize(uri, pNode, baseStore, {
-                local: provider.local,
+                local: provider.local, materializeMode: provider.materializeMode,
               });
               results.push(materialized);
               seenIds.add(materialized.id);
@@ -1006,7 +1215,7 @@ export function createProviderAwareStore(
             }
           } else {
             const materialized = await materialization.materialize(uri, pNode, baseStore, {
-              local: provider.local,
+              local: provider.local, materializeMode: provider.materializeMode,
             });
             if (!seenIds.has(materialized.id)) {
               results.push(materialized);
@@ -1052,7 +1261,7 @@ export function createProviderAwareStore(
 
       const uri = provider.buildUri(updatedNode.id);
       return materialization.materialize(uri, updatedNode, baseStore, {
-        local: provider.local,
+        local: provider.local, materializeMode: provider.materializeMode,
       }) as Promise<Node>;
     },
 
@@ -1065,6 +1274,250 @@ export function createProviderAwareStore(
 
       // Fall back to the provider's declared capabilities
       return provider.taskCapabilities.actions;
+    },
+
+    // ===========================================================================
+    // Reconciliation
+    // ===========================================================================
+
+    async reconcileProviders(options?: ReconcileOptions): Promise<ReconcileResult> {
+      // 1. Scan graph for all provider-authoritative nodes
+      const allNodes = await baseStore.query.nodes({});
+      const authoritativeNodes = allNodes.filter(
+        (n) => n.metadata?.provider_authoritative === true,
+      );
+
+      // 2. Filter by options
+      let targetNodes = authoritativeNodes;
+      if (options?.nodeIds) {
+        const idSet = new Set(options.nodeIds);
+        targetNodes = targetNodes.filter((n) => idSet.has(n.id));
+      }
+      if (options?.providers) {
+        const providerSet = new Set(options.providers);
+        targetNodes = targetNodes.filter(
+          (n) => typeof n.metadata?.provider_source === 'string' && providerSet.has(n.metadata.provider_source as string),
+        );
+      }
+
+      // 3. Group by provider_source
+      const grouped = new Map<string, Array<{ node: Node; providerUri: string }>>();
+      for (const node of targetNodes) {
+        const source = node.metadata?.provider_source as string;
+        const uri = getProviderUri(node);
+        if (!source || !uri) continue;
+        if (!grouped.has(source)) grouped.set(source, []);
+        grouped.get(source)!.push({ node, providerUri: uri });
+      }
+
+      const results: ReconcileNodeResult[] = [];
+      const skippedProviders: string[] = [];
+
+      // 4. For each provider group
+      for (const [source, nodes] of grouped) {
+        const provider = registry.get(source);
+
+        // 4a. Check availability
+        if (!provider) {
+          skippedProviders.push(source);
+          for (const { node, providerUri } of nodes) {
+            results.push({ nodeId: node.id, providerUri, status: 'unavailable' });
+          }
+          continue;
+        }
+
+        if (provider.isAvailable) {
+          const available = await provider.isAvailable();
+          if (!available) {
+            skippedProviders.push(source);
+            for (const { node, providerUri } of nodes) {
+              results.push({ nodeId: node.id, providerUri, status: 'unavailable' });
+            }
+            continue;
+          }
+        }
+
+        // 4b. Determine which nodes actually need a full fetch
+        // If the provider is Reconcilable, use batch hashes to skip unchanged nodes
+        let nodesToFetch = nodes;
+
+        if (isReconcilable(provider)) {
+          try {
+            const ids = nodes.map(({ providerUri }) => {
+              const parsed = provider.parseUri(providerUri);
+              return parsed?.id;
+            }).filter((id): id is string => !!id);
+
+            const summaries = await provider.listForReconciliation({ ids });
+            const hashByUri = new Map(summaries.map((s) => [s.uri, s.contentHash]));
+
+            // Compare hashes — only fetch nodes whose hash changed or is missing
+            nodesToFetch = [];
+            for (const entry of nodes) {
+              const remoteHash = hashByUri.get(entry.providerUri);
+              const localHash = entry.node.metadata?.provider_content_hash as string | undefined;
+
+              if (remoteHash && localHash && remoteHash === localHash) {
+                // Hash matches — unchanged, just refresh timestamp
+                const now = new Date().toISOString();
+                await baseStore.updateNode(entry.node.id, {
+                  metadata: {
+                    ...entry.node.metadata,
+                    provider_cached_at: now,
+                    provider_needs_reconcile: undefined,
+                  },
+                });
+                results.push({ nodeId: entry.node.id, providerUri: entry.providerUri, status: 'unchanged' });
+              } else {
+                nodesToFetch.push(entry);
+              }
+            }
+          } catch {
+            // Batch path failed — fall back to individual gets
+            nodesToFetch = nodes;
+          }
+        }
+
+        // 4c. Reconcile nodes that need a full fetch via individual get() calls
+        for (const { node, providerUri } of nodesToFetch) {
+          try {
+            const parsed = provider.parseUri(providerUri);
+            if (!parsed) {
+              results.push({
+                nodeId: node.id,
+                providerUri,
+                status: 'error',
+                error: `Failed to parse URI: ${providerUri}`,
+              });
+              continue;
+            }
+
+            const providerNode = await provider.get(parsed.id);
+
+            if (!providerNode) {
+              // Provider returns null (deleted in provider) — no action (positive-writes-only)
+              results.push({ nodeId: node.id, providerUri, status: 'unchanged' });
+              continue;
+            }
+
+            // Compare: did anything change?
+            const now = new Date().toISOString();
+            const titleChanged = providerNode.title !== node.title;
+            const contentChanged = providerNode.content !== (node.content ?? undefined);
+            const nodeStatus = 'status' in node ? node.status : undefined;
+            const nodePriority = 'priority' in node ? node.priority : undefined;
+            const statusChanged = providerNode.status !== nodeStatus;
+            const priorityChanged = providerNode.priority !== nodePriority;
+
+            if (titleChanged || contentChanged || statusChanged || priorityChanged) {
+              // Update graph node with provider data
+              const isPointer = node.metadata?.provider_pointer_only === true;
+              await baseStore.updateNode(node.id, {
+                ...(isPointer
+                  ? {}
+                  : {
+                      title: providerNode.title,
+                      content: providerNode.content,
+                      status: providerNode.status,
+                      priority: providerNode.priority,
+                    }),
+                metadata: {
+                  ...node.metadata,
+                  provider_cached_at: isPointer ? undefined : now,
+                  provider_content_hash: providerNode.contentHash ?? undefined,
+                  provider_needs_reconcile: undefined, // clear flag
+                },
+              });
+              results.push({ nodeId: node.id, providerUri, status: 'updated' });
+            } else {
+              // Same data — just stamp provider_cached_at and hash
+              await baseStore.updateNode(node.id, {
+                metadata: {
+                  ...node.metadata,
+                  provider_cached_at: now,
+                  provider_content_hash: providerNode.contentHash ?? node.metadata?.provider_content_hash,
+                  provider_needs_reconcile: undefined, // clear flag
+                },
+              });
+              results.push({ nodeId: node.id, providerUri, status: 'unchanged' });
+            }
+
+            // 4d. Edge reconciliation — extract edges from ProviderNode.rawData
+            //     (zero extra provider calls — piggyback on node data already fetched)
+            if (providerNode.rawData) {
+              try {
+                const rawEdges = extractEdgesFromRawData(providerNode, providerUri, provider);
+
+                if (rawEdges.length > 0) {
+                  // Get existing edges owned by this provider for this node
+                  const existingEdgesFrom = await baseStore.query.edgesFrom(node.id);
+                  const existingEdgesTo = await baseStore.query.edgesTo(node.id);
+                  const allExisting = [...existingEdgesFrom, ...existingEdgesTo];
+                  const providerOwnedEdges = allExisting.filter(
+                    (e) => e.source === source || e.metadata?.edge_source === source,
+                  );
+
+                  // Build sets for diffing
+                  const providerEdgeKeys = new Set(
+                    rawEdges.map((pe) => `${pe.fromUri}|${pe.toUri}|${pe.type}`),
+                  );
+
+                  const existingEdgeKeys = new Map<string, { id: string }>();
+                  for (const e of providerOwnedEdges) {
+                    const fromUri = e.metadata?.from_uri as string ?? e.from_id;
+                    const toUri = e.metadata?.to_uri as string ?? e.to_id;
+                    existingEdgeKeys.set(`${fromUri}|${toUri}|${e.type}`, { id: e.id });
+                  }
+
+                  // Add edges that exist in provider but not in graph
+                  for (const pe of rawEdges) {
+                    const key = `${pe.fromUri}|${pe.toUri}|${pe.type}`;
+                    if (!existingEdgeKeys.has(key)) {
+                      const fromNode = await findExternalNodeByUri(pe.fromUri, baseStore);
+                      const toNode = await findExternalNodeByUri(pe.toUri, baseStore);
+                      if (fromNode && toNode) {
+                        await baseStore.createEdge({
+                          from_id: fromNode.id,
+                          to_id: toNode.id,
+                          type: pe.type,
+                          metadata: {
+                            edge_source: source,
+                            from_uri: pe.fromUri,
+                            to_uri: pe.toUri,
+                          },
+                        });
+                      }
+                    }
+                  }
+
+                  // Remove edges that exist in graph but not in provider
+                  for (const [key, edge] of existingEdgeKeys) {
+                    if (!providerEdgeKeys.has(key)) {
+                      await baseStore.deleteEdge(edge.id);
+                    }
+                  }
+                }
+              } catch {
+                // Edge reconciliation failure is non-fatal
+              }
+            }
+          } catch (error) {
+            // Error fetching — leave node as-is, preserve cached data
+            results.push({
+              nodeId: node.id,
+              providerUri,
+              status: 'error',
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      }
+
+      return {
+        totalNodes: targetNodes.length,
+        results,
+        skippedProviders,
+      };
     },
   };
 
@@ -1150,7 +1603,42 @@ export function createProviderAwareStore(
   ): Promise<Node | ProviderNode | null> {
     // 1. Check if local ID - use existing getNode
     if (isLocalId(idOrUri)) {
-      return baseStore.getNode(idOrUri);
+      const localNode = await baseStore.getNode(idOrUri);
+      if (!localNode) return null;
+
+      // Transparent pointer-only resolution: fetch real data from provider
+      if (localNode.metadata?.provider_pointer_only === true) {
+        const providerUri = getProviderUri(localNode);
+        if (providerUri) {
+          // Check session cache first
+          if (!options?.refresh) {
+            const cached = getFromPointerCache(localNode.id);
+            if (cached) {
+              // Overlay provider data onto the local node shape
+              return { ...localNode, title: cached.title, content: cached.content ?? localNode.content } as Node;
+            }
+          }
+
+          // Fetch from provider
+          const provider = registry.resolveProvider(providerUri);
+          if (provider) {
+            const parsed = provider.parseUri(providerUri);
+            if (parsed) {
+              try {
+                const fresh = await provider.get(parsed.id, context);
+                if (fresh) {
+                  setInPointerCache(localNode.id, fresh);
+                  return { ...localNode, title: fresh.title, content: fresh.content ?? localNode.content } as Node;
+                }
+              } catch {
+                // Fall through to return stub node
+              }
+            }
+          }
+        }
+      }
+
+      return localNode;
     }
 
     // 2. Check for cached materialized node (unless refresh requested)
@@ -1189,7 +1677,7 @@ export function createProviderAwareStore(
 
     if (shouldMaterialize) {
       return materialization.materialize(idOrUri, providerNode, baseStore, {
-        local: provider.local,
+        local: provider.local, materializeMode: provider.materializeMode,
       });
     }
 
@@ -1231,7 +1719,7 @@ export function createProviderAwareStore(
       }
 
       const materialized = await materialization.materialize(idOrUri, providerNode, baseStore, {
-        local: provider.local,
+        local: provider.local, materializeMode: provider.materializeMode,
       });
       return { node: materialized, provider, isExternal: true };
     }

@@ -8,6 +8,7 @@
  * Watchable (when tasksDir is configured) for file-based change detection.
  */
 
+import { access } from 'fs/promises';
 import type {
   Provider,
   ProviderCapabilities,
@@ -19,7 +20,7 @@ import type {
   ParsedUri,
   UriOptions,
 } from './types.js';
-import { ProviderError } from './types.js';
+import { ProviderError, createIsAvailable } from './types.js';
 import type {
   TaskManageable,
   TaskAction,
@@ -385,6 +386,18 @@ export function createClaudeTasksProvider(
     }
   }
 
+  // For filesystem-backed stores, check tasksDir accessibility.
+  // For in-memory stores, always available.
+  const isAvailable = createIsAvailable(async () => {
+    if (!tasksDir) return true; // in-memory store is always available
+    try {
+      await access(tasksDir);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
   return {
     name: 'claude',
     schemes: ['claude', 'task'],
@@ -397,6 +410,8 @@ export function createClaudeTasksProvider(
       },
       description: 'Arbitrary metadata is persisted on the Claude task. Tags are stored in metadata.tags and used by ready-task queries.',
     },
+
+    isAvailable,
 
     // =========================================================================
     // URI Operations

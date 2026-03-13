@@ -297,4 +297,157 @@ describe('mergeJsonl', () => {
 
     expect(mergeJsonl(base, ours, theirs)).toBe(0);
   });
+
+  describe('provider-authoritative nodes', () => {
+    it('stamps provider_needs_reconcile when both sides modify cached fields', () => {
+      const base = writeJsonl('base.jsonl', [
+        {
+          id: 't-1',
+          type: 'task',
+          title: 'Original',
+          status: 'open',
+          content: 'Base content',
+          metadata: {
+            provider_uri: 'beads://./bd-1',
+            provider_source: 'beads',
+            provider_authoritative: true,
+            provider_cached_at: '2025-01-01T00:00:00Z',
+          },
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ]);
+      const ours = writeJsonl('ours.jsonl', [
+        {
+          id: 't-1',
+          type: 'task',
+          title: 'Alice updated title',
+          status: 'open',
+          content: 'Base content',
+          metadata: {
+            provider_uri: 'beads://./bd-1',
+            provider_source: 'beads',
+            provider_authoritative: true,
+            provider_cached_at: '2025-01-01T01:00:00Z',
+          },
+          updated_at: '2025-01-01T01:00:00Z',
+        },
+      ]);
+      const theirs = writeJsonl('theirs.jsonl', [
+        {
+          id: 't-1',
+          type: 'task',
+          title: 'Bob updated title',
+          status: 'open',
+          content: 'Base content',
+          metadata: {
+            provider_uri: 'beads://./bd-1',
+            provider_source: 'beads',
+            provider_authoritative: true,
+            provider_cached_at: '2025-01-01T02:00:00Z',
+          },
+          updated_at: '2025-01-01T02:00:00Z',
+        },
+      ]);
+
+      mergeJsonl(base, ours, theirs);
+
+      const result = parseJsonlToMap(ours);
+      const node = result.get('t-1')!;
+      const metadata = node.metadata as Record<string, unknown>;
+      expect(metadata.provider_needs_reconcile).toBe(true);
+      expect(metadata.provider_cached_at).toBeNull();
+    });
+
+    it('does NOT stamp provider_needs_reconcile when only one side modified', () => {
+      const base = writeJsonl('base.jsonl', [
+        {
+          id: 't-1',
+          type: 'task',
+          title: 'Original',
+          status: 'open',
+          metadata: {
+            provider_uri: 'beads://./bd-1',
+            provider_source: 'beads',
+            provider_authoritative: true,
+          },
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ]);
+      const ours = writeJsonl('ours.jsonl', [
+        {
+          id: 't-1',
+          type: 'task',
+          title: 'Original',
+          status: 'open',
+          metadata: {
+            provider_uri: 'beads://./bd-1',
+            provider_source: 'beads',
+            provider_authoritative: true,
+          },
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ]);
+      const theirs = writeJsonl('theirs.jsonl', [
+        {
+          id: 't-1',
+          type: 'task',
+          title: 'Updated by theirs only',
+          status: 'open',
+          metadata: {
+            provider_uri: 'beads://./bd-1',
+            provider_source: 'beads',
+            provider_authoritative: true,
+          },
+          updated_at: '2025-01-01T01:00:00Z',
+        },
+      ]);
+
+      mergeJsonl(base, ours, theirs);
+
+      const result = parseJsonlToMap(ours);
+      const node = result.get('t-1')!;
+      // One-side-modified → normal merge, no reconcile flag
+      expect(node.title).toBe('Updated by theirs only');
+      const metadata = node.metadata as Record<string, unknown>;
+      expect(metadata.provider_needs_reconcile).toBeUndefined();
+    });
+
+    it('does NOT affect non-authoritative nodes with both-sides conflicts', () => {
+      const base = writeJsonl('base.jsonl', [
+        {
+          id: 't-1',
+          type: 'task',
+          title: 'Original',
+          status: 'open',
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ]);
+      const ours = writeJsonl('ours.jsonl', [
+        {
+          id: 't-1',
+          type: 'task',
+          title: 'Alice title',
+          status: 'open',
+          updated_at: '2025-01-01T01:00:00Z',
+        },
+      ]);
+      const theirs = writeJsonl('theirs.jsonl', [
+        {
+          id: 't-1',
+          type: 'task',
+          title: 'Bob title',
+          status: 'open',
+          updated_at: '2025-01-01T02:00:00Z',
+        },
+      ]);
+
+      mergeJsonl(base, ours, theirs);
+
+      const result = parseJsonlToMap(ours);
+      const node = result.get('t-1')!;
+      // Normal last-writer-wins — no provider_needs_reconcile
+      expect(node.title).toBe('Bob title');
+      expect(node.metadata).toBeUndefined();
+    });
+  });
 });

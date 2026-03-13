@@ -270,6 +270,26 @@ function registerTaskTools(server: McpServer, client: OpenTasksClient): void {
   );
 
   server.tool(
+    'reconcile',
+    'Trigger provider reconciliation. Syncs cached provider-backed nodes with their source providers. Returns a diff summary showing which nodes were updated, unchanged, or unavailable.',
+    {
+      providers: z.array(z.string()).optional().describe('Only reconcile these provider names'),
+      node_ids: z.array(z.string()).optional().describe('Only reconcile these node IDs'),
+    },
+    async (args) => {
+      try {
+        const result = await client.reconcileProviders({
+          providers: args.providers,
+          nodeIds: args.node_ids,
+        });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
     'list_tasks',
     'List and filter tasks. Get ready tasks, find blockers, or query by status/tags/assignee.',
     {

@@ -21,7 +21,7 @@ import type {
   SearchOptions,
   ProviderError,
 } from './types.js';
-import { ProviderError as ProviderErrorClass } from './types.js';
+import { ProviderError as ProviderErrorClass, createIsAvailable } from './types.js';
 import type {
   RelationshipQueryable,
   ProviderEdge,
@@ -588,6 +588,15 @@ export function createBeadsProvider(
     }
   }
 
+  const isAvailable = createIsAvailable(async () => {
+    try {
+      await execAsync(`which ${executable}`, { timeout: 5000 });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
   return {
     name: 'beads',
     schemes: ['beads', 'bd'],
@@ -598,6 +607,8 @@ export function createBeadsProvider(
       fields: {},
       description: 'Metadata is not passed through to Beads. Tags and assignee set via top-level fields are also not forwarded on create/update.',
     },
+
+    isAvailable,
 
     // =========================================================================
     // URI Operations

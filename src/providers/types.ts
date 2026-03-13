@@ -134,6 +134,9 @@ export interface ProviderNode {
 
   /** When this data was fetched (ISO 8601) */
   fetchedAt: string;
+
+  /** Optional content hash for fast change detection during reconciliation */
+  contentHash?: string;
 }
 
 // ============================================================================
@@ -307,6 +310,16 @@ export interface Provider {
    */
   readonly local?: boolean;
 
+  /**
+   * How provider-backed nodes are materialized in the graph.
+   * - 'cached': Data is cached in the graph node (title, content, status).
+   *   Provider is source of truth; cached data may be stale.
+   * - 'pointer': Only the provider_uri reference is stored. Data is resolved
+   *   from the provider on every access (session-cached in memory).
+   * Default: 'cached'
+   */
+  readonly materializeMode?: 'cached' | 'pointer';
+
   /** Human/agent-readable description of this provider and how to interact with it */
   readonly description?: string;
 
@@ -387,6 +400,42 @@ export interface Provider {
    * Only available if capabilities.watch is true
    */
   watch?(callback: WatchCallback): Unsubscribe;
+
+  /**
+   * Lightweight availability check for reconciliation.
+   * Returns true if the provider's backing store is reachable.
+   * Implementations should use provider-side caching (see createIsAvailable helper)
+   * to avoid redundant checks during reconciliation cycles.
+   * Providers that don't implement this are assumed always available.
+   */
+  isAvailable?(): Promise<boolean>;
+}
+
+// ============================================================================
+// Provider Availability Helpers
+// ============================================================================
+
+/**
+ * Create a cached isAvailable() function with TTL.
+ * Avoids redundant checks when reconciliation iterates over many nodes
+ * grouped by the same provider.
+ *
+ * @param checkFn - The actual availability check (e.g., fs.access, IPC ping)
+ * @param ttlMs - Cache TTL in milliseconds (default: 5000)
+ */
+export function createIsAvailable(
+  checkFn: () => Promise<boolean>,
+  ttlMs = 5000,
+): () => Promise<boolean> {
+  let cached: { value: boolean; expiresAt: number } | null = null;
+
+  return async (): Promise<boolean> => {
+    const now = Date.now();
+    if (cached && now < cached.expiresAt) return cached.value;
+    const value = await checkFn();
+    cached = { value, expiresAt: now + ttlMs };
+    return value;
+  };
 }
 
 // ============================================================================

@@ -31,6 +31,14 @@ export interface MaterializeOptions {
    * When false/undefined, materializes as type:'external' (current behavior).
    */
   local?: boolean;
+
+  /**
+   * Materialization mode for this node.
+   * - 'cached': Store full data (title, content, status) in the graph node.
+   * - 'pointer': Store only the provider_uri reference; data resolved on access.
+   * Default: 'cached'
+   */
+  materializeMode?: 'cached' | 'pointer';
 }
 
 /**
@@ -121,11 +129,14 @@ async function findByUri(uri: string, store: GraphStore): Promise<ExternalNode |
  * Find existing node by provider_uri in metadata (for local-provider nodes)
  */
 async function findByProviderUri(uri: string, store: GraphStore): Promise<Node | null> {
-  // Search across task and context nodes for a metadata.provider_uri match
-  const nodes = await store.query.nodes({ search: uri });
-  for (const node of nodes) {
-    if (node.metadata?.provider_uri === uri) {
-      return node;
+  // Scan task and context nodes for a metadata.provider_uri match.
+  // Note: search only checks title/content, not metadata, so we scan by type.
+  for (const type of ['task', 'context'] as const) {
+    const nodes = await store.query.nodes({ type });
+    for (const node of nodes) {
+      if (node.metadata?.provider_uri === uri) {
+        return node;
+      }
     }
   }
   return null;
@@ -229,20 +240,30 @@ export function createMaterializationManager(
       // ── Local provider path ──────────────────────────────────────────
       if (options?.local) {
         const nodeType = mapProviderTypeToNodeType(providerNode.type);
+        const isPointer = options.materializeMode === 'pointer';
 
         // Check for existing node by provider_uri
         const existing = await findByProviderUri(uri, store);
 
         if (existing) {
           const updated = await store.updateNode(existing.id, {
-            title: providerNode.title,
-            content: providerNode.content,
-            status: providerNode.status,
-            priority: providerNode.priority,
+            // Pointer-only mode: don't cache data fields
+            ...(isPointer
+              ? {}
+              : {
+                  title: providerNode.title,
+                  content: providerNode.content,
+                  status: providerNode.status,
+                  priority: providerNode.priority,
+                }),
             metadata: {
               ...existing.metadata,
               provider_uri: uri,
               provider_source: source,
+              provider_cached_at: isPointer ? undefined : now,
+              provider_authoritative: true,
+              provider_content_hash: providerNode.contentHash ?? existing.metadata?.provider_content_hash,
+              ...(isPointer ? { provider_pointer_only: true } : {}),
             },
           });
           return updated;
@@ -251,13 +272,18 @@ export function createMaterializationManager(
         // Create new native node with provider back-reference
         const node = await store.createNode({
           type: nodeType,
-          title: providerNode.title,
-          content: providerNode.content,
-          status: providerNode.status ?? 'open',
-          priority: providerNode.priority,
+          // Pointer-only mode: minimal stub
+          title: isPointer ? '(pending)' : providerNode.title,
+          content: isPointer ? undefined : providerNode.content,
+          status: isPointer ? (providerNode.status ?? 'open') : (providerNode.status ?? 'open'),
+          priority: isPointer ? undefined : providerNode.priority,
           metadata: {
             provider_uri: uri,
             provider_source: source,
+            provider_cached_at: isPointer ? undefined : now,
+            provider_authoritative: true,
+            provider_content_hash: providerNode.contentHash ?? undefined,
+            ...(isPointer ? { provider_pointer_only: true } : {}),
           },
         });
         return node;

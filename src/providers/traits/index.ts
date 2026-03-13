@@ -40,3 +40,12 @@ export type {
 } from './TaskManageable.js';
 
 export { isTaskManageable } from './TaskManageable.js';
+
+// Reconcilable
+export type {
+  Reconcilable,
+  ReconcilableNodeSummary,
+  ListReconcilableOptions,
+} from './Reconcilable.js';
+
+export { isReconcilable } from './Reconcilable.js';

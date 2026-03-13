@@ -262,6 +262,19 @@ graph LR
 
 No upfront API calls. References stay cheap until you need the data.
 
+### Provider Caching & Reconciliation
+
+Provider-backed nodes cache data locally but treat the provider as the source of truth. When `graph.jsonl` is git-synced across environments, cached data can diverge from the provider's current state.
+
+OpenTasks reconciles automatically:
+- On file watcher reload (git pull, branch switch) — re-fetches provider-backed nodes
+- Positive-writes-only — never deletes or archives nodes when a provider is unavailable
+- Edge reconciliation — provider relationships extracted from node data, no extra API calls
+
+Providers can opt into **pointer-only mode** (`materializeMode: 'pointer'`) where only the URI reference is stored and data is resolved transparently on every access.
+
+See [docs/PROVIDER-RECONCILIATION.md](./docs/PROVIDER-RECONCILIATION.md) for the full design.
+
 ## Locations
 
 Multiple `.opentasks/` directories at different filesystem levels. Each is isolated by default.

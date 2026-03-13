@@ -71,6 +71,15 @@ export interface LocationState {
 
   /** Git graph syncer (if enabled) */
   graphSyncer?: GitGraphSyncer;
+
+  /** Reconciliation trigger mode for reload events (default: 'async') */
+  reconciliationOnReload?: 'async' | 'blocking' | 'none';
+
+  /** Background reconciliation interval handle */
+  reconciliationInterval?: ReturnType<typeof setInterval>;
+
+  /** Per-provider reconciliation interval handles */
+  providerReconciliationIntervals?: Map<string, ReturnType<typeof setInterval>>;
 }
 
 /**
@@ -170,11 +179,27 @@ export async function createLocationState(
     },
   );
 
+  // Container for the state object — set before return so the reload handler
+  // can access providerStore (which is wired up after createLocationState returns).
+  let stateRef: LocationState | null = null;
+
   watcher.onchange((event) => {
     if (event.category === 'graph') {
       // External change to graph.jsonl detected — reload into SQLite
       flushManager.pause();
-      void store.reload().finally(() => {
+      void store.reload().then(async () => {
+        flushManager.resume();
+
+        // Trigger onReload reconciliation if a provider store is attached
+        const providerStore = stateRef?.providerStore;
+        const onReload = stateRef?.reconciliationOnReload ?? 'async';
+        if (providerStore && onReload !== 'none') {
+          const run = providerStore.reconcileProviders().catch(() => null);
+          if (onReload === 'blocking') {
+            await run;
+          }
+        }
+      }).catch(() => {
         flushManager.resume();
       });
     }
@@ -301,7 +326,7 @@ export async function createLocationState(
     sessionlogLinker = undefined;
   }
 
-  return {
+  const locationState: LocationState = {
     hash,
     opentasksPath,
     store,
@@ -314,12 +339,29 @@ export async function createLocationState(
     archiver,
     graphSyncer,
   };
+
+  // Allow the reload watcher closure to access providerStore
+  stateRef = locationState;
+
+  return locationState;
 }
 
 /**
  * Tear down a LocationState, releasing all resources.
  */
 export async function destroyLocationState(state: LocationState): Promise<void> {
+  // Stop background reconciliation intervals
+  if (state.reconciliationInterval) {
+    clearInterval(state.reconciliationInterval);
+    state.reconciliationInterval = undefined;
+  }
+  if (state.providerReconciliationIntervals) {
+    for (const handle of state.providerReconciliationIntervals.values()) {
+      clearInterval(handle);
+    }
+    state.providerReconciliationIntervals = undefined;
+  }
+
   // Stop provider watching/sync before tearing down store
   if (state.providerStore) {
     try {

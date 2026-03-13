@@ -139,6 +139,7 @@ function buildStoredNode(input: CreateNodeInput, id: string, uuid: string): Stor
     content: input.content,
     priority: input.priority,
     parent_id: input.parent_id,
+    metadata: input.metadata,
     created_at: timestamp,
     updated_at: timestamp,
     archived: false,
@@ -199,6 +200,7 @@ function applyUpdates(node: StoredNode, updates: UpdateNodeInput): Partial<Store
   }
   if (updates.resolved !== undefined) changes.resolved = updates.resolved;
   if (updates.dismissed !== undefined) changes.dismissed = updates.dismissed;
+  if (updates.metadata !== undefined) changes.metadata = updates.metadata;
 
   return changes;
 }

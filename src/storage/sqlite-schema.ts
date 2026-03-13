@@ -144,6 +144,8 @@ export const MIGRATIONS = [
   // Add metadata and cached_at columns to edges table (v1.1.0)
   `ALTER TABLE edges ADD COLUMN metadata TEXT`,
   `ALTER TABLE edges ADD COLUMN cached_at TEXT`,
+  // Add metadata column to nodes table (v1.2.0) — for provider reconciliation
+  `ALTER TABLE nodes ADD COLUMN metadata TEXT`,
 ];
 
 /**

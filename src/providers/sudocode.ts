@@ -26,7 +26,7 @@ import type {
   UriOptions,
   SearchOptions,
 } from './types.js';
-import { ProviderError as ProviderErrorClass } from './types.js';
+import { ProviderError as ProviderErrorClass, createIsAvailable } from './types.js';
 import type {
   RelationshipQueryable,
   ProviderEdge,
@@ -762,6 +762,15 @@ export function createSudocodeProvider(
     }
   }
 
+  const isAvailable = createIsAvailable(async () => {
+    try {
+      await execAsync(`which ${executable}`, { timeout: 5000 });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
   return {
     name: 'sudocode',
     schemes: ['sudocode', 'sc'],
@@ -772,6 +781,8 @@ export function createSudocodeProvider(
       fields: {},
       description: 'Metadata is not passed through to Sudocode. Tags and assignee set via top-level fields are also not forwarded on create/update.',
     },
+
+    isAvailable,
 
     // =========================================================================
     // URI Operations

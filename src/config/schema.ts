@@ -133,6 +133,9 @@ export type DaemonConfig = z.infer<typeof DaemonConfigSchema>;
 // Provider Configuration
 // ============================================================================
 
+/** Materialization mode for provider-backed nodes */
+const MaterializeModeSchema = z.enum(['cached', 'pointer']).default('cached');
+
 const BeadsProviderConfigSchemaInner = z.object({
   /** Enable beads provider (auto-detects executable) */
   enabled: z.boolean().default(true),
@@ -142,6 +145,9 @@ const BeadsProviderConfigSchemaInner = z.object({
 
   /** Command timeout (ms) */
   timeout: z.number().min(1000, 'timeout must be >= 1000ms').default(30000),
+
+  /** How provider-backed nodes are materialized ('cached' or 'pointer') */
+  materializeMode: MaterializeModeSchema,
 });
 
 export const BeadsProviderConfigSchema = z
@@ -149,6 +155,7 @@ export const BeadsProviderConfigSchema = z
     enabled: z.boolean().optional(),
     executable: z.string().optional(),
     timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+    materializeMode: z.enum(['cached', 'pointer']).optional(),
   })
   .default({})
   .transform((val) => BeadsProviderConfigSchemaInner.parse(val));
@@ -160,12 +167,15 @@ const ClaudeTasksProviderConfigSchemaInner = z.object({
   enabled: z.boolean().default(true),
   /** Optional filesystem directory for persistent task storage */
   tasksDir: z.string().optional(),
+  /** How provider-backed nodes are materialized ('cached' or 'pointer') */
+  materializeMode: MaterializeModeSchema,
 });
 
 export const ClaudeTasksProviderConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
     tasksDir: z.string().optional(),
+    materializeMode: z.enum(['cached', 'pointer']).optional(),
   })
   .default({})
   .transform((val) => ClaudeTasksProviderConfigSchemaInner.parse(val));
@@ -225,6 +235,9 @@ const SudocodeProviderConfigSchemaInner = z.object({
 
   /** Command timeout (ms) */
   timeout: z.number().min(1000, 'timeout must be >= 1000ms').default(30000),
+
+  /** How provider-backed nodes are materialized ('cached' or 'pointer') */
+  materializeMode: MaterializeModeSchema,
 });
 
 export const SudocodeProviderConfigSchema = z
@@ -232,6 +245,7 @@ export const SudocodeProviderConfigSchema = z
     enabled: z.boolean().optional(),
     executable: z.string().optional(),
     timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+    materializeMode: z.enum(['cached', 'pointer']).optional(),
   })
   .default({})
   .transform((val) => SudocodeProviderConfigSchemaInner.parse(val));
@@ -633,6 +647,40 @@ export const LoggingConfigSchema = z
 export type LoggingConfig = z.infer<typeof LoggingConfigSchema>;
 
 // ============================================================================
+// Reconciliation Configuration
+// ============================================================================
+
+const ReconciliationTriggerSchema = z.enum(['async', 'blocking', 'none']).default('async');
+
+const PerProviderIntervalSchema = z.record(z.string(), z.number().min(0));
+
+const ReconciliationConfigSchemaInner = z.object({
+  /** Reconcile provider-backed nodes when daemon starts */
+  onStartup: ReconciliationTriggerSchema,
+
+  /** Reconcile after store.reload() (git pull, branch switch) */
+  onReload: ReconciliationTriggerSchema,
+
+  /** Periodic reconciliation interval in ms (0 to disable) */
+  backgroundInterval: z.number().min(0).default(300000),
+
+  /** Per-provider override intervals in ms (e.g. { "jira": 60000, "linear": 120000 }) */
+  providerIntervals: PerProviderIntervalSchema.default({}),
+});
+
+export const ReconciliationConfigSchema = z
+  .object({
+    onStartup: z.enum(['async', 'blocking', 'none']).optional(),
+    onReload: z.enum(['async', 'blocking', 'none']).optional(),
+    backgroundInterval: z.number().min(0).optional(),
+    providerIntervals: PerProviderIntervalSchema.optional(),
+  })
+  .default({})
+  .transform((val) => ReconciliationConfigSchemaInner.parse(val));
+
+export type ReconciliationConfig = z.infer<typeof ReconciliationConfigSchema>;
+
+// ============================================================================
 // Root Configuration Schema
 // ============================================================================
 
@@ -658,6 +706,8 @@ const OpenTasksConfigSchemaInner = z.object({
   materialization: MaterializationConfigSchema,
   /** Graph sync configuration */
   sync: SyncConfigSchema,
+  /** Provider reconciliation configuration */
+  reconciliation: ReconciliationConfigSchema,
 });
 
 export const OpenTasksConfigSchema = z
@@ -684,12 +734,14 @@ export const OpenTasksConfigSchema = z
             enabled: z.boolean().optional(),
             executable: z.string().optional(),
             timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+            materializeMode: z.enum(['cached', 'pointer']).optional(),
           })
           .optional(),
         claudeTasks: z
           .object({
             enabled: z.boolean().optional(),
             tasksDir: z.string().optional(),
+            materializeMode: z.enum(['cached', 'pointer']).optional(),
           })
           .optional(),
         sudocode: z
@@ -697,6 +749,7 @@ export const OpenTasksConfigSchema = z
             enabled: z.boolean().optional(),
             executable: z.string().optional(),
             timeout: z.number().min(1000, 'timeout must be >= 1000ms').optional(),
+            materializeMode: z.enum(['cached', 'pointer']).optional(),
           })
           .optional(),
         sessionlog: z
@@ -824,6 +877,14 @@ export const OpenTasksConfigSchema = z
           })
           .optional(),
         rematerializeOnStartup: z.boolean().optional(),
+      })
+      .optional(),
+    reconciliation: z
+      .object({
+        onStartup: z.enum(['async', 'blocking', 'none']).optional(),
+        onReload: z.enum(['async', 'blocking', 'none']).optional(),
+        backgroundInterval: z.number().min(0).optional(),
+        providerIntervals: z.record(z.string(), z.number().min(0)).optional(),
       })
       .optional(),
   })

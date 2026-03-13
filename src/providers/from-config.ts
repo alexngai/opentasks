@@ -54,6 +54,20 @@ export interface CreateProvidersResult {
 }
 
 /**
+ * Apply materializeMode config override to a provider.
+ * Only sets the property if the config specifies a non-default mode.
+ */
+function applyMaterializeMode<T extends Provider>(
+  provider: T,
+  mode: 'cached' | 'pointer',
+): T {
+  if (mode !== 'cached') {
+    return Object.assign(provider, { materializeMode: mode });
+  }
+  return provider;
+}
+
+/**
  * Check if a CLI executable is available
  */
 async function isCliAvailable(executable: string): Promise<boolean> {
@@ -98,11 +112,14 @@ export async function createProvidersFromConfig(
 
     if (isAvailable) {
       try {
-        const beadsProvider = createBeadsProvider({
-          executable: beadsConfig.executable,
-          timeout: beadsConfig.timeout,
-          cwd: beadsCwd,
-        });
+        const beadsProvider = applyMaterializeMode(
+          createBeadsProvider({
+            executable: beadsConfig.executable,
+            timeout: beadsConfig.timeout,
+            cwd: beadsCwd,
+          }),
+          beadsConfig.materializeMode,
+        );
         registry.register(beadsProvider);
         providers.push(beadsProvider);
       } catch (error) {
@@ -130,7 +147,10 @@ export async function createProvidersFromConfig(
         });
         claudeConfig.tasksDir = config.providers.claudeTasks.tasksDir;
       }
-      const claudeTasksProvider = createClaudeTasksProvider(claudeConfig);
+      const claudeTasksProvider = applyMaterializeMode(
+        createClaudeTasksProvider(claudeConfig),
+        config.providers.claudeTasks.materializeMode,
+      );
       registry.register(claudeTasksProvider);
       providers.push(claudeTasksProvider);
     } catch (error) {
@@ -150,11 +170,14 @@ export async function createProvidersFromConfig(
 
     if (isAvailable) {
       try {
-        const sudocodeProvider = createSudocodeProvider({
-          executable: sudocodeConfig.executable,
-          timeout: sudocodeConfig.timeout,
-          cwd: sudocodeCwd,
-        });
+        const sudocodeProvider = applyMaterializeMode(
+          createSudocodeProvider({
+            executable: sudocodeConfig.executable,
+            timeout: sudocodeConfig.timeout,
+            cwd: sudocodeCwd,
+          }),
+          sudocodeConfig.materializeMode,
+        );
         registry.register(sudocodeProvider);
         providers.push(sudocodeProvider);
       } catch (error) {

@@ -30,7 +30,7 @@ export type {
   ProviderMetadataSchema,
 } from './types.js';
 
-export { ProviderError, DEFAULT_MATERIALIZATION_CONFIG } from './types.js';
+export { ProviderError, DEFAULT_MATERIALIZATION_CONFIG, createIsAvailable } from './types.js';
 
 // Registry
 export { createProviderRegistry } from './registry.js';
@@ -131,6 +131,15 @@ export type {
 } from './traits/index.js';
 
 export { isTaskManageable } from './traits/index.js';
+
+// Traits - Reconcilable
+export type {
+  Reconcilable,
+  ReconcilableNodeSummary,
+  ListReconcilableOptions,
+} from './traits/index.js';
+
+export { isReconcilable } from './traits/index.js';
 
 // Config-based Provider Factory
 export {

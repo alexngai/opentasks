@@ -86,6 +86,7 @@ describe('Config Schema', () => {
         enabled: true,
         executable: 'bd',
         timeout: 30000,
+        materializeMode: 'cached',
       });
     });
 
@@ -117,6 +118,7 @@ describe('Config Schema', () => {
       const result = ClaudeTasksProviderConfigSchema.parse({});
       expect(result).toEqual({
         enabled: true,
+        materializeMode: 'cached',
       });
     });
 
@@ -134,14 +136,17 @@ describe('Config Schema', () => {
           enabled: true,
           executable: 'bd',
           timeout: 30000,
+          materializeMode: 'cached',
         },
         claudeTasks: {
           enabled: true,
+          materializeMode: 'cached',
         },
         sudocode: {
           enabled: true,
           executable: 'sudocode',
           timeout: 30000,
+          materializeMode: 'cached',
         },
         sessionlog: {
           enabled: true,
@@ -236,14 +241,17 @@ describe('Config Schema', () => {
             enabled: true,
             executable: 'bd',
             timeout: 30000,
+            materializeMode: 'cached',
           },
           claudeTasks: {
             enabled: true,
+            materializeMode: 'cached',
           },
           sudocode: {
             enabled: true,
             executable: 'sudocode',
             timeout: 30000,
+            materializeMode: 'cached',
           },
           sessionlog: {
             enabled: true,
@@ -308,6 +316,12 @@ describe('Config Schema', () => {
         role: 'standalone',
         redirects: [],
         defaultProvider: 'native',
+        reconciliation: {
+          onStartup: 'async',
+          onReload: 'async',
+          backgroundInterval: 300000,
+          providerIntervals: {},
+        },
       });
     });
 
@@ -341,14 +355,17 @@ describe('Config Schema', () => {
             enabled: false,
             executable: '/opt/bd',
             timeout: 45000,
+            materializeMode: 'cached',
           },
           claudeTasks: {
             enabled: false,
+            materializeMode: 'cached',
           },
           sudocode: {
             enabled: false,
             executable: '/opt/sudocode',
             timeout: 45000,
+            materializeMode: 'cached',
           },
           sessionlog: {
             enabled: false,
@@ -413,10 +430,39 @@ describe('Config Schema', () => {
         role: 'standalone',
         redirects: [],
         defaultProvider: 'native',
+        reconciliation: {
+          onStartup: 'async',
+          onReload: 'async',
+          backgroundInterval: 300000,
+          providerIntervals: {},
+        },
       };
 
       const result = OpenTasksConfigSchema.parse(config);
       expect(result).toEqual(config);
+    });
+  });
+
+  describe('reconciliation config', () => {
+    it('accepts per-provider intervals', () => {
+      const result = OpenTasksConfigSchema.parse({
+        reconciliation: {
+          providerIntervals: { jira: 60000, linear: 120000 },
+        },
+      });
+
+      expect(result.reconciliation.providerIntervals).toEqual({ jira: 60000, linear: 120000 });
+      expect(result.reconciliation.backgroundInterval).toBe(300000); // default
+    });
+
+    it('rejects negative provider intervals', () => {
+      expect(() =>
+        OpenTasksConfigSchema.parse({
+          reconciliation: {
+            providerIntervals: { jira: -1 },
+          },
+        }),
+      ).toThrow();
     });
   });
 
