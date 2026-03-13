@@ -341,7 +341,8 @@ function registerGraphTools(server: McpServer, client: OpenTasksClient): void {
 - blockers/blocking: Dependency traversal
 - feedback/unresolvedFeedback: Feedback queries
 - tasks: Get tasks implementing a context
-- context: Get context nodes a task implements`,
+- context: Get context nodes a task implements
+- contextSummary: Get breadcrumbs for session continuity (active, blocked, completed tasks, etc.)`,
     {
       nodes: z.object({
         type: z.union([z.string(), z.array(z.string())]).optional().describe('Node type(s): context, task, feedback, external'),
@@ -404,6 +405,13 @@ function registerGraphTools(server: McpServer, client: OpenTasksClient): void {
         taskId: z.string(),
       }).optional(),
 
+      contextSummary: z.object({
+        taskId: z.string().optional().describe('Find context related to a specific task'),
+        tags: z.array(z.string()).optional().describe('Filter by tags'),
+        branch: z.string().optional().describe('Filter by branch'),
+        limit: z.number().optional().describe('Max breadcrumbs per section (default: 10)'),
+      }).optional(),
+
       verbose: z.boolean().optional().describe('Return full objects instead of summaries (default: false)'),
       limit: z.number().optional(),
       offset: z.number().optional(),
@@ -411,6 +419,25 @@ function registerGraphTools(server: McpServer, client: OpenTasksClient): void {
     async (args) => {
       try {
         const result = await client.query(args as any);
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
+    'context_summary',
+    'Get context summary breadcrumbs for session continuity. Returns recently completed tasks, active tasks, blocked tasks, related contexts, and unresolved feedback.',
+    {
+      taskId: z.string().optional().describe('Find context related to a specific task'),
+      tags: z.array(z.string()).optional().describe('Filter by tags'),
+      branch: z.string().optional().describe('Filter by branch'),
+      limit: z.number().optional().describe('Max breadcrumbs per section (default: 10)'),
+    },
+    async (args) => {
+      try {
+        const result = await client.contextSummary(args);
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
         return errorResult(error);

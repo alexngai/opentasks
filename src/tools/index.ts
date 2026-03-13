@@ -44,6 +44,10 @@ export type {
   FeedbackOptions,
   // Context
   OperationContext,
+  // Context Summary
+  ContextSummaryParams,
+  ContextSummaryResult,
+  Breadcrumb,
   // Errors
   ToolErrorCode,
 } from './types.js';
