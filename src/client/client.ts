@@ -29,6 +29,13 @@ import type {
   ContextSummaryResult,
 } from '../tools/types.js';
 import type { CreateNodeInput, UpdateNodeInput, DeleteOptions } from '../graph/types.js';
+import type {
+  CreateContextFileInput,
+  SyncContextFileOptions,
+  ContextFileResolution,
+  DriftResult,
+} from '../context-files/types.js';
+import type { Context } from '../schema/index.js';
 
 // ============================================================================
 // Types
@@ -562,6 +569,62 @@ export class OpenTasksClient {
   async endSkillTracking(sessionId: string): Promise<unknown> {
     await this.ensureConnected();
     return this.client!.request('tracking.skills.end', { sessionId });
+  }
+
+  // ==========================================================================
+  // Context Files
+  // ==========================================================================
+
+  /**
+   * Create a context-file node for a codebase file.
+   */
+  async createContextFile(input: CreateContextFileInput): Promise<Context> {
+    await this.ensureConnected();
+    return this.client!.request<Context>('contextFiles.create', input);
+  }
+
+  /**
+   * Resolve a context-file node's content from the filesystem.
+   *
+   * @param id - Context node ID
+   * @param atCapturedCommit - If true, resolve at the originally captured commit
+   */
+  async resolveContextFile(
+    id: string,
+    atCapturedCommit?: boolean,
+  ): Promise<ContextFileResolution> {
+    await this.ensureConnected();
+    return this.client!.request<ContextFileResolution>('contextFiles.resolve', {
+      id,
+      atCapturedCommit,
+    });
+  }
+
+  /**
+   * Check whether a context-file has drifted from its captured state.
+   */
+  async checkContextFileDrift(id: string): Promise<DriftResult> {
+    await this.ensureConnected();
+    return this.client!.request<DriftResult>('contextFiles.checkDrift', { id });
+  }
+
+  /**
+   * Batch drift check for multiple context-file nodes.
+   */
+  async checkContextFileDriftBatch(ids: string[]): Promise<DriftResult[]> {
+    await this.ensureConnected();
+    return this.client!.request<DriftResult[]>('contextFiles.checkDriftBatch', { ids });
+  }
+
+  /**
+   * Re-pin a context-file node to current HEAD.
+   */
+  async syncContextFile(id: string, options?: SyncContextFileOptions): Promise<Context> {
+    await this.ensureConnected();
+    return this.client!.request<Context>('contextFiles.sync', {
+      id,
+      force: options?.force,
+    });
   }
 
   // ==========================================================================

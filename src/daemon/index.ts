@@ -84,6 +84,10 @@ export { registerToolsMethods } from './methods/tools.js';
 export type { LocationMethodsOptions } from './methods/location.js';
 export { registerLocationMethods } from './methods/location.js';
 
+// Methods - Context Files
+export type { ContextFilesMethodsOptions } from './methods/context-files.js';
+export { registerContextFilesMethods } from './methods/context-files.js';
+
 // Watcher
 export type {
   FileWatcher,

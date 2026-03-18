@@ -32,6 +32,7 @@ import {
 } from '../graph/provider-store.js';
 import { registerProviderMethods } from './methods/provider.js';
 import { registerArchiveMethods } from './methods/archive.js';
+import { registerContextFilesMethods } from './methods/context-files.js';
 import { registerWatchMethods } from './methods/watch.js';
 import type { PartialOpenTasksConfig } from '../config/index.js';
 import { loadConfigFile } from '../config/loader.js';
@@ -515,6 +516,11 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         });
 
         registerProviderMethods({
+          server: ipcServer,
+          locationResolver,
+        });
+
+        registerContextFilesMethods({
           server: ipcServer,
           locationResolver,
         });
@@ -1103,6 +1109,11 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
         });
 
         registerProviderMethods({
+          server: ipcServer,
+          locationResolver,
+        });
+
+        registerContextFilesMethods({
           server: ipcServer,
           locationResolver,
         });

@@ -23,8 +23,14 @@ src/
 │   ├── sync.ts         # Sync extensions
 │   ├── types.ts        # Provider types and interfaces
 │   └── traits/         # Provider traits (Watchable, TaskManageable, RelationshipQueryable)
+├── context-files/      # File-backed context nodes (see below)
+│   ├── types.ts        # ContextFileMetadata, ContextFileResolution, DriftResult
+│   ├── context-files.ts # ContextFileManager — create, resolve, checkDrift, sync
+│   ├── resolver.ts     # File I/O, git show, content hashing
+│   └── watcher-integration.ts # Daemon file watcher bridge for drift detection
 ├── daemon/             # Unix socket daemon, IPC, lifecycle
 ├── client/             # Client library (connects to daemon)
+├── mcp/                # MCP server (Model Context Protocol tool interface)
 ├── config/             # Config schema (Zod), parsing, validation
 ├── materialization/    # Materialization stores (git, remote)
 ├── persistence/        # JSONL persister, SQLite cache
@@ -74,6 +80,64 @@ Creates `MAPTaskClient` + `MAPEventSender` from a MAP server URL.
 ### Why Agent-Owned (Not Daemon-Owned)
 
 MAP connections are an agent-level concern. Different agents may connect to different MAP servers with different scopes. The daemon stays dumb about MAP — it doesn't establish connections or own bridges. Agents/plugins read config and create their own connections.
+
+## Context Files
+
+Context nodes can reference codebase files instead of storing content inline. File-backed contexts are lightweight pointers — content is resolved on access from the working tree or at a pinned git commit.
+
+### Source types
+
+| Source | Stored in node? | How content is resolved |
+|--------|-----------------|------------------------|
+| inline (default) | Yes (`content` field) | Read directly from the node |
+| file | No (pointer) | `readFileFromWorktree()` or `git show <sha>:<path>` |
+| snippet | No (pointer) | Same as file, scoped to a line range |
+
+### Metadata (on `node.metadata`)
+
+- `context_file: true` — marker distinguishing file-backed from inline contexts
+- `context_file_path` — repo-relative path (e.g. `"src/auth/middleware.ts"`)
+- `context_file_type` — `"markdown"` | `"code"` | `"text"` (inferred from extension)
+- `context_file_commit` — git SHA when last synced
+- `context_file_content_hash` — SHA-256 of content at sync time
+- `context_file_synced_at` — ISO timestamp
+
+For snippets, additional metadata: `context_source: "snippet"`, `context_line_start`, `context_line_end`.
+
+### ContextFileManager (`src/context-files/context-files.ts`)
+
+Factory: `createContextFileManager(store, repoRoot)`. Methods:
+
+- `create(input)` — verify file exists, compute hash, record HEAD commit, create context node (no content stored)
+- `resolve(nodeId)` — read file from worktree, return content + drift status
+- `resolveAtCapturedCommit(nodeId)` — read file at pinned commit via `git show`
+- `checkDrift(nodeId)` — compare current hash vs captured hash (no content returned)
+- `sync(nodeId, options?)` — re-pin to current HEAD (no-ops if unchanged unless `force: true`)
+- `list()` — all context-file nodes in the store
+
+### Daemon RPC (`src/daemon/methods/context-files.ts`)
+
+IPC methods: `contextFiles.create`, `contextFiles.resolve`, `contextFiles.checkDrift`, `contextFiles.sync`, `contextFiles.checkDriftBatch`. Derives `repoRoot` from `LocationState.opentasksPath`.
+
+## MCP Server
+
+Exposes the OpenTasks tool interface over Model Context Protocol (`src/mcp/server.ts`). Connects to daemon via `OpenTasksClient`.
+
+### Scopes
+
+- `tasks` (default) — `create_task`, `get_task`, `update_task`, `delete_task`, `list_tasks`, `list_providers`, `reconcile`
+- `graph` — `link`, `query`, `context_summary`
+- `annotate` — `annotate`
+- `context` — `create_context`, `get_context`, `update_context`, `list_contexts`
+
+### Context tools — source support
+
+The 4 context tools handle all source types (inline, file, snippet) with zero additional tools:
+
+- **`create_context`** — optional `source` param: `{ type: "file", path, commit? }` or `{ type: "snippet", path, startLine, endLine }`. Omit for inline.
+- **`get_context`** — `resolve: true` fetches file content + drift status for file-backed contexts. `atCapturedCommit: true` reads at the pinned commit.
+- **`update_context`** — `sync: true` re-pins file to current HEAD. `force: true` forces re-pin even if unchanged.
+- **`list_contexts`** — `filesOnly: true` filters to file-backed. `checkDrift: true` batch-checks drift for all file-backed contexts.
 
 ## Config Schema
 
