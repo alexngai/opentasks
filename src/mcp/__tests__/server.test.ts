@@ -21,6 +21,11 @@ const mockClient = {
   updateNode: vi.fn(),
   deleteNode: vi.fn(),
   listProviders: vi.fn(),
+  createContextFile: vi.fn(),
+  resolveContextFile: vi.fn(),
+  checkContextFileDrift: vi.fn(),
+  checkContextFileDriftBatch: vi.fn(),
+  syncContextFile: vi.fn(),
 };
 
 vi.mock('../../client/client.js', () => {
@@ -107,13 +112,14 @@ describe('MCP Server - Scopes', () => {
     expect(tools).toContain('list_contexts');
   });
 
-  it('should register all 13 tools with all scopes', async () => {
+  it('should register all tools with all scopes', async () => {
     const client = await createTestClient([...ALL_SCOPES]);
     const tools = await listToolNames(client);
 
-    expect(tools).toHaveLength(14);
+    expect(tools).toHaveLength(15);
     expect(tools).toEqual([
       'annotate',
+      'context_summary',
       'create_context',
       'create_task',
       'delete_task',
@@ -134,7 +140,7 @@ describe('MCP Server - Scopes', () => {
     const client = await createTestClient(['graph']);
     const tools = await listToolNames(client);
 
-    expect(tools).toEqual(['link', 'query']);
+    expect(tools).toEqual(['context_summary', 'link', 'query']);
     expect(tools).not.toContain('create_task');
   });
 });
@@ -686,7 +692,7 @@ describe('MCP Server - Context Tools', () => {
   });
 
   describe('create_context', () => {
-    it('should create a context node', async () => {
+    it('should create an inline context node', async () => {
       const created = { id: 'c-abc1', type: 'context', title: 'Auth Spec' };
       mockClient.createNode.mockResolvedValue(created);
 
@@ -716,6 +722,89 @@ describe('MCP Server - Context Tools', () => {
         { scheme: 'sudocode' },
       );
     });
+
+    it('should create a file-backed context with source.type=file', async () => {
+      const created = {
+        id: 'c-file1',
+        type: 'context',
+        title: 'src/auth/middleware.ts',
+        metadata: { context_file: true, context_file_path: 'src/auth/middleware.ts' },
+      };
+      mockClient.createContextFile.mockResolvedValue(created);
+
+      const { parsed } = await callTool(client, 'create_context', {
+        source: { type: 'file', path: 'src/auth/middleware.ts' },
+        tags: ['auth'],
+      });
+
+      expect(parsed).toEqual(created);
+      expect(mockClient.createContextFile).toHaveBeenCalledWith({
+        filePath: 'src/auth/middleware.ts',
+        title: undefined,
+        tags: ['auth'],
+        priority: undefined,
+        commit: undefined,
+      });
+    });
+
+    it('should create a file-backed context pinned to a specific commit', async () => {
+      const created = {
+        id: 'c-file2',
+        type: 'context',
+        metadata: { context_file: true, context_file_commit: 'abc123' },
+      };
+      mockClient.createContextFile.mockResolvedValue(created);
+
+      await callTool(client, 'create_context', {
+        title: 'Auth at v1',
+        source: { type: 'file', path: 'src/auth.ts', commit: 'abc123' },
+      });
+
+      expect(mockClient.createContextFile).toHaveBeenCalledWith(
+        expect.objectContaining({ filePath: 'src/auth.ts', commit: 'abc123', title: 'Auth at v1' }),
+      );
+    });
+
+    it('should create a snippet context with source.type=snippet', async () => {
+      const created = {
+        id: 'c-snip1',
+        type: 'context',
+        metadata: { context_file: true, context_file_path: 'src/auth.ts' },
+      };
+      mockClient.createContextFile.mockResolvedValue(created);
+      mockClient.updateNode.mockResolvedValue({
+        ...created,
+        metadata: {
+          ...created.metadata,
+          context_source: 'snippet',
+          context_line_start: 42,
+          context_line_end: 58,
+        },
+      });
+
+      const { parsed } = await callTool(client, 'create_context', {
+        source: { type: 'snippet', path: 'src/auth.ts', startLine: 42, endLine: 58 },
+      });
+
+      expect(mockClient.createContextFile).toHaveBeenCalled();
+      expect(mockClient.updateNode).toHaveBeenCalledWith('c-snip1', {
+        metadata: expect.objectContaining({
+          context_source: 'snippet',
+          context_line_start: 42,
+          context_line_end: 58,
+        }),
+      });
+      expect(parsed.metadata.context_source).toBe('snippet');
+    });
+
+    it('should return error for inline context without title', async () => {
+      const { parsed, isError } = await callTool(client, 'create_context', {
+        content: 'Some content without title',
+      });
+
+      expect(isError).toBe(true);
+      expect(parsed.error).toContain('title is required');
+    });
   });
 
   describe('get_context', () => {
@@ -736,6 +825,75 @@ describe('MCP Server - Context Tools', () => {
       expect(isError).toBe(true);
       expect(parsed.error).toBe('Context not found');
     });
+
+    it('should resolve file content when resolve=true for file-backed context', async () => {
+      const node = {
+        id: 'c-file1',
+        type: 'context',
+        title: 'middleware.ts',
+        metadata: { context_file: true, context_file_path: 'src/auth/middleware.ts' },
+      };
+      mockClient.getNode.mockResolvedValue(node);
+      mockClient.resolveContextFile.mockResolvedValue({
+        content: 'export function auth() {}',
+        commit: 'abc123',
+        contentHash: 'hash1',
+        drifted: false,
+        filePath: 'src/auth/middleware.ts',
+      });
+
+      const { parsed } = await callTool(client, 'get_context', { id: 'c-file1', resolve: true });
+
+      expect(parsed._resolved.content).toBe('export function auth() {}');
+      expect(parsed._resolved.drifted).toBe(false);
+      expect(mockClient.resolveContextFile).toHaveBeenCalledWith('c-file1', undefined);
+    });
+
+    it('should resolve at captured commit when atCapturedCommit=true', async () => {
+      const node = {
+        id: 'c-file1',
+        type: 'context',
+        metadata: { context_file: true, context_file_path: 'src/auth.ts' },
+      };
+      mockClient.getNode.mockResolvedValue(node);
+      mockClient.resolveContextFile.mockResolvedValue({
+        content: 'old content',
+        commit: 'old-sha',
+        contentHash: 'oldhash',
+        drifted: false,
+        filePath: 'src/auth.ts',
+      });
+
+      await callTool(client, 'get_context', { id: 'c-file1', resolve: true, atCapturedCommit: true });
+
+      expect(mockClient.resolveContextFile).toHaveBeenCalledWith('c-file1', true);
+    });
+
+    it('should return node without resolution when resolve=true for inline context', async () => {
+      const node = { id: 'c-abc1', type: 'context', title: 'Spec', content: 'inline content' };
+      mockClient.getNode.mockResolvedValue(node);
+
+      const { parsed } = await callTool(client, 'get_context', { id: 'c-abc1', resolve: true });
+
+      expect(parsed).toEqual(node);
+      expect(parsed._resolved).toBeUndefined();
+      expect(mockClient.resolveContextFile).not.toHaveBeenCalled();
+    });
+
+    it('should handle resolve failure gracefully', async () => {
+      const node = {
+        id: 'c-file1',
+        type: 'context',
+        metadata: { context_file: true, context_file_path: 'deleted-file.ts' },
+      };
+      mockClient.getNode.mockResolvedValue(node);
+      mockClient.resolveContextFile.mockRejectedValue(new Error('File not found'));
+
+      const { parsed, isError } = await callTool(client, 'get_context', { id: 'c-file1', resolve: true });
+
+      expect(isError).toBeFalsy();
+      expect(parsed._resolved.error).toBe('File not found');
+    });
   });
 
   describe('update_context', () => {
@@ -755,6 +913,57 @@ describe('MCP Server - Context Tools', () => {
         content: 'New content',
       });
     });
+
+    it('should sync file-backed context when sync=true', async () => {
+      const synced = {
+        id: 'c-file1',
+        type: 'context',
+        metadata: { context_file: true, context_file_commit: 'new-sha' },
+      };
+      mockClient.syncContextFile.mockResolvedValue(synced);
+
+      const { parsed } = await callTool(client, 'update_context', {
+        id: 'c-file1',
+        sync: true,
+      });
+
+      expect(parsed).toEqual(synced);
+      expect(mockClient.syncContextFile).toHaveBeenCalledWith('c-file1', { force: undefined });
+    });
+
+    it('should force sync when force=true', async () => {
+      mockClient.syncContextFile.mockResolvedValue({ id: 'c-file1' });
+
+      await callTool(client, 'update_context', {
+        id: 'c-file1',
+        sync: true,
+        force: true,
+      });
+
+      expect(mockClient.syncContextFile).toHaveBeenCalledWith('c-file1', { force: true });
+    });
+
+    it('should handle combined field update + sync', async () => {
+      mockClient.updateNode.mockResolvedValue({ id: 'c-file1', title: 'New Title' });
+      mockClient.syncContextFile.mockResolvedValue({ id: 'c-file1' });
+
+      const { parsed } = await callTool(client, 'update_context', {
+        id: 'c-file1',
+        title: 'New Title',
+        sync: true,
+      });
+
+      expect(parsed.operations).toHaveLength(2);
+      expect(parsed.operations[0].op).toBe('update');
+      expect(parsed.operations[1].op).toBe('sync');
+    });
+
+    it('should return error when no operations specified', async () => {
+      const { parsed, isError } = await callTool(client, 'update_context', { id: 'c-abc1' });
+
+      expect(isError).toBe(true);
+      expect(parsed.error).toContain('No operations');
+    });
   });
 
   describe('list_contexts', () => {
@@ -767,10 +976,52 @@ describe('MCP Server - Context Tools', () => {
         search: 'auth',
       });
 
-      expect(parsed).toEqual(result);
+      expect(parsed.items).toEqual(result.items);
       expect(mockClient.query).toHaveBeenCalledWith({
         nodes: { type: 'context', tags: ['security'], search: 'auth' },
       });
+    });
+
+    it('should filter to file-backed contexts with filesOnly=true', async () => {
+      const result = {
+        items: [
+          { id: 'c-1', type: 'context', title: 'Inline', metadata: {} },
+          { id: 'c-2', type: 'context', title: 'File', metadata: { context_file: true } },
+        ],
+        hasMore: false,
+      };
+      mockClient.query.mockResolvedValue(result);
+
+      const { parsed } = await callTool(client, 'list_contexts', { filesOnly: true });
+
+      expect(parsed.items).toHaveLength(1);
+      expect(parsed.items[0].id).toBe('c-2');
+    });
+
+    it('should include drift status when checkDrift=true', async () => {
+      const result = {
+        items: [
+          { id: 'c-1', type: 'context', title: 'File', metadata: { context_file: true } },
+          { id: 'c-2', type: 'context', title: 'Inline', metadata: {} },
+        ],
+        hasMore: false,
+      };
+      mockClient.query.mockResolvedValue(result);
+      mockClient.checkContextFileDriftBatch.mockResolvedValue([
+        { drifted: true, currentCommit: 'new', capturedCommit: 'old', currentHash: 'h1', capturedHash: 'h2' },
+      ]);
+
+      const { parsed } = await callTool(client, 'list_contexts', { checkDrift: true });
+
+      // File-backed item should have _drift
+      const fileItem = parsed.items.find((i: Record<string, unknown>) => i.id === 'c-1');
+      expect(fileItem._drift.drifted).toBe(true);
+
+      // Inline item should NOT have _drift
+      const inlineItem = parsed.items.find((i: Record<string, unknown>) => i.id === 'c-2');
+      expect(inlineItem._drift).toBeUndefined();
+
+      expect(mockClient.checkContextFileDriftBatch).toHaveBeenCalledWith(['c-1']);
     });
   });
 });
