@@ -158,6 +158,61 @@ graph LR
 
 External nodes start as bare URIs. When you query them, OpenTasks fetches the data from the provider and caches it locally.
 
+## Context Sources
+
+Context nodes support multiple content source types. **Inline** contexts store content directly. **File-backed** contexts are lightweight pointers to codebase files — content is resolved on access with git-based drift detection.
+
+```typescript
+// Inline context — content stored in the node
+const spec = await client.createNode({
+  type: 'context',
+  title: 'OAuth2 for API',
+  content: '## Requirements\n- Google OAuth2 with PKCE\n...',
+})
+
+// File-backed context — pointer only, content resolved on demand
+const fileCtx = await client.createContextFile({
+  filePath: 'docs/auth-architecture.md',
+  tags: ['auth'],
+})
+// → { id: 'c-x7k9', metadata: { context_file: true, context_file_path: '...', context_file_commit: 'abc123', ... } }
+
+// Resolve content from the working tree (includes drift detection)
+const resolved = await client.resolveContextFile('c-x7k9')
+// → { content: '# Auth Architecture\n...', drifted: true, commit: 'def456', ... }
+
+// Re-pin to current HEAD after changes
+await client.syncContextFile('c-x7k9')
+```
+
+Via MCP (`--scope context`):
+
+```json
+// Create file-backed context
+{ "tool": "create_context", "source": { "type": "file", "path": "docs/auth-architecture.md" } }
+
+// Get with resolved file content
+{ "tool": "get_context", "id": "c-x7k9", "resolve": true }
+
+// Sync to current HEAD
+{ "tool": "update_context", "id": "c-x7k9", "sync": true }
+
+// Batch drift check
+{ "tool": "list_contexts", "filesOnly": true, "checkDrift": true }
+```
+
+File-backed contexts never duplicate file content into the graph store. They record a content hash and git commit SHA at capture time, then detect drift by comparing the current file against that snapshot.
+
+## MCP Server
+
+Expose the full tool interface via [Model Context Protocol](https://modelcontextprotocol.io):
+
+```bash
+opentasks mcp --scope tasks,graph,annotate,context
+```
+
+15 tools across 4 scopes: `tasks` (CRUD + lifecycle), `graph` (edges, queries, context summary), `annotate` (feedback), `context` (context CRUD with file/snippet/inline sources).
+
 ## Programmatic API
 
 For direct graph manipulation without the daemon:
