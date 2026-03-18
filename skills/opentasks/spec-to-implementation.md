@@ -80,6 +80,79 @@ opentasks query '{"tasks": {"specId": "c-a2b3"}}'
 opentasks query '{"blockers": {"nodeId": "t-r8s9", "activeOnly": true}}'
 ```
 
+## File-Backed Context Workflow (MCP)
+
+When the spec already exists as a file in the repo (design doc, architecture spec, etc.), reference it directly instead of duplicating content.
+
+### 1. Create file-backed context
+
+```json
+// MCP: create_context
+{
+  "title": "Auth Architecture",
+  "source": { "type": "file", "path": "docs/auth-architecture.md" },
+  "tags": ["auth"]
+}
+// → { id: "c-a2b3", metadata: { context_file: true, context_file_path: "docs/auth-architecture.md", ... } }
+```
+
+No content is copied — just a pointer to the file with a content hash for drift detection.
+
+### 2. Reference key implementation files
+
+```json
+// MCP: create_context
+{
+  "source": { "type": "file", "path": "src/auth/middleware.ts" },
+  "tags": ["auth"]
+}
+// → { id: "c-m1n2" }
+
+// MCP: create_context — snippet for a specific function
+{
+  "title": "Token validation",
+  "source": { "type": "snippet", "path": "src/auth/middleware.ts", "startLine": 42, "endLine": 58 },
+  "tags": ["auth"]
+}
+// → { id: "c-s3n4" }
+```
+
+### 3. Create tasks and link to context
+
+```json
+// MCP: create_task
+{ "title": "Add JWT refresh tokens", "status": "open", "tags": ["auth"] }
+// → { id: "t-x7k9" }
+
+// MCP: link
+{ "fromId": "t-x7k9", "toId": "c-a2b3", "type": "implements" }
+```
+
+### 4. Later — resolve context with drift detection
+
+```json
+// MCP: get_context — check if spec has changed
+{ "id": "c-a2b3", "resolve": true }
+// → { ..., _resolved: { content: "# Auth Architecture\n...", drifted: true, ... } }
+```
+
+If `drifted: true`, the file has changed since the context was created. The agent can re-read the spec and decide if the task needs updating.
+
+### 5. Re-pin after changes
+
+```json
+// MCP: update_context — sync to current HEAD
+{ "id": "c-a2b3", "sync": true }
+```
+
+### 6. Batch drift check
+
+```json
+// MCP: list_contexts — check all file-backed contexts at once
+{ "filesOnly": true, "checkDrift": true }
+// → each item has _drift: { drifted, currentCommit, capturedCommit, ... }
+```
+
 ## Cross-System Workflow
 
 When context and tasks live in different systems, OpenTasks provides the graph layer between them.

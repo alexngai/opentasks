@@ -96,6 +96,93 @@ opentasks delete t-x7k9 --hard
 
 All nodes support optional: `content`, `priority` (0-4), `tags[]`, `parent_id`, `metadata`.
 
+## Context Sources
+
+Context nodes support multiple content source types. The source type determines how content is stored and resolved.
+
+| Source | Stored in node? | How content is accessed |
+|--------|-----------------|------------------------|
+| inline (default) | Yes, in `content` field | Read directly from the node |
+| file | No (pointer only) | Resolved from the working tree or a pinned git commit |
+| snippet | No (pointer only) | Resolved from specific line range in a file |
+
+### Inline context (default)
+
+Content is stored directly in the node. Use for design decisions, requirements written by agents, meeting notes, etc.
+
+```bash
+# CLI
+opentasks create --type spec --title "OAuth2 for API" --content "## Requirements\n..."
+```
+
+```json
+// MCP: create_context
+{ "title": "OAuth2 for API", "content": "## Requirements\n..." }
+```
+
+### File-backed context
+
+References a codebase file. Content is NOT stored — it's resolved on access from the working tree or at a specific git commit. Includes drift detection (has the file changed since it was captured?).
+
+```json
+// MCP: create_context with source
+{
+  "title": "Auth Middleware",
+  "source": { "type": "file", "path": "src/auth/middleware.ts" },
+  "tags": ["auth"]
+}
+
+// Pin to a specific commit
+{
+  "source": { "type": "file", "path": "src/auth/middleware.ts", "commit": "abc123" }
+}
+```
+
+### Snippet context
+
+References specific lines in a file. Like file-backed, but scoped to a line range.
+
+```json
+// MCP: create_context with snippet source
+{
+  "title": "Token validation logic",
+  "source": { "type": "snippet", "path": "src/auth/middleware.ts", "startLine": 42, "endLine": 58 }
+}
+```
+
+### Resolving content
+
+File and snippet contexts don't store content. Use `get_context` with `resolve: true` to fetch the current file content.
+
+```json
+// MCP: get_context — lightweight (metadata only, no file I/O)
+{ "id": "c-x7k9" }
+
+// MCP: get_context — with file content resolved
+{ "id": "c-x7k9", "resolve": true }
+
+// MCP: get_context — content at the originally captured commit
+{ "id": "c-x7k9", "resolve": true, "atCapturedCommit": true }
+```
+
+The response includes `_resolved.drifted: true/false` indicating whether the file has changed since capture.
+
+### Syncing and drift detection
+
+```json
+// MCP: update_context — re-pin to current HEAD
+{ "id": "c-x7k9", "sync": true }
+
+// MCP: update_context — force re-pin even if unchanged
+{ "id": "c-x7k9", "sync": true, "force": true }
+
+// MCP: list_contexts — check drift for all file-backed contexts
+{ "checkDrift": true }
+
+// MCP: list_contexts — only file-backed contexts
+{ "filesOnly": true, "checkDrift": true }
+```
+
 ## Edge Types
 
 | Type | Semantics | Cycle-checked |
