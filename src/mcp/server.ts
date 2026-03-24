@@ -754,7 +754,7 @@ By default returns the node metadata (lightweight). Use resolve: true to include
           nodes: { type: 'context', ...queryArgs },
         });
 
-        let items = result.items as Array<Record<string, unknown>>;
+        let items = result.items as unknown as Array<Record<string, unknown>>;
 
         // Filter to file-backed only if requested
         if (filesOnly) {
