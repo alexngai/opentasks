@@ -217,6 +217,8 @@ The `uri` field on ExternalNodes is freeform. Use consistent schemes for dedupli
 
 ## Specialized Workflows
 
+**Living context** (maintain project knowledge, accumulate learnings, detect drift via feedback): See [living-context.md](living-context.md)
+
 **Linking external data** (Slack messages, docs, URLs): See [linking-external-data.md](linking-external-data.md)
 
 **Spec to implementation** (create spec, break into issues, track to completion): See [spec-to-implementation.md](spec-to-implementation.md)
