@@ -158,6 +158,15 @@ export {
   type TaskInfo,
 } from './map-event-bridge.js';
 
+// MAP Connector (inbound — handles opentasks/*.request notifications)
+export {
+  createMAPConnector,
+  MAP_CONNECTOR_METHODS,
+  type MAPConnector,
+  type MAPConnectorConfig,
+  type MAPNotificationSender,
+} from './map-connector.js';
+
 // Sync Extensions
 export type {
   VersionInfo,

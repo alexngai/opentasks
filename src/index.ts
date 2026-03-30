@@ -254,6 +254,15 @@ export {
   type TaskInfo as MAPTaskInfo,
 } from './providers/map-event-bridge.js';
 
+// MAP Connector (inbound — handles opentasks/*.request from remote agents)
+export {
+  createMAPConnector,
+  MAP_CONNECTOR_METHODS,
+  type MAPConnector,
+  type MAPConnectorConfig,
+  type MAPNotificationSender,
+} from './providers/map-connector.js';
+
 // Provider-Aware Store
 export type { ProviderAwareStore, ProviderStoreConfig, ResolveOptions } from './graph/index.js';
 
