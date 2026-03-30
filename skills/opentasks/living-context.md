@@ -6,9 +6,22 @@ Maintain project knowledge that stays accurate and grows richer over time. Conte
 
 Context nodes capture what's true about the project. Feedback nodes capture what agents learn while working. Tasks connecting to contexts tell you which knowledge is active, stale, or battle-tested. The agent drives all of this — the system stores, the agent decides.
 
-## Session Start — Load Context
+## Session Start — Orient
 
-At the start of a session, orient by loading relevant context:
+At the start of a session, discover what's available and load relevant context:
+
+### Discover providers
+
+```bash
+# What systems are connected? What can each do?
+opentasks list_providers
+```
+
+This returns every registered provider with its capabilities (read/write/search/watch), task lifecycle actions (start, complete, block, etc.), metadata fields it accepts, and limitations. Read the `description` and `metadataSchema` fields — they tell you what works and what doesn't for each provider.
+
+Use this to answer: Can I create tasks in Beads? Does the MAP provider support assignment? What metadata fields does the native provider accept?
+
+### Load context
 
 ```bash
 # What's active and what needs attention?
