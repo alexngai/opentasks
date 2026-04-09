@@ -113,6 +113,14 @@ function createMockStorage(): Storage & {
       return result;
     },
 
+    async getAllEdges(type?: EdgeType): Promise<StoredEdge[]> {
+      let result = Array.from(edges.values());
+      if (type) {
+        result = result.filter((e) => e.type === type);
+      }
+      return result;
+    },
+
     async addTag(nodeId: string, tag: string): Promise<void> {
       if (!tags.has(nodeId)) {
         tags.set(nodeId, new Set());
@@ -575,6 +583,31 @@ describe('GraphStore', () => {
       expect(store.query).toBeDefined();
       expect(typeof store.query.nodes).toBe('function');
       expect(typeof store.query.ready).toBe('function');
+    });
+
+    it('should return all edges when filter is empty', async () => {
+      const context = await store.createNode({ type: 'context', title: 'Context' });
+      const task1 = await store.createNode({ type: 'task', title: 'Task 1', status: 'open' });
+      const task2 = await store.createNode({ type: 'task', title: 'Task 2', status: 'open' });
+
+      await store.createEdge({ from_id: task1.id, to_id: context.id, type: 'implements' });
+      await store.createEdge({ from_id: task1.id, to_id: task2.id, type: 'blocks' });
+
+      const edges = await store.query.edges({});
+      expect(edges).toHaveLength(2);
+    });
+
+    it('should filter edges by type', async () => {
+      const context = await store.createNode({ type: 'context', title: 'Context' });
+      const task1 = await store.createNode({ type: 'task', title: 'Task 1', status: 'open' });
+      const task2 = await store.createNode({ type: 'task', title: 'Task 2', status: 'open' });
+
+      await store.createEdge({ from_id: task1.id, to_id: context.id, type: 'implements' });
+      await store.createEdge({ from_id: task1.id, to_id: task2.id, type: 'blocks' });
+
+      const blocksEdges = await store.query.edges({ type: 'blocks' });
+      expect(blocksEdges).toHaveLength(1);
+      expect(blocksEdges[0].type).toBe('blocks');
     });
 
     it('should query created nodes', async () => {

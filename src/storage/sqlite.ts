@@ -417,6 +417,20 @@ export class SQLitePersister implements Storage {
     return rows.map(rowToEdge);
   }
 
+  async getAllEdges(type?: EdgeType): Promise<StoredEdge[]> {
+    let sql = 'SELECT * FROM edges';
+    const params: unknown[] = [];
+
+    if (type) {
+      sql += ' WHERE type = ?';
+      params.push(type);
+    }
+
+    const stmt = this.db.prepare(sql);
+    const rows = stmt.all(...params) as Record<string, unknown>[];
+    return rows.map(rowToEdge);
+  }
+
   async getEdgesTo(nodeId: string, type?: EdgeType): Promise<StoredEdge[]> {
     let sql = 'SELECT * FROM edges WHERE to_id = ?';
     const params: unknown[] = [nodeId];

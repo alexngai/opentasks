@@ -156,6 +156,13 @@ export interface Storage {
   getEdgesFrom(nodeId: string, type?: EdgeType): Promise<StoredEdge[]>;
 
   /**
+   * Get all edges in the graph.
+   * @param type - Optional edge type filter
+   * @returns All edges, optionally filtered by type
+   */
+  getAllEdges(type?: EdgeType): Promise<StoredEdge[]>;
+
+  /**
    * Get all edges to a node
    * @param nodeId - The target node ID
    * @param type - Optional edge type filter

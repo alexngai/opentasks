@@ -553,6 +553,50 @@ describe('SQLitePersister', () => {
     });
   });
 
+  describe('getAllEdges', () => {
+    it('returns empty array when no edges exist', async () => {
+      const result = await persister.getAllEdges();
+      expect(result).toHaveLength(0);
+    });
+
+    it('returns all edges when no type filter', async () => {
+      await persister.createNode(testContext);
+      await persister.createNode(testTask);
+      await persister.createNode(testBlockingTask);
+      await persister.createEdge(testEdge);
+      await persister.createEdge(testBlocksEdge);
+
+      const result = await persister.getAllEdges();
+      expect(result).toHaveLength(2);
+    });
+
+    it('filters by edge type when type parameter provided', async () => {
+      await persister.createNode(testContext);
+      await persister.createNode(testTask);
+      await persister.createNode(testBlockingTask);
+      await persister.createEdge(testEdge);
+      await persister.createEdge(testBlocksEdge);
+
+      const result = await persister.getAllEdges('implements');
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('x-r8s9');
+      expect(result[0].type).toBe('implements');
+    });
+
+    it('returns edges of multiple types when no filter', async () => {
+      await persister.createNode(testContext);
+      await persister.createNode(testTask);
+      await persister.createNode(testBlockingTask);
+      await persister.createEdge(testEdge); // type: 'implements'
+      await persister.createEdge(testBlocksEdge); // type: 'blocks'
+
+      const result = await persister.getAllEdges();
+      const types = result.map((e) => e.type);
+      expect(types).toContain('implements');
+      expect(types).toContain('blocks');
+    });
+  });
+
   describe('lifecycle', () => {
     it('can be closed and reopened', async () => {
       await persister.createNode(testContext);

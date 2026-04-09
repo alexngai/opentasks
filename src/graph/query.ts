@@ -262,9 +262,9 @@ export function createQueryEngine(options: QueryEngineOptions | Storage): QueryE
         const toEdges = await storage.getEdgesTo(filter.to_id, filter.type as EdgeType | undefined);
         results.push(...toEdges);
       } else {
-        // No specific node filter - this would need a full edge query
-        // For now, return empty (full edge enumeration not typically needed)
-        return [];
+        // Full edge enumeration
+        const allEdges = await storage.getAllEdges(filter.type as EdgeType | undefined);
+        results.push(...allEdges);
       }
 
       // Apply type filter if we didn't use it in the query
