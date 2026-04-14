@@ -26,8 +26,8 @@ function createMockClient() {
     get connected() { return true; },
     ready: vi.fn(),
     blockers: vi.fn(),
-    createNode: vi.fn(),
-    updateNode: vi.fn(),
+    createNode: vi.fn().mockResolvedValue({ id: 'n-1', type: 'task', title: 'Created', status: 'open' }),
+    updateNode: vi.fn().mockResolvedValue({ id: 'n-1', type: 'task', title: 'Updated', status: 'open' }),
     deleteNode: vi.fn(),
   } as any;
 }
@@ -131,6 +131,97 @@ describe('MAPConnector', () => {
       expect(send).toHaveBeenCalledWith(
         MAP_CONNECTOR_METHODS.TASK_RESPONSE,
         expect.objectContaining({ request_id: 'req-5', success: true }),
+      );
+    });
+  });
+
+  describe('graph.create.request', () => {
+    it('forwards create to client.createNode and sends node in response', async () => {
+      connector.handleNotification(MAP_CONNECTOR_METHODS.GRAPH_CREATE_REQUEST, {
+        request_id: 'req-create-1',
+        create: { type: 'task', title: 'New task', status: 'open' },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(client.createNode).toHaveBeenCalledWith({ type: 'task', title: 'New task', status: 'open' });
+      expect(send).toHaveBeenCalledWith(
+        MAP_CONNECTOR_METHODS.GRAPH_CREATE_RESPONSE,
+        expect.objectContaining({
+          request_id: 'req-create-1',
+          node: expect.objectContaining({ id: 'n-1' }),
+        }),
+      );
+    });
+
+    it('sends error response on createNode failure', async () => {
+      client.createNode.mockRejectedValue(new Error('Bad input'));
+
+      connector.handleNotification(MAP_CONNECTOR_METHODS.GRAPH_CREATE_REQUEST, {
+        request_id: 'req-create-err',
+        create: { type: 'task', title: '' },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(send).toHaveBeenCalledWith(
+        MAP_CONNECTOR_METHODS.GRAPH_CREATE_RESPONSE,
+        expect.objectContaining({ request_id: 'req-create-err', error: 'Bad input' }),
+      );
+    });
+  });
+
+  describe('graph.update.request', () => {
+    it('forwards update to client.updateNode with id separated from updates', async () => {
+      connector.handleNotification(MAP_CONNECTOR_METHODS.GRAPH_UPDATE_REQUEST, {
+        request_id: 'req-upd-1',
+        update: { id: 'n-1', title: 'Updated', content: 'desc', assignee: 'alice' },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(client.updateNode).toHaveBeenCalledWith('n-1', {
+        title: 'Updated',
+        content: 'desc',
+        assignee: 'alice',
+      });
+      expect(send).toHaveBeenCalledWith(
+        MAP_CONNECTOR_METHODS.GRAPH_UPDATE_RESPONSE,
+        expect.objectContaining({
+          request_id: 'req-upd-1',
+          node: expect.objectContaining({ id: 'n-1' }),
+        }),
+      );
+    });
+
+    it('responds with error when id is missing', async () => {
+      connector.handleNotification(MAP_CONNECTOR_METHODS.GRAPH_UPDATE_REQUEST, {
+        request_id: 'req-upd-noid',
+        update: { title: 'nope' },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(client.updateNode).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledWith(
+        MAP_CONNECTOR_METHODS.GRAPH_UPDATE_RESPONSE,
+        expect.objectContaining({ request_id: 'req-upd-noid', error: 'Missing id' }),
+      );
+    });
+
+    it('sends error response on updateNode failure', async () => {
+      client.updateNode.mockRejectedValue(new Error('Not found'));
+
+      connector.handleNotification(MAP_CONNECTOR_METHODS.GRAPH_UPDATE_REQUEST, {
+        request_id: 'req-upd-err',
+        update: { id: 'missing', title: 'x' },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(send).toHaveBeenCalledWith(
+        MAP_CONNECTOR_METHODS.GRAPH_UPDATE_RESPONSE,
+        expect.objectContaining({ request_id: 'req-upd-err', error: 'Not found' }),
       );
     });
   });

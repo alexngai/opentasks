@@ -39,6 +39,7 @@
 
 import type { OpenTasksClient } from '../client/client.js';
 import type { QueryParams, QueryResult, LinkParams, LinkResult, AnnotateParams, AnnotateResult, TaskParams, TaskResult } from '../tools/types.js';
+import type { CreateNodeInput, UpdateNodeInput } from '../graph/types.js';
 
 // ============================================================================
 // Types
@@ -95,6 +96,10 @@ const METHODS = {
   ANNOTATE_RESPONSE: 'opentasks/annotate.response',
   TASK_REQUEST: 'opentasks/task.request',
   TASK_RESPONSE: 'opentasks/task.response',
+  GRAPH_CREATE_REQUEST: 'opentasks/graph.create.request',
+  GRAPH_CREATE_RESPONSE: 'opentasks/graph.create.response',
+  GRAPH_UPDATE_REQUEST: 'opentasks/graph.update.request',
+  GRAPH_UPDATE_RESPONSE: 'opentasks/graph.update.response',
 } as const;
 
 export { METHODS as MAP_CONNECTOR_METHODS };
@@ -174,6 +179,47 @@ export function createMAPConnector(config: MAPConnectorConfig): MAPConnector {
     }
   }
 
+  async function handleGraphCreate(requestId: string, params: CreateNodeInput): Promise<void> {
+    try {
+      const node = await client.createNode(params);
+      send(METHODS.GRAPH_CREATE_RESPONSE, {
+        request_id: requestId,
+        node,
+      });
+    } catch (err) {
+      send(METHODS.GRAPH_CREATE_RESPONSE, {
+        request_id: requestId,
+        error: (err as Error).message,
+      });
+    }
+  }
+
+  async function handleGraphUpdate(
+    requestId: string,
+    params: { id: string } & UpdateNodeInput,
+  ): Promise<void> {
+    try {
+      const { id, ...updates } = params;
+      if (!id) {
+        send(METHODS.GRAPH_UPDATE_RESPONSE, {
+          request_id: requestId,
+          error: 'Missing id',
+        });
+        return;
+      }
+      const node = await client.updateNode(id, updates);
+      send(METHODS.GRAPH_UPDATE_RESPONSE, {
+        request_id: requestId,
+        node,
+      });
+    } catch (err) {
+      send(METHODS.GRAPH_UPDATE_RESPONSE, {
+        request_id: requestId,
+        error: (err as Error).message,
+      });
+    }
+  }
+
   return {
     handleNotification(method: string, params: Record<string, unknown>): void {
       if (!active) return;
@@ -196,6 +242,15 @@ export function createMAPConnector(config: MAPConnectorConfig): MAPConnector {
           break;
         case METHODS.TASK_REQUEST:
           handleTask(requestId, (params.task ?? params) as TaskParams).catch(() => {});
+          break;
+        case METHODS.GRAPH_CREATE_REQUEST:
+          handleGraphCreate(requestId, (params.create ?? params) as CreateNodeInput).catch(() => {});
+          break;
+        case METHODS.GRAPH_UPDATE_REQUEST:
+          handleGraphUpdate(
+            requestId,
+            (params.update ?? params) as { id: string } & UpdateNodeInput,
+          ).catch(() => {});
           break;
         // Ignore unknown methods
       }
