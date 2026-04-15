@@ -39,7 +39,7 @@
 
 import type { OpenTasksClient } from '../client/client.js';
 import type { QueryParams, QueryResult, LinkParams, LinkResult, AnnotateParams, AnnotateResult, TaskParams, TaskResult } from '../tools/types.js';
-import type { CreateNodeInput, UpdateNodeInput } from '../graph/types.js';
+import type { CreateNodeInput, UpdateNodeInput, DeleteOptions } from '../graph/types.js';
 
 // ============================================================================
 // Types
@@ -100,6 +100,8 @@ const METHODS = {
   GRAPH_CREATE_RESPONSE: 'opentasks/graph.create.response',
   GRAPH_UPDATE_REQUEST: 'opentasks/graph.update.request',
   GRAPH_UPDATE_RESPONSE: 'opentasks/graph.update.response',
+  GRAPH_DELETE_REQUEST: 'opentasks/graph.delete.request',
+  GRAPH_DELETE_RESPONSE: 'opentasks/graph.delete.response',
 } as const;
 
 export { METHODS as MAP_CONNECTOR_METHODS };
@@ -220,6 +222,33 @@ export function createMAPConnector(config: MAPConnectorConfig): MAPConnector {
     }
   }
 
+  async function handleGraphDelete(
+    requestId: string,
+    params: { id: string; options?: DeleteOptions },
+  ): Promise<void> {
+    try {
+      const { id, options } = params;
+      if (!id) {
+        send(METHODS.GRAPH_DELETE_RESPONSE, {
+          request_id: requestId,
+          error: 'Missing id',
+        });
+        return;
+      }
+      await client.deleteNode(id, options);
+      send(METHODS.GRAPH_DELETE_RESPONSE, {
+        request_id: requestId,
+        deleted: true,
+        id,
+      });
+    } catch (err) {
+      send(METHODS.GRAPH_DELETE_RESPONSE, {
+        request_id: requestId,
+        error: (err as Error).message,
+      });
+    }
+  }
+
   return {
     handleNotification(method: string, params: Record<string, unknown>): void {
       if (!active) return;
@@ -250,6 +279,12 @@ export function createMAPConnector(config: MAPConnectorConfig): MAPConnector {
           handleGraphUpdate(
             requestId,
             (params.update ?? params) as { id: string } & UpdateNodeInput,
+          ).catch(() => {});
+          break;
+        case METHODS.GRAPH_DELETE_REQUEST:
+          handleGraphDelete(
+            requestId,
+            (params.delete ?? params) as { id: string; options?: DeleteOptions },
           ).catch(() => {});
           break;
         // Ignore unknown methods

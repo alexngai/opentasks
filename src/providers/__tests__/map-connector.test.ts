@@ -226,6 +226,110 @@ describe('MAPConnector', () => {
     });
   });
 
+  describe('graph.delete.request', () => {
+    it('forwards delete to client.deleteNode with id and options', async () => {
+      connector.handleNotification(MAP_CONNECTOR_METHODS.GRAPH_DELETE_REQUEST, {
+        request_id: 'req-del-1',
+        delete: { id: 'n-1', options: { hard: false } },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(client.deleteNode).toHaveBeenCalledWith('n-1', { hard: false });
+      expect(send).toHaveBeenCalledWith(
+        MAP_CONNECTOR_METHODS.GRAPH_DELETE_RESPONSE,
+        expect.objectContaining({
+          request_id: 'req-del-1',
+          deleted: true,
+          id: 'n-1',
+        }),
+      );
+    });
+
+    it('forwards hard delete when options.hard is true', async () => {
+      connector.handleNotification(MAP_CONNECTOR_METHODS.GRAPH_DELETE_REQUEST, {
+        request_id: 'req-del-hard',
+        delete: { id: 'n-2', options: { hard: true } },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(client.deleteNode).toHaveBeenCalledWith('n-2', { hard: true });
+    });
+
+    it('works without options (soft delete default)', async () => {
+      connector.handleNotification(MAP_CONNECTOR_METHODS.GRAPH_DELETE_REQUEST, {
+        request_id: 'req-del-noopt',
+        delete: { id: 'n-3' },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(client.deleteNode).toHaveBeenCalledWith('n-3', undefined);
+      expect(send).toHaveBeenCalledWith(
+        MAP_CONNECTOR_METHODS.GRAPH_DELETE_RESPONSE,
+        expect.objectContaining({ request_id: 'req-del-noopt', deleted: true, id: 'n-3' }),
+      );
+    });
+
+    it('responds with error when id is missing', async () => {
+      connector.handleNotification(MAP_CONNECTOR_METHODS.GRAPH_DELETE_REQUEST, {
+        request_id: 'req-del-noid',
+        delete: { options: { hard: true } },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(client.deleteNode).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledWith(
+        MAP_CONNECTOR_METHODS.GRAPH_DELETE_RESPONSE,
+        expect.objectContaining({ request_id: 'req-del-noid', error: 'Missing id' }),
+      );
+    });
+
+    it('sends error response on deleteNode failure', async () => {
+      client.deleteNode.mockRejectedValue(new Error('Not found'));
+
+      connector.handleNotification(MAP_CONNECTOR_METHODS.GRAPH_DELETE_REQUEST, {
+        request_id: 'req-del-err',
+        delete: { id: 'missing' },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(send).toHaveBeenCalledWith(
+        MAP_CONNECTOR_METHODS.GRAPH_DELETE_RESPONSE,
+        expect.objectContaining({ request_id: 'req-del-err', error: 'Not found' }),
+      );
+    });
+
+    it('accepts params without wrapper (delete field) for backward compat', async () => {
+      // Fallback branch: `params.delete ?? params` — clients that pass fields flat
+      connector.handleNotification(MAP_CONNECTOR_METHODS.GRAPH_DELETE_REQUEST, {
+        request_id: 'req-del-flat',
+        id: 'n-4',
+        options: { hard: false },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(client.deleteNode).toHaveBeenCalledWith('n-4', { hard: false });
+    });
+  });
+
+  describe('MAP_CONNECTOR_METHODS constants', () => {
+    it('exposes graph.delete request/response method names', () => {
+      expect(MAP_CONNECTOR_METHODS.GRAPH_DELETE_REQUEST).toBe('opentasks/graph.delete.request');
+      expect(MAP_CONNECTOR_METHODS.GRAPH_DELETE_RESPONSE).toBe('opentasks/graph.delete.response');
+    });
+
+    it('includes delete in the enumerable request methods (for dynamic subscription)', () => {
+      const requestMethods = Object.values(MAP_CONNECTOR_METHODS)
+        .filter((m) => typeof m === 'string' && m.endsWith('.request'));
+      expect(requestMethods).toContain('opentasks/graph.delete.request');
+    });
+  });
+
   describe('lifecycle', () => {
     it('ignores requests without request_id', async () => {
       connector.handleNotification(MAP_CONNECTOR_METHODS.QUERY_REQUEST, {
