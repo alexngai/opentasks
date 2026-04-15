@@ -24,6 +24,7 @@ function createMockStorage(): Storage {
     deleteEdge: vi.fn(),
     getEdgesFrom: vi.fn().mockResolvedValue([]),
     getEdgesTo: vi.fn().mockResolvedValue([]),
+    getAllEdges: vi.fn().mockResolvedValue([]),
     addTag: vi.fn(),
     removeTag: vi.fn(),
     getTags: vi.fn().mockResolvedValue([]),

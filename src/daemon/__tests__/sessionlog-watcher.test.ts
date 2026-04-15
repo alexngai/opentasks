@@ -14,11 +14,13 @@ import { createSessionlogWatcher, type SessionlogSessionEvent } from '../session
 
 const RUN_SLOW_TESTS = process.env.RUN_SLOW_TESTS === '1';
 
-// Helper: wait for event with timeout
+// Helper: wait for event with timeout. Default generous (15s) because the
+// watcher uses chokidar polling + awaitWriteFinish which can exceed 5s under
+// full-suite load on busy CI.
 function waitForEvent(
   events: SessionlogSessionEvent[],
   predicate: (e: SessionlogSessionEvent) => boolean,
-  timeoutMs = 5000,
+  timeoutMs = 15000,
 ): Promise<SessionlogSessionEvent | null> {
   return new Promise((resolve) => {
     const start = Date.now();
@@ -36,7 +38,9 @@ function waitForEvent(
   });
 }
 
-describe('SessionlogWatcher', () => {
+// File-level timeout bump: chokidar polling + awaitWriteFinish under full-suite
+// load regularly exceeds vitest's default 5s per-test timeout.
+describe('SessionlogWatcher', { timeout: 20_000 }, () => {
   let tmpDir: string;
   let sessionsDir: string;
   let events: SessionlogSessionEvent[];
