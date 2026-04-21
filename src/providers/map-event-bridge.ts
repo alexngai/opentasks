@@ -87,6 +87,29 @@ export interface TaskInfo {
 }
 
 /**
+ * Minimal context info needed to emit MAP events.
+ *
+ * Context nodes are one of OpenTasks' primary node types. The bridge surfaces
+ * their lifecycle over the same `map/send` transport tasks use, so a single
+ * connected MAP hub picks up context authoring/editing from its connected
+ * swarms without needing a second channel.
+ *
+ * `metadata` travels with the event so receivers (e.g. OpenHive's hub) can
+ * route opinionatedly — for example, treating contexts with
+ * `metadata.kind === 'spec'` as Spec entities with their own UI surface,
+ * while ignoring plain contexts.
+ */
+export interface ContextInfo {
+  id: string;
+  title?: string;
+  content?: string;
+  priority?: number;
+  archived?: boolean;
+  status?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/**
  * Configuration for creating a MAP event bridge.
  *
  * Provide either `send` (a raw function) or `connection` + `scope`
@@ -144,6 +167,24 @@ export interface MAPEventBridge {
 
   /** Emit a task.completed event */
   emitTaskCompleted(taskId: string, result?: unknown): void;
+
+  /**
+   * Emit a context.created event.
+   *
+   * Context counterpart of `emitTaskCreated`. Carries `metadata` so
+   * receivers can apply their own classification (e.g., OpenHive treats
+   * `metadata.kind === 'spec'` contexts as Specs for UI routing).
+   */
+  emitContextCreated(context: ContextInfo): void;
+
+  /**
+   * Emit a context.updated event.
+   *
+   * Accepts a partial set of fields; only the id is required. Fields set
+   * to `undefined` are dropped from the wire payload so receivers can
+   * distinguish "unchanged" from "explicitly cleared".
+   */
+  emitContextUpdated(context: ContextInfo): void;
 
   // ---- Change handler (daemon-side pattern) ----
 
@@ -273,6 +314,34 @@ export function createMAPEventBridge(config: MAPEventBridgeConfig): MAPEventBrid
       });
     },
 
+    emitContextCreated(context: ContextInfo): void {
+      emit('context.created', {
+        context: {
+          id: context.id,
+          ...(context.title !== undefined && { title: context.title }),
+          ...(context.content !== undefined && { content: context.content }),
+          ...(context.priority !== undefined && { priority: context.priority }),
+          ...(context.archived !== undefined && { archived: context.archived }),
+          ...(context.status !== undefined && { status: context.status }),
+          ...(context.metadata !== undefined && { metadata: context.metadata }),
+        },
+      });
+    },
+
+    emitContextUpdated(context: ContextInfo): void {
+      emit('context.updated', {
+        context: {
+          id: context.id,
+          ...(context.title !== undefined && { title: context.title }),
+          ...(context.content !== undefined && { content: context.content }),
+          ...(context.priority !== undefined && { priority: context.priority }),
+          ...(context.archived !== undefined && { archived: context.archived }),
+          ...(context.status !== undefined && { status: context.status }),
+          ...(context.metadata !== undefined && { metadata: context.metadata }),
+        },
+      });
+    },
+
     // ==================================================================
     // Provider Change Handler
     // ==================================================================
@@ -288,8 +357,45 @@ export function createMAPEventBridge(config: MAPEventBridgeConfig): MAPEventBrid
 
       const nodeEvent: ProviderNodeChangeEvent = event.event;
 
-      // Only bridge task-type nodes
+      // `ProviderNode.type` is already normalized — the native provider's
+      // `nodeToProviderNode` maps the raw graph type `'context'` → `'spec'`
+      // (the provider-side normalization name; all context graph nodes surface
+      // as `'spec'` in `ProviderNode.type`). We bridge every such node as a
+      // `context.*` event; downstream receivers route on `metadata.kind`.
       const nodeType = nodeEvent.node?.type;
+
+      if (nodeType === 'spec') {
+        const archived = nodeEvent.node?.rawData?.archived as boolean | undefined;
+        const metadata = nodeEvent.node?.rawData?.metadata as
+          | Record<string, unknown>
+          | undefined;
+        if (nodeEvent.type === 'created' && nodeEvent.node) {
+          bridge.emitContextCreated({
+            id: nodeEvent.nodeId,
+            title: nodeEvent.node.title,
+            content: nodeEvent.node.content,
+            priority: nodeEvent.node.priority,
+            archived,
+            status: nodeEvent.node.status,
+            metadata,
+          });
+        } else if (nodeEvent.type === 'updated' && nodeEvent.node) {
+          bridge.emitContextUpdated({
+            id: nodeEvent.nodeId,
+            title: nodeEvent.node.title,
+            content: nodeEvent.node.content,
+            priority: nodeEvent.node.priority,
+            archived,
+            status: nodeEvent.node.status,
+            metadata,
+          });
+        }
+        // Deletes are intentionally not bridged (no UI consumer); archive is
+        // communicated via context.updated with archived=true.
+        return;
+      }
+
+      // Only bridge task-type nodes beyond this point
       if (nodeType && nodeType !== 'task') return;
 
       switch (nodeEvent.type) {

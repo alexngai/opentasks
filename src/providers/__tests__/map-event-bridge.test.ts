@@ -415,7 +415,32 @@ describe('MAPEventBridge', () => {
       expect(events).toHaveLength(0);
     });
 
-    it('skips non-task node types', () => {
+    it('skips node types that are neither task nor context (e.g. feedback)', () => {
+      const bridge = createMAPEventBridge({ send });
+
+      const event: ProviderChangeEvent = {
+        kind: 'node',
+        event: {
+          type: 'created',
+          nodeId: 'fb-1',
+          uri: 'native://fb-1',
+          node: {
+            id: 'fb-1',
+            uri: 'native://fb-1',
+            type: 'feedback',
+            title: 'Feedback node',
+            fetchedAt: new Date().toISOString(),
+          },
+          timestamp: new Date().toISOString(),
+        },
+      };
+
+      bridge.handleProviderChange('native', event);
+
+      expect(events).toHaveLength(0);
+    });
+
+    it('bridges context nodes as context.created, forwarding metadata', () => {
       const bridge = createMAPEventBridge({ send });
 
       const event: ProviderChangeEvent = {
@@ -427,8 +452,11 @@ describe('MAPEventBridge', () => {
           node: {
             id: 'ctx-1',
             uri: 'native://ctx-1',
-            type: 'context',
-            title: 'Some context',
+            type: 'spec',
+            title: 'Auth flow spec',
+            content: 'OAuth2 PKCE',
+            priority: 2,
+            rawData: { metadata: { kind: 'spec' }, archived: false },
             fetchedAt: new Date().toISOString(),
           },
           timestamp: new Date().toISOString(),
@@ -437,7 +465,100 @@ describe('MAPEventBridge', () => {
 
       bridge.handleProviderChange('native', event);
 
-      expect(events).toHaveLength(0);
+      expect(events).toHaveLength(1);
+      expect(events[0].type).toBe('context.created');
+      expect(events[0].data.context).toEqual({
+        id: 'ctx-1',
+        title: 'Auth flow spec',
+        content: 'OAuth2 PKCE',
+        priority: 2,
+        archived: false,
+        metadata: { kind: 'spec' },
+      });
+    });
+
+    it('bridges context node updates as context.updated', () => {
+      const bridge = createMAPEventBridge({ send });
+
+      const event: ProviderChangeEvent = {
+        kind: 'node',
+        event: {
+          type: 'updated',
+          nodeId: 'ctx-2',
+          uri: 'native://ctx-2',
+          node: {
+            id: 'ctx-2',
+            uri: 'native://ctx-2',
+            type: 'spec',
+            title: 'Updated title',
+            rawData: { metadata: { kind: 'spec' }, archived: true },
+            fetchedAt: new Date().toISOString(),
+          },
+          changedFields: ['title', 'archived'],
+          timestamp: new Date().toISOString(),
+        },
+      };
+
+      bridge.handleProviderChange('native', event);
+
+      expect(events).toHaveLength(1);
+      expect(events[0].type).toBe('context.updated');
+      expect(events[0].data.context).toMatchObject({
+        id: 'ctx-2',
+        title: 'Updated title',
+        archived: true,
+        metadata: { kind: 'spec' },
+      });
+    });
+
+    it('bridges plain (non-spec-kind) context nodes too — classification is downstream', () => {
+      const bridge = createMAPEventBridge({ send });
+
+      const event: ProviderChangeEvent = {
+        kind: 'node',
+        event: {
+          type: 'created',
+          nodeId: 'ctx-plain',
+          uri: 'native://ctx-plain',
+          node: {
+            id: 'ctx-plain',
+            uri: 'native://ctx-plain',
+            type: 'spec', // normalized from graph 'context'
+            title: 'Regular context',
+            rawData: { metadata: { other: 'value' } },
+            fetchedAt: new Date().toISOString(),
+          },
+          timestamp: new Date().toISOString(),
+        },
+      };
+
+      bridge.handleProviderChange('native', event);
+
+      expect(events).toHaveLength(1);
+      expect(events[0].type).toBe('context.created');
+      expect(events[0].data.context).toMatchObject({
+        id: 'ctx-plain',
+        title: 'Regular context',
+        metadata: { other: 'value' },
+      });
+    });
+
+    it('does NOT bridge context node deletions', () => {
+      const bridge = createMAPEventBridge({ send });
+
+      const event: ProviderChangeEvent = {
+        kind: 'node',
+        event: {
+          type: 'deleted',
+          nodeId: 'ctx-gone',
+          uri: 'native://ctx-gone',
+          timestamp: new Date().toISOString(),
+        },
+      };
+
+      bridge.handleProviderChange('native', event);
+
+      expect(events.filter((e) => e.type.startsWith('context.'))).toHaveLength(0);
     });
 
     it('handles update without changedFields (best effort)', () => {
@@ -498,6 +619,80 @@ describe('MAPEventBridge', () => {
       expect(events).toHaveLength(2);
       expect(events[0].type).toBe('task.status');
       expect(events[1].type).toBe('task.assigned');
+    });
+  });
+
+  // ======================================================================
+  // Direct Emit Methods — Contexts
+  // ======================================================================
+
+  describe('emitContextCreated', () => {
+    it('emits context.created with full context info including metadata', () => {
+      const bridge = createMAPEventBridge({ send });
+
+      bridge.emitContextCreated({
+        id: 'ctx-1',
+        title: 'Auth flow',
+        content: 'OAuth2 PKCE',
+        priority: 2,
+        archived: false,
+        status: 'open',
+        metadata: { kind: 'spec', tags: ['auth'] },
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0].type).toBe('context.created');
+      expect(events[0].data.context).toEqual({
+        id: 'ctx-1',
+        title: 'Auth flow',
+        content: 'OAuth2 PKCE',
+        priority: 2,
+        archived: false,
+        status: 'open',
+        metadata: { kind: 'spec', tags: ['auth'] },
+      });
+    });
+
+    it('emits context.created with minimal info (id only)', () => {
+      const bridge = createMAPEventBridge({ send });
+
+      bridge.emitContextCreated({ id: 'ctx-2' });
+
+      expect(events).toHaveLength(1);
+      expect(events[0].data.context).toEqual({ id: 'ctx-2' });
+    });
+
+    it('stamps _origin when agentId configured', () => {
+      const bridge = createMAPEventBridge({ send, agentId: 'agent-alice' });
+
+      bridge.emitContextCreated({ id: 'ctx-1', title: 'T' });
+
+      expect(events[0].data._origin).toBe('agent-alice');
+    });
+  });
+
+  describe('emitContextUpdated', () => {
+    it('emits context.updated with partial changes', () => {
+      const bridge = createMAPEventBridge({ send });
+
+      bridge.emitContextUpdated({ id: 'ctx-1', archived: true });
+
+      expect(events).toHaveLength(1);
+      expect(events[0].type).toBe('context.updated');
+      expect(events[0].data.context).toEqual({ id: 'ctx-1', archived: true });
+    });
+
+    it('drops undefined fields from the wire payload', () => {
+      const bridge = createMAPEventBridge({ send });
+
+      bridge.emitContextUpdated({
+        id: 'ctx-1',
+        title: 'New title',
+        content: undefined,
+        priority: undefined,
+      });
+
+      expect(events[0].data.context).toEqual({ id: 'ctx-1', title: 'New title' });
     });
   });
 
