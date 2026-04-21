@@ -32,7 +32,9 @@ export interface WatchMethodsOptions {
 
 /**
  * Compute a hash string for a node's substantive fields.
- * Changes to these fields trigger watch events.
+ * Changes to these fields trigger watch events. `metadata` is included
+ * so consumers bridging context nodes off `metadata.kind` (e.g. OpenHive's
+ * spec classifier) see updates when the marker appears or changes.
  */
 function nodeHash(node: StoredNode): string {
   return JSON.stringify([
@@ -43,7 +45,50 @@ function nodeHash(node: StoredNode): string {
     node.tags,
     node.archived,
     node.assignee,
+    node.metadata,
   ]);
+}
+
+/**
+ * Normalize a StoredNode's graph type to the provider-normalized type
+ * used in `ProviderNode.type`. Mirrors `mapNodeType` in the native
+ * provider so watch-event consumers see the same shape they would from
+ * `ProviderNode` — notably `'context'` → `'spec'`.
+ */
+function providerType(
+  raw: StoredNode['type'],
+): 'spec' | 'issue' | 'task' | 'feedback' | 'external' {
+  switch (raw) {
+    case 'context':
+      return 'spec';
+    case 'task':
+      return 'issue';
+    case 'feedback':
+      return 'feedback';
+    case 'external':
+      return 'external';
+    default:
+      return 'external';
+  }
+}
+
+/**
+ * Build the `rawData` envelope that the native provider's
+ * `nodeToProviderNode` produces, carrying metadata + assignee + archived
+ * through to watch-event consumers (e.g. the MAP event bridge forwarding
+ * `metadata.kind` for downstream spec classification).
+ */
+function providerRawData(node: StoredNode): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    archived: node.archived,
+    metadata: node.metadata,
+    tags: node.tags,
+    parent_id: node.parent_id,
+  };
+  if ('assignee' in node && node.assignee !== undefined) {
+    out.assignee = node.assignee;
+  }
+  return out;
 }
 
 // ============================================================================
@@ -104,11 +149,12 @@ export function registerWatchMethods(options: WatchMethodsOptions): void {
             node: {
               id: storedNode.id,
               uri: `global://${storedNode.id}`,
-              type: storedNode.type === 'task' ? 'issue' : storedNode.type as 'spec' | 'issue' | 'task' | 'feedback' | 'external',
+              type: providerType(storedNode.type),
               title: storedNode.title,
               content: storedNode.content,
               status: storedNode.status,
               priority: storedNode.priority,
+              rawData: providerRawData(storedNode),
               fetchedAt: new Date().toISOString(),
             },
             timestamp: new Date().toISOString(),
@@ -123,11 +169,12 @@ export function registerWatchMethods(options: WatchMethodsOptions): void {
             node: {
               id: storedNode.id,
               uri: `global://${storedNode.id}`,
-              type: storedNode.type === 'task' ? 'issue' : storedNode.type as 'spec' | 'issue' | 'task' | 'feedback' | 'external',
+              type: providerType(storedNode.type),
               title: storedNode.title,
               content: storedNode.content,
               status: storedNode.status,
               priority: storedNode.priority,
+              rawData: providerRawData(storedNode),
               fetchedAt: new Date().toISOString(),
             },
             timestamp: new Date().toISOString(),

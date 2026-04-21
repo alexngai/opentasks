@@ -269,18 +269,43 @@ describe('registerWatchMethods', () => {
       expect(call[1].node.type).toBe('issue');
     });
 
-    it('should preserve non-task type in created events', async () => {
+    it('should normalize context graph type to spec in created events', async () => {
       (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
       await server.call('watch.subscribe', {});
 
-      const node = makeNode({ id: 's-1', type: 'spec' });
+      const node = makeNode({ id: 's-1', type: 'context' });
       (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([node]);
 
       watcher._emit({ type: 'change', path: '/tmp/.opentasks/graph.jsonl', category: 'graph' });
       await vi.advanceTimersByTimeAsync(150);
 
       const call = (server.broadcastNotification as ReturnType<typeof vi.fn>).mock.calls[0];
+      // `context` graph nodes normalize to provider type `spec`, matching
+      // the native provider's `nodeToProviderNode` mapping so watch-event
+      // consumers share one shape with ProviderNode-emitting paths.
       expect(call[1].node.type).toBe('spec');
+    });
+
+    it('should include metadata + archived in rawData for downstream classification', async () => {
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      await server.call('watch.subscribe', {});
+
+      const node = makeNode({
+        id: 's-2',
+        type: 'context',
+        metadata: { kind: 'spec', tags: ['auth'] },
+        archived: false,
+      });
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([node]);
+
+      watcher._emit({ type: 'change', path: '/tmp/.opentasks/graph.jsonl', category: 'graph' });
+      await vi.advanceTimersByTimeAsync(150);
+
+      const call = (server.broadcastNotification as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(call[1].node.rawData).toMatchObject({
+        metadata: { kind: 'spec', tags: ['auth'] },
+        archived: false,
+      });
     });
   });
 

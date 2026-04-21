@@ -805,6 +805,68 @@ describe('MCP Server - Context Tools', () => {
       expect(isError).toBe(true);
       expect(parsed.error).toContain('title is required');
     });
+
+    it('should write top-level kind into metadata.kind for spec-kind contexts', async () => {
+      mockClient.createNode.mockResolvedValue({ id: 'c-spec1', type: 'context' });
+
+      await callTool(client, 'create_context', {
+        title: 'Auth refactor',
+        content: 'OAuth2 with PKCE',
+        kind: 'spec',
+      });
+
+      expect(mockClient.createNode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'context',
+          title: 'Auth refactor',
+          content: 'OAuth2 with PKCE',
+          metadata: { kind: 'spec' },
+        }),
+        undefined,
+      );
+    });
+
+    it('should merge top-level kind with existing metadata (explicit metadata.kind wins)', async () => {
+      mockClient.createNode.mockResolvedValue({ id: 'c-merge1', type: 'context' });
+
+      await callTool(client, 'create_context', {
+        title: 'Explicit wins',
+        kind: 'spec',
+        metadata: { kind: 'policy', tags: ['auth'] },
+      });
+
+      expect(mockClient.createNode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: { kind: 'policy', tags: ['auth'] },
+        }),
+        undefined,
+      );
+    });
+
+    it('should patch kind onto file-backed contexts', async () => {
+      const created = {
+        id: 'c-file-spec',
+        type: 'context',
+        metadata: { context_file: true, context_file_path: 'specs/auth.md' },
+      };
+      mockClient.createContextFile.mockResolvedValue(created);
+      mockClient.updateNode.mockResolvedValue({
+        ...created,
+        metadata: { ...created.metadata, kind: 'spec' },
+      });
+
+      await callTool(client, 'create_context', {
+        source: { type: 'file', path: 'specs/auth.md' },
+        kind: 'spec',
+      });
+
+      expect(mockClient.updateNode).toHaveBeenCalledWith(
+        'c-file-spec',
+        expect.objectContaining({
+          metadata: expect.objectContaining({ kind: 'spec' }),
+        }),
+      );
+    });
   });
 
   describe('get_context', () => {

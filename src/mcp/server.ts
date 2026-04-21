@@ -549,13 +549,17 @@ function registerContextTools(server: McpServer, client: OpenTasksClient): void 
 Source types:
 - file: Reference a codebase file (content resolved on access, not stored)
 - inline (default): Content stored directly in the node
-- snippet: Reference specific lines in a file`,
+- snippet: Reference specific lines in a file
+
+Kinds:
+Pass \`kind: "spec"\` when authoring a specification — a briefing that agents or swarms will implement against. Spec-kind contexts are first-class in downstream consumers (e.g. OpenHive's Specs UI) and surface as dispatchable work; plain contexts are background reference material. The marker is stored as \`metadata.kind\` and travels with the node.`,
     {
       title: z.string().optional().describe('Context title (auto-derived from file path if source is file/snippet)'),
       content: z.string().optional().describe('Markdown content (for inline contexts)'),
       priority: z.number().optional().describe('Priority 0=highest, 4=lowest'),
       tags: z.array(z.string()).optional().describe('Tags for categorization'),
       parent_id: z.string().optional().describe('Parent node ID'),
+      kind: z.string().optional().describe('Context kind marker (e.g. "spec" for dispatchable specifications). Written to metadata.kind; merges with any explicit metadata param, with metadata.kind winning if both are set.'),
       metadata: z.record(z.string(), z.unknown()).optional().describe('Additional metadata'),
       scheme: z.string().optional().describe('Provider scheme to route creation to'),
       source: z.discriminatedUnion('type', [
@@ -574,7 +578,17 @@ Source types:
     },
     async (args) => {
       try {
-        const { scheme, source, ...params } = args;
+        const { scheme, source, kind, ...rest } = args;
+        // Merge the top-level `kind` into metadata so the wire shape
+        // still carries a single `metadata.kind` marker. An explicit
+        // `metadata.kind` overrides the top-level sugar.
+        const params = {
+          ...rest,
+          metadata:
+            kind !== undefined
+              ? { kind, ...(rest.metadata ?? {}) }
+              : rest.metadata,
+        };
 
         // File-backed context — delegate to contextFiles.create
         if (source?.type === 'file') {
@@ -585,6 +599,17 @@ Source types:
             priority: params.priority,
             commit: source.commit,
           });
+          // If a kind marker was requested, patch it onto the file-backed
+          // node — `createContextFile` doesn't accept a metadata bag.
+          if (kind !== undefined) {
+            const updated = await client.updateNode(result.id, {
+              metadata: {
+                ...((result.metadata as Record<string, unknown>) ?? {}),
+                kind,
+              },
+            });
+            return { content: [{ type: 'text' as const, text: JSON.stringify(updated, null, 2) }] };
+          }
           return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
         }
 
@@ -596,13 +621,13 @@ Source types:
             tags: params.tags,
             priority: params.priority,
           });
-          // Update with snippet-specific metadata
           const updated = await client.updateNode(result.id, {
             metadata: {
               ...((result.metadata as Record<string, unknown>) ?? {}),
               context_source: 'snippet',
               context_line_start: source.startLine,
               context_line_end: source.endLine,
+              ...(kind !== undefined ? { kind } : {}),
             },
           });
           return { content: [{ type: 'text' as const, text: JSON.stringify(updated, null, 2) }] };

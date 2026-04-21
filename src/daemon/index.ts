@@ -80,6 +80,10 @@ export { registerGraphMethods } from './methods/graph.js';
 export type { ToolsMethodsOptions } from './methods/tools.js';
 export { registerToolsMethods } from './methods/tools.js';
 
+// Methods - Watch (graph change subscription)
+export type { WatchMethodsOptions } from './methods/watch.js';
+export { registerWatchMethods } from './methods/watch.js';
+
 // Methods - Location (multi-location management)
 export type { LocationMethodsOptions } from './methods/location.js';
 export { registerLocationMethods } from './methods/location.js';
