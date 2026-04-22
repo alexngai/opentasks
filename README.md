@@ -445,6 +445,50 @@ Hash-based, collision-resistant. Generated from UUID v4 through SHA256 and base3
 | < 6,000 | 5 chars | t-x7k9p |
 | < 35,000 | 6 chars | t-x7k9pm |
 
+## Git Sync
+
+OpenTasks can auto-commit and auto-push `graph.jsonl` to a git remote. When enabled in `.opentasks/config.json`:
+
+```json
+{
+  "sync": {
+    "git": {
+      "enabled": true,
+      "autoCommit": true,
+      "autoPush": true,
+      "pushDebounceMs": 5000,
+      "pullOnStartup": false
+    }
+  }
+}
+```
+
+The daemon:
+- **On startup** — installs the custom merge driver, optionally pulls from remote, starts auto-sync timer
+- **On shutdown** — final commit+push if both flags are set
+- **Continuously** — commits changes per `autoCommit`, pulls before push, respects debounce window
+
+Four IPC methods are exposed for external control:
+
+| Method | Purpose |
+|--------|---------|
+| `sync.now` | Runs the full cycle (commitIfDirty → pull → push). Returns `{ ran: false, reason }` if disabled. |
+| `sync.pull` | Pulls only (used by external signal-driven convergence, e.g. OpenHive's MAP bridge). |
+| `sync.status` | Returns `{ enabled, remote, autoCommit, autoPush, pullOnStartup, autoSyncRunning }`. |
+| `sync.reload` | Re-reads `.opentasks/config.json` and hot-swaps the syncer. Lets external writers flip the flag without restart. |
+
+Example usage:
+
+```typescript
+const status = await client.call('sync.status', {})
+console.log(status)  // { enabled: true, remote: 'origin', autoCommit: true, autoPush: true, ... }
+
+await client.call('sync.now', {})  // Manual sync
+await client.call('sync.reload', {})  // Re-read config after external update
+```
+
+---
+
 ## MAP Integration
 
 OpenTasks integrates with the [Multi-Agent Protocol (MAP)](https://github.com/multi-agent-protocol/multi-agent-protocol) for multi-agent coordination and observability. Two independent components:

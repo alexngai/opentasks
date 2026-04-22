@@ -144,7 +144,7 @@ function findRepoRoot(opentasksPath: string, timeout: number): string | null {
  */
 export function createGitGraphSyncer(config: GitGraphSyncerConfig): GitGraphSyncer {
   const {
-    opentasksPath,
+    opentasksPath: rawOpentasksPath,
     remote = null,
     autoCommit = false,
     autoPush = false,
@@ -155,6 +155,21 @@ export function createGitGraphSyncer(config: GitGraphSyncerConfig): GitGraphSync
   let autoSyncInterval: ReturnType<typeof setInterval> | null = null;
   let isSyncing = false;
   let lastPushTime = 0;
+
+  // Resolve symlinks on the input path so `path.relative(repoRoot, graphFile)`
+  // compares paths in the same namespace. Without this, macOS's `/tmp →
+  // /private/tmp` (and similar) causes `git rev-parse --show-toplevel` to
+  // return a `/private/...` path while our stored input is `/var/...`, and
+  // the computed relative path ends up as `../../../../private/...` which
+  // git rejects as "outside repository" — silently, since callers use
+  // `allowFailure: true`. Fall back to the raw input if realpath fails
+  // (e.g., directory doesn't exist yet).
+  let opentasksPath = rawOpentasksPath;
+  try {
+    opentasksPath = fs.realpathSync(rawOpentasksPath);
+  } catch {
+    /* keep the raw path */
+  }
 
   const graphFile = path.join(opentasksPath, 'graph.jsonl');
 
@@ -175,11 +190,18 @@ export function createGitGraphSyncer(config: GitGraphSyncerConfig): GitGraphSync
         return { committed: false };
       }
 
-      // Check if graph.jsonl has changes
-      const status = git(repoRoot, `status --porcelain -- "${getRelativeGraphPath()}"`, {
-        allowFailure: true,
-        timeout,
-      });
+      // Check if graph.jsonl has changes.
+      //
+      // `--untracked-files=all` is load-bearing: git's default behavior
+      // groups untracked paths at the directory level, so
+      // `status --porcelain -- ".opentasks/graph.jsonl"` returns empty
+      // when `.opentasks/` itself is untracked (common on first commit
+      // of a fresh repo). Asking for `all` surfaces the individual file.
+      const status = git(
+        repoRoot,
+        `status --porcelain --untracked-files=all -- "${getRelativeGraphPath()}"`,
+        { allowFailure: true, timeout },
+      );
 
       if (!status.trim()) {
         return { committed: false };

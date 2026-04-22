@@ -172,6 +172,10 @@ describe('SessionlogWatcher', { timeout: 20_000 }, () => {
 
   describe('session file parsing - task/plan data', () => {
     it('should parse tasks from session file', async () => {
+      // Write placeholder before start so chokidar caches the file during its
+      // initial scan; the overwrite below triggers a reliable 'change' event.
+      writeSessionFile('session-tasks', { agent: 'Claude Code', phase: 'ACTIVE', checkpoints: [] });
+
       const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
@@ -216,6 +220,8 @@ describe('SessionlogWatcher', { timeout: 20_000 }, () => {
     });
 
     it('should parse plan mode data from session file', async () => {
+      writeSessionFile('session-plan', { agent: 'Claude Code', phase: 'ACTIVE', checkpoints: [] });
+
       const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
@@ -250,6 +256,8 @@ describe('SessionlogWatcher', { timeout: 20_000 }, () => {
     });
 
     it('should parse completed plan entries with content', async () => {
+      writeSessionFile('session-plan-done', { agent: 'Claude Code', phase: 'ACTIVE', checkpoints: [] });
+
       const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
@@ -290,6 +298,8 @@ describe('SessionlogWatcher', { timeout: 20_000 }, () => {
     });
 
     it('should parse skillsUsed from session file', async () => {
+      writeSessionFile('session-skills', { agent: 'Claude Code', phase: 'ACTIVE', checkpoints: [] });
+
       const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,
@@ -320,6 +330,10 @@ describe('SessionlogWatcher', { timeout: 20_000 }, () => {
     });
 
     it('should handle session files without task/plan fields gracefully', async () => {
+      // Write a placeholder with different content so the overwrite is a real
+      // 'change' event — use a different phase to ensure chokidar sees it change.
+      writeSessionFile('session-minimal', { agent: 'Claude Code', phase: 'IDLE', checkpoints: [] });
+
       const watcher = createSessionlogWatcher({
         locationPath: path.join(tmpDir, '.opentasks'),
         gitDir: tmpDir,

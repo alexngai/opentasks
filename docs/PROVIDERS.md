@@ -1565,10 +1565,24 @@ graphStore.onProviderChange('native', (event) => {
 ```
 
 The `handleProviderChange()` method translates `ProviderChangeEvent`s into the appropriate MAP events:
-- `created` node → `task.created`
+- `created` node → `task.created` or `context.created`
 - `updated` node with status change → `task.status` (+ `task.completed` for terminal states)
 - `updated` node with assignee change → `task.assigned`
 - `deleted` node → `task.status` (to `failed`, since MAP has no delete)
+
+#### Context Events in the Bridge
+
+The bridge now emits context events alongside task events. New exports from `src/providers/map-event-bridge.ts`:
+
+```typescript
+// Emit context lifecycle events
+bridge.emitContextCreated({ id: 'c-auth', title: 'OAuth Requirements', priority: 2 });
+bridge.emitContextUpdated({ id: 'c-auth', content: 'Updated spec...', metadata: { kind: 'spec' } });
+```
+
+`ProviderChangeEvent` handling bridges **every context node** (after normalization) via `context.*` events, not just tasks. Metadata is forwarded in the payload so downstream consumers can classify on `metadata.kind`. The bridge previously was task-only; context support landed in this change.
+
+**Type:** `ContextInfo` carries `id + title? + content? + priority? + archived? + status? + metadata?`. The `kind` metadata field (e.g., `"spec"`, `"design"`) is preserved from the node so consumers can route on it.
 
 #### Echo Prevention
 

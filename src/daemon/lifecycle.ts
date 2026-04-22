@@ -34,6 +34,11 @@ import { registerProviderMethods } from './methods/provider.js';
 import { registerArchiveMethods } from './methods/archive.js';
 import { registerContextFilesMethods } from './methods/context-files.js';
 import { registerWatchMethods } from './methods/watch.js';
+import { registerSyncMethods } from './methods/sync.js';
+import {
+  createGitGraphSyncer,
+  type GitGraphSyncer,
+} from '../graph/git-graph-syncer.js';
 import type { PartialOpenTasksConfig } from '../config/index.js';
 import { loadConfigFile } from '../config/loader.js';
 import { createBeadsProvider } from '../providers/beads.js';
@@ -348,6 +353,23 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
   let reconciliationIntervalHandle: ReturnType<typeof setInterval> | null = null;
   let providerIntervalHandles: Map<string, ReturnType<typeof setInterval>> | null = null;
 
+  // Git graph syncer — null when `sync.git.enabled` is false (default).
+  // When enabled: installed merge driver + optional pull-on-startup + optional
+  // auto-commit/push timer managed internally by the syncer.
+  let gitSyncer: GitGraphSyncer | null = null;
+  let gitSyncConfig: {
+    enabled: boolean;
+    remote?: string;
+    autoCommit: boolean;
+    autoPush: boolean;
+    pullOnStartup: boolean;
+  } = {
+    enabled: false,
+    autoCommit: false,
+    autoPush: false,
+    pullOnStartup: false,
+  };
+
   // Signal handlers (stored for cleanup)
   let signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = [];
 
@@ -535,7 +557,149 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           locationResolver,
         });
 
-        // 10. Start IPC server (begin listening)
+        // 9b. Set up the git syncer if enabled. The initialization is
+        // factored into `buildSyncer` so it can run both at startup (using
+        // the OpenTasksConfig passed to createDaemon) and at runtime via
+        // the `sync.reload` IPC method (which reads the latest
+        // `.opentasks/config.json` from disk — used when an external
+        // writer like OpenHive's PATCH endpoint flips the flag).
+        type SyncGitConfig = {
+          enabled?: boolean;
+          remote?: string;
+          autoCommit?: boolean;
+          autoPush?: boolean;
+          pullOnStartup?: boolean;
+          pushDebounceMs?: number;
+        };
+
+        const disabledSync = {
+          enabled: false,
+          autoCommit: false,
+          autoPush: false,
+          pullOnStartup: false,
+        } as typeof gitSyncConfig;
+
+        /**
+         * Rebuild the syncer from a config block, replacing whatever's
+         * currently active. Tears down the previous syncer's timers first
+         * so callers don't need to.
+         *
+         * @param gitConfig config block (usually `config.sync.git`)
+         * @param options.doInitialPull when true, honor `pullOnStartup`.
+         *   Startup passes true; `sync.reload` passes false because the
+         *   caller can issue `sync.pull` explicitly if they want.
+         */
+        async function buildSyncer(
+          gitConfig: SyncGitConfig | undefined,
+          options: { doInitialPull: boolean },
+        ): Promise<void> {
+          // Tear down any existing syncer first — we're replacing it.
+          if (gitSyncer) {
+            try { gitSyncer.stopAutoSync(); } catch { /* ignore */ }
+            gitSyncer = null;
+          }
+
+          if (!gitConfig?.enabled) {
+            gitSyncConfig = { ...disabledSync };
+            return;
+          }
+
+          gitSyncConfig = {
+            enabled: true,
+            remote: gitConfig.remote,
+            autoCommit: gitConfig.autoCommit ?? false,
+            autoPush: gitConfig.autoPush ?? false,
+            pullOnStartup: gitConfig.pullOnStartup ?? false,
+          };
+
+          try {
+            gitSyncer = createGitGraphSyncer({
+              opentasksPath: locationPath,
+              remote: gitSyncConfig.remote ?? null,
+              autoCommit: gitSyncConfig.autoCommit,
+              autoPush: gitSyncConfig.autoPush,
+              pushDebounceMs: gitConfig.pushDebounceMs,
+            });
+
+            // Install the JSONL merge driver once per repo so concurrent
+            // pushes from peer hubs resolve cleanly on pull. Re-running
+            // this after reload is idempotent (it just verifies the
+            // .gitattributes entry exists).
+            try {
+              gitSyncer.installMergeDriver();
+            } catch {
+              /* merge driver install is best-effort */
+            }
+
+            if (options.doInitialPull && gitSyncConfig.pullOnStartup) {
+              try {
+                await gitSyncer.pull();
+              } catch {
+                /* initial pull failure is non-fatal */
+              }
+            }
+
+            // Start the auto-sync timer right away — in the startup path
+            // the main block will idempotently call this again, which the
+            // syncer short-circuits. In the reload path, this is the only
+            // place that starts it.
+            gitSyncer.startAutoSync();
+          } catch {
+            // Syncer construction failed (e.g. not a git repo) — disable
+            // gracefully and keep going.
+            gitSyncer = null;
+            gitSyncConfig = { ...disabledSync };
+          }
+        }
+
+        const startupSyncConfig = openTasksConfig?.sync as
+          | { git?: SyncGitConfig }
+          | undefined;
+        await buildSyncer(startupSyncConfig?.git, { doInitialPull: true });
+
+        registerSyncMethods({
+          server: ipcServer,
+          getSyncer: () => gitSyncer,
+          getSyncStatus: () => ({
+            enabled: gitSyncConfig.enabled,
+            remote: gitSyncConfig.remote,
+            autoCommit: gitSyncConfig.autoCommit,
+            autoPush: gitSyncConfig.autoPush,
+            pullOnStartup: gitSyncConfig.pullOnStartup,
+            autoSyncRunning: gitSyncer?.isAutoSyncRunning() ?? false,
+          }),
+          reloadSyncer: async () => {
+            // Re-read `.opentasks/config.json` from disk — the whole
+            // point of reload is to pick up externally-rewritten config.
+            //
+            // We read the raw JSON rather than routing through
+            // `loadConfigFile` so that a minimal file carrying only the
+            // `sync.git` block (e.g. the shape OpenHive's
+            // `applyGitSyncConfig` writes) is accepted. The full config
+            // schema rejects partial writes that omit unrelated blocks.
+            let diskGit: SyncGitConfig | undefined;
+            try {
+              const configPath = path.join(locationPath, 'config.json');
+              const raw = await fs.readFile(configPath, 'utf-8');
+              const parsed = JSON.parse(raw) as { sync?: { git?: SyncGitConfig } } | null;
+              diskGit = parsed?.sync?.git;
+            } catch {
+              /* missing or unreadable — rebuild as disabled */
+            }
+            await buildSyncer(diskGit, { doInitialPull: false });
+            return {
+              enabled: gitSyncConfig.enabled,
+              remote: gitSyncConfig.remote,
+              autoCommit: gitSyncConfig.autoCommit,
+              autoPush: gitSyncConfig.autoPush,
+              pullOnStartup: gitSyncConfig.pullOnStartup,
+              autoSyncRunning: gitSyncer?.isAutoSyncRunning() ?? false,
+            };
+          },
+        });
+
+        // 10. Start IPC server (begin listening). The auto-sync timer
+        // was already started inside `buildSyncer` above.
         await ipcServer.start();
 
         // 11. Create and start file watcher
@@ -642,6 +806,11 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           providerIntervalHandles = null;
         }
 
+        if (gitSyncer) {
+          try { gitSyncer.stopAutoSync(); } catch { /* ignore */ }
+          gitSyncer = null;
+        }
+
         if (sessionlogWatcher) {
           try {
             await sessionlogWatcher.stop();
@@ -737,6 +906,21 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           if (flushManager) {
             await flushManager.finalFlush();
             flushManager = null;
+          }
+
+          // After the final flush has landed on disk, attempt a final
+          // commit+push so the remote sees the last in-flight changes
+          // before the daemon goes quiet. Best-effort only — git failures
+          // must not block shutdown.
+          if (gitSyncer) {
+            gitSyncer.stopAutoSync();
+            if (gitSyncConfig.autoCommit) {
+              try { await gitSyncer.commitIfDirty(); } catch { /* ignore */ }
+            }
+            if (gitSyncConfig.autoPush) {
+              try { await gitSyncer.push(); } catch { /* ignore */ }
+            }
+            gitSyncer = null;
           }
 
           await store.close();

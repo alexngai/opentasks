@@ -44,6 +44,15 @@ src/
 - **Daemon** coordinates access via Unix socket IPC
 - **Providers are federated** — each handles its own URI scheme (`native://`, `beads://`, `map://`, etc.)
 
+## Git Sync in Daemon Lifecycle
+
+When `sync.git.enabled: true` in `.opentasks/config.json`:
+
+- **Startup** — installs merge driver, pulls (if `pullOnStartup`), starts auto-sync timer
+- **Runtime** — auto-commits (if `autoCommit`) and auto-pushes (if `autoPush`) per `pushDebounceMs`
+- **Shutdown** — final commit+push (best-effort)
+- **Four IPC methods** — `sync.now` (manual full cycle), `sync.pull`, `sync.status`, `sync.reload` (hot-swap config)
+
 ## MAP Integration
 
 Two independent components for MAP (Multi-Agent Protocol) support:
@@ -66,6 +75,7 @@ Outbound: emits OpenTasks graph changes as MAP task events.
 - **Standalone** — not daemon-owned, agents create their own bridges
 - Two input modes: raw `send` function OR shared `MAPConnection` object
 - Two usage patterns: agent-side direct emit OR daemon-side provider change handler
+- Emits both `task.*` and `context.*` events via `emitTaskCreated`, `emitTaskStatus`, `emitContextCreated`, `emitContextUpdated`
 - Echo prevention: skips `map` provider changes, stamps `_origin` on events
 - `MAPConnection` interface is compatible with agent-inbox's `MapConnection` and MAP SDK connections
 

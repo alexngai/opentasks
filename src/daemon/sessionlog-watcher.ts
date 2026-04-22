@@ -222,6 +222,10 @@ export function createSessionlogWatcher(config: SessionlogWatcherConfig): Sessio
     const currPlanCount = curr.planEntries?.length ?? 0;
     if (prevPlanCount !== currPlanCount) return true;
 
+    const prevSkillCount = prev.skillsUsed?.length ?? 0;
+    const currSkillCount = curr.skillsUsed?.length ?? 0;
+    if (prevSkillCount !== currSkillCount) return true;
+
     return false;
   }
 

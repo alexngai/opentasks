@@ -155,6 +155,7 @@ export {
   registerGraphMethods,
   registerToolsMethods,
   registerWatchMethods,
+  registerSyncMethods,
   DaemonError,
   createDaemonWithStore,
   createMultiLocationDaemonFromGit,

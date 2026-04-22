@@ -84,6 +84,10 @@ export { registerToolsMethods } from './methods/tools.js';
 export type { WatchMethodsOptions } from './methods/watch.js';
 export { registerWatchMethods } from './methods/watch.js';
 
+// Methods - Sync (manual git sync triggers + status)
+export type { SyncMethodsOptions, SyncNowResult, SyncPullOnlyResult } from './methods/sync.js';
+export { registerSyncMethods } from './methods/sync.js';
+
 // Methods - Location (multi-location management)
 export type { LocationMethodsOptions } from './methods/location.js';
 export { registerLocationMethods } from './methods/location.js';
