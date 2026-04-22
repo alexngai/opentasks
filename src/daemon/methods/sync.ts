@@ -9,7 +9,7 @@
  */
 
 import type { IPCServer } from '../ipc.js';
-import type { GitGraphSyncer, SyncCycleResult, PullResult } from '../../graph/git-graph-syncer.js';
+import type { GitGraphSyncer, SyncCycleResult, PullResult, SyncerHealth } from '../../graph/git-graph-syncer.js';
 
 // ============================================================================
 // Types
@@ -22,7 +22,7 @@ export interface SyncMethodsOptions {
   /** Resolver for the active syncer — returns null when no git sync is configured */
   getSyncer(): GitGraphSyncer | null;
 
-  /** Static snapshot of the sync config (for sync.status) */
+  /** Static snapshot of the sync config + recent health (for sync.status) */
   getSyncStatus(): {
     enabled: boolean;
     remote?: string;
@@ -30,6 +30,11 @@ export interface SyncMethodsOptions {
     autoPush: boolean;
     pullOnStartup: boolean;
     autoSyncRunning: boolean;
+    /**
+     * Recent success/failure snapshot. Absent when git sync is disabled
+     * or the syncer hasn't been built yet; present otherwise.
+     */
+    health?: SyncerHealth;
   };
 
   /**

@@ -667,6 +667,7 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
             autoPush: gitSyncConfig.autoPush,
             pullOnStartup: gitSyncConfig.pullOnStartup,
             autoSyncRunning: gitSyncer?.isAutoSyncRunning() ?? false,
+            health: gitSyncer?.getHealth(),
           }),
           reloadSyncer: async () => {
             // Re-read `.opentasks/config.json` from disk — the whole
@@ -694,6 +695,7 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
               autoPush: gitSyncConfig.autoPush,
               pullOnStartup: gitSyncConfig.pullOnStartup,
               autoSyncRunning: gitSyncer?.isAutoSyncRunning() ?? false,
+              health: gitSyncer?.getHealth(),
             };
           },
         });

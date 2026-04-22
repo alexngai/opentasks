@@ -71,6 +71,25 @@ export interface SyncCycleResult {
   push: PushResult;
 }
 
+/**
+ * Health snapshot exposing the syncer's recent success/failure state.
+ * Used by operators to surface "your pushes have been failing for X
+ * minutes" in UIs without needing to run `sync.now` to check.
+ */
+export interface SyncerHealth {
+  /** Message from the most recent failed op, or null if last op succeeded. */
+  lastError: string | null;
+
+  /** ISO timestamp of the most recent failure, or null. */
+  lastErrorAt: string | null;
+
+  /** Which operation failed: 'commit' | 'pull' | 'push' | null. */
+  lastErrorOp: 'commit' | 'pull' | 'push' | null;
+
+  /** ISO timestamp of the last fully-successful sync cycle. */
+  lastSuccessAt: string | null;
+}
+
 export interface GitGraphSyncer {
   /** Commit graph.jsonl if it has uncommitted changes */
   commitIfDirty(): Promise<CommitResult>;
@@ -95,6 +114,14 @@ export interface GitGraphSyncer {
 
   /** Whether auto-sync is running */
   isAutoSyncRunning(): boolean;
+
+  /**
+   * Snapshot of recent success/failure state. Read-only — updated
+   * automatically by commit/pull/push/sync calls (including the auto-
+   * sync timer). Surfaces silent failures that would otherwise only
+   * appear in stderr.
+   */
+  getHealth(): SyncerHealth;
 }
 
 // ============================================================================
@@ -156,6 +183,29 @@ export function createGitGraphSyncer(config: GitGraphSyncerConfig): GitGraphSync
   let isSyncing = false;
   let lastPushTime = 0;
 
+  // Health snapshot — updated by each op. Callers read via getHealth().
+  // `lastError` is sticky across successful reads: a caller sees "last
+  // push failed 5 minutes ago" even if the intervening commits worked.
+  // `lastSuccessAt` is updated only when a FULL sync cycle succeeds
+  // (commit + pull + push all clean) so it tracks "are we actually
+  // converging with the remote" rather than "did any op succeed."
+  const health: SyncerHealth = {
+    lastError: null,
+    lastErrorAt: null,
+    lastErrorOp: null,
+    lastSuccessAt: null,
+  };
+  function recordError(op: 'commit' | 'pull' | 'push', message: string): void {
+    health.lastError = message;
+    health.lastErrorAt = new Date().toISOString();
+    health.lastErrorOp = op;
+  }
+  function clearError(): void {
+    health.lastError = null;
+    health.lastErrorAt = null;
+    health.lastErrorOp = null;
+  }
+
   // Resolve symlinks on the input path so `path.relative(repoRoot, graphFile)`
   // compares paths in the same namespace. Without this, macOS's `/tmp →
   // /private/tmp` (and similar) causes `git rev-parse --show-toplevel` to
@@ -190,46 +240,55 @@ export function createGitGraphSyncer(config: GitGraphSyncerConfig): GitGraphSync
         return { committed: false };
       }
 
-      // Check if graph.jsonl has changes.
-      //
-      // `--untracked-files=all` is load-bearing: git's default behavior
-      // groups untracked paths at the directory level, so
-      // `status --porcelain -- ".opentasks/graph.jsonl"` returns empty
-      // when `.opentasks/` itself is untracked (common on first commit
-      // of a fresh repo). Asking for `all` surfaces the individual file.
-      const status = git(
-        repoRoot,
-        `status --porcelain --untracked-files=all -- "${getRelativeGraphPath()}"`,
-        { allowFailure: true, timeout },
-      );
+      try {
+        // Check if graph.jsonl has changes.
+        //
+        // `--untracked-files=all` is load-bearing: git's default behavior
+        // groups untracked paths at the directory level, so
+        // `status --porcelain -- ".opentasks/graph.jsonl"` returns empty
+        // when `.opentasks/` itself is untracked (common on first commit
+        // of a fresh repo). Asking for `all` surfaces the individual file.
+        const status = git(
+          repoRoot,
+          `status --porcelain --untracked-files=all -- "${getRelativeGraphPath()}"`,
+          { allowFailure: true, timeout },
+        );
 
-      if (!status.trim()) {
-        return { committed: false };
+        if (!status.trim()) {
+          return { committed: false };
+        }
+
+        // Stage and commit
+        git(repoRoot, `add -- "${getRelativeGraphPath()}"`, { timeout });
+
+        const timestamp = new Date().toISOString();
+        const message = `opentasks: sync graph ${timestamp}`;
+        git(repoRoot, `commit -m "${message}" -- "${getRelativeGraphPath()}"`, { timeout });
+
+        // Get the commit hash
+        const hash = git(repoRoot, 'rev-parse HEAD', { allowFailure: true, timeout });
+
+        return { committed: true, hash: hash || undefined };
+      } catch (error) {
+        recordError('commit', (error as Error).message);
+        throw error;
       }
-
-      // Stage and commit
-      git(repoRoot, `add -- "${getRelativeGraphPath()}"`, { timeout });
-
-      const timestamp = new Date().toISOString();
-      const message = `opentasks: sync graph ${timestamp}`;
-      git(repoRoot, `commit -m "${message}" -- "${getRelativeGraphPath()}"`, { timeout });
-
-      // Get the commit hash
-      const hash = git(repoRoot, 'rev-parse HEAD', { allowFailure: true, timeout });
-
-      return { committed: true, hash: hash || undefined };
     },
 
     async push(): Promise<PushResult> {
       if (!repoRoot || !remote) {
-        return { pushed: false, error: remote ? 'Not a git repository' : 'No remote configured' };
+        const err = remote ? 'Not a git repository' : 'No remote configured';
+        recordError('push', err);
+        return { pushed: false, error: err };
       }
 
       try {
         // Get current branch
         const branch = git(repoRoot, 'rev-parse --abbrev-ref HEAD', { timeout });
         if (!branch) {
-          return { pushed: false, error: 'Could not determine current branch' };
+          const err = 'Could not determine current branch';
+          recordError('push', err);
+          return { pushed: false, error: err };
         }
 
         try {
@@ -243,17 +302,19 @@ export function createGitGraphSyncer(config: GitGraphSyncerConfig): GitGraphSync
           } catch (retryError) {
             // Abort rebase if it's in progress
             git(repoRoot, 'rebase --abort', { allowFailure: true, timeout });
-            return {
-              pushed: false,
-              error: `Push failed after rebase: ${(retryError as Error).message}`,
-            };
+            const err = `Push failed after rebase: ${(retryError as Error).message}`;
+            recordError('push', err);
+            return { pushed: false, error: err };
           }
         }
 
         lastPushTime = Date.now();
+        if (health.lastErrorOp === 'push') clearError();
         return { pushed: true };
       } catch (error) {
-        return { pushed: false, error: (error as Error).message };
+        const err = (error as Error).message;
+        recordError('push', err);
+        return { pushed: false, error: err };
       }
     },
 
@@ -269,7 +330,9 @@ export function createGitGraphSyncer(config: GitGraphSyncerConfig): GitGraphSync
       try {
         const branch = git(repoRoot, 'rev-parse --abbrev-ref HEAD', { timeout });
         if (!branch) {
-          return { pulled: false, hasChanges: false, error: 'Could not determine current branch' };
+          const err = 'Could not determine current branch';
+          recordError('pull', err);
+          return { pulled: false, hasChanges: false, error: err };
         }
 
         // Record current HEAD before pull
@@ -281,16 +344,34 @@ export function createGitGraphSyncer(config: GitGraphSyncerConfig): GitGraphSync
         const headAfter = git(repoRoot, 'rev-parse HEAD', { allowFailure: true, timeout });
         const hasChanges = headBefore !== headAfter;
 
+        if (health.lastErrorOp === 'pull') clearError();
         return { pulled: true, hasChanges };
       } catch (error) {
-        return { pulled: false, hasChanges: false, error: (error as Error).message };
+        const err = (error as Error).message;
+        recordError('pull', err);
+        return { pulled: false, hasChanges: false, error: err };
       }
     },
 
     async sync(): Promise<SyncCycleResult> {
-      const commit = await this.commitIfDirty();
+      let commit: CommitResult = { committed: false };
+      try {
+        commit = await this.commitIfDirty();
+      } catch {
+        // commitIfDirty records its own error; surface an empty result so
+        // the cycle continues to attempt pull/push (they may still succeed
+        // and the operator gets partial progress visibility).
+      }
       const pull = await this.pull();
       const push = await this.push();
+
+      // The cycle counts as "successful" only when no op errored.
+      // `commitIfDirty` returning `committed: false` with no error is OK
+      // (nothing to commit), but an error on it means we caught above.
+      if (!health.lastError) {
+        health.lastSuccessAt = new Date().toISOString();
+      }
+
       return { commit, pull, push };
     },
 
@@ -338,6 +419,16 @@ export function createGitGraphSyncer(config: GitGraphSyncerConfig): GitGraphSync
 
     isAutoSyncRunning(): boolean {
       return autoSyncInterval !== null;
+    },
+
+    getHealth(): SyncerHealth {
+      // Snapshot copy so callers can't mutate our internal state.
+      return {
+        lastError: health.lastError,
+        lastErrorAt: health.lastErrorAt,
+        lastErrorOp: health.lastErrorOp,
+        lastSuccessAt: health.lastSuccessAt,
+      };
     },
   };
 }

@@ -240,6 +240,60 @@ describe('E2E: Git Sync', () => {
   });
 
   // --------------------------------------------------------------------------
+  // Health surface — lastError / lastSuccessAt on sync.status
+  // --------------------------------------------------------------------------
+
+  describe('sync.status health', () => {
+    it('reports lastSuccessAt after a clean sync cycle', async () => {
+      await startDaemon({ enabled: true, remote: 'origin' });
+      const c = await connectClient();
+
+      // Write + flush + sync so we have a complete cycle to record
+      await c.request<Node>('graph.create', { type: 'task', title: 'For health', status: 'open' });
+      await c.request('flush');
+      await new Promise((r) => setTimeout(r, 200));
+      await c.request('sync.now');
+
+      const status = await c.request<{
+        enabled: boolean;
+        health?: {
+          lastError: string | null;
+          lastSuccessAt: string | null;
+        };
+      }>('sync.status');
+
+      expect(status.enabled).toBe(true);
+      expect(status.health).toBeDefined();
+      expect(status.health!.lastError).toBeNull();
+      expect(status.health!.lastSuccessAt).not.toBeNull();
+    });
+
+    it('captures push failure via lastError / lastErrorOp', async () => {
+      // Point at a remote that does not exist so push fails.
+      await startDaemon({ enabled: true, remote: 'bogus' });
+      const c = await connectClient();
+
+      await c.request<Node>('graph.create', { type: 'task', title: 'Will fail to push', status: 'open' });
+      await c.request('flush');
+      await new Promise((r) => setTimeout(r, 200));
+      await c.request('sync.now');
+
+      const status = await c.request<{
+        health?: {
+          lastError: string | null;
+          lastErrorOp: 'commit' | 'pull' | 'push' | null;
+        };
+      }>('sync.status');
+
+      expect(status.health).toBeDefined();
+      expect(status.health!.lastError).not.toBeNull();
+      // Pull runs before push and also targets 'bogus' — whichever op
+      // runs first records the error. Both are valid error surfaces here.
+      expect(['pull', 'push']).toContain(status.health!.lastErrorOp);
+    });
+  });
+
+  // --------------------------------------------------------------------------
   // sync.reload — hot-swap config from disk
   // --------------------------------------------------------------------------
 
