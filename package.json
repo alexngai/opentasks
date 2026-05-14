@@ -26,7 +26,7 @@
     "test:slow:watch": "RUN_SLOW_TESTS=1 vitest",
     "test:e2e": "RUN_FULL_AGENT_TESTS=1 vitest run --config vitest.e2e.config.ts",
     "test:all": "npm run test && npm run test:slow && npm run test:e2e",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "npm run build && publint",
     "version:patch": "npm version patch && git push && git push --tags",
     "version:minor": "npm version minor && git push && git push --tags",
     "version:major": "npm version major && git push && git push --tags",
@@ -56,6 +56,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^15.5.2",
     "prettier": "^3.8.1",
+    "publint": "^0.3.21",
     "typescript": "^5.3.0",
     "typescript-eslint": "^8.55.0",
     "vitest": "^4.0.18"
