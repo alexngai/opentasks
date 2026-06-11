@@ -125,6 +125,9 @@ export interface ClaimInfo {
   /** When the claim expires (soft lock) */
   lockUntil: string;
 
+  /** Fence token for this claim — monotonic per node; guards stale release/renew */
+  fence?: number;
+
   /** Whether the claim is still valid */
   isValid: boolean;
 
@@ -191,7 +194,7 @@ export interface ClaimManager {
    * @param agentId - Agent releasing (must match claim holder)
    * @returns Whether release was successful
    */
-  release(nodeId: string, agentId: string): Promise<boolean>;
+  release(nodeId: string, agentId: string, fence?: number): Promise<boolean>;
 
   /**
    * Renew/extend a claim
@@ -201,7 +204,7 @@ export interface ClaimManager {
    * @param durationMs - New duration from now
    * @returns Updated claim result
    */
-  renew(nodeId: string, agentId: string, durationMs?: number): Promise<ClaimResult>;
+  renew(nodeId: string, agentId: string, durationMs?: number, fence?: number): Promise<ClaimResult>;
 
   /**
    * Get claim information for a node
@@ -268,8 +271,54 @@ function nodeToClaimInfo(node: StoredNode): ClaimInfo | null {
     agentId: node.claimed_by,
     claimedAt: node.claimed_at,
     lockUntil: node.lock_until,
+    fence: node.claim_fence,
     isValid: !isExpired,
     isExpired,
+    remainingMs,
+  };
+}
+
+/** Remaining lease time in ms (0 if no/elapsed lease) */
+function computeRemainingMs(lockUntil?: string): number {
+  if (!lockUntil) return 0;
+  return Math.max(0, new Date(lockUntil).getTime() - Date.now());
+}
+
+/** Build ClaimInfo for a claim the caller now holds */
+function toHeldClaim(
+  nodeId: string,
+  agentId: string,
+  claimedAt: string | undefined,
+  lockUntil: string | undefined,
+  fence: number | undefined,
+): ClaimInfo {
+  return {
+    nodeId,
+    agentId,
+    claimedAt: claimedAt ?? new Date().toISOString(),
+    lockUntil: lockUntil ?? '',
+    fence,
+    isValid: true,
+    isExpired: false,
+    remainingMs: computeRemainingMs(lockUntil),
+  };
+}
+
+/** Build ClaimInfo describing the existing holder that blocked an operation */
+function toExistingClaim(
+  nodeId: string,
+  agentId: string,
+  claimedAt: string | undefined,
+  lockUntil: string | undefined,
+): ClaimInfo {
+  const remainingMs = computeRemainingMs(lockUntil);
+  return {
+    nodeId,
+    agentId,
+    claimedAt: claimedAt ?? '',
+    lockUntil: lockUntil ?? '',
+    isValid: remainingMs > 0,
+    isExpired: remainingMs <= 0,
     remainingMs,
   };
 }
@@ -283,112 +332,71 @@ export function createClaimManager(storage: Storage): ClaimManager {
       const durationMs = options?.durationMs ?? DEFAULT_CLAIM_DURATION_MS;
       const force = options?.force ?? false;
 
-      // Get the node
+      // Existence check for a precise error message. The claim decision itself
+      // is made atomically by storage.claimNode (a single conditional UPDATE),
+      // so there is no read-modify-write race — a node deleted between here and
+      // the claim simply yields ok:false.
       const node = await storage.getNode(nodeId);
       if (!node) {
         return { success: false, error: `Node not found: ${nodeId}` };
       }
 
-      // Check existing claim
-      const existingClaim = nodeToClaimInfo(node);
+      const outcome = await storage.claimNode(nodeId, agentId, { leaseMs: durationMs, force });
 
-      if (existingClaim && existingClaim.isValid && !force) {
-        // Already claimed by someone else
-        if (existingClaim.agentId !== agentId) {
-          return {
-            success: false,
-            error: `Node is claimed by ${existingClaim.agentId}`,
-            existingClaim,
-          };
-        }
-        // Already claimed by same agent - treat as renew
-        return this.renew(nodeId, agentId, durationMs);
-      }
-
-      // Set claim
-      const now = new Date();
-      const lockUntil = new Date(now.getTime() + durationMs);
-
-      await storage.updateNode(nodeId, {
-        claimed_by: agentId,
-        claimed_at: now.toISOString(),
-        lock_until: lockUntil.toISOString(),
-        updated_at: now.toISOString(),
-      });
-
-      const claim: ClaimInfo = {
-        nodeId,
-        agentId,
-        claimedAt: now.toISOString(),
-        lockUntil: lockUntil.toISOString(),
-        isValid: true,
-        isExpired: false,
-        remainingMs: durationMs,
-      };
-
-      return { success: true, claim };
-    },
-
-    async release(nodeId: string, agentId: string): Promise<boolean> {
-      const node = await storage.getNode(nodeId);
-      if (!node) {
-        return false;
-      }
-
-      // Check if claimed by this agent
-      if (node.claimed_by !== agentId) {
-        return false;
-      }
-
-      // Clear claim fields
-      await storage.updateNode(nodeId, {
-        claimed_by: undefined,
-        claimed_at: undefined,
-        lock_until: undefined,
-        updated_at: new Date().toISOString(),
-      });
-
-      return true;
-    },
-
-    async renew(nodeId: string, agentId: string, durationMs?: number): Promise<ClaimResult> {
-      const duration = durationMs ?? DEFAULT_CLAIM_DURATION_MS;
-
-      const node = await storage.getNode(nodeId);
-      if (!node) {
-        return { success: false, error: `Node not found: ${nodeId}` };
-      }
-
-      // Check if claimed by this agent
-      if (node.claimed_by !== agentId) {
-        const existingClaim = nodeToClaimInfo(node);
+      if (!outcome.ok) {
         return {
           success: false,
-          error: node.claimed_by ? `Node is claimed by ${node.claimed_by}` : 'Node is not claimed',
-          existingClaim: existingClaim ?? undefined,
+          error: outcome.claimedBy
+            ? `Node is claimed by ${outcome.claimedBy}`
+            : `Cannot claim node: ${nodeId}`,
+          existingClaim: outcome.claimedBy
+            ? toExistingClaim(nodeId, outcome.claimedBy, outcome.claimedAt, outcome.lockUntil)
+            : undefined,
         };
       }
 
-      // Extend lock
-      const now = new Date();
-      const lockUntil = new Date(now.getTime() + duration);
-
-      await storage.updateNode(nodeId, {
-        lock_until: lockUntil.toISOString(),
-        updated_at: now.toISOString(),
-      });
-
-      const claim: ClaimInfo = {
-        nodeId,
-        agentId,
-        claimedAt: node.claimed_at!,
-        lockUntil: lockUntil.toISOString(),
-        isValid: true,
-        isExpired: false,
-        remainingMs: duration,
+      return {
+        success: true,
+        claim: toHeldClaim(nodeId, agentId, outcome.claimedAt, outcome.lockUntil, outcome.fence),
       };
+    },
 
-      return { success: true, claim };
+    async release(nodeId: string, agentId: string, fence?: number): Promise<boolean> {
+      return storage.releaseNode(nodeId, agentId, fence != null ? { fence } : undefined);
+    },
+
+    async renew(
+      nodeId: string,
+      agentId: string,
+      durationMs?: number,
+      fence?: number,
+    ): Promise<ClaimResult> {
+      const duration = durationMs ?? DEFAULT_CLAIM_DURATION_MS;
+
+      const outcome = await storage.renewNode(nodeId, agentId, { leaseMs: duration, fence });
+
+      if (!outcome.ok) {
+        let error: string;
+        if (!outcome.claimedBy) {
+          error = 'Node is not claimed';
+        } else if (outcome.claimedBy === agentId) {
+          error = 'Fence token mismatch';
+        } else {
+          error = `Node is claimed by ${outcome.claimedBy}`;
+        }
+        return {
+          success: false,
+          error,
+          existingClaim: outcome.claimedBy
+            ? toExistingClaim(nodeId, outcome.claimedBy, outcome.claimedAt, outcome.lockUntil)
+            : undefined,
+        };
+      }
+
+      return {
+        success: true,
+        claim: toHeldClaim(nodeId, agentId, outcome.claimedAt, outcome.lockUntil, outcome.fence),
+      };
     },
 
     async getClaim(nodeId: string): Promise<ClaimInfo | null> {

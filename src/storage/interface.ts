@@ -80,6 +80,22 @@ export interface Transaction {
 }
 
 /**
+ * Outcome of an atomic claim/renew operation.
+ */
+export interface ClaimOutcome {
+  /** Whether the operation succeeded */
+  ok: boolean;
+  /** Fence token after a successful (re)claim — present only when ok */
+  fence?: number;
+  /** Current holder (the claimant on success; the existing holder on failure) */
+  claimedBy?: string;
+  /** When the current claim was acquired (ISO 8601) */
+  claimedAt?: string;
+  /** When the current lease expires (ISO 8601) */
+  lockUntil?: string;
+}
+
+/**
  * Core storage interface for OpenTasks
  *
  * Provides domain-driven operations for nodes, edges, tags, and queries.
@@ -223,6 +239,49 @@ export interface Storage {
    * @returns Ready tasks
    */
   getReady(): Promise<StoredNode[]>;
+
+  // === Atomic Claiming (Coordination) ===
+
+  /**
+   * Atomically claim a task node for an agent.
+   *
+   * Implemented as a single conditional UPDATE so concurrent claimants cannot
+   * both succeed. A claim succeeds when the node is a task and is currently
+   * unclaimed, already held by the same claimant (renew), or its lease has
+   * expired (`lock_until <= now`). On success the fence token is incremented.
+   *
+   * @param id - Task node ID
+   * @param claimant - Agent/owner ID acquiring the claim
+   * @param opts.leaseMs - Lease duration in milliseconds from `now`
+   * @param opts.now - ISO timestamp to evaluate expiry against (defaults to current time)
+   * @param opts.force - Claim even if held by another, unexpired claimant
+   * @returns Outcome with the new fence on success, or the current holder on failure
+   */
+  claimNode(
+    id: string,
+    claimant: string,
+    opts: { leaseMs: number; now?: string; force?: boolean },
+  ): Promise<ClaimOutcome>;
+
+  /**
+   * Atomically release a claim. Succeeds only if `claimant` currently holds the
+   * claim and (when provided) the `fence` matches the current fence token —
+   * preventing a stale holder from releasing a claim that was stolen/superseded.
+   *
+   * @returns true if the claim was released, false otherwise
+   */
+  releaseNode(id: string, claimant: string, opts?: { fence?: number }): Promise<boolean>;
+
+  /**
+   * Atomically renew (extend) an existing claim's lease. Succeeds only if
+   * `claimant` still holds the claim and (when provided) the `fence` matches.
+   * The fence token is unchanged by a renew.
+   */
+  renewNode(
+    id: string,
+    claimant: string,
+    opts: { leaseMs: number; now?: string; fence?: number },
+  ): Promise<ClaimOutcome>;
 
   // === Transactions ===
 

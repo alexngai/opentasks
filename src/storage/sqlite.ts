@@ -9,7 +9,7 @@ import Database from 'better-sqlite3';
 import type { Database as DatabaseType } from 'better-sqlite3';
 import type { StoredNode, StoredEdge } from '../schema/storage.js';
 import type { EdgeType } from '../schema/edges.js';
-import type { Storage, Transaction, NodeFilter } from './interface.js';
+import type { Storage, Transaction, NodeFilter, ClaimOutcome } from './interface.js';
 import { resolveNodeFilter } from './interface.js';
 import { ALL_SCHEMA, applyMigrations } from './sqlite-schema.js';
 import { JSONLPersister } from './jsonl.js';
@@ -61,6 +61,7 @@ function rowToNode(row: Record<string, unknown>): StoredNode {
   if (row.claimed_by != null) node.claimed_by = row.claimed_by as string;
   if (row.claimed_at != null) node.claimed_at = row.claimed_at as string;
   if (row.lock_until != null) node.lock_until = row.lock_until as string;
+  if (row.claim_fence != null) node.claim_fence = row.claim_fence as number;
   if (row.location != null) node.location = row.location as string;
   if (row.branch != null) node.branch = row.branch as string;
   if (row.metadata != null) {
@@ -276,6 +277,7 @@ export class SQLitePersister implements Storage {
       'claimed_by',
       'claimed_at',
       'lock_until',
+      'claim_fence',
       'location',
       'branch',
     ];
@@ -299,6 +301,146 @@ export class SQLitePersister implements Storage {
     const sql = `UPDATE nodes SET ${fields.join(', ')} WHERE id = @id`;
     const stmt = this.db.prepare(sql);
     stmt.run(values);
+  }
+
+  // === Atomic Claiming ===
+  //
+  // These run as single conditional UPDATEs (wrapped in a synchronous
+  // better-sqlite3 transaction with the dirty-mark + read-back). Because
+  // better-sqlite3 is synchronous and the daemon is single-threaded, there is
+  // no await gap between the guard check and the write, so concurrent claimants
+  // cannot both win — unlike a read-modify-write across `await`s.
+
+  private markNodeDirty(id: string, nowIso: string): void {
+    this.db
+      .prepare('INSERT OR REPLACE INTO dirty_nodes (node_id, marked_at) VALUES (?, ?)')
+      .run(id, nowIso);
+  }
+
+  async claimNode(
+    id: string,
+    claimant: string,
+    opts: { leaseMs: number; now?: string; force?: boolean },
+  ): Promise<ClaimOutcome> {
+    const nowIso = opts.now ?? new Date().toISOString();
+    const lockUntil = new Date(new Date(nowIso).getTime() + opts.leaseMs).toISOString();
+    // Without force, the claim only lands when the node is free, already ours,
+    // or its lease has expired.
+    const guard = opts.force
+      ? ''
+      : 'AND (claimed_by IS NULL OR claimed_by = @claimant OR lock_until IS NULL OR lock_until <= @now)';
+    const update = this.db.prepare(`
+      UPDATE nodes
+      SET claimed_by = @claimant, claimed_at = @now, lock_until = @lockUntil,
+          assignee = @claimant, claim_fence = COALESCE(claim_fence, 0) + 1, updated_at = @now
+      WHERE id = @id AND type = 'task' AND (archived IS NULL OR archived = 0) ${guard}
+    `);
+    const selectAfter = this.db.prepare(
+      'SELECT claim_fence, claimed_at, lock_until FROM nodes WHERE id = ?',
+    );
+    const selectCurrent = this.db.prepare(
+      'SELECT claimed_by, claimed_at, lock_until FROM nodes WHERE id = ?',
+    );
+
+    const run = this.db.transaction((): ClaimOutcome => {
+      const info = update.run({ id, claimant, now: nowIso, lockUntil });
+      if (info.changes === 0) {
+        const cur = selectCurrent.get(id) as
+          | { claimed_by?: string; claimed_at?: string; lock_until?: string }
+          | undefined;
+        return {
+          ok: false,
+          claimedBy: cur?.claimed_by ?? undefined,
+          claimedAt: cur?.claimed_at ?? undefined,
+          lockUntil: cur?.lock_until ?? undefined,
+        };
+      }
+      this.markNodeDirty(id, nowIso);
+      const row = selectAfter.get(id) as {
+        claim_fence: number;
+        claimed_at: string;
+        lock_until: string;
+      };
+      return {
+        ok: true,
+        fence: row.claim_fence,
+        claimedBy: claimant,
+        claimedAt: row.claimed_at,
+        lockUntil: row.lock_until,
+      };
+    });
+
+    return run();
+  }
+
+  async releaseNode(
+    id: string,
+    claimant: string,
+    opts?: { fence?: number },
+  ): Promise<boolean> {
+    const nowIso = new Date().toISOString();
+    const fenceGuard = opts?.fence != null ? 'AND claim_fence = @fence' : '';
+    const update = this.db.prepare(`
+      UPDATE nodes
+      SET claimed_by = NULL, claimed_at = NULL, lock_until = NULL, updated_at = @now
+      WHERE id = @id AND claimed_by = @claimant ${fenceGuard}
+    `);
+    const run = this.db.transaction((): boolean => {
+      const info = update.run({ id, claimant, now: nowIso, fence: opts?.fence ?? null });
+      if (info.changes === 0) return false;
+      this.markNodeDirty(id, nowIso);
+      return true;
+    });
+    return run();
+  }
+
+  async renewNode(
+    id: string,
+    claimant: string,
+    opts: { leaseMs: number; now?: string; fence?: number },
+  ): Promise<ClaimOutcome> {
+    const nowIso = opts.now ?? new Date().toISOString();
+    const lockUntil = new Date(new Date(nowIso).getTime() + opts.leaseMs).toISOString();
+    const fenceGuard = opts.fence != null ? 'AND claim_fence = @fence' : '';
+    const update = this.db.prepare(`
+      UPDATE nodes
+      SET lock_until = @lockUntil, updated_at = @now
+      WHERE id = @id AND claimed_by = @claimant ${fenceGuard}
+    `);
+    const selectAfter = this.db.prepare(
+      'SELECT claim_fence, claimed_at, lock_until FROM nodes WHERE id = ?',
+    );
+    const selectCurrent = this.db.prepare(
+      'SELECT claimed_by, claimed_at, lock_until FROM nodes WHERE id = ?',
+    );
+    const run = this.db.transaction((): ClaimOutcome => {
+      const info = update.run({ id, claimant, now: nowIso, lockUntil, fence: opts.fence ?? null });
+      if (info.changes === 0) {
+        const cur = selectCurrent.get(id) as
+          | { claimed_by?: string; claimed_at?: string; lock_until?: string }
+          | undefined;
+        return {
+          ok: false,
+          claimedBy: cur?.claimed_by ?? undefined,
+          claimedAt: cur?.claimed_at ?? undefined,
+          lockUntil: cur?.lock_until ?? undefined,
+        };
+      }
+      this.markNodeDirty(id, nowIso);
+      const row = selectAfter.get(id) as {
+        claim_fence: number;
+        claimed_at: string;
+        lock_until: string;
+      };
+      return {
+        ok: true,
+        fence: row.claim_fence,
+        claimedBy: claimant,
+        claimedAt: row.claimed_at,
+        lockUntil: row.lock_until,
+      };
+    });
+    return run();
   }
 
   async deleteNode(id: string): Promise<void> {
@@ -517,8 +659,6 @@ export class SQLitePersister implements Storage {
     // writes from the same transaction, but this is acceptable for validation
     // use cases where we check existence of committed nodes.
     const operations: Array<() => void> = [];
-    let result: T;
-
     const tx: Transaction = {
       // Read operations - execute immediately against committed state
       getNode: (id) => {
@@ -562,7 +702,7 @@ export class SQLitePersister implements Storage {
     };
 
     // Collect all operations from the async function
-    result = await fn(tx);
+    const result = await fn(tx);
 
     // Execute all operations in a sync transaction
     const syncTransaction = this.db.transaction(() => {

@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   claimed_by TEXT,
   claimed_at TEXT,
   lock_until TEXT,
+  claim_fence INTEGER DEFAULT 0,
 
   -- Context
   location TEXT,
@@ -146,6 +147,8 @@ export const MIGRATIONS = [
   `ALTER TABLE edges ADD COLUMN cached_at TEXT`,
   // Add metadata column to nodes table (v1.2.0) — for provider reconciliation
   `ALTER TABLE nodes ADD COLUMN metadata TEXT`,
+  // Add claim fence token for atomic claiming (v1.3.0)
+  `ALTER TABLE nodes ADD COLUMN claim_fence INTEGER DEFAULT 0`,
 ];
 
 /**
