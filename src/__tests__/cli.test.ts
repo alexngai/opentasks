@@ -48,7 +48,9 @@ async function runCli(
 // Tests
 // ============================================================================
 
-describe('CLI', () => {
+// Spawns the CLI as a `node` subprocess per case; under full-suite parallel
+// load these can exceed vitest's default 5s per-test timeout. See HARDENING-PLAN P0.
+describe('CLI', { timeout: 30_000 }, () => {
   describe('help command', () => {
     it('should show help when no command provided', async () => {
       const { stdout, exitCode } = await runCli([]);

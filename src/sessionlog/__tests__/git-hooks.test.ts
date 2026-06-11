@@ -13,7 +13,9 @@ import {
   areGitHooksInstalled,
 } from '../hooks/git-hooks.js';
 
-describe('Git Hooks (with commit-msg)', () => {
+// Spawns real `git` subprocesses; under full-suite parallel load these
+// routinely exceed vitest's default 5s per-test timeout. See HARDENING-PLAN P0.
+describe('Git Hooks (with commit-msg)', { timeout: 30_000 }, () => {
   let tmpDir: string;
 
   function initRepo(dir: string): void {

@@ -1,5 +1,7 @@
 # OpenTasks Architecture
 
+> **Design intent, not as-built.** This document describes intended architecture and includes features that are designed but not yet implemented (e.g. compaction/summarization, the recovery service, cross-location query expansion). For what actually ships today, see [STATUS.md](./STATUS.md).
+
 This document describes the overall architecture of OpenTasks, including the hierarchical location model, daemon design, and cross-location connectivity.
 
 See also:

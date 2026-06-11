@@ -16,6 +16,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { OpenTasksClient, type ClientOptions } from '../client/client.js';
+import { VERSION } from '../version.js';
 
 // ============================================================================
 // Types
@@ -56,7 +57,7 @@ export function createMCPServer(options?: MCPServerOptions): McpServer {
 
   const server = new McpServer({
     name: 'opentasks',
-    version: '0.0.5',
+    version: VERSION,
   });
 
   // Always register tasks scope

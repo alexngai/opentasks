@@ -34,7 +34,9 @@ function git(cwd: string, args: string): string {
   }).trim();
 }
 
-describe('E2E: Git Sync', () => {
+// Spawns real `git` subprocesses; under full-suite parallel load these
+// routinely exceed vitest's default 5s per-test timeout. See HARDENING-PLAN P0.
+describe('E2E: Git Sync', { timeout: 30_000 }, () => {
   let tempDir: string;
   let repoDir: string;
   let bareRemote: string;

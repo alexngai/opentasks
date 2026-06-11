@@ -170,7 +170,13 @@ describe('SessionlogWatcher', { timeout: 20_000 }, () => {
     });
   });
 
-  describe('session file parsing - task/plan data', () => {
+  // These exercise parsing *through* chokidar's polling change-detection path
+  // (write placeholder → start → overwrite → await event). That fs-event
+  // delivery is the same environment-dependent mechanism the file header says
+  // requires RUN_SLOW_TESTS; under default-lane parallel load the event is
+  // occasionally not delivered within the wait window (flaky null). Gate to the
+  // slow lane for a deterministic default suite. See HARDENING-PLAN P0.
+  describe.skipIf(!RUN_SLOW_TESTS)('session file parsing - task/plan data', () => {
     it('should parse tasks from session file', async () => {
       // Write placeholder before start so chokidar caches the file during its
       // initial scan; the overwrite below triggers a reliable 'change' event.
@@ -361,7 +367,9 @@ describe('SessionlogWatcher', { timeout: 20_000 }, () => {
     });
   });
 
-  describe('task/plan change detection', () => {
+  // Same chokidar-polling fs-event dependency as the parsing block above —
+  // gate to the slow lane for a deterministic default suite. See HARDENING-PLAN P0.
+  describe.skipIf(!RUN_SLOW_TESTS)('task/plan change detection', () => {
     it('should emit updated event when a task is added', async () => {
       writeSessionFile('session-change', {
         agent: 'Claude Code',

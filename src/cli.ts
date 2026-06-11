@@ -23,6 +23,7 @@ import { mergeJsonl, installMergeDriver } from './core/merge-driver.js';
 import { discoverLocations } from './core/discover.js';
 import { OpenTasksClient } from './client/client.js';
 import { createDaemonWithStore, createMultiLocationDaemonFromGit, checkExistingDaemon } from './daemon/index.js';
+import { VERSION } from './version.js';
 
 const OPENTASKS_DIR = '.opentasks';
 const SWARM_OPENTASKS_DIR = '.swarm/opentasks';
@@ -42,7 +43,7 @@ function resolveProjectDir(baseDir: string = process.cwd()): string {
 
 function printHelp() {
   console.log(`
-opentasks v0.1.0
+opentasks v${VERSION}
 
 Usage:
   opentasks <command> [options]
@@ -556,7 +557,7 @@ async function cmdDaemonStart(args: string[]): Promise<void> {
 
   // Detect multi-location (git worktree) vs single-location mode
   const gitCommonDir = getGitCommonDir(path.dirname(opentasksDir));
-  const version = '0.0.5';
+  const version = VERSION;
 
   let daemon;
   if (gitCommonDir) {
