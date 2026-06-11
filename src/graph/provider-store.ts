@@ -35,7 +35,8 @@ import {
 } from '../providers/traits/TaskManageable.js';
 import { isReconcilable } from '../providers/traits/Reconcilable.js';
 
-import type { GraphStore } from './store.js';
+import type { GraphStore, ClaimNextOptions } from './store.js';
+import type { ClaimResult, ClaimOptions } from './coordination.js';
 import type { CreateNodeInput, UpdateNodeInput, DeleteOptions } from './types.js';
 
 // ============================================================================
@@ -370,6 +371,31 @@ export interface ProviderAwareStore extends GraphStore {
    * provider doesn't implement `validActions`.
    */
   taskValidActions(idOrUri: string): Promise<TaskAction[]>;
+
+  // ===========================================================================
+  // Coordination (atomic claiming; native tasks only)
+  // ===========================================================================
+
+  /** Atomically claim a native task for an agent (lease-based, race-free) */
+  taskClaim(
+    idOrUri: string,
+    agentId: string,
+    options?: ClaimOptions,
+  ): Promise<ClaimResult>;
+
+  /** Release a claim on a native task (fenced when a fence token is supplied) */
+  taskRelease(idOrUri: string, agentId: string, fence?: number): Promise<boolean>;
+
+  /** Renew/extend a claim's lease on a native task (fenced) */
+  taskRenew(
+    idOrUri: string,
+    agentId: string,
+    durationMs?: number,
+    fence?: number,
+  ): Promise<ClaimResult>;
+
+  /** Atomically claim the next ready, unclaimed native task (null if none) */
+  taskClaimNext(agentId: string, options?: ClaimNextOptions): Promise<ClaimResult | null>;
 
   // ===========================================================================
   // Reconciliation
@@ -1274,6 +1300,65 @@ export function createProviderAwareStore(
 
       // Fall back to the provider's declared capabilities
       return provider.taskCapabilities.actions;
+    },
+
+    // ===========================================================================
+    // Coordination (atomic claiming) — native tasks only. Claiming is a local
+    // lease over the graph store; external providers model ownership their own
+    // way, so non-native ids are rejected rather than silently mishandled.
+    // ===========================================================================
+
+    async taskClaim(
+      idOrUri: string,
+      agentId: string,
+      options?: ClaimOptions,
+    ): Promise<ClaimResult> {
+      const { provider, providerId } = await resolveTaskProvider(idOrUri);
+      if (provider.name !== 'native') {
+        throw new ProviderError(
+          'NOT_SUPPORTED',
+          `Atomic claiming is only supported for native tasks (got provider '${provider.name}')`,
+          provider.name,
+        );
+      }
+      return baseStore.claim(providerId, agentId, options);
+    },
+
+    async taskRelease(idOrUri: string, agentId: string, fence?: number): Promise<boolean> {
+      const { provider, providerId } = await resolveTaskProvider(idOrUri);
+      if (provider.name !== 'native') {
+        throw new ProviderError(
+          'NOT_SUPPORTED',
+          `Atomic claiming is only supported for native tasks (got provider '${provider.name}')`,
+          provider.name,
+        );
+      }
+      return baseStore.release(providerId, agentId, fence);
+    },
+
+    async taskRenew(
+      idOrUri: string,
+      agentId: string,
+      durationMs?: number,
+      fence?: number,
+    ): Promise<ClaimResult> {
+      const { provider, providerId } = await resolveTaskProvider(idOrUri);
+      if (provider.name !== 'native') {
+        throw new ProviderError(
+          'NOT_SUPPORTED',
+          `Atomic claiming is only supported for native tasks (got provider '${provider.name}')`,
+          provider.name,
+        );
+      }
+      return baseStore.renewClaim(providerId, agentId, durationMs, fence);
+    },
+
+    async taskClaimNext(
+      agentId: string,
+      options?: ClaimNextOptions,
+    ): Promise<ClaimResult | null> {
+      // claimNext operates on the native ready set (local, atomic).
+      return baseStore.claimNext(agentId, options);
     },
 
     // ===========================================================================

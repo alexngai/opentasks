@@ -172,6 +172,20 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
           state.flushManager.markDirty(result.data.node.id);
           state.flushManager.schedule();
         }
+        // Coordination mutations (claim / renew / claimNext / release) carry a
+        // nodeId when they touched a task. claimNext with nothing to claim has
+        // no nodeId and is skipped.
+        if (
+          (result.data.type === 'claim' ||
+            result.data.type === 'renew' ||
+            result.data.type === 'claimNext' ||
+            result.data.type === 'release') &&
+          result.data.nodeId &&
+          isLocalId(result.data.nodeId)
+        ) {
+          state.flushManager.markDirty(result.data.nodeId);
+          state.flushManager.schedule();
+        }
       }
 
       return result;

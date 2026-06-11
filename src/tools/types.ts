@@ -366,6 +366,48 @@ export interface TaskParams {
     id: string;
   };
 
+  /** Atomically claim a task for an agent (lease-based, race-free) */
+  claim?: {
+    /** Task ID or provider URI (native tasks only) */
+    id: string;
+    /** Agent acquiring the claim */
+    agentId: string;
+    /** Lease duration in ms (default: 30 min) */
+    durationMs?: number;
+    /** Claim even if held by another, unexpired agent */
+    force?: boolean;
+  };
+
+  /** Atomically claim the next ready, unclaimed task for an agent */
+  claimNext?: {
+    /** Agent acquiring the claim */
+    agentId: string;
+    /** Lease duration in ms (default: 30 min) */
+    durationMs?: number;
+  };
+
+  /** Release a claim (fenced) */
+  release?: {
+    /** Task ID or provider URI (native tasks only) */
+    id: string;
+    /** Agent that holds the claim */
+    agentId: string;
+    /** Fence token from the claim — rejects a stale/superseded release */
+    fence?: number;
+  };
+
+  /** Renew/extend a claim's lease (fenced) */
+  renew?: {
+    /** Task ID or provider URI (native tasks only) */
+    id: string;
+    /** Agent that holds the claim */
+    agentId: string;
+    /** New lease duration in ms (default: 30 min) */
+    durationMs?: number;
+    /** Fence token from the claim — rejects a stale/superseded renew */
+    fence?: number;
+  };
+
   /** Return full objects instead of summaries (default: false) */
   verbose?: boolean;
 }
@@ -378,7 +420,13 @@ export interface TaskResult {
   success: boolean;
 
   /** Result data (shape depends on operation) */
-  data?: TaskTransitionData | TaskReadyData | TaskAssignData | TaskValidActionsData;
+  data?:
+    | TaskTransitionData
+    | TaskReadyData
+    | TaskAssignData
+    | TaskValidActionsData
+    | TaskClaimData
+    | TaskReleaseData;
 
   /** Error message if operation failed */
   error?: string;
@@ -426,6 +474,41 @@ export interface TaskValidActionsData {
   type: 'validActions';
   /** Valid actions for the task's current state */
   actions: string[];
+}
+
+/**
+ * Result data for a claim / renew / claimNext operation.
+ *
+ * `claimed` distinguishes "acquired" from "blocked by another holder" — both
+ * are successful tool results (a blocked claim is a normal outcome, not an error).
+ */
+export interface TaskClaimData {
+  type: 'claim' | 'renew' | 'claimNext';
+  /** Whether the claim was acquired/renewed */
+  claimed: boolean;
+  /** The claimed task ID (omitted when claimNext found nothing to claim) */
+  nodeId?: string;
+  /** Agent that requested the claim */
+  agentId: string;
+  /** Fence token for the claim — pass to release/renew (present when claimed) */
+  fence?: number;
+  /** When the lease expires (ISO 8601, present when claimed) */
+  lockUntil?: string;
+  /** Reason the claim was not acquired (when claimed=false) */
+  reason?: string;
+  /** Existing holder that blocked the claim (when claimed=false) */
+  existingClaim?: { agentId: string; lockUntil?: string };
+}
+
+/**
+ * Result data for a release operation.
+ */
+export interface TaskReleaseData {
+  type: 'release';
+  /** Whether the claim was released */
+  released: boolean;
+  /** The task ID */
+  nodeId: string;
 }
 
 // ============================================================================
