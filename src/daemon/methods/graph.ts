@@ -11,6 +11,7 @@
 
 import type { IPCServer } from '../ipc.js';
 import type { LocationResolver } from '../location-state.js';
+import type { IdempotencyStore } from '../idempotency.js';
 import type {
   NodeType,
   CreateNodeInput,
@@ -34,6 +35,13 @@ export interface GraphMethodsOptions {
 
   /** Location resolver for routing to correct store */
   locationResolver: LocationResolver;
+
+  /**
+   * Optional idempotency store (P3 M3 / F9). When present, a `graph.create`
+   * carrying an `idempotency_key` is deduped within the store's TTL window so a
+   * retried create returns the original node instead of a duplicate.
+   */
+  idempotencyStore?: IdempotencyStore;
 }
 
 // ============================================================================
@@ -57,6 +65,11 @@ interface CreateParams extends CreateNodeInput {
   location?: string;
   /** Target provider scheme (overrides defaultProvider config) */
   scheme?: string;
+  /**
+   * Optional idempotency key (F9). A retried create with the same key inside the
+   * daemon's TTL window returns the original node instead of a duplicate.
+   */
+  idempotency_key?: string;
 }
 
 interface UpdateParams extends UpdateNodeInput {
@@ -91,7 +104,7 @@ interface CreateEdgeParams {
  * Register graph method handlers on an IPC server
  */
 export function registerGraphMethods(options: GraphMethodsOptions): void {
-  const { server, locationResolver } = options;
+  const { server, locationResolver, idempotencyStore } = options;
 
   // graph.query - Query nodes
   server.handle<QueryParams, unknown[]>('graph.query', async (params) => {
@@ -135,8 +148,21 @@ export function registerGraphMethods(options: GraphMethodsOptions): void {
       throw new Error('Missing required parameters');
     }
 
-    const { location, scheme, ...createParams } = params;
+    const { location, scheme, idempotency_key, ...createParams } = params;
     const state = locationResolver.resolve(location);
+
+    // Idempotent retry (F9): a create repeated with the same key inside the TTL
+    // window returns the original node rather than a duplicate. If the mapped
+    // node no longer exists (deleted since), fall through and recreate.
+    if (idempotency_key && idempotencyStore) {
+      const existingId = idempotencyStore.get(idempotency_key);
+      if (existingId !== undefined) {
+        const existing = state.providerStore
+          ? await state.providerStore.providerGet(existingId)
+          : await state.store.getNode(existingId);
+        if (existing) return existing;
+      }
+    }
 
     // Use provider-aware create when available
     if (state.providerStore) {
@@ -145,6 +171,10 @@ export function registerGraphMethods(options: GraphMethodsOptions): void {
       // Mark dirty and schedule flush
       state.flushManager.markDirty(result.node.id);
       state.flushManager.schedule();
+
+      if (idempotency_key && idempotencyStore) {
+        idempotencyStore.set(idempotency_key, result.node.id);
+      }
 
       return result.node;
     }
@@ -155,6 +185,10 @@ export function registerGraphMethods(options: GraphMethodsOptions): void {
     // Mark dirty and schedule flush
     state.flushManager.markDirty(node.id);
     state.flushManager.schedule();
+
+    if (idempotency_key && idempotencyStore) {
+      idempotencyStore.set(idempotency_key, node.id);
+    }
 
     return node;
   });

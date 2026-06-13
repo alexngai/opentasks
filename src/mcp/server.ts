@@ -99,13 +99,14 @@ function registerTaskTools(server: McpServer, client: OpenTasksClient): void {
       parent_id: z.string().optional().describe('Parent node ID'),
       metadata: z.record(z.string(), z.unknown()).optional().describe('Additional metadata'),
       scheme: z.string().optional().describe('Provider scheme to route creation to (e.g. beads, sudocode)'),
+      idempotency_key: z.string().optional().describe('Dedup key: retrying create with the same key returns the original task instead of a duplicate'),
     },
     async (args) => {
       try {
-        const { scheme, ...params } = args;
+        const { scheme, idempotency_key, ...params } = args;
         const result = await client.createNode(
           { type: 'task', ...params },
-          scheme ? { scheme } : undefined,
+          scheme || idempotency_key ? { scheme, idempotencyKey: idempotency_key } : undefined,
         );
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
       } catch (error) {

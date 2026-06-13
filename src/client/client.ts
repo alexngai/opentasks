@@ -464,9 +464,16 @@ export class OpenTasksClient {
    * @param options - Optional provider routing options
    * @returns The created node (materialized locally if via external provider)
    */
-  async createNode(params: CreateNodeInput, options?: { scheme?: string }): Promise<unknown> {
+  async createNode(
+    params: CreateNodeInput,
+    options?: { scheme?: string; idempotencyKey?: string },
+  ): Promise<unknown> {
     await this.ensureConnected();
-    return this.client!.request('graph.create', { ...params, scheme: options?.scheme });
+    return this.client!.request('graph.create', {
+      ...params,
+      scheme: options?.scheme,
+      idempotency_key: options?.idempotencyKey,
+    });
   }
 
   /**

@@ -37,6 +37,7 @@ import { registerWatchMethods } from './methods/watch.js';
 import { registerSyncMethods } from './methods/sync.js';
 import { registerEventMethods } from './methods/events.js';
 import { createEventManager } from './events.js';
+import { createIdempotencyStore } from './idempotency.js';
 import {
   createGitGraphSyncer,
   type GitGraphSyncer,
@@ -523,9 +524,14 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           startedAt: new Date(startedAt),
         });
 
+        // One idempotency store per daemon: dedupes retried creates carrying an
+        // idempotency_key within a TTL window (P3 M3 / F9).
+        const idempotencyStore = createIdempotencyStore();
+
         registerGraphMethods({
           server: ipcServer,
           locationResolver,
+          idempotencyStore,
         });
 
         // Create shared skill tracker registry (only if enabled in config)
@@ -1346,9 +1352,13 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
           },
         });
 
+        // One idempotency store per daemon (P3 M3 / F9) — see single-location path.
+        const idempotencyStore = createIdempotencyStore();
+
         registerGraphMethods({
           server: ipcServer,
           locationResolver,
+          idempotencyStore,
         });
 
         registerToolsMethods({
