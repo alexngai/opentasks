@@ -469,6 +469,8 @@ Hash-based, collision-resistant. Generated from UUID v4 through SHA256 and base3
 
 ## Git Sync
 
+> For the full consistency model — durability tiers, flush↔pull serialization, graceful shutdown, and the multi-machine last-writer-wins caveat — see [docs/SYNC.md](docs/SYNC.md).
+
 OpenTasks can auto-commit and auto-push `graph.jsonl` to a git remote. When enabled in `.opentasks/config.json`:
 
 ```json
