@@ -334,8 +334,8 @@ export interface TaskParams {
   transition?: {
     /** Task ID or provider URI */
     id: string;
-    /** Semantic action: 'start' | 'complete' | 'block' | 'reopen' | 'close' */
-    action: 'start' | 'complete' | 'block' | 'reopen' | 'close';
+    /** Semantic action. `fail`/`abandon` are terminal outcomes distinct from `close`/`complete`. */
+    action: 'start' | 'complete' | 'block' | 'reopen' | 'close' | 'fail' | 'abandon';
   };
 
   /** Get tasks that are ready to work on (no active blockers) */

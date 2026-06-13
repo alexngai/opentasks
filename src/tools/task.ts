@@ -151,7 +151,7 @@ async function handleTransition(
     return { success: false, error: 'Missing required parameter: action' };
   }
 
-  const validActions = ['start', 'complete', 'block', 'reopen', 'close'];
+  const validActions = ['start', 'complete', 'block', 'reopen', 'close', 'fail', 'abandon'];
   if (!validActions.includes(action)) {
     return {
       success: false,

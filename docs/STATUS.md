@@ -53,7 +53,7 @@ All 7 are registered in `src/providers/from-config.ts`:
 
 ## MCP server
 
-✅ 15 tools across 4 scopes (`tasks`, `graph`, `annotate`, `context`). Connects to
+✅ 19 tools across 4 scopes (`tasks`, `graph`, `annotate`, `context`) — including atomic claiming (`claim_task`/`claim_next`/`release_task`/`renew_claim`). Connects to
 the daemon, so the daemon must be running. Register with
 `claude mcp add opentasks -- npx opentasks mcp --scope tasks,graph,annotate,context`.
 

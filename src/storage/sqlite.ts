@@ -443,6 +443,34 @@ export class SQLitePersister implements Storage {
     return run();
   }
 
+  async sweepExpiredClaims(now?: string): Promise<string[]> {
+    const nowIso = now ?? new Date().toISOString();
+    const select = this.db.prepare(
+      `SELECT id FROM nodes
+       WHERE claimed_by IS NOT NULL AND lock_until IS NOT NULL AND lock_until <= ?`,
+    );
+    // Per-row guarded clear: the WHERE re-checks expiry so a task re-claimed
+    // between the SELECT and the UPDATE is left untouched.
+    const clear = this.db.prepare(
+      `UPDATE nodes
+       SET claimed_by = NULL, claimed_at = NULL, lock_until = NULL, updated_at = @now
+       WHERE id = @id AND claimed_by IS NOT NULL AND lock_until IS NOT NULL AND lock_until <= @now`,
+    );
+    const run = this.db.transaction((): string[] => {
+      const rows = select.all(nowIso) as Array<{ id: string }>;
+      const cleared: string[] = [];
+      for (const { id } of rows) {
+        const info = clear.run({ id, now: nowIso });
+        if (info.changes > 0) {
+          this.markNodeDirty(id, nowIso);
+          cleared.push(id);
+        }
+      }
+      return cleared;
+    });
+    return run();
+  }
+
   async deleteNode(id: string): Promise<void> {
     // Delete tags first (foreign key)
     this.db.prepare('DELETE FROM node_tags WHERE node_id = ?').run(id);

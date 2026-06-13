@@ -283,6 +283,14 @@ export interface Storage {
     opts: { leaseMs: number; now?: string; fence?: number },
   ): Promise<ClaimOutcome>;
 
+  /**
+   * Atomically clear all claims whose lease has expired (`lock_until <= now`).
+   * Guarded per-row so it never clobbers a freshly re-claimed task.
+   *
+   * @returns IDs of the nodes whose claim was cleared
+   */
+  sweepExpiredClaims(now?: string): Promise<string[]>;
+
   // === Transactions ===
 
   /**

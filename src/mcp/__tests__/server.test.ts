@@ -79,7 +79,7 @@ describe('MCP Server - Scopes', () => {
     const client = await createTestClient();
     const tools = await listToolNames(client);
 
-    expect(tools).toEqual(['create_task', 'delete_task', 'get_task', 'list_providers', 'list_tasks', 'reconcile', 'update_task']);
+    expect(tools).toEqual(['claim_next', 'claim_task', 'create_task', 'delete_task', 'get_task', 'list_providers', 'list_tasks', 'reconcile', 'release_task', 'renew_claim', 'update_task']);
   });
 
   it('should register graph tools when graph scope enabled', async () => {
@@ -116,9 +116,11 @@ describe('MCP Server - Scopes', () => {
     const client = await createTestClient([...ALL_SCOPES]);
     const tools = await listToolNames(client);
 
-    expect(tools).toHaveLength(15);
+    expect(tools).toHaveLength(19);
     expect(tools).toEqual([
       'annotate',
+      'claim_next',
+      'claim_task',
       'context_summary',
       'create_context',
       'create_task',
@@ -131,6 +133,8 @@ describe('MCP Server - Scopes', () => {
       'list_tasks',
       'query',
       'reconcile',
+      'release_task',
+      'renew_claim',
       'update_context',
       'update_task',
     ]);

@@ -233,7 +233,7 @@ with `opentasks daemon start`):
 claude mcp add opentasks -- npx opentasks mcp --scope tasks,graph,annotate,context
 ```
 
-15 tools across 4 scopes: `tasks` (CRUD + lifecycle), `graph` (edges, queries, context summary), `annotate` (feedback), `context` (context CRUD with file/snippet/inline sources).
+19 tools across 4 scopes: `tasks` (CRUD + lifecycle + atomic claiming: `claim_task`, `claim_next`, `release_task`, `renew_claim`), `graph` (edges, queries, context summary), `annotate` (feedback), `context` (context CRUD with file/snippet/inline sources).
 
 ## Programmatic API
 

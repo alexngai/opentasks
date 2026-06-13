@@ -157,6 +157,41 @@ describe('Atomic claiming', () => {
   });
 
   // ==========================================================================
+  // Expired-claim sweep (lease reaper)
+  // ==========================================================================
+  describe('sweepExpiredClaims', () => {
+    it('clears expired claims and returns their ids', async () => {
+      await storage.createNode(makeNode('t-1'));
+      await storage.createNode(makeNode('t-2'));
+      await storage.claimNode('t-1', 'agent-a', { leaseMs: 1000, now: T0 });
+      await storage.claimNode('t-2', 'agent-b', { leaseMs: 1000, now: T0 });
+
+      const cleared = await storage.sweepExpiredClaims('2026-01-01T00:00:05.000Z');
+
+      expect(cleared.sort()).toEqual(['t-1', 't-2']);
+      expect((await storage.getNode('t-1'))?.claimed_by ?? null).toBeNull();
+      expect((await storage.getNode('t-2'))?.lock_until ?? null).toBeNull();
+    });
+
+    it('does not clear a still-live claim', async () => {
+      await storage.createNode(makeNode('t-1'));
+      await storage.claimNode('t-1', 'agent-a', { leaseMs: 10_000, now: T0 });
+
+      const cleared = await storage.sweepExpiredClaims('2026-01-01T00:00:05.000Z');
+      expect(cleared).toEqual([]);
+      expect((await storage.getNode('t-1'))?.claimed_by).toBe('agent-a');
+    });
+
+    it('ClaimManager.cleanupExpired returns the count cleared', async () => {
+      await storage.createNode(makeNode('t-1'));
+      await storage.claimNode('t-1', 'agent-a', { leaseMs: 1, now: T0 }); // long-expired vs real clock
+      const mgr = createClaimManager(storage);
+
+      expect(await mgr.cleanupExpired()).toBe(1);
+    });
+  });
+
+  // ==========================================================================
   // The headline: N concurrent claimants -> exactly one winner
   // ==========================================================================
   describe('concurrency', () => {

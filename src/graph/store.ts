@@ -135,6 +135,9 @@ export interface GraphStore {
   /** Atomically claim the next ready, unclaimed task (returns null if none) */
   claimNext(agentId: string, options?: ClaimNextOptions): Promise<ClaimResult | null>;
 
+  /** Atomically clear all expired claims; returns the cleared task IDs */
+  sweepExpiredClaims(): Promise<string[]>;
+
   // === Transactions ===
 
   /** Execute operations in a transaction */
@@ -392,6 +395,10 @@ export function createGraphStore(
         if (result.success) return result;
       }
       return null;
+    },
+
+    async sweepExpiredClaims(): Promise<string[]> {
+      return storage.sweepExpiredClaims();
     },
 
     async reload(): Promise<void> {

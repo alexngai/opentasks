@@ -96,15 +96,17 @@ function mapProviderType(providerType: string): 'context' | 'task' | 'feedback' 
 function validActionsForStatus(status: string): TaskAction[] {
   switch (status) {
     case 'open':
-      return ['start', 'block', 'close'];
+      return ['start', 'block', 'close', 'abandon'];
     case 'in_progress':
-      return ['complete', 'block', 'close'];
+      return ['complete', 'block', 'close', 'fail', 'abandon'];
     case 'blocked':
-      return ['reopen', 'close'];
+      return ['reopen', 'close', 'fail', 'abandon'];
     case 'closed':
+    case 'failed':
+    case 'abandoned':
       return ['reopen'];
     default:
-      return ['start', 'complete', 'block', 'reopen', 'close'];
+      return ['start', 'complete', 'block', 'reopen', 'close', 'fail', 'abandon'];
   }
 }
 
@@ -608,10 +610,10 @@ export function createNativeProvider(
     // =========================================================================
 
     taskCapabilities: {
-      actions: ['start', 'complete', 'block', 'reopen', 'close'],
+      actions: ['start', 'complete', 'block', 'reopen', 'close', 'fail', 'abandon'],
       supportsAssignment: true,
       supportsReadyQuery: true,
-      statusModel: ['open', 'in_progress', 'blocked', 'closed'],
+      statusModel: ['open', 'in_progress', 'blocked', 'closed', 'failed', 'abandoned'],
     } satisfies TaskCapabilities,
 
     async transitionTask(
@@ -640,6 +642,8 @@ export function createNativeProvider(
         block: 'blocked',
         reopen: 'open',
         close: 'closed',
+        fail: 'failed',
+        abandon: 'abandoned',
       };
 
       const targetStatus = statusMap[action];

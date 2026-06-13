@@ -23,7 +23,7 @@ import type { Provider, ProviderNode, ProviderOperationContext } from '../types.
  * For example, a provider with statuses ['pending', 'active', 'done']
  * might map 'start' → 'active' and 'complete' → 'done'.
  */
-export type TaskAction = 'start' | 'complete' | 'block' | 'reopen' | 'close';
+export type TaskAction = 'start' | 'complete' | 'block' | 'reopen' | 'close' | 'fail' | 'abandon';
 
 // ============================================================================
 // Task Capabilities

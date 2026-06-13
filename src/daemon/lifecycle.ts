@@ -352,6 +352,7 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
   let sessionlogLinker: SessionlogAutoLinker | null = null;
   let reconciliationIntervalHandle: ReturnType<typeof setInterval> | null = null;
   let providerIntervalHandles: Map<string, ReturnType<typeof setInterval>> | null = null;
+  let claimSweepIntervalHandle: ReturnType<typeof setInterval> | null = null;
 
   // Git graph syncer — null when `sync.git.enabled` is false (default).
   // When enabled: installed merge driver + optional pull-on-startup + optional
@@ -737,6 +738,24 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           }, bgInterval);
         }
 
+        // 12c-bis. Background lease reaper — atomically clears expired claims so
+        // a crashed/AFK agent's tasks become claimable again and the change
+        // flushes (reaching watchers). Steal-on-expiry already makes them
+        // reclaimable; this actively cleans up the stale claim fields + notifies.
+        const LEASE_SWEEP_INTERVAL_MS = 60_000;
+        claimSweepIntervalHandle = setInterval(() => {
+          if (!activeProviderStore || !flushManager) return;
+          const fm = flushManager;
+          void activeProviderStore
+            .sweepExpiredClaims()
+            .then((cleared) => {
+              if (cleared.length === 0) return;
+              for (const id of cleared) fm.markDirty(id);
+              fm.schedule();
+            })
+            .catch(() => {});
+        }, LEASE_SWEEP_INTERVAL_MS);
+
         // 12d. Start per-provider reconciliation intervals
         const providerIntervals = reconciliationConfig?.providerIntervals as Record<string, number> | undefined;
         if (providerIntervals && Object.keys(providerIntervals).length > 0) {
@@ -806,6 +825,10 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         if (providerIntervalHandles) {
           for (const handle of providerIntervalHandles.values()) clearInterval(handle);
           providerIntervalHandles = null;
+        }
+        if (claimSweepIntervalHandle) {
+          clearInterval(claimSweepIntervalHandle);
+          claimSweepIntervalHandle = null;
         }
 
         if (gitSyncer) {
@@ -891,6 +914,10 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           if (providerIntervalHandles) {
             for (const handle of providerIntervalHandles.values()) clearInterval(handle);
             providerIntervalHandles = null;
+          }
+          if (claimSweepIntervalHandle) {
+            clearInterval(claimSweepIntervalHandle);
+            claimSweepIntervalHandle = null;
           }
 
           // Stop provider watching before tearing down file watcher and store

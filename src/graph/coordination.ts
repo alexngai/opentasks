@@ -445,18 +445,10 @@ export function createClaimManager(storage: Storage): ClaimManager {
     },
 
     async cleanupExpired(): Promise<number> {
-      const expired = await this.getExpiredClaims();
-
-      for (const claim of expired) {
-        await storage.updateNode(claim.nodeId, {
-          claimed_by: undefined,
-          claimed_at: undefined,
-          lock_until: undefined,
-          updated_at: new Date().toISOString(),
-        });
-      }
-
-      return expired.length;
+      // Atomic, per-row guarded clear — never clobbers a freshly re-claimed task
+      // (the previous read-then-write version could).
+      const cleared = await storage.sweepExpiredClaims();
+      return cleared.length;
     },
   };
 }

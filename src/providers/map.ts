@@ -152,7 +152,7 @@ function mapStatusToOpenTasks(status?: MAPTaskStatus): string {
     case 'in_progress': return 'in_progress';
     case 'blocked': return 'blocked';
     case 'completed': return 'closed';
-    case 'failed': return 'closed';
+    case 'failed': return 'failed';
     default: return 'open';
   }
 }
@@ -168,6 +168,7 @@ function mapStatusToMAP(status?: string): MAPTaskStatus {
     case 'closed': return 'completed';
     case 'completed': return 'completed';
     case 'failed': return 'failed';
+    case 'abandoned': return 'failed';
     default: return 'open';
   }
 }
@@ -182,6 +183,8 @@ function actionToMAPStatus(action: TaskAction): MAPTaskStatus {
     case 'block': return 'blocked';
     case 'reopen': return 'open';
     case 'close': return 'completed';
+    case 'fail': return 'failed';
+    case 'abandon': return 'failed';
   }
 }
 

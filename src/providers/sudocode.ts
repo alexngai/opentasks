@@ -1140,7 +1140,9 @@ export function createSudocodeProvider(
         );
       }
 
-      const statusMap: Record<TaskAction, string> = {
+      // Partial: sudocode has no failed/abandoned states, so 'fail'/'abandon'
+      // fall through to the "Unsupported task action" error below.
+      const statusMap: Partial<Record<TaskAction, string>> = {
         start: 'in_progress',
         complete: 'closed',
         block: 'blocked',

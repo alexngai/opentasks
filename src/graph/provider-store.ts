@@ -397,6 +397,9 @@ export interface ProviderAwareStore extends GraphStore {
   /** Atomically claim the next ready, unclaimed native task (null if none) */
   taskClaimNext(agentId: string, options?: ClaimNextOptions): Promise<ClaimResult | null>;
 
+  /** Atomically clear all expired claims; returns the cleared task IDs */
+  sweepExpiredClaims(): Promise<string[]>;
+
   // ===========================================================================
   // Reconciliation
   // ===========================================================================
@@ -1359,6 +1362,10 @@ export function createProviderAwareStore(
     ): Promise<ClaimResult | null> {
       // claimNext operates on the native ready set (local, atomic).
       return baseStore.claimNext(agentId, options);
+    },
+
+    async sweepExpiredClaims(): Promise<string[]> {
+      return baseStore.sweepExpiredClaims();
     },
 
     // ===========================================================================

@@ -150,8 +150,8 @@ function registerTaskTools(server: McpServer, client: OpenTasksClient): void {
       archived: z.boolean().optional().describe('Archive/unarchive'),
       metadata: z.record(z.string(), z.unknown()).optional().describe('Update metadata (merged)'),
       // Semantic transitions
-      transition: z.enum(['start', 'complete', 'block', 'reopen', 'close']).optional()
-        .describe('Semantic status transition (alternative to setting status directly)'),
+      transition: z.enum(['start', 'complete', 'block', 'reopen', 'close', 'fail', 'abandon']).optional()
+        .describe('Semantic status transition (alternative to setting status directly). fail/abandon are terminal outcomes distinct from complete/close.'),
       // Blocker management
       addBlockedBy: z.array(z.string()).optional().describe('Add blocker task IDs (these block this task)'),
       removeBlockedBy: z.array(z.string()).optional().describe('Remove blocker task IDs'),
@@ -347,6 +347,79 @@ function registerTaskTools(server: McpServer, client: OpenTasksClient): void {
         const result = await client.query({
           nodes: { type: 'task', ...filters },
         });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
+    'claim_task',
+    'Atomically claim a task for an agent (lease-based, race-free). Returns claimed:false (not an error) when another agent already holds it. Use the returned fence with release_task/renew_claim.',
+    {
+      id: z.string().describe('Task ID (native tasks only)'),
+      agentId: z.string().describe('Agent acquiring the claim'),
+      durationMs: z.number().optional().describe('Lease duration in ms (default: 30 min)'),
+      force: z.boolean().optional().describe('Claim even if held by another, unexpired agent'),
+    },
+    async (args) => {
+      try {
+        const result = await client.task({ claim: args });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
+    'claim_next',
+    'Atomically claim the next ready, unclaimed task for an agent (fused ready-query + claim). Returns claimed:false when nothing is available.',
+    {
+      agentId: z.string().describe('Agent acquiring the claim'),
+      durationMs: z.number().optional().describe('Lease duration in ms (default: 30 min)'),
+    },
+    async (args) => {
+      try {
+        const result = await client.task({ claimNext: args });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
+    'release_task',
+    'Release a claim on a task. Pass the fence from claim_task to reject a stale/superseded release.',
+    {
+      id: z.string().describe('Task ID (native tasks only)'),
+      agentId: z.string().describe('Agent that holds the claim'),
+      fence: z.number().optional().describe('Fence token from the claim'),
+    },
+    async (args) => {
+      try {
+        const result = await client.task({ release: args });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
+    'renew_claim',
+    "Renew/extend a claim's lease (heartbeat). Pass the fence from claim_task to reject a stale/superseded renew.",
+    {
+      id: z.string().describe('Task ID (native tasks only)'),
+      agentId: z.string().describe('Agent that holds the claim'),
+      durationMs: z.number().optional().describe('New lease duration in ms (default: 30 min)'),
+      fence: z.number().optional().describe('Fence token from the claim'),
+    },
+    async (args) => {
+      try {
+        const result = await client.task({ renew: args });
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
         return errorResult(error);
