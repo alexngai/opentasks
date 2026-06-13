@@ -404,10 +404,14 @@ describe('query tool', () => {
     beforeEach(() => {
       // Set up mock to return different results based on filter
       mockStore.query.nodes = vi.fn().mockImplementation((filter: any) => {
-        if (filter.type === 'task' && filter.status === 'closed') {
+        const status = filter.status;
+        const has = (s: string) =>
+          status === s || (Array.isArray(status) && status.includes(s));
+        // Terminal/"recently concluded" query is now status:['closed','failed','abandoned'].
+        if (filter.type === 'task' && has('closed')) {
           return Promise.resolve([closedTask]);
         }
-        if (filter.type === 'task' && Array.isArray(filter.status)) {
+        if (filter.type === 'task' && has('in_progress')) {
           return Promise.resolve([activeTask]);
         }
         if (filter.type === 'task' && filter.status === 'blocked') {
@@ -442,6 +446,40 @@ describe('query tool', () => {
       expect(result.items).toEqual([]);
     });
 
+    it('groups failed/abandoned tasks as recently-concluded, not active (P2.5)', async () => {
+      const failedTask: Task = {
+        id: 't-failed1', uuid: 'uuid-failed1', type: 'task', title: 'Failed Task',
+        status: 'failed', priority: 1, archived: false,
+        created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-11T00:00:00Z',
+      };
+      const abandonedTask: Task = {
+        id: 't-aband1', uuid: 'uuid-aband1', type: 'task', title: 'Abandoned Task',
+        status: 'abandoned', priority: 1, archived: false,
+        created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-12T00:00:00Z',
+      };
+      mockStore.query.nodes = vi.fn().mockImplementation((filter: any) => {
+        const status = filter.status;
+        const has = (s: string) =>
+          status === s || (Array.isArray(status) && status.includes(s));
+        // Terminal query (status:['closed','failed','abandoned']) returns all three.
+        if (filter.type === 'task' && has('closed')) {
+          return Promise.resolve([closedTask, failedTask, abandonedTask]);
+        }
+        if (filter.type === 'task' && has('in_progress')) return Promise.resolve([activeTask]);
+        if (filter.type === 'task' && filter.status === 'blocked') return Promise.resolve([blockedTask]);
+        if (filter.type === 'context') return Promise.resolve([activeContext]);
+        return Promise.resolve([]);
+      });
+
+      const result = await query(mockStore, { contextSummary: {} });
+      const completedIds = result.contextSummary!.recentlyCompleted.map((b) => b.id);
+      expect(completedIds).toContain('t-failed1');
+      expect(completedIds).toContain('t-aband1');
+      const activeIds = result.contextSummary!.activeTasks.map((b) => b.id);
+      expect(activeIds).not.toContain('t-failed1');
+      expect(activeIds).not.toContain('t-aband1');
+    });
+
     it('should filter by tags', async () => {
       const result = await query(mockStore, {
         contextSummary: { tags: ['api'] },
@@ -473,7 +511,10 @@ describe('query tool', () => {
         title: `Completed Task ${i}`,
       }));
       mockStore.query.nodes = vi.fn().mockImplementation((filter: any) => {
-        if (filter.type === 'task' && filter.status === 'closed') {
+        const status = filter.status;
+        const has = (s: string) =>
+          status === s || (Array.isArray(status) && status.includes(s));
+        if (filter.type === 'task' && has('closed')) {
           return Promise.resolve(manyClosedTasks);
         }
         return Promise.resolve([]);

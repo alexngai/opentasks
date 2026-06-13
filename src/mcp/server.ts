@@ -17,6 +17,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { OpenTasksClient, type ClientOptions } from '../client/client.js';
 import { VERSION } from '../version.js';
+import { TASK_ACTIONS } from '../providers/traits/TaskManageable.js';
 
 // ============================================================================
 // Types
@@ -150,7 +151,7 @@ function registerTaskTools(server: McpServer, client: OpenTasksClient): void {
       archived: z.boolean().optional().describe('Archive/unarchive'),
       metadata: z.record(z.string(), z.unknown()).optional().describe('Update metadata (merged)'),
       // Semantic transitions
-      transition: z.enum(['start', 'complete', 'block', 'reopen', 'close', 'fail', 'abandon']).optional()
+      transition: z.enum(TASK_ACTIONS).optional()
         .describe('Semantic status transition (alternative to setting status directly). fail/abandon are terminal outcomes distinct from complete/close.'),
       // Blocker management
       addBlockedBy: z.array(z.string()).optional().describe('Add blocker task IDs (these block this task)'),

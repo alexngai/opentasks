@@ -23,7 +23,24 @@ import type { Provider, ProviderNode, ProviderOperationContext } from '../types.
  * For example, a provider with statuses ['pending', 'active', 'done']
  * might map 'start' → 'active' and 'complete' → 'done'.
  */
-export type TaskAction = 'start' | 'complete' | 'block' | 'reopen' | 'close' | 'fail' | 'abandon';
+/**
+ * The canonical set of semantic task actions — the single source of truth.
+ * The `TaskAction` type, the task tool's runtime validator, the MCP `z.enum`,
+ * and `TaskParams.transition.action` all derive from this list so adding an
+ * action only requires editing it here. `fail`/`abandon` are terminal outcomes
+ * distinct from `complete`/`close`.
+ */
+export const TASK_ACTIONS = [
+  'start',
+  'complete',
+  'block',
+  'reopen',
+  'close',
+  'fail',
+  'abandon',
+] as const;
+
+export type TaskAction = (typeof TASK_ACTIONS)[number];
 
 // ============================================================================
 // Task Capabilities

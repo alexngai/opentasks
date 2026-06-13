@@ -119,7 +119,13 @@ export const CREATE_INDEXES = [
 
 /**
  * Create ready_tasks view
- * Shows tasks that are open, not archived, and have no open blockers
+ * Shows tasks that are open, not archived, and have no active blockers.
+ *
+ * Deliberate: only `closed` (successfully completed) clears a blocker. A
+ * `failed`/`abandoned` blocker is still `!= 'closed'`, so it keeps blocking its
+ * dependents — a prerequisite that failed or was dropped didn't deliver what
+ * the dependent needs; the dependent waits for an explicit reopen/retry rather
+ * than silently becoming ready. (Mirrors `isActiveNode` in graph/query.ts.)
  */
 export const CREATE_READY_VIEW = `
 CREATE VIEW IF NOT EXISTS ready_tasks AS

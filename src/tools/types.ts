@@ -13,6 +13,7 @@ import type {
   FeedbackOptions,
 } from '../graph/types.js';
 import type { OperationContext } from '../graph/coordination.js';
+import type { TaskAction } from '../providers/traits/TaskManageable.js';
 
 // Re-export for convenience
 export type { EdgeType, NodeType, Node, Edge };
@@ -335,7 +336,7 @@ export interface TaskParams {
     /** Task ID or provider URI */
     id: string;
     /** Semantic action. `fail`/`abandon` are terminal outcomes distinct from `close`/`complete`. */
-    action: 'start' | 'complete' | 'block' | 'reopen' | 'close' | 'fail' | 'abandon';
+    action: TaskAction;
   };
 
   /** Get tasks that are ready to work on (no active blockers) */

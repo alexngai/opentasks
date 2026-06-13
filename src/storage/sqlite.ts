@@ -332,7 +332,7 @@ export class SQLitePersister implements Storage {
     const update = this.db.prepare(`
       UPDATE nodes
       SET claimed_by = @claimant, claimed_at = @now, lock_until = @lockUntil,
-          assignee = @claimant, claim_fence = COALESCE(claim_fence, 0) + 1, updated_at = @now
+          claim_fence = COALESCE(claim_fence, 0) + 1, updated_at = @now
       WHERE id = @id AND type = 'task' AND (archived IS NULL OR archived = 0) ${guard}
     `);
     const selectAfter = this.db.prepare(
@@ -827,6 +827,7 @@ export class SQLitePersister implements Storage {
       'claimed_by',
       'claimed_at',
       'lock_until',
+      'claim_fence',
       'location',
       'branch',
       'metadata',

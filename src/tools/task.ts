@@ -21,6 +21,7 @@ import type {
   TaskReleaseData,
   NodeSummary,
 } from './types.js';
+import { TASK_ACTIONS } from '../providers/traits/TaskManageable.js';
 
 // ============================================================================
 // Summary Converter
@@ -151,11 +152,10 @@ async function handleTransition(
     return { success: false, error: 'Missing required parameter: action' };
   }
 
-  const validActions = ['start', 'complete', 'block', 'reopen', 'close', 'fail', 'abandon'];
-  if (!validActions.includes(action)) {
+  if (!TASK_ACTIONS.includes(action)) {
     return {
       success: false,
-      error: `Invalid action: ${action}. Must be one of: ${validActions.join(', ')}`,
+      error: `Invalid action: ${action}. Must be one of: ${TASK_ACTIONS.join(', ')}`,
     };
   }
 

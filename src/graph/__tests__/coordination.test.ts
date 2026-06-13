@@ -57,7 +57,9 @@ describe('Atomic claiming', () => {
       expect(r.claimedBy).toBe('agent-a');
       const node = await storage.getNode('t-1');
       expect(node?.claimed_by).toBe('agent-a');
-      expect(node?.assignee).toBe('agent-a');
+      // Claiming sets the hard lease (claimed_by), not the soft `assignee` field —
+      // the two ownership models are kept independent.
+      expect(node?.assignee ?? null).toBeNull();
       expect(node?.lock_until).toBe('2026-01-01T00:00:01.000Z');
     });
 

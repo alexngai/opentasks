@@ -148,7 +148,13 @@ function safeParseNode(stored: StoredNode): Node | null {
 }
 
 /**
- * Check if a node is active (not closed, not archived)
+ * Check if a node is active (not closed, not archived).
+ *
+ * Deliberate: only `closed` (= successfully completed) clears a blocker.
+ * `failed`/`abandoned` blockers stay ACTIVE so their dependents remain blocked —
+ * a prerequisite that failed or was dropped didn't deliver what the dependent
+ * needs, so the dependent must wait for an explicit reopen/retry rather than
+ * silently becoming ready. (Same rule as the `ready_tasks` SQL view.)
  */
 function isActiveNode(node: StoredNode): boolean {
   return !node.archived && node.status !== 'closed';

@@ -80,6 +80,9 @@ export interface LocationState {
 
   /** Per-provider reconciliation interval handles */
   providerReconciliationIntervals?: Map<string, ReturnType<typeof setInterval>>;
+
+  /** Lease reaper interval handle (clears expired claims for this location) */
+  claimSweepInterval?: ReturnType<typeof setInterval>;
 }
 
 /**
@@ -354,6 +357,10 @@ export async function destroyLocationState(state: LocationState): Promise<void> 
   if (state.reconciliationInterval) {
     clearInterval(state.reconciliationInterval);
     state.reconciliationInterval = undefined;
+  }
+  if (state.claimSweepInterval) {
+    clearInterval(state.claimSweepInterval);
+    state.claimSweepInterval = undefined;
   }
   if (state.providerReconciliationIntervals) {
     for (const handle of state.providerReconciliationIntervals.values()) {

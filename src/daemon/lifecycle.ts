@@ -1159,6 +1159,23 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
         }
       }
 
+      // Background lease reaper — clears expired claims so a crashed/AFK agent's
+      // tasks become claimable again, per location (mirrors the single-location
+      // daemon). Steal-on-expiry already makes them reclaimable; this is active
+      // cleanup + watcher notification.
+      locState.claimSweepInterval = setInterval(() => {
+        const fm = locState.flushManager;
+        if (!locState.providerStore || !fm) return;
+        void locState.providerStore
+          .sweepExpiredClaims()
+          .then((cleared) => {
+            if (cleared.length === 0) return;
+            for (const id of cleared) fm.markDirty(id);
+            fm.schedule();
+          })
+          .catch(() => {});
+      }, 60_000);
+
       return locState;
     } catch {
       // Graceful degradation: skip failed locations
