@@ -661,6 +661,12 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         registerSyncMethods({
           server: ipcServer,
           getSyncer: () => gitSyncer,
+          // Serialize manual sync/pull with the flush so a pending flush can't
+          // clobber a freshly-pulled graph.jsonl (F2 race); reload SQLite after.
+          flushManager: flushManager ?? undefined,
+          reloadStore: async () => {
+            await store.reload();
+          },
           getSyncStatus: () => ({
             enabled: gitSyncConfig.enabled,
             remote: gitSyncConfig.remote,
