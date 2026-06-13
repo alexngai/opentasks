@@ -68,6 +68,28 @@ describe('CLI', { timeout: 30_000 }, () => {
       expect(stdout).toContain('opentasks');
       expect(stdout).toContain('Usage:');
     });
+
+    it('documents the claim/release/renew coordination commands', async () => {
+      const { stdout } = await runCli(['help']);
+      expect(stdout).toContain('claim');
+      expect(stdout).toContain('claim-next');
+      expect(stdout).toContain('release');
+      expect(stdout).toContain('renew');
+    });
+  });
+
+  describe('claim command validation (daemon-free)', () => {
+    it('errors with usage when claim is missing args', async () => {
+      const { stderr, exitCode } = await runCli(['claim']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('Usage: opentasks claim');
+    });
+
+    it('errors with usage when release is missing --agent', async () => {
+      const { stderr, exitCode } = await runCli(['release', 't-x']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('Usage: opentasks release');
+    });
   });
 
   describe('unknown commands', () => {

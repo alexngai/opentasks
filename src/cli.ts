@@ -57,6 +57,10 @@ Tool commands (require running daemon):
   update  <id> [options]        Update a node
   delete  <id> [--hard]         Delete a node
   context-summary [options]     Get context summary breadcrumbs for session continuity
+  claim   <id> --agent <id> [--duration <ms>] [--force]      Atomically claim a task (lease)
+  claim-next --agent <id> [--duration <ms>]                  Claim the next ready, unclaimed task
+  release <id> --agent <id> [--fence <n>]                    Release a claim
+  renew   <id> --agent <id> [--duration <ms>] [--fence <n>]  Renew/extend a claim's lease
 
 Create options:
   --status <s>                  Status (required for tasks)
@@ -739,6 +743,84 @@ export async function cmdAnnotate(args: string[]): Promise<void> {
   });
 }
 
+export async function cmdClaim(args: string[]): Promise<void> {
+  const id = args[0];
+  const agentId = getFlag(args, '--agent');
+  if (!id || id.startsWith('--') || !agentId) {
+    console.error('Usage: opentasks claim <id> --agent <agentId> [--duration <ms>] [--force]');
+    process.exit(1);
+  }
+  const durationStr = getFlag(args, '--duration');
+  const claim: Record<string, unknown> = { id, agentId };
+  if (durationStr) claim.durationMs = Number(durationStr);
+  if (hasFlag(args, '--force')) claim.force = true;
+
+  const client = new OpenTasksClient();
+  await runToolCommand(async () => {
+    const result = await client.task({ claim } as never);
+    client.disconnect();
+    return result;
+  });
+}
+
+export async function cmdClaimNext(args: string[]): Promise<void> {
+  const agentId = getFlag(args, '--agent');
+  if (!agentId) {
+    console.error('Usage: opentasks claim-next --agent <agentId> [--duration <ms>]');
+    process.exit(1);
+  }
+  const durationStr = getFlag(args, '--duration');
+  const claimNext: Record<string, unknown> = { agentId };
+  if (durationStr) claimNext.durationMs = Number(durationStr);
+
+  const client = new OpenTasksClient();
+  await runToolCommand(async () => {
+    const result = await client.task({ claimNext } as never);
+    client.disconnect();
+    return result;
+  });
+}
+
+export async function cmdRelease(args: string[]): Promise<void> {
+  const id = args[0];
+  const agentId = getFlag(args, '--agent');
+  if (!id || id.startsWith('--') || !agentId) {
+    console.error('Usage: opentasks release <id> --agent <agentId> [--fence <n>]');
+    process.exit(1);
+  }
+  const fenceStr = getFlag(args, '--fence');
+  const release: Record<string, unknown> = { id, agentId };
+  if (fenceStr) release.fence = Number(fenceStr);
+
+  const client = new OpenTasksClient();
+  await runToolCommand(async () => {
+    const result = await client.task({ release } as never);
+    client.disconnect();
+    return result;
+  });
+}
+
+export async function cmdRenew(args: string[]): Promise<void> {
+  const id = args[0];
+  const agentId = getFlag(args, '--agent');
+  if (!id || id.startsWith('--') || !agentId) {
+    console.error('Usage: opentasks renew <id> --agent <agentId> [--duration <ms>] [--fence <n>]');
+    process.exit(1);
+  }
+  const durationStr = getFlag(args, '--duration');
+  const fenceStr = getFlag(args, '--fence');
+  const renew: Record<string, unknown> = { id, agentId };
+  if (durationStr) renew.durationMs = Number(durationStr);
+  if (fenceStr) renew.fence = Number(fenceStr);
+
+  const client = new OpenTasksClient();
+  await runToolCommand(async () => {
+    const result = await client.task({ renew } as never);
+    client.disconnect();
+    return result;
+  });
+}
+
 export async function cmdCreate(args: string[]): Promise<void> {
   const type = getFlag(args, '--type');
   const title = getFlag(args, '--title');
@@ -1059,6 +1141,18 @@ async function main() {
       break;
     case 'context-summary':
       await cmdContextSummary(args.slice(1));
+      break;
+    case 'claim':
+      await cmdClaim(args.slice(1));
+      break;
+    case 'claim-next':
+      await cmdClaimNext(args.slice(1));
+      break;
+    case 'release':
+      await cmdRelease(args.slice(1));
+      break;
+    case 'renew':
+      await cmdRenew(args.slice(1));
       break;
 
     // Setup commands (sync, no daemon needed)
