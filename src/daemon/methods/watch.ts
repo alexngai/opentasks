@@ -13,6 +13,7 @@ import type { IPCServer } from '../ipc.js';
 import type { LocationResolver } from '../location-state.js';
 import type { ProviderNodeChangeEvent } from '../../providers/traits/Watchable.js';
 import type { StoredNode } from '../../schema/storage.js';
+import type { EventManager } from '../events.js';
 
 // ============================================================================
 // Types
@@ -24,6 +25,14 @@ export interface WatchMethodsOptions {
 
   /** Location resolver for routing to correct store */
   locationResolver: LocationResolver;
+
+  /**
+   * Optional event manager. When present, each broadcast `watch.event` is
+   * stamped with a monotonic `seq` + per-process `epoch` and buffered for
+   * replay (P3 M2), so a reconnecting subscriber can backfill via `events.since`.
+   * Without it, events broadcast unstamped (the M1 fire-and-forget behavior).
+   */
+  eventManager?: EventManager;
 }
 
 /**
@@ -132,7 +141,7 @@ function providerRawData(node: StoredNode): Record<string, unknown> {
  * Register watch subscription method handlers on an IPC server
  */
 export function registerWatchMethods(options: WatchMethodsOptions): void {
-  const { server, locationResolver } = options;
+  const { server, locationResolver, eventManager } = options;
 
   let subscriberCount = 0;
   let watchActive = false;
@@ -158,20 +167,35 @@ export function registerWatchMethods(options: WatchMethodsOptions): void {
 
   /**
    * Deliver a watch event only to connections whose subscription filter
-   * matches it. Replaces a blanket broadcast so subscribers see just the
-   * events they asked for.
+   * matches it. When an event manager is wired (P3 M2), the event is first
+   * stamped with `seq` + `epoch` and buffered for replay, and the stamped
+   * fields ride along on the broadcast payload so subscribers can track a
+   * resume cursor. Filtering reads the same `type`/`node` fields either way.
    */
   function emit(event: ProviderNodeChangeEvent): void {
-    server.broadcastToSubscribers('watch.event', event, (filter) =>
+    const payload = eventManager
+      ? (() => {
+          const stamped = eventManager.emit(event);
+          return { ...event, seq: stamped.seq, epoch: stamped.epoch };
+        })()
+      : event;
+    server.broadcastToSubscribers('watch.event', payload, (filter) =>
       eventMatchesFilter(event, filter),
     );
   }
 
   /**
-   * Diff current graph state against cached hashes and broadcast events
+   * Diff current graph state against cached hashes and broadcast events.
+   *
+   * Runs on every graph change once watching is active — even with zero current
+   * subscribers — so the event manager keeps a replayable history for subscribers
+   * that reconnect and backfill via `events.since` (P3 M2). Delivery itself no-ops
+   * when nobody is subscribed (`broadcastToSubscribers` iterates an empty set), so
+   * a 0-subscriber daemon still buffers but sends nothing. The watcher is only
+   * installed after the first `watch.subscribe`, so this never runs pre-activation.
    */
   async function diffAndBroadcast(location?: string): Promise<void> {
-    if (subscriberCount <= 0) return;
+    if (!watchActive) return;
 
     try {
       const state = locationResolver.resolve(location);

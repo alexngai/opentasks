@@ -21,6 +21,7 @@ import { createDaemon, type Daemon } from '../../daemon/lifecycle.js';
 import { OpenTasksClient } from '../client.js';
 import type { GraphStore } from '../../graph/store.js';
 import type { ProviderNodeChangeEvent } from '../../providers/traits/Watchable.js';
+import type { WatchEventPayload, SinceResult } from '../../daemon/events.js';
 
 // ============================================================================
 // Helpers
@@ -182,5 +183,127 @@ describe('E2E: OpenTasksClient.subscribe', () => {
     await new Promise((r) => setTimeout(r, 800));
 
     expect(events.length).toBe(0);
+  });
+
+  describe('replay / backfill (M2)', () => {
+    it('backfills events missed while disconnected via a resume cursor', async () => {
+      await startDaemon();
+      const socketPath = daemon!.socketPath;
+
+      // Subscriber 1: receive an event, capture its cursor, then disconnect.
+      const c1 = new OpenTasksClient({ socketPath, autoConnect: true });
+      const seen1: WatchEventPayload[] = [];
+      const unsub1 = await c1.subscribe(undefined, (e) => seen1.push(e));
+      await new Promise((r) => setTimeout(r, 300));
+
+      const a = (await c1.createNode({
+        type: 'task',
+        title: 'A',
+        status: 'open',
+      })) as { id: string };
+      await c1.call('flush');
+      await waitFor(() => seen1.some((e) => e.nodeId === a.id));
+
+      const evA = seen1.find((e) => e.nodeId === a.id)!;
+      expect(typeof evA.seq).toBe('number');
+      expect(typeof evA.epoch).toBe('string');
+      const cursor = { epoch: evA.epoch!, seq: evA.seq! };
+
+      await unsub1();
+      c1.disconnect();
+
+      // Mutate while no one is subscribed, via a separate connection. The
+      // watcher stays active, so the event is still buffered for replay.
+      const cMut = new OpenTasksClient({ socketPath, autoConnect: true });
+      const b = (await cMut.createNode({
+        type: 'task',
+        title: 'B',
+        status: 'open',
+      })) as { id: string };
+      await cMut.call('flush');
+      await new Promise((r) => setTimeout(r, 500)); // let the watcher diff + buffer
+      cMut.disconnect();
+
+      // Subscriber 2: reconnect with the saved cursor → backfills B.
+      const c3 = new OpenTasksClient({ socketPath, autoConnect: true });
+      const seen3: WatchEventPayload[] = [];
+      let resynced = false;
+      const unsub3 = await c3.subscribe(undefined, (e) => seen3.push(e), {
+        since: cursor,
+        onResync: () => {
+          resynced = true;
+        },
+      });
+
+      await waitFor(() => seen3.some((e) => e.nodeId === b.id));
+      await unsub3();
+      c3.disconnect();
+
+      expect(resynced).toBe(false);
+      const ids3 = seen3.map((e) => e.nodeId);
+      expect(ids3).toContain(b.id); // missed event backfilled
+      expect(ids3).not.toContain(a.id); // already-seen event not replayed
+    });
+
+    it('signals resync when the cursor cannot be served (stale epoch)', async () => {
+      await startDaemon();
+      const c = new OpenTasksClient({ socketPath: daemon!.socketPath, autoConnect: true });
+
+      const seen: WatchEventPayload[] = [];
+      let resynced = false;
+      const unsub = await c.subscribe(undefined, (e) => seen.push(e), {
+        since: { epoch: 'stale-epoch-does-not-match', seq: 999 },
+        onResync: () => {
+          resynced = true;
+        },
+      });
+
+      // A cursor from a non-existent epoch can't be served → resync, not silence.
+      expect(resynced).toBe(true);
+
+      await unsub();
+      c.disconnect();
+    });
+
+    it('exposes events.current / events.since as client methods', async () => {
+      await startDaemon();
+      const c = new OpenTasksClient({ socketPath: daemon!.socketPath, autoConnect: true });
+
+      const base = await c.eventsCurrent();
+      expect(typeof base.epoch).toBe('string');
+      expect(base.seq).toBe(0);
+
+      // Activate the watcher and produce one event.
+      const seen: WatchEventPayload[] = [];
+      const unsub = await c.subscribe(undefined, (e) => seen.push(e));
+      await new Promise((r) => setTimeout(r, 300));
+      const n = (await c.createNode({
+        type: 'task',
+        title: 'N',
+        status: 'open',
+      })) as { id: string };
+      await c.call('flush');
+      await waitFor(() => seen.some((e) => e.nodeId === n.id));
+
+      // events.since from the baseline cursor returns the new event.
+      const delta = await c.eventsSince(base);
+      if ('resync' in delta && delta.resync) throw new Error('unexpected resync');
+      if (!('events' in delta)) throw new Error('expected events');
+      expect(delta.epoch).toBe(base.epoch);
+      expect(delta.events.some((s) => s.event.nodeId === n.id)).toBe(true);
+
+      // A different epoch → resync.
+      const stale = await c.eventsSince({ epoch: 'other-epoch', seq: 0 });
+      expect('resync' in stale && stale.resync).toBe(true);
+
+      // A malformed cursor (missing seq) is rejected by the method guard → resync.
+      const malformed = (await c.call('events.since', {
+        cursor: { epoch: base.epoch },
+      })) as SinceResult;
+      expect('resync' in malformed && malformed.resync).toBe(true);
+
+      await unsub();
+      c.disconnect();
+    });
   });
 });

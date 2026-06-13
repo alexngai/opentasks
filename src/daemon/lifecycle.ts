@@ -35,6 +35,8 @@ import { registerArchiveMethods } from './methods/archive.js';
 import { registerContextFilesMethods } from './methods/context-files.js';
 import { registerWatchMethods } from './methods/watch.js';
 import { registerSyncMethods } from './methods/sync.js';
+import { registerEventMethods } from './methods/events.js';
+import { createEventManager } from './events.js';
 import {
   createGitGraphSyncer,
   type GitGraphSyncer,
@@ -553,9 +555,20 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           locationResolver,
         });
 
+        // One event manager per daemon process: the watch broadcaster stamps
+        // each event through it (seq + epoch + ring buffer), and events.since
+        // replays from the same buffer (P3 M2).
+        const eventManager = createEventManager();
+
         registerWatchMethods({
           server: ipcServer,
           locationResolver,
+          eventManager,
+        });
+
+        registerEventMethods({
+          server: ipcServer,
+          eventManager,
         });
 
         // 9b. Set up the git syncer if enabled. The initialization is
@@ -1360,9 +1373,18 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
           gitCommonDir,
         });
 
+        // One event manager per daemon process (P3 M2) — see single-location path.
+        const eventManager = createEventManager();
+
         registerWatchMethods({
           server: ipcServer,
           locationResolver,
+          eventManager,
+        });
+
+        registerEventMethods({
+          server: ipcServer,
+          eventManager,
         });
 
         // 14. Start IPC server
