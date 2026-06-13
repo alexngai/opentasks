@@ -167,21 +167,96 @@ Three independent analyses (code review, swarm-dispatch's contract, coordination
 
 ### Phase 3 — Events & observability *(kill polling, surface failures)*
 
-**Work items**
-- 3.1 Expose subscriptions through `OpenTasksClient`: typed, filtered (node type / status / tags / provider).
-- 3.2 Replay cursor: `subscribe({ sinceSeq })` replays from the sequence numbers added in 2.4 → at-least-once delivery; document idempotent consumption.
-- 3.3 MCP surface: given MCP's request/response shape, add an `events_since(cursor)` tool (token-cheap delta) rather than forcing full re-query; revisit push when MCP notification support matures in clients.
-- 3.4 Idempotent creates (F9): optional client-supplied `idempotency_key`; daemon dedupes within a window.
-- 3.5 Health surfacing (F10 partial): swallowed errors increment counters exposed via `daemon status` — sync failures, watcher failures, reconcile failures, last flush/pull timestamps (extend the existing `SyncerHealth` pattern).
+**As-built starting point (verified 2026-06-13).** The push plumbing already
+exists but is unreliable and unfiltered:
+- IPC: `broadcastNotification(method, params)` fans a JSON-RPC notification to
+  *all* connected sockets (`ipc.ts:306`); the client can register
+  `onNotification(handler)` (`ipc.ts:461`). So server→client push works.
+- `watch.subscribe`/`watch.unsubscribe` (`methods/watch.ts`) detect changes by
+  **diffing** — on a file-watcher `graph` event they re-query *all* nodes,
+  hash-diff against a cache, and `broadcastNotification('watch.event', …)`.
+- Gaps: **fire-and-forget** (a disconnected client misses events forever), **no
+  sequence numbers / no replay**, **no per-subscriber filter** (everyone gets
+  everything), O(n)-per-change, and latency = flush + watcher + 150ms debounce.
+- `OpenTasksClient` exposes **no** subscription API. No event log/seq table. A
+  `health` IPC method exists (`methods/lifecycle.ts:82`) + `SyncerHealth` (P2).
 
-**Acceptance criteria**
-- [ ] Disconnect/reconnect with cursor → zero missed events across the gap (test).
-- [ ] swarm-dispatch runs event-driven against opentasks (no fixed-interval polling) in an integration demo.
-- [ ] Retried `create` with same idempotency key → one node (test).
-- [ ] `opentasks daemon status` shows sync/watcher/reconcile health counters; a forced sync failure is visible there (test).
+**Design decision — keep diff-detection, add a sequenced event manager (Path A).**
+Rather than re-architect to write-driven emission with a persisted event log
+(Path B — lower latency, full replay, but touches the hot write path and adds a
+table), P3 keeps the existing diff detection and routes every event through a new
+in-process **event manager**: assigns a monotonic `seq` + an `epoch` (daemon
+start id), keeps a **bounded ring buffer** (last N, e.g. 2000) for replay, and
+applies per-subscriber filters. This gives reliable reconnect-gap recovery
+(bounded by the buffer) at low risk. Cursor = `{epoch, seq}`; an epoch mismatch
+(daemon restarted) tells the client to **full-resync** via `query`. This also
+supersedes the P2.4-deferred *per-node* seq: an **event-stream** seq is the right
+shape for cursors, so per-node seq stays unbuilt. Escalate to Path B only if
+unbounded/durable replay is required (steering signal below).
+
+**Sequencing — the swarm-dispatch event-driven slice ships first.** swarm-dispatch
+today polls `queryReady` every 15s (`dispatcher.ts:1015`) and has no subscribe hook;
+it re-queries the whole ready set each cycle, so it needs only a *"something
+relevant changed → re-poll now"* wake — a small subset of the full stream (no
+per-event cursor/replay), and it keeps the slow poll as a fallback so a missed
+wake self-heals. So P3 lands in three milestones, **M1 highest priority**:
+
+- **M1 — swarm-dispatch goes event-driven (priority).** Minimal slice: per-connection
+  subscription **filter** in the IPC broadcast path (subset of 3.1) + **`OpenTasksClient.subscribe(filter, handler)`**
+  over the existing `onNotification` plumbing (subset of 3.2, *no* cursor yet) +
+  the cross-repo **`DispatchTaskSource.subscribe?`** hook & adapter (3.S). Outcome:
+  dispatch latency drops from ≤15s to ~debounce with no new reliability surface to get wrong.
+- **M2 — durable, replayable stream.** Upgrade M1's fire-and-forget notifications
+  into the full **event manager** (3.0: `seq` + `epoch` + ring buffer) and **replay
+  cursor** (3.2-full) — what per-event consumers (UIs, agents acting on individual
+  events, the MCP delta tool) need. swarm-dispatch can later adopt the cursor to
+  drop its fallback poll entirely.
+- **M3 — broader surface.** MCP **`events_since`** (3.3), **idempotent creates**
+  (3.4), **health counters** (3.5) — independent of M1/M2, scheduled by demand.
+
+**Work items (each a small PR; tagged by milestone):**
+- 3.S **(M1, cross-repo)** swarm-dispatch adapter: add an optional
+  `DispatchTaskSource.subscribe?(onChange): Unsubscribe` to swarm-dispatch's interface,
+  implement it in the opentasks adapter via `client.subscribe`, and wire the dispatcher
+  to wake its poll on `onChange` (keep `pollIntervalMs` as a fallback). Lives in the
+  `swarm-dispatch` repo.
+- 3.0 **(M2) Event manager** (`src/daemon/events.ts`): monotonic `seq`, per-daemon
+  `epoch`, bounded ring buffer, `emit(event)`, `since({epoch, seq})` →
+  `{epoch, events[]}` or `{epoch, resync:true}` when the cursor is older than the
+  buffer or the epoch differs. Refactor `watch.ts` to emit through it (stamp
+  `seq`/`epoch` on each `watch.event`).
+- 3.1 **(M1) Per-subscriber filtering**: `watch.subscribe({ filter })` (type / status /
+  tags / provider). Filtering is applied per connection in `broadcastNotification`
+  (needs the IPC layer to know each socket's filter — add a subscriber registry).
+  M1 ships a coarse type=task filter; richer predicates can follow.
+- 3.2 **(M1: `subscribe` / M2: cursor) Subscribe + replay cursor**:
+  `OpenTasksClient.subscribe(filter, handler)` over `onNotification('watch.event')` (M1).
+  M2 adds the `events.since` IPC + cursor tracking: on reconnect call
+  `events.since(cursor)` to backfill (or full-resync on epoch change). At-least-once;
+  events carry node id + type + seq for idempotent consumption.
+- 3.3 **(M3) MCP pull surface**: `events_since(cursor)` tool returning the delta + the
+  next cursor (token-cheap; MCP clients can poll this instead of re-`query`ing the
+  world). Real push stays IPC-only until MCP client notification support matures.
+- 3.4 **(M3) Idempotent creates (F9)**: optional client-supplied `idempotency_key` on
+  create; the daemon dedupes within a TTL window (in-memory key→nodeId map),
+  returning the existing node on a retry.
+- 3.5 **(M3) Health surfacing (F10 partial)**: counters for swallowed failures (sync /
+  watcher / reconcile) + last flush/pull/reconcile timestamps, exposed via the
+  `health` method / `daemon status`, extending the `SyncerHealth` pattern.
+
+**Acceptance criteria** (tagged by milestone)
+- [ ] (M1) `client.subscribe({ filter })` receives only matching events after a mutation; non-matching events are not delivered (integration test).
+- [ ] (M1) swarm-dispatch wakes `queryReady` on an opentasks task change and dispatches within the debounce window (not the 15s poll), with the fallback poll still running (cross-repo integration test).
+- [ ] (M2) `events.since(cursor)` returns exactly the events with `seq > cursor.seq` for the same epoch; an older-than-buffer or different epoch → `resync:true` (unit test).
+- [ ] (M2) Disconnect → mutate → reconnect with cursor → client backfills the missed events, zero missed within the buffer window (integration test).
+- [ ] (M3) `events_since` MCP tool returns the delta + next cursor (test).
+- [ ] (M3) Retried `create` with the same `idempotency_key` → one node (test).
+- [ ] (M3) `health` / `daemon status` shows sync/watcher/reconcile counters; a forced sync failure increments the counter and is visible (test).
 
 **Steering signals**
-- If agents (via MCP) rarely use `events_since` and keep polling `query` → the tool description/ergonomics are wrong; iterate on the tool surface, not the transport.
+- If reconnect-gap loss shows up in practice (buffer too small / disconnects too long) → size the buffer up, or escalate to Path B (persisted event-log table with durable replay).
+- If agents (via MCP) keep polling `query` instead of `events_since` → the tool description/ergonomics are wrong; iterate on the tool surface, not the transport.
+- If the diff-detection latency (flush+watcher+debounce) is too slow for a consumer → consider emitting directly from the daemon `tools.task` handler (partial Path B) for the hot ops (claims/transitions) while leaving bulk detection diff-based.
 
 ---
 
