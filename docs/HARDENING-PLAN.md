@@ -201,11 +201,13 @@ relevant changed → re-poll now"* wake — a small subset of the full stream (n
 per-event cursor/replay), and it keeps the slow poll as a fallback so a missed
 wake self-heals. So P3 lands in three milestones, **M1 highest priority**:
 
-- **M1 — swarm-dispatch goes event-driven (priority).** Minimal slice: per-connection
+- **M1 — swarm-dispatch goes event-driven (priority). ✅ COMPLETE (2026-06-13).** Minimal slice: per-connection
   subscription **filter** in the IPC broadcast path (subset of 3.1) + **`OpenTasksClient.subscribe(filter, handler)`**
   over the existing `onNotification` plumbing (subset of 3.2, *no* cursor yet) +
   the cross-repo **`DispatchTaskSource.subscribe?`** hook & adapter (3.S). Outcome:
   dispatch latency drops from ≤15s to ~debounce with no new reliability surface to get wrong.
+  Shipped as opentasks `hardening` `2c169da` (#1 IPC filter) + `3c3bbf2` (#2 client `subscribe`) and
+  swarm-dispatch `fix/opentasks-atomic-claim` `1fa690a` (#3 adapter + dispatcher wake). See acceptance criteria below.
 - **M2 — durable, replayable stream.** Upgrade M1's fire-and-forget notifications
   into the full **event manager** (3.0: `seq` + `epoch` + ring buffer) and **replay
   cursor** (3.2-full) — what per-event consumers (UIs, agents acting on individual
@@ -245,8 +247,8 @@ wake self-heals. So P3 lands in three milestones, **M1 highest priority**:
   `health` method / `daemon status`, extending the `SyncerHealth` pattern.
 
 **Acceptance criteria** (tagged by milestone)
-- [ ] (M1) `client.subscribe({ filter })` receives only matching events after a mutation; non-matching events are not delivered (integration test).
-- [ ] (M1) swarm-dispatch wakes `queryReady` on an opentasks task change and dispatches within the debounce window (not the 15s poll), with the fallback poll still running (cross-repo integration test).
+- [x] (M1) `client.subscribe({ filter })` receives only matching events after a mutation; non-matching events are not delivered (integration test). **Evidence:** opentasks `hardening` `2c169da` (per-connection IPC filter: `ipc.ts` `broadcastToSubscribers` + `ConnectionContext`; `watch.ts` `WatchFilter`/`eventMatchesFilter`; 6 unit tests) + `3c3bbf2` (`OpenTasksClient.subscribe(filter, handler)`; real-daemon `e2e-subscribe.test.ts` asserts the matching event is delivered and the non-matching one is dropped via a fence node — daemon suite 407, client suite 64).
+- [x] (M1) swarm-dispatch wakes `queryReady` on an opentasks task change and dispatches within the debounce window (not the 15s poll), with the fallback poll still running (cross-repo integration test). **Evidence:** swarm-dispatch `fix/opentasks-atomic-claim` `1fa690a`: `DispatchTaskSource.subscribe?` + `DispatchConfig.wakeDebounceMs` (default 100ms); dispatcher registers the wake on start (poll stays as fallback), coalesces bursts, tears down on stop; opentasks adapter bridges async `client.subscribe` into the sync `Unsubscribe`. +4 dispatcher tests (wake-on-change, burst coalescing, lifecycle, no-wake-after-stop) +5 adapter tests; full suite 364, tsc clean.
 - [ ] (M2) `events.since(cursor)` returns exactly the events with `seq > cursor.seq` for the same epoch; an older-than-buffer or different epoch → `resync:true` (unit test).
 - [ ] (M2) Disconnect → mutate → reconnect with cursor → client backfills the missed events, zero missed within the buffer window (integration test).
 - [ ] (M3) `events_since` MCP tool returns the delta + next cursor (test).
