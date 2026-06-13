@@ -284,6 +284,7 @@ describe('E2E: Git Sync', { timeout: 30_000 }, () => {
         health?: {
           lastError: string | null;
           lastErrorOp: 'commit' | 'pull' | 'push' | null;
+          errorCount: number;
         };
       }>('sync.status');
 
@@ -292,6 +293,18 @@ describe('E2E: Git Sync', { timeout: 30_000 }, () => {
       // Pull runs before push and also targets 'bogus' — whichever op
       // runs first records the error. Both are valid error surfaces here.
       expect(['pull', 'push']).toContain(status.health!.lastErrorOp);
+      expect(status.health!.errorCount).toBeGreaterThanOrEqual(1);
+
+      // The daemon `health` method surfaces the same sync health + the
+      // watcher/reconcile counters (F10).
+      const health = await c.request<{
+        sync?: { errorCount: number; lastErrorOp: string | null };
+        counters?: { watcherErrors: number; reconcileRuns: number; reconcileErrors: number };
+      }>('health');
+      expect(health.sync).toBeDefined();
+      expect(health.sync!.errorCount).toBeGreaterThanOrEqual(1);
+      expect(health.counters).toBeDefined();
+      expect(typeof health.counters!.reconcileRuns).toBe('number');
     });
   });
 

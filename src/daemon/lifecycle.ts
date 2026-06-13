@@ -38,6 +38,7 @@ import { registerSyncMethods } from './methods/sync.js';
 import { registerEventMethods } from './methods/events.js';
 import { createEventManager } from './events.js';
 import { createIdempotencyStore } from './idempotency.js';
+import { createHealthCounters } from './health-counters.js';
 import {
   createGitGraphSyncer,
   type GitGraphSyncer,
@@ -515,6 +516,11 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         };
         const locationResolver = createSingleLocationResolver(locationState);
 
+        // Tracks otherwise-silent watcher/reconcile failures so `health` can
+        // surface them (P3 M3 / F10). Git sync failures come from the syncer's
+        // own SyncerHealth, exposed alongside via getSyncHealth below.
+        const healthCounters = createHealthCounters();
+
         // 9. Register method handlers
         registerLifecycleMethods({
           server: ipcServer,
@@ -522,6 +528,8 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           shutdown: () => daemon.stop(),
           version,
           startedAt: new Date(startedAt),
+          getHealthCounters: () => healthCounters.snapshot(),
+          getSyncHealth: () => gitSyncer?.getHealth() ?? null,
         });
 
         // One idempotency store per daemon: dedupes retried creates carrying an
@@ -570,12 +578,22 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           server: ipcServer,
           locationResolver,
           eventManager,
+          onWatcherError: () => healthCounters.recordWatcherError(),
         });
 
         registerEventMethods({
           server: ipcServer,
           eventManager,
         });
+
+        // Record reconcile outcomes for `health` (F10) while preserving the
+        // existing swallow-errors behavior (a reconcile failure is non-fatal).
+        const trackReconcile = (p: Promise<unknown>): void => {
+          void p.then(
+            () => healthCounters.recordReconcileRun(),
+            () => healthCounters.recordReconcileError(),
+          );
+        };
 
         // 9b. Set up the git syncer if enabled. The initialization is
         // factored into `buildSyncer` so it can run both at startup (using
@@ -737,7 +755,7 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         fileWatcher.onchange((event) => {
           if (event.category === 'graph' && onReload !== 'none' && activeProviderStore) {
             // After external graph changes, reconcile provider-backed nodes
-            void activeProviderStore.reconcileProviders().catch(() => {});
+            trackReconcile(activeProviderStore.reconcileProviders());
           }
         });
 
@@ -758,7 +776,7 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         if (bgInterval > 0) {
           reconciliationIntervalHandle = setInterval(() => {
             if (activeProviderStore) {
-              void activeProviderStore.reconcileProviders().catch(() => {});
+              trackReconcile(activeProviderStore.reconcileProviders());
             }
           }, bgInterval);
         }
@@ -791,7 +809,9 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
                 providerName,
                 setInterval(() => {
                   if (activeProviderStore) {
-                    void activeProviderStore.reconcileProviders({ providers: [providerName] }).catch(() => {});
+                    trackReconcile(
+                      activeProviderStore.reconcileProviders({ providers: [providerName] }),
+                    );
                   }
                 }, interval),
               );
@@ -1049,6 +1069,17 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
   const lockManager: LockManager = createLockManager(daemonHomePath);
   const registryManager: RegistryManager = createRegistryManager(registryPath);
 
+  // Tracks otherwise-silent watcher/reconcile failures so `health` can surface
+  // them (P3 M3 / F10). Factory-scoped so the per-location watcher setup and the
+  // IPC method registration share one tracker.
+  const healthCounters = createHealthCounters();
+  const trackReconcile = (p: Promise<unknown>): void => {
+    void p.then(
+      () => healthCounters.recordReconcileRun(),
+      () => healthCounters.recordReconcileError(),
+    );
+  };
+
   // Components
   let ipcServer: IPCServer | null = null;
   let locationResolver: LocationResolver | null = null;
@@ -1155,7 +1186,7 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
       if (bgInterval > 0) {
         locState.reconciliationInterval = setInterval(() => {
           if (locState.providerStore) {
-            void locState.providerStore.reconcileProviders().catch(() => {});
+            trackReconcile(locState.providerStore.reconcileProviders());
           }
         }, bgInterval);
       }
@@ -1170,7 +1201,9 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
               providerName,
               setInterval(() => {
                 if (locState.providerStore) {
-                  void locState.providerStore.reconcileProviders({ providers: [providerName] }).catch(() => {});
+                  trackReconcile(
+                    locState.providerStore.reconcileProviders({ providers: [providerName] }),
+                  );
                 }
               }, interval),
             );
@@ -1350,6 +1383,9 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
             if (unhealthy.length > 0) return 'degraded';
             return 'healthy';
           },
+          getHealthCounters: () => healthCounters.snapshot(),
+          // Multi-location daemons don't own a single git syncer; sync health is
+          // not surfaced here.
         });
 
         // One idempotency store per daemon (P3 M3 / F9) — see single-location path.
@@ -1390,6 +1426,7 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
           server: ipcServer,
           locationResolver,
           eventManager,
+          onWatcherError: () => healthCounters.recordWatcherError(),
         });
 
         registerEventMethods({

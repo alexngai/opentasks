@@ -33,6 +33,12 @@ export interface WatchMethodsOptions {
    * Without it, events broadcast unstamped (the M1 fire-and-forget behavior).
    */
   eventManager?: EventManager;
+
+  /**
+   * Optional callback invoked when a diff cycle throws and is swallowed, so the
+   * daemon can surface otherwise-silent watcher failures via `health` (F10).
+   */
+  onWatcherError?: () => void;
 }
 
 /**
@@ -141,7 +147,7 @@ function providerRawData(node: StoredNode): Record<string, unknown> {
  * Register watch subscription method handlers on an IPC server
  */
 export function registerWatchMethods(options: WatchMethodsOptions): void {
-  const { server, locationResolver, eventManager } = options;
+  const { server, locationResolver, eventManager, onWatcherError } = options;
 
   let subscriberCount = 0;
   let watchActive = false;
@@ -267,7 +273,9 @@ export function registerWatchMethods(options: WatchMethodsOptions): void {
         }
       }
     } catch {
-      // Resilient: don't crash on diff errors
+      // Resilient: don't crash on diff errors. Surface the otherwise-silent
+      // failure to the daemon's health counters (F10).
+      onWatcherError?.();
     }
   }
 
