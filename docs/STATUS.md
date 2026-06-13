@@ -63,11 +63,11 @@ These are the substrate features the [HARDENING-PLAN](./HARDENING-PLAN.md) targe
 
 | Primitive | Status | Notes |
 |---|---|---|
-| Assignment / ownership | 🟡 | Plain `assignee` string; non-atomic |
-| Atomic claim / `claimNext` | ⏳ | No compare-and-set today; concurrent claimers can double-claim (P1) |
-| Leases / heartbeat / dead-agent reclaim | ⏳ | P1 |
-| `unassign` / fenced `release` | ⏳ | Not implemented (a swarm-dispatch adapter currently calls a nonexistent `unassign`) (P1) |
-| Terminal outcomes | 🟡 | Only `closed`; no distinct `failed` / `abandoned` (P1) |
+| Assignment / ownership | 🟡 | Plain `assignee` string (non-atomic); for exclusive ownership use atomic claim below |
+| Atomic claim / `claimNext` | ✅ | Single conditional SQLite UPDATE (no TOCTOU); `claimNext` fuses ready-query + claim. Via `client.task({claim})` and MCP `claim_task`/`claim_next` (P1) |
+| Leases / heartbeat / dead-agent reclaim | ✅ | `lock_until` lease; expired claims are stealable; `renew_claim` heartbeat; 60s daemon reaper actively clears expired claims (P1) |
+| Fenced `release` / `renew` | ✅ | `claim_fence` token bumped per claim; release/renew reject a stale/superseded fence (P1) |
+| Terminal outcomes | ✅ | `failed` / `abandoned` distinct from `closed`; lossless MAP `completed`/`failed` round-trip (P1) |
 | Change events to client/MCP | ⏳ | `watch.*` exists at the IPC layer but isn't surfaced through the client/MCP; fire-and-forget, no replay cursor (P3) |
 | Idempotent writes | ⏳ | No client-supplied idempotency key (P3) |
 

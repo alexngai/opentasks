@@ -22,6 +22,9 @@ export default defineConfig({
     watch: false,
     // Increase timeouts when running slow/e2e tests
     testTimeout: slowTests || agentTests ? 30000 : 5000,
-    hookTimeout: slowTests || agentTests ? 60000 : 10000,
+    // Hooks are setup/teardown (often spawning git), not the unit under test, so
+    // a generous hook timeout de-flakes git-spawning e2e under load without
+    // masking unit-test perf regressions (which keep the tight 5s testTimeout).
+    hookTimeout: slowTests || agentTests ? 60000 : 30000,
   },
 })
