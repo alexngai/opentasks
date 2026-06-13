@@ -9,6 +9,8 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { createIPCClient, type IPCClient } from '../daemon/ipc.js';
+import type { WatchFilter } from '../daemon/methods/watch.js';
+import type { ProviderNodeChangeEvent } from '../providers/traits/Watchable.js';
 import { getGitCommonDir } from '../core/worktree.js';
 import { ensureGlobalStoreInitialized } from '../core/init.js';
 import type {
@@ -625,6 +627,66 @@ export class OpenTasksClient {
       id,
       force: options?.force,
     });
+  }
+
+  // ==========================================================================
+  // Watch / Events
+  // ==========================================================================
+
+  /**
+   * Subscribe to real-time graph change events from the daemon's watch stream.
+   *
+   * The daemon pushes `watch.event` notifications for node creates, updates, and
+   * deletes. The optional `filter` narrows delivery server-side by provider node
+   * type and/or status — an empty or omitted filter receives every event. Delete
+   * events are always delivered (they carry no node to filter on, and only prompt
+   * a re-poll).
+   *
+   * Delivery is fire-and-forget with no replay (M1): a subscriber that
+   * disconnects misses events emitted while it was gone. A replay cursor lands
+   * in M2.
+   *
+   * @param filter - Optional coarse type/status filter. Pass `undefined` for all events.
+   * @param handler - Invoked for each matching change event.
+   * @returns An async unsubscribe function; call it to stop receiving events.
+   */
+  async subscribe(
+    filter: WatchFilter | undefined,
+    handler: (event: ProviderNodeChangeEvent) => void,
+  ): Promise<() => Promise<void>> {
+    await this.ensureConnected();
+
+    // Capture the active connection so unsubscribe targets the same socket even
+    // if the client reconnects later.
+    const client = this.client!;
+    const removeHandler = client.onNotification((method, params) => {
+      if (method === 'watch.event') {
+        handler(params as ProviderNodeChangeEvent);
+      }
+    });
+
+    try {
+      await client.request('watch.subscribe', { filter: filter ?? {} });
+    } catch (error) {
+      removeHandler();
+      throw error;
+    }
+
+    let unsubscribed = false;
+    return async () => {
+      if (unsubscribed) return;
+      unsubscribed = true;
+      removeHandler();
+      // Best-effort: drop this connection's server-side subscription. If the
+      // daemon or socket is already gone, the local handler removal is enough.
+      if (this.client === client && client.connected) {
+        try {
+          await client.request('watch.unsubscribe', {});
+        } catch {
+          // Daemon unreachable — nothing more to clean up locally.
+        }
+      }
+    };
   }
 
   // ==========================================================================
