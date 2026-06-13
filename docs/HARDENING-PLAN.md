@@ -208,13 +208,13 @@ wake self-heals. So P3 lands in three milestones, **M1 highest priority**:
   dispatch latency drops from ≤15s to ~debounce with no new reliability surface to get wrong.
   Shipped as opentasks `hardening` `2c169da` (#1 IPC filter) + `3c3bbf2` (#2 client `subscribe`) and
   swarm-dispatch `fix/opentasks-atomic-claim` `1fa690a` (#3 adapter + dispatcher wake). See acceptance criteria below.
-- **M2 — durable, replayable stream.** Upgrade M1's fire-and-forget notifications
+- **M2 — durable, replayable stream. ✅ COMPLETE (2026-06-13).** Upgrade M1's fire-and-forget notifications
   into the full **event manager** (3.0: `seq` + `epoch` + ring buffer) and **replay
   cursor** (3.2-full) — what per-event consumers (UIs, agents acting on individual
   events, the MCP delta tool) need. swarm-dispatch can later adopt the cursor to
-  drop its fallback poll entirely.
-- **M3 — broader surface.** MCP **`events_since`** (3.3), **idempotent creates**
-  (3.4), **health counters** (3.5) — independent of M1/M2, scheduled by demand.
+  drop its fallback poll entirely. Shipped as `hardening` `536c3d9`. See acceptance criteria below.
+- **M3 — broader surface. ✅ COMPLETE (2026-06-13).** MCP **`events_since`** (3.3, `db9020f`), **idempotent creates**
+  (3.4 / F9, `e7afae2`), **health counters** (3.5 / F10, `780fe68`) — independent of M1/M2. See acceptance criteria below.
 
 **Work items (each a small PR; tagged by milestone):**
 - 3.S **(M1, cross-repo)** swarm-dispatch adapter: add an optional
@@ -249,11 +249,11 @@ wake self-heals. So P3 lands in three milestones, **M1 highest priority**:
 **Acceptance criteria** (tagged by milestone)
 - [x] (M1) `client.subscribe({ filter })` receives only matching events after a mutation; non-matching events are not delivered (integration test). **Evidence:** opentasks `hardening` `2c169da` (per-connection IPC filter: `ipc.ts` `broadcastToSubscribers` + `ConnectionContext`; `watch.ts` `WatchFilter`/`eventMatchesFilter`; 6 unit tests) + `3c3bbf2` (`OpenTasksClient.subscribe(filter, handler)`; real-daemon `e2e-subscribe.test.ts` asserts the matching event is delivered and the non-matching one is dropped via a fence node — daemon suite 407, client suite 64).
 - [x] (M1) swarm-dispatch wakes `queryReady` on an opentasks task change and dispatches within the debounce window (not the 15s poll), with the fallback poll still running (cross-repo integration test). **Evidence:** swarm-dispatch `fix/opentasks-atomic-claim` `1fa690a`: `DispatchTaskSource.subscribe?` + `DispatchConfig.wakeDebounceMs` (default 100ms); dispatcher registers the wake on start (poll stays as fallback), coalesces bursts, tears down on stop; opentasks adapter bridges async `client.subscribe` into the sync `Unsubscribe`. +4 dispatcher tests (wake-on-change, burst coalescing, lifecycle, no-wake-after-stop) +5 adapter tests; full suite 364, tsc clean.
-- [ ] (M2) `events.since(cursor)` returns exactly the events with `seq > cursor.seq` for the same epoch; an older-than-buffer or different epoch → `resync:true` (unit test).
-- [ ] (M2) Disconnect → mutate → reconnect with cursor → client backfills the missed events, zero missed within the buffer window (integration test).
-- [ ] (M3) `events_since` MCP tool returns the delta + next cursor (test).
-- [ ] (M3) Retried `create` with the same `idempotency_key` → one node (test).
-- [ ] (M3) `health` / `daemon status` shows sync/watcher/reconcile counters; a forced sync failure increments the counter and is visible (test).
+- [x] (M2) `events.since(cursor)` returns exactly the events with `seq > cursor.seq` for the same epoch; an older-than-buffer or different epoch → `resync:true` (unit test). **Evidence:** `hardening` `536c3d9` — `events.ts` `createEventManager` + `events.test.ts` (8 unit: monotonic seq, head=empty, epoch-mismatch→resync, evicted-cursor→resync, ring eviction).
+- [x] (M2) Disconnect → mutate → reconnect with cursor → client backfills the missed events, zero missed within the buffer window (integration test). **Evidence:** `536c3d9` — `client.subscribe(filter, handler, { since, onResync })` backfills via `events.since` then resumes live, de-duped by `(epoch, seq)`; real-daemon `e2e-subscribe.test.ts` "backfills events missed while disconnected via a resume cursor" + stale-epoch resync + `events.current`/`events.since` client methods. Required dropping the `subscriberCount<=0` diff guard so events buffer even with no live subscriber.
+- [x] (M3) `events_since` MCP tool returns the delta + next cursor (test). **Evidence:** `hardening` `db9020f` — graph-scope `events_since(epoch?, seq?)` → `{ events, nextCursor }` (baseline when no cursor; `{ resync, nextCursor }` when unservable); `server.test.ts` +4 tool tests.
+- [x] (M3) Retried `create` with the same `idempotency_key` → one node (test). **Evidence:** `hardening` `e7afae2` — `idempotency.ts` (TTL + bounded store), `graph.create` dedupe, `client.createNode({ idempotencyKey })`, MCP `create_task` param; `idempotency.test.ts` (5) + `e2e-idempotency.test.ts` (retry→same node + one row, distinct keys, no-key→no-dedupe).
+- [x] (M3) `health` / `daemon status` shows sync/watcher/reconcile counters; a forced sync failure increments the counter and is visible (test). **Evidence:** `hardening` `780fe68` — `health-counters.ts` (watcher/reconcile counts + timestamps), `SyncerHealth.errorCount`, `health` method surfaces `counters` + `sync`; `e2e-health.test.ts` (shape + reconcile liveness) + extended git-sync push-failure test asserts `errorCount>=1` via both `sync.status` and `health`.
 
 **Steering signals**
 - If reconnect-gap loss shows up in practice (buffer too small / disconnects too long) → size the buffer up, or escalate to Path B (persisted event-log table with durable replay).
