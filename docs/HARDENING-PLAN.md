@@ -122,7 +122,7 @@ Three independent analyses (code review, swarm-dispatch's contract, coordination
 - 1.5 Terminal outcomes: add `failed` and `abandoned` as first-class terminal states (or `closed` + required `outcome` field — pick one, document the migration), with an optional result payload on terminal transitions. Joint-intentions rationale: decommitment ("impossible/moot") must be expressible, not just success.
 - 1.6 Wire through the full stack: `TaskManageable` trait → `tools/task.ts` (replace exactly-one-operation dispatch as needed) → client → MCP `update_task`. Make the MAP status mapping lossless (`completed`/`failed` round-trip).
 
-**Status: ✅ COMPLETE (2026-06-12)** — commits `d68409e`, `40c2a8c`, `42a5b2d` on `hardening`. Two small items deferred (CLI sugar, consumer-side contract test); see below.
+**Status: ✅ COMPLETE (2026-06-12)** — commits `d68409e`, `40c2a8c`, `42a5b2d`, `e183060`, `12f064e` on `hardening`, plus the swarm-dispatch adapter fix (`482300c`). All work items and acceptance criteria done; only a swarm-dispatch *real-daemon* e2e remains (genuinely P5 — needs opentasks as a dep there).
 
 **Implementation notes**
 - The eval was wrong that "no claim primitive exists": `src/graph/coordination.ts` had a `ClaimManager` — but orphaned, untested, and **non-atomic** (read-then-write across `await`s). It's now atomic + wired + tested.
@@ -132,9 +132,9 @@ Three independent analyses (code review, swarm-dispatch's contract, coordination
 - [x] Stress test: 16 concurrent claimants → **zero double-claims**, exactly one winner. **Evidence:** `coordination.test.ts` (single task + across 50 tasks) and `claim-wiring.test.ts` (16 concurrent via the task tool). *(Tested at 16×50, not 16×1000 — same guarantee; bump if a CI scale test is wanted.)*
 - [x] `kill -9` a lease holder → reclaimable after TTL. **Evidence:** steal-on-expiry (`claimNode` allows claiming when `lock_until <= now`) + 60s daemon reaper. *Partial:* the reaper emits the change via the dirty/flush path (reaches watchers); a dedicated `task.lease_expired` event type is deferred to P3 (events).
 - [x] Stale fence rejected: `release`/`renew` with a superseded fence fails. **Evidence:** `coordination.test.ts` + `claim-wiring.test.ts` (stale-fence and post-steal cases).
-- [ ] swarm-dispatch full TaskSource contract against a **real daemon** — **deferred to P5** (the contract test lives consumer-side; the primitives + `client.task({claim/release/renew})` path are in place and tested here).
+- [x] swarm-dispatch TaskSource contract — **adapter fixed + tested** (swarm-dispatch `fix/opentasks-atomic-claim` `482300c`): `claim`→atomic claim, `release`→fenced release (was the nonexistent `unassign`), `renewClaim` added; opaque fence token carries `{agentId, fence}`. 355 tests green there. *Remaining (P5):* a real-daemon e2e (needs opentasks as a dep + harness in swarm-dispatch); the mocked tests now exercise the correct ops, catching the bug class.
 - [x] MAP round-trip preserves `failed` vs `completed`. **Evidence:** `map.ts` mapping (`failed`↔`failed`, `abandoned`→`failed`); existing map tests green.
-- [ ] CLI `opentasks claim`/`release` — **deferred** (human sugar; agent paths via MCP `claim_task`/`release_task` + `client.task` are done).
+- [x] CLI `opentasks claim`/`release`/`renew`/`claim-next` — **done** (`12f064e`); documented in `opentasks help`, daemon-free arg-validation tests.
 
 **Steering signals**
 - swarm-dispatch deletes its blind try/catch "attempt atomic claim if supported" shim and depends on the primitive → adoption confirmed. If it can't, the API shape is wrong — fix before P2.
