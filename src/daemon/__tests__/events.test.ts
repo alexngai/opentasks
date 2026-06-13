@@ -87,6 +87,18 @@ describe('createEventManager', () => {
     expect(em.since({ epoch: 'e1', seq: 0 })).toEqual({ epoch: 'e1', resync: true });
   });
 
+  it('signals resync for a malformed cursor seq (NaN / negative / non-integer)', () => {
+    const em = createEventManager({ epoch: 'e1' });
+    em.emit(ev('a'));
+    em.emit(ev('b'));
+
+    // NaN must not slip through as an empty "caught up" delta.
+    expect(em.since({ epoch: 'e1', seq: Number.NaN })).toEqual({ epoch: 'e1', resync: true });
+    expect(em.since({ epoch: 'e1', seq: -1 })).toEqual({ epoch: 'e1', resync: true });
+    expect(em.since({ epoch: 'e1', seq: 1.5 })).toEqual({ epoch: 'e1', resync: true });
+    expect(em.since({ epoch: 'e1', seq: Infinity })).toEqual({ epoch: 'e1', resync: true });
+  });
+
   it('caps the ring buffer at bufferSize, evicting oldest', () => {
     const em = createEventManager({ epoch: 'e1', bufferSize: 2 });
     em.emit(ev('a')); // 1

@@ -723,7 +723,10 @@ export class OpenTasksClient {
           }
         }
       } catch {
-        // Backfill failed — fall through to live delivery; caller keeps polling.
+        // Backfill RPC failed (timeout / transient daemon error) — the gap was
+        // NOT recovered, so signal resync just like an unservable cursor. Live
+        // delivery still resumes below; the caller re-queries to fill the gap.
+        options?.onResync?.();
       }
       // Open the gate and flush events that arrived during the backfill.
       live = true;

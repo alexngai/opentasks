@@ -149,7 +149,6 @@ function providerRawData(node: StoredNode): Record<string, unknown> {
 export function registerWatchMethods(options: WatchMethodsOptions): void {
   const { server, locationResolver, eventManager, onWatcherError } = options;
 
-  let subscriberCount = 0;
   let watchActive = false;
   const cachedHashes = new Map<string, string>();
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -297,7 +296,6 @@ export function registerWatchMethods(options: WatchMethodsOptions): void {
       const { location, filter } = params || {};
       // Bind this connection's filter so broadcasts are delivered selectively.
       ctx.subscribe(filter ?? {});
-      subscriberCount++;
 
       if (!watchActive) {
         watchActive = true;
@@ -324,7 +322,6 @@ export function registerWatchMethods(options: WatchMethodsOptions): void {
   server.handle<{ location?: string }, { subscribed: boolean }>(
     'watch.unsubscribe',
     async (_params, ctx) => {
-      subscriberCount = Math.max(0, subscriberCount - 1);
       ctx.unsubscribe();
       return { subscribed: false };
     },

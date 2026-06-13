@@ -148,15 +148,17 @@ describe('registerWatchMethods', () => {
   let server: ReturnType<typeof createMockServer>;
   let store: GraphStore;
   let watcher: ReturnType<typeof createMockWatcher>;
+  let onWatcherError: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.useFakeTimers();
     server = createMockServer();
     store = createMockStore();
     watcher = createMockWatcher();
+    onWatcherError = vi.fn();
 
     const locationResolver = createMockLocationResolver(store, watcher);
-    registerWatchMethods({ server, locationResolver });
+    registerWatchMethods({ server, locationResolver, onWatcherError });
   });
 
   afterEach(() => {
@@ -703,6 +705,21 @@ describe('registerWatchMethods', () => {
 
       // No broadcast since diff failed silently
       expect(server.broadcastNotification).not.toHaveBeenCalled();
+    });
+
+    it('reports a swallowed diff error via onWatcherError (F10 health counter)', async () => {
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      await server.call('watch.subscribe', {});
+
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Store error'),
+      );
+
+      watcher._emit({ type: 'change', path: '/tmp/.opentasks/graph.jsonl', category: 'graph' });
+      await vi.advanceTimersByTimeAsync(150);
+
+      // The error is swallowed for resilience but surfaced to the health counter.
+      expect(onWatcherError).toHaveBeenCalledTimes(1);
     });
   });
 

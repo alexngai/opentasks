@@ -28,11 +28,12 @@ import type { WatchEventPayload, SinceResult } from '../../daemon/events.js';
 // ============================================================================
 
 async function waitFor(
-  predicate: () => boolean,
+  predicate: () => boolean | Promise<boolean>,
   timeoutMs: number = 8000,
 ): Promise<void> {
   const start = Date.now();
-  while (!predicate() && Date.now() - start < timeoutMs) {
+  while (Date.now() - start < timeoutMs) {
+    if (await predicate()) return;
     await new Promise((r) => setTimeout(r, 50));
   }
 }
@@ -221,7 +222,12 @@ describe('E2E: OpenTasksClient.subscribe', () => {
         status: 'open',
       })) as { id: string };
       await cMut.call('flush');
-      await new Promise((r) => setTimeout(r, 500)); // let the watcher diff + buffer
+      // Condition-poll until the daemon has actually buffered B (its seq passes
+      // the cursor) rather than a fixed sleep — deterministic under CI load.
+      await waitFor(async () => {
+        const head = await cMut.eventsCurrent();
+        return head.epoch === cursor.epoch && head.seq > cursor.seq;
+      });
       cMut.disconnect();
 
       // Subscriber 2: reconnect with the saved cursor → backfills B.

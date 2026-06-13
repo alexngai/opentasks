@@ -102,6 +102,12 @@ export function createEventManager(options: EventManagerOptions = {}): EventMana
     },
 
     since(cursor: EventCursor): SinceResult {
+      // A malformed seq (NaN, Infinity, negative, non-integer) can't be served
+      // as a delta — NaN comparisons would otherwise slip through as an empty
+      // "you're caught up" result. Force a resync so the caller re-queries.
+      if (!Number.isInteger(cursor.seq) || cursor.seq < 0) {
+        return { epoch, resync: true };
+      }
       // Different epoch → seq space reset under the client; full resync.
       if (cursor.epoch !== epoch) {
         return { epoch, resync: true };
