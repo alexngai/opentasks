@@ -570,6 +570,62 @@ function registerGraphTools(server: McpServer, client: OpenTasksClient): void {
       }
     },
   );
+
+  server.tool(
+    'events_since',
+    `Pull graph change events since a cursor (token-cheap polling — get just what changed instead of re-querying the world).
+Pass back the { epoch, seq } cursor from a previous call; omit both to get a baseline cursor from the current head (no events).
+Returns { events, nextCursor }. If the cursor is too old or the daemon restarted, returns { resync: true, nextCursor } — re-query state and adopt nextCursor.`,
+    {
+      epoch: z.string().optional().describe('Cursor epoch from a prior call (omit for a baseline)'),
+      seq: z.number().optional().describe('Cursor seq from a prior call (omit for a baseline)'),
+    },
+    async (args) => {
+      try {
+        // No cursor → hand back the current head as a baseline to poll from.
+        if (args.epoch === undefined || args.seq === undefined) {
+          const cursor = await client.eventsCurrent();
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ events: [], nextCursor: cursor }, null, 2),
+              },
+            ],
+          };
+        }
+
+        const result = await client.eventsSince({ epoch: args.epoch, seq: args.seq });
+        if ('resync' in result && result.resync) {
+          const cursor = await client.eventsCurrent();
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ resync: true, nextCursor: cursor }, null, 2),
+              },
+            ],
+          };
+        }
+
+        const events = result.events;
+        const last = events.length > 0 ? events[events.length - 1] : null;
+        const nextCursor = last
+          ? { epoch: last.epoch, seq: last.seq }
+          : { epoch: args.epoch, seq: args.seq };
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ events, nextCursor }, null, 2),
+            },
+          ],
+        };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
 }
 
 // ============================================================================
