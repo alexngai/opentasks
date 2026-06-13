@@ -26,6 +26,39 @@ export interface WatchMethodsOptions {
   locationResolver: LocationResolver;
 }
 
+/**
+ * Subscription filter (M1: coarse). Omitted → the subscriber receives all
+ * events. `types` matches the provider node type carried on the event (tasks
+ * are emitted as `'issue'`, contexts as `'spec'`); `statuses` matches
+ * `node.status`.
+ */
+export interface WatchFilter {
+  types?: string[];
+  statuses?: string[];
+}
+
+/**
+ * Does an event satisfy a subscriber's filter? Delete events carry no node, so
+ * they can't be filtered by type/status — they are always delivered (a delete
+ * only prompts a re-poll, so over-delivery is harmless).
+ */
+function eventMatchesFilter(event: ProviderNodeChangeEvent, filter: unknown): boolean {
+  const f = (filter ?? {}) as WatchFilter;
+  if (event.type === 'deleted') return true;
+  const node = event.node;
+  if (f.types && f.types.length > 0 && (!node || !f.types.includes(node.type))) {
+    return false;
+  }
+  if (
+    f.statuses &&
+    f.statuses.length > 0 &&
+    (!node || !node.status || !f.statuses.includes(node.status))
+  ) {
+    return false;
+  }
+  return true;
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -124,6 +157,17 @@ export function registerWatchMethods(options: WatchMethodsOptions): void {
   }
 
   /**
+   * Deliver a watch event only to connections whose subscription filter
+   * matches it. Replaces a blanket broadcast so subscribers see just the
+   * events they asked for.
+   */
+  function emit(event: ProviderNodeChangeEvent): void {
+    server.broadcastToSubscribers('watch.event', event, (filter) =>
+      eventMatchesFilter(event, filter),
+    );
+  }
+
+  /**
    * Diff current graph state against cached hashes and broadcast events
    */
   async function diffAndBroadcast(location?: string): Promise<void> {
@@ -159,7 +203,7 @@ export function registerWatchMethods(options: WatchMethodsOptions): void {
             },
             timestamp: new Date().toISOString(),
           };
-          server.broadcastNotification('watch.event', event);
+          emit(event);
         } else if (hash !== prevHash) {
           // Updated node
           const event: ProviderNodeChangeEvent = {
@@ -179,7 +223,7 @@ export function registerWatchMethods(options: WatchMethodsOptions): void {
             },
             timestamp: new Date().toISOString(),
           };
-          server.broadcastNotification('watch.event', event);
+          emit(event);
         }
 
         cachedHashes.set(storedNode.id, hash);
@@ -194,7 +238,7 @@ export function registerWatchMethods(options: WatchMethodsOptions): void {
             uri: `global://${id}`,
             timestamp: new Date().toISOString(),
           };
-          server.broadcastNotification('watch.event', event);
+          emit(event);
           cachedHashes.delete(id);
         }
       }
@@ -215,10 +259,12 @@ export function registerWatchMethods(options: WatchMethodsOptions): void {
   }
 
   // watch.subscribe - Subscribe to graph change notifications
-  server.handle<{ location?: string }, { subscribed: boolean }>(
+  server.handle<{ location?: string; filter?: WatchFilter }, { subscribed: boolean }>(
     'watch.subscribe',
-    async (params) => {
-      const { location } = params || {};
+    async (params, ctx) => {
+      const { location, filter } = params || {};
+      // Bind this connection's filter so broadcasts are delivered selectively.
+      ctx.subscribe(filter ?? {});
       subscriberCount++;
 
       if (!watchActive) {
@@ -245,8 +291,9 @@ export function registerWatchMethods(options: WatchMethodsOptions): void {
   // watch.unsubscribe - Unsubscribe from graph change notifications
   server.handle<{ location?: string }, { subscribed: boolean }>(
     'watch.unsubscribe',
-    async () => {
+    async (_params, ctx) => {
       subscriberCount = Math.max(0, subscriberCount - 1);
+      ctx.unsubscribe();
       return { subscribed: false };
     },
   );

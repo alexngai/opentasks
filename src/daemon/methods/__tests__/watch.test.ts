@@ -14,25 +14,52 @@ import type { GraphStore } from '../../../graph/store.js';
 // ============================================================================
 
 function createMockServer() {
-  const handlers = new Map<string, (params: unknown) => Promise<unknown>>();
+  const handlers = new Map<string, (params: unknown, ctx: unknown) => Promise<unknown>>();
+
+  // Model subscription state as a stack of active filters. ctx.subscribe pushes,
+  // ctx.unsubscribe pops — mirroring the real per-socket subscription map across
+  // multiple subscribers. broadcastToSubscribers delivers once if any remaining
+  // subscriber's filter matches, routed through the broadcastNotification spy so
+  // existing assertions keep working.
+  const filters: unknown[] = [];
+  const ctx = {
+    subscribe: (filter: unknown) => {
+      filters.push(filter);
+    },
+    unsubscribe: () => {
+      filters.pop();
+    },
+  };
+
+  const broadcastNotification = vi.fn();
 
   return {
-    handle: vi.fn((method: string, handler: (params: unknown) => Promise<unknown>) => {
-      handlers.set(method, handler);
-    }),
-    broadcastNotification: vi.fn(),
+    handle: vi.fn(
+      (method: string, handler: (params: unknown, ctx: unknown) => Promise<unknown>) => {
+        handlers.set(method, handler);
+      },
+    ),
+    broadcastNotification,
+    broadcastToSubscribers: vi.fn(
+      (method: string, params: unknown, matches: (filter: unknown) => boolean) => {
+        if (filters.some((f) => matches(f))) {
+          broadcastNotification(method, params);
+        }
+      },
+    ),
     call: async (method: string, params?: unknown) => {
       const handler = handlers.get(method);
       if (!handler) {
         throw new Error(`Method not found: ${method}`);
       }
-      return handler(params);
+      return handler(params, ctx);
     },
     handlers,
   } as unknown as IPCServer & {
     call: (method: string, params?: unknown) => Promise<unknown>;
-    handlers: Map<string, (params: unknown) => Promise<unknown>>;
+    handlers: Map<string, (params: unknown, ctx: unknown) => Promise<unknown>>;
     broadcastNotification: ReturnType<typeof vi.fn>;
+    broadcastToSubscribers: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -676,6 +703,103 @@ describe('registerWatchMethods', () => {
 
       // No broadcast since diff failed silently
       expect(server.broadcastNotification).not.toHaveBeenCalled();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Subscription filtering (M1: coarse type/status filters)
+  // --------------------------------------------------------------------------
+
+  describe('subscription filtering', () => {
+    it('delivers events whose status matches a statuses filter', async () => {
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      await server.call('watch.subscribe', { filter: { statuses: ['open'] } });
+
+      const node = makeNode({ id: 'i-open', status: 'open' });
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([node]);
+
+      watcher._emit({ type: 'change', path: '/tmp/.opentasks/graph.jsonl', category: 'graph' });
+      await vi.advanceTimersByTimeAsync(150);
+
+      expect(server.broadcastNotification).toHaveBeenCalledWith(
+        'watch.event',
+        expect.objectContaining({ type: 'created', nodeId: 'i-open' }),
+      );
+    });
+
+    it('drops events whose status does not match a statuses filter', async () => {
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      await server.call('watch.subscribe', { filter: { statuses: ['closed'] } });
+
+      const node = makeNode({ id: 'i-open', status: 'open' });
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([node]);
+
+      watcher._emit({ type: 'change', path: '/tmp/.opentasks/graph.jsonl', category: 'graph' });
+      await vi.advanceTimersByTimeAsync(150);
+
+      expect(server.broadcastNotification).not.toHaveBeenCalled();
+    });
+
+    it('matches a types filter against the provider-normalized type', async () => {
+      // task nodes are emitted as provider type 'issue'.
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      await server.call('watch.subscribe', { filter: { types: ['issue'] } });
+
+      const node = makeNode({ id: 'i-task', type: 'task' });
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([node]);
+
+      watcher._emit({ type: 'change', path: '/tmp/.opentasks/graph.jsonl', category: 'graph' });
+      await vi.advanceTimersByTimeAsync(150);
+
+      expect(server.broadcastNotification).toHaveBeenCalledWith(
+        'watch.event',
+        expect.objectContaining({ type: 'created', nodeId: 'i-task' }),
+      );
+    });
+
+    it('drops events whose provider type does not match a types filter', async () => {
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      await server.call('watch.subscribe', { filter: { types: ['spec'] } });
+
+      const node = makeNode({ id: 'i-task', type: 'task' });
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([node]);
+
+      watcher._emit({ type: 'change', path: '/tmp/.opentasks/graph.jsonl', category: 'graph' });
+      await vi.advanceTimersByTimeAsync(150);
+
+      expect(server.broadcastNotification).not.toHaveBeenCalled();
+    });
+
+    it('always delivers delete events regardless of filter', async () => {
+      // Seed with a node, then remove it under a filter that would exclude it.
+      const node = makeNode({ id: 'i-gone', type: 'task', status: 'open' });
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([node]);
+      await server.call('watch.subscribe', { filter: { types: ['spec'] } });
+
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      watcher._emit({ type: 'change', path: '/tmp/.opentasks/graph.jsonl', category: 'graph' });
+      await vi.advanceTimersByTimeAsync(150);
+
+      expect(server.broadcastNotification).toHaveBeenCalledWith(
+        'watch.event',
+        expect.objectContaining({ type: 'deleted', nodeId: 'i-gone' }),
+      );
+    });
+
+    it('delivers all events when the filter is empty', async () => {
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      await server.call('watch.subscribe', {});
+
+      const node = makeNode({ id: 'i-any', type: 'task', status: 'blocked' });
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([node]);
+
+      watcher._emit({ type: 'change', path: '/tmp/.opentasks/graph.jsonl', category: 'graph' });
+      await vi.advanceTimersByTimeAsync(150);
+
+      expect(server.broadcastNotification).toHaveBeenCalledWith(
+        'watch.event',
+        expect.objectContaining({ type: 'created', nodeId: 'i-any' }),
+      );
     });
   });
 });
