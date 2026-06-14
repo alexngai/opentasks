@@ -151,46 +151,33 @@ export function registerGraphMethods(options: GraphMethodsOptions): void {
     const { location, scheme, idempotency_key, ...createParams } = params;
     const state = locationResolver.resolve(location);
 
-    // Idempotent retry (F9): a create repeated with the same key inside the TTL
-    // window returns the original node rather than a duplicate. If the mapped
-    // node no longer exists (deleted since), fall through and recreate.
-    if (idempotency_key && idempotencyStore) {
-      const existingId = idempotencyStore.get(idempotency_key);
-      if (existingId !== undefined) {
-        const existing = state.providerStore
-          ? await state.providerStore.providerGet(existingId)
-          : await state.store.getNode(existingId);
-        if (existing) return existing;
+    // Create a node (provider-aware when available), mark dirty + schedule flush.
+    const doCreate = async (): Promise<{ id: string }> => {
+      if (state.providerStore) {
+        const result = await state.providerStore.providerCreate(createParams, { scheme });
+        state.flushManager.markDirty(result.node.id);
+        state.flushManager.schedule();
+        return result.node;
       }
-    }
-
-    // Use provider-aware create when available
-    if (state.providerStore) {
-      const result = await state.providerStore.providerCreate(createParams, { scheme });
-
-      // Mark dirty and schedule flush
-      state.flushManager.markDirty(result.node.id);
+      const node = await state.store.createNode(createParams);
+      state.flushManager.markDirty(node.id);
       state.flushManager.schedule();
+      return node;
+    };
 
-      if (idempotency_key && idempotencyStore) {
-        idempotencyStore.set(idempotency_key, result.node.id);
-      }
-
-      return result.node;
-    }
-
-    // Fallback: direct store create
-    const node = await state.store.createNode(createParams);
-
-    // Mark dirty and schedule flush
-    state.flushManager.markDirty(node.id);
-    state.flushManager.schedule();
-
+    // Idempotent retry (F9): dedupe BOTH sequential retries (TTL window) and
+    // concurrent in-flight retries with the same key. `run` reserves the key
+    // before the create, closing the get→create race; if the mapped node was
+    // deleted since (or a concurrent creator failed), it recreates.
     if (idempotency_key && idempotencyStore) {
-      idempotencyStore.set(idempotency_key, node.id);
+      const fetchNode = (id: string): Promise<{ id: string } | null | undefined> =>
+        (state.providerStore
+          ? state.providerStore.providerGet(id)
+          : state.store.getNode(id)) as Promise<{ id: string } | null | undefined>;
+      return idempotencyStore.run(idempotency_key, doCreate, fetchNode);
     }
 
-    return node;
+    return doCreate();
   });
 
   // graph.update - Update node (with provider routing for external nodes)

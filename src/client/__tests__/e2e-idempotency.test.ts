@@ -104,6 +104,27 @@ describe('E2E: idempotent create', () => {
     expect(a.id).not.toBe(b.id);
   });
 
+  it('dedupes concurrent retries with the same key into one node', async () => {
+    await startDaemon();
+    // Two separate connections → the daemon genuinely interleaves the two
+    // graph.create handlers, exercising the get→create reservation path.
+    const c1 = new OpenTasksClient({ socketPath: daemon!.socketPath, autoConnect: true });
+    const c2 = new OpenTasksClient({ socketPath: daemon!.socketPath, autoConnect: true });
+    try {
+      const [a, b] = (await Promise.all([
+        c1.createNode({ type: 'task', title: 'Concurrent', status: 'open' }, { idempotencyKey: 'k-cc' }),
+        c2.createNode({ type: 'task', title: 'Concurrent', status: 'open' }, { idempotencyKey: 'k-cc' }),
+      ])) as Array<{ id: string }>;
+
+      expect(a.id).toBe(b.id);
+      const all = await store.query.nodes({});
+      expect(all.filter((n) => (n as { title?: string }).title === 'Concurrent')).toHaveLength(1);
+    } finally {
+      c1.disconnect();
+      c2.disconnect();
+    }
+  });
+
   it('does not dedupe creates without a key', async () => {
     await startDaemon();
     const c = connectClient();
