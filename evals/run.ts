@@ -34,7 +34,14 @@ const TRACE_DIR = path.resolve(process.cwd(), 'evals/.runs');
 
 // Pass Bedrock/mantle env through to the spawned agent (creds come from the
 // AWS default profile / environment — nothing hard-coded here).
-const PASSTHROUGH = ['CLAUDE_CODE_USE_BEDROCK', 'AWS_REGION', 'AWS_PROFILE', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_MODEL'];
+const PASSTHROUGH = [
+  'CLAUDE_CODE_USE_BEDROCK',
+  'AWS_REGION',
+  'AWS_PROFILE',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_API_KEY', // GLM-5 via LiteLLM: must equal the proxy master_key
+  'ANTHROPIC_MODEL',
+];
 const passEnv: Record<string, string> = {};
 for (const k of PASSTHROUGH) if (process.env[k]) passEnv[k] = process.env[k]!;
 

@@ -1,2 +1,6 @@
 # Per-run traces + scratch — not committed.
 .runs/
+
+# GLM-5 stack runtime
+glm5/.venv/
+glm5/.logs/

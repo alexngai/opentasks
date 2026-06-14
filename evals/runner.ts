@@ -54,6 +54,24 @@ export function runTaskWithArm(task: EvalTask, arm: EvalArm, opts: RunOpts): Run
     fs.writeFileSync(mcpFile, JSON.stringify({ mcpServers: serversCfg }));
     args.push('--mcp-config', mcpFile, '--strict-mcp-config');
 
+    // Disable OMC (hangs headless `claude -p`, confounds the eval).
+    const spawnEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      NO_COLOR: '1',
+      DISABLE_OMC: '1',
+      OMC_SKIP_HOOKS: '1',
+      ...(opts.env ?? {}),
+    };
+    // When auth is via an API key + proxy (GLM-5 through LiteLLM), give the agent
+    // a UNIQUE EMPTY CLAUDE_CONFIG_DIR. Critical: otherwise the box's Max-plan
+    // login leaks through and overrides the key (LiteLLM "400 No connected db").
+    // It also isolates global plugins / CLAUDE.md from the eval.
+    if (opts.env?.ANTHROPIC_API_KEY) {
+      const cfgDir = path.join(workDir, '.cchome');
+      fs.mkdirSync(cfgDir, { recursive: true });
+      spawnEnv.CLAUDE_CONFIG_DIR = cfgDir;
+    }
+
     const start = Date.now();
     let stdout = '';
     let timedOut = false;
@@ -64,10 +82,7 @@ export function runTaskWithArm(task: EvalTask, arm: EvalArm, opts: RunOpts): Run
         encoding: 'utf-8',
         timeout: opts.timeoutMs,
         maxBuffer: 128 * 1024 * 1024,
-        // Disable any OMC/orchestration layer in the spawned agent: it hangs
-        // headless `claude -p` and confounds the eval (we measure base agent +
-        // arm, not + OMC). Mirrors skill-tree's runner.
-        env: { ...process.env, NO_COLOR: '1', DISABLE_OMC: '1', OMC_SKIP_HOOKS: '1', ...(opts.env ?? {}) },
+        env: spawnEnv,
       });
     } catch (e) {
       const err = e as { stdout?: Buffer | string; stderr?: Buffer | string; status?: number; signal?: string; killed?: boolean };
@@ -158,14 +173,25 @@ function parseStream(stdout: string): {
       }
     } else if (obj.type === 'result') {
       resultText = typeof obj.result === 'string' ? obj.result : '';
-      const u = (obj.usage ?? {}) as Record<string, number>;
-      tokenCost =
-        (u.input_tokens ?? 0) +
-        (u.cache_creation_input_tokens ?? 0) +
-        (u.cache_read_input_tokens ?? 0) +
-        (u.output_tokens ?? 0);
-      if (!tokenCost && typeof obj.total_cost_usd === 'number' && obj.total_cost_usd > 0) {
-        tokenCost = Math.ceil(obj.total_cost_usd / 0.000003);
+      // Prefer modelUsage (real per-model token counts; for GLM-5 via LiteLLM
+      // this is the only honest source — top-level `total_cost_usd` is LiteLLM
+      // estimating against Anthropic pricing and is meaningless). Sum across
+      // models (usually one). Fall back to top-level usage for the native path.
+      const mu = obj.modelUsage as
+        | Record<string, { inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number }>
+        | undefined;
+      if (mu && Object.keys(mu).length) {
+        for (const m of Object.values(mu)) {
+          tokenCost +=
+            (m.inputTokens ?? 0) + (m.outputTokens ?? 0) + (m.cacheReadInputTokens ?? 0) + (m.cacheCreationInputTokens ?? 0);
+        }
+      } else {
+        const u = (obj.usage ?? {}) as Record<string, number>;
+        tokenCost =
+          (u.input_tokens ?? 0) +
+          (u.cache_creation_input_tokens ?? 0) +
+          (u.cache_read_input_tokens ?? 0) +
+          (u.output_tokens ?? 0);
       }
     }
   }
