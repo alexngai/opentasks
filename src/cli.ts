@@ -10,6 +10,8 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { generateLocationIdentity } from './core/location.js';
 import { ensureGlobalStoreInitialized } from './core/init.js';
 import { createConnection, checkAllConnectionHealth, type Connection } from './core/connections.js';
@@ -48,7 +50,7 @@ opentasks v${VERSION}
 Usage:
   opentasks <command> [options]
 
-Tool commands (require running daemon):
+Tool commands (auto-start the daemon if needed; --no-autostart to opt out):
   link    --from <id> --to <id> --type <type> [--remove] [--metadata <json>]
   query   <json>                Query the graph (pass QueryParams as JSON)
   annotate <json>               Manage feedback (pass AnnotateParams as JSON)
@@ -529,12 +531,78 @@ function cmdDiscover(args: string[]): void {
 // Daemon Commands
 // ============================================================================
 
+/** Resolve the path to this CLI entrypoint (dist/cli.js) for re-spawning. */
+function cliEntrypoint(): string {
+  return fileURLToPath(import.meta.url);
+}
+
+/**
+ * Spawn a detached daemon process (`daemon start --foreground`) and let it
+ * outlive this process. The child inherits cwd + env so it resolves the same
+ * project as the parent.
+ */
+function spawnDetachedDaemon(): void {
+  const child = spawn(process.execPath, [cliEntrypoint(), 'daemon', 'start', '--foreground'], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+}
+
+/** Sleep helper for poll loops. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Poll until the daemon for `opentasksDir` reports running, or throw on timeout.
+ */
+async function waitForDaemon(opentasksDir: string, timeoutMs = 10_000): Promise<void> {
+  const start = Date.now();
+  for (;;) {
+    const existing = await checkExistingDaemon(opentasksDir);
+    if (existing.running) return;
+    if (Date.now() - start >= timeoutMs) {
+      throw new Error(`Daemon did not start within ${timeoutMs}ms`);
+    }
+    await delay(100);
+  }
+}
+
+/**
+ * Ensure a daemon is running for `opentasksDir`, auto-starting one if needed
+ * (4.1). Auto-start is on by default; opt out with `--no-autostart` or
+ * `OPENTASKS_NO_AUTOSTART=1`. When auto-start is disabled and no daemon is
+ * running, this is a no-op — the subsequent client connect surfaces a clear
+ * "not connected" error.
+ */
+async function ensureDaemonRunning(
+  opentasksDir: string,
+  options: { autostart: boolean } = { autostart: true },
+): Promise<void> {
+  const existing = await checkExistingDaemon(opentasksDir);
+  if (existing.running) return;
+  if (!options.autostart) return;
+
+  process.stderr.write('opentasks: no daemon running — starting one…\n');
+  spawnDetachedDaemon();
+  try {
+    await waitForDaemon(opentasksDir);
+    const started = await checkExistingDaemon(opentasksDir);
+    process.stderr.write(`opentasks: daemon started (pid ${started.pid ?? '?'})\n`);
+  } catch (error) {
+    process.stderr.write(
+      `opentasks: daemon auto-start failed: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+  }
+}
+
 /**
  * Start the daemon process.
  *
- * By default runs in the foreground (keeps the process alive).
- * The caller (e.g., claude-code-swarm's ensureDaemon) spawns this
- * as a detached subprocess.
+ * Detaches by default and returns once the daemon is accepting connections.
+ * Pass `--foreground` to run it in the foreground (used by the detached child
+ * and by callers that manage the lifecycle themselves).
  */
 async function cmdDaemonStart(args: string[]): Promise<void> {
   const opentasksDir = resolveProjectDir();
@@ -555,6 +623,22 @@ async function cmdDaemonStart(args: string[]): Promise<void> {
       status: 'already_running',
       pid: existing.pid,
       socketPath: existing.socketPath,
+    }));
+    return;
+  }
+
+  // Detach by default (4.2): re-spawn ourselves in the foreground, wait until
+  // the daemon is accepting connections, then report and return. `--foreground`
+  // runs the blocking daemon loop in-process.
+  if (!args.includes('--foreground')) {
+    spawnDetachedDaemon();
+    await waitForDaemon(opentasksDir);
+    const started = await checkExistingDaemon(opentasksDir);
+    console.log(JSON.stringify({
+      status: 'started',
+      detached: true,
+      pid: started.pid,
+      socketPath: started.socketPath,
     }));
     return;
   }
@@ -1090,6 +1174,14 @@ async function cmdMcp(args: string[]): Promise<void> {
     }
   }
 
+  // Auto-start the project daemon so a fresh MCP session works with zero manual
+  // daemon management (4.1). Skip when an explicit `--socket` is given (the
+  // daemon is externally managed) or auto-start is disabled. Notices go to
+  // stderr so they don't corrupt the stdio JSON-RPC channel.
+  if (!socketPath && process.env.OPENTASKS_NO_AUTOSTART !== '1') {
+    await ensureDaemonRunning(resolveProjectDir(), { autostart: true });
+  }
+
   const { startMCPServer, ALL_SCOPES } = await import('./mcp/index.js');
   const scopes = scopeStr === 'all'
     ? [...ALL_SCOPES]
@@ -1107,13 +1199,46 @@ function padRight(str: string, len: number): string {
   return str.length >= len ? str + '  ' : str + ' '.repeat(len - str.length);
 }
 
+/**
+ * Commands that talk to the daemon. For these, `main` ensures a daemon is
+ * running first (auto-starting one unless opted out).
+ */
+const DAEMON_COMMANDS = new Set([
+  'link',
+  'query',
+  'annotate',
+  'create',
+  'get',
+  'update',
+  'delete',
+  'context-summary',
+  'claim',
+  'claim-next',
+  'release',
+  'renew',
+  'ready',
+  'list',
+  'tree',
+  'blocked',
+  'cleanup',
+]);
+
 async function main() {
-  const args = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
+  // Global flag: strip it so per-command arg parsing isn't disturbed.
+  const autostart =
+    !rawArgs.includes('--no-autostart') && process.env.OPENTASKS_NO_AUTOSTART !== '1';
+  const args = rawArgs.filter((a) => a !== '--no-autostart');
   const command = args[0];
 
   if (!command || command === 'help' || command === '--help') {
     printHelp();
     process.exit(0);
+  }
+
+  // Auto-start the daemon for commands that need it (4.1).
+  if (DAEMON_COMMANDS.has(command)) {
+    await ensureDaemonRunning(resolveProjectDir(), { autostart });
   }
 
   switch (command) {
