@@ -111,3 +111,58 @@ describe.skipIf(!distBuilt)('E2E: CLI cold-start (4.1 / 4.2)', () => {
     expect(notRunning).toBe(true);
   }, 30_000);
 });
+
+describe.skipIf(!distBuilt)('E2E: CLI human commands (4.4)', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'opentasks-cli-views-'));
+  });
+
+  afterEach(async () => {
+    run(tempDir, ['daemon', 'stop']);
+    await new Promise((r) => setTimeout(r, 400));
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  });
+
+  function create(title: string, status = 'open'): string {
+    const r = run(tempDir, ['create', '--type', 'task', '--title', title, '--status', status]);
+    return JSON.parse(r.stdout).id as string;
+  }
+
+  it('ready / list / blocked / tree render compact, closed-excluded views', () => {
+    run(tempDir, ['init']);
+    create('Alpha');
+    const beta = create('Beta');
+    const blocker = create('Gamma');
+    run(tempDir, ['link', '--from', blocker, '--to', beta, '--type', 'blocks']);
+    create('Omega', 'closed');
+
+    // ready: unblocked only — Beta (blocked) excluded.
+    const ready = run(tempDir, ['ready']);
+    expect(ready.status).toBe(0);
+    expect(ready.stdout).toContain('Alpha');
+    expect(ready.stdout).toContain('Gamma');
+    expect(ready.stdout).not.toContain('Beta');
+
+    // list: closed hidden by default; --all shows it.
+    const list = run(tempDir, ['list']);
+    expect(list.stdout).toContain('Alpha');
+    expect(list.stdout).not.toContain('Omega');
+    expect(run(tempDir, ['list', '--all']).stdout).toContain('Omega');
+
+    // blocked: Beta is waiting on Gamma.
+    const blocked = run(tempDir, ['blocked']);
+    expect(blocked.stdout).toContain(beta);
+    expect(blocked.stdout).not.toContain('Alpha');
+
+    // tree: Beta → its blocker Gamma.
+    const tree = run(tempDir, ['tree', beta]);
+    expect(tree.stdout).toContain(beta);
+    expect(tree.stdout).toContain(blocker);
+  }, 30_000);
+});

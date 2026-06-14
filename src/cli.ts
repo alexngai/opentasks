@@ -64,6 +64,12 @@ Tool commands (auto-start the daemon if needed; --no-autostart to opt out):
   release <id> --agent <id> [--fence <n>]                    Release a claim
   renew   <id> --agent <id> [--duration <ms>] [--fence <n>]  Renew/extend a claim's lease
 
+Views (compact, human-readable; --json for raw, --limit <n>, default ${DEFAULT_LIST_LIMIT}):
+  ready   [--tags a,b]           Unblocked tasks ready to work on
+  list    [--type <t>] [--status <s>] [--tags a,b] [--all]   Tasks (closed hidden unless --all)
+  blocked                        Open tasks waiting on an unresolved blocker
+  tree    <id>                   A task and its blocker dependency tree
+
 Create options:
   --status <s>                  Status (required for tasks)
   --content <text>              Markdown content
@@ -766,6 +772,160 @@ async function runToolCommand(fn: () => Promise<unknown>): Promise<void> {
   }
 }
 
+// ============================================================================
+// Human-readable commands (token-light sugar over `query`) — P4 4.4
+// ============================================================================
+
+const DEFAULT_LIST_LIMIT = 50;
+const TERMINAL_STATUSES = new Set(['closed', 'failed', 'abandoned']);
+
+interface TaskRow {
+  id: string;
+  type?: string;
+  title?: string;
+  status?: string;
+  priority?: number;
+}
+
+/** One compact line per task — id, status, priority, truncated title. */
+function printTaskRows(rows: TaskRow[], total: number, limit: number): void {
+  if (rows.length === 0) {
+    console.log('(none)');
+    return;
+  }
+  const shown = rows.slice(0, limit);
+  for (const r of shown) {
+    const id = (r.id ?? '').padEnd(10).slice(0, 10);
+    const status = (r.status ?? '').padEnd(11).slice(0, 11);
+    const pri = r.priority !== undefined ? `P${r.priority}` : '  ';
+    const raw = r.title ?? '';
+    const title = raw.length > 64 ? raw.slice(0, 63) + '…' : raw;
+    console.log(`${id}  ${status} ${pri}  ${title}`);
+  }
+  const omitted = total - shown.length;
+  if (omitted > 0) {
+    console.log(`… ${omitted} more (showing ${shown.length} of ${total}; use --limit / --all)`);
+  }
+}
+
+/** Run `fn` with a connected client; report errors as JSON; always disconnect. */
+async function withClient(fn: (client: OpenTasksClient) => Promise<void>): Promise<void> {
+  const client = new OpenTasksClient();
+  try {
+    await fn(client);
+  } catch (error) {
+    console.error(
+      JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+    );
+    process.exitCode = 1;
+  } finally {
+    client.disconnect();
+  }
+}
+
+export async function cmdReady(args: string[]): Promise<void> {
+  const limit = Number(getFlag(args, '--limit') ?? DEFAULT_LIST_LIMIT);
+  const tags = getFlag(args, '--tags')?.split(',').map((s) => s.trim());
+  const json = hasFlag(args, '--json');
+  await withClient(async (client) => {
+    const result = (await client.query({ ready: { limit, tags } })) as {
+      items?: TaskRow[];
+      total?: number;
+    };
+    const items = result.items ?? [];
+    if (json) {
+      console.log(JSON.stringify(items, null, 2));
+      return;
+    }
+    printTaskRows(items, result.total ?? items.length, limit);
+  });
+}
+
+export async function cmdList(args: string[]): Promise<void> {
+  const type = getFlag(args, '--type');
+  const status = getFlag(args, '--status');
+  const tags = getFlag(args, '--tags')?.split(',').map((s) => s.trim());
+  const all = hasFlag(args, '--all');
+  const limit = Number(getFlag(args, '--limit') ?? DEFAULT_LIST_LIMIT);
+  const json = hasFlag(args, '--json');
+  await withClient(async (client) => {
+    const nodes: Record<string, unknown> = { archived: false };
+    if (type) nodes.type = type;
+    if (status) nodes.status = status;
+    if (tags) nodes.tags = tags;
+    const result = (await client.query({ nodes })) as { items?: TaskRow[] };
+    let items = result.items ?? [];
+    // Hide terminal (closed/failed/abandoned) tasks by default; --all or an
+    // explicit --status overrides.
+    if (!all && !status) {
+      items = items.filter((i) => !TERMINAL_STATUSES.has(i.status ?? ''));
+    }
+    if (json) {
+      console.log(JSON.stringify(items.slice(0, limit), null, 2));
+      return;
+    }
+    printTaskRows(items, items.length, limit);
+  });
+}
+
+export async function cmdBlocked(args: string[]): Promise<void> {
+  const limit = Number(getFlag(args, '--limit') ?? DEFAULT_LIST_LIMIT);
+  const json = hasFlag(args, '--json');
+  await withClient(async (client) => {
+    const [active, ready] = await Promise.all([
+      client.query({ nodes: { type: 'task', archived: false } }) as Promise<{ items?: TaskRow[] }>,
+      client.query({ ready: { limit: 100_000 } }) as Promise<{ items?: TaskRow[] }>,
+    ]);
+    const readyIds = new Set((ready.items ?? []).map((i) => i.id));
+    // An open/blocked task that isn't in the ready set is waiting on a blocker.
+    const blocked = (active.items ?? []).filter(
+      (i) => (i.status === 'open' || i.status === 'blocked') && !readyIds.has(i.id),
+    );
+    if (json) {
+      console.log(JSON.stringify(blocked, null, 2));
+      return;
+    }
+    printTaskRows(blocked, blocked.length, limit);
+  });
+}
+
+export async function cmdTree(args: string[]): Promise<void> {
+  const id = args.find((a) => !a.startsWith('--'));
+  if (!id) {
+    console.error('Usage: opentasks tree <id> [--json]');
+    process.exit(1);
+  }
+  const json = hasFlag(args, '--json');
+  await withClient(async (client) => {
+    const root = (await client.getNode(id)) as TaskRow | null;
+    if (!root) {
+      console.error(JSON.stringify({ error: `Not found: ${id}` }));
+      process.exitCode = 1;
+      return;
+    }
+    // Walk the blocker tree (what this task depends on), depth-limited + cycle-safe.
+    const lines: string[] = [];
+    const seen = new Set<string>();
+    async function walk(node: TaskRow, depth: number): Promise<void> {
+      const indent = '  '.repeat(depth);
+      const marker = depth === 0 ? '' : '↳ ';
+      lines.push(`${indent}${marker}${node.id}  [${node.status ?? '?'}]  ${node.title ?? ''}`);
+      if (seen.has(node.id) || depth >= 6) return;
+      seen.add(node.id);
+      const blockers = (await client.blockers(node.id)) as unknown as TaskRow[];
+      for (const b of blockers) {
+        await walk(b, depth + 1);
+      }
+    }
+    await walk(root, 0);
+    if (json) {
+      console.log(JSON.stringify({ root: id, tree: lines }, null, 2));
+      return;
+    }
+    console.log(lines.join('\n'));
+  });
+}
+
 export async function cmdLink(args: string[]): Promise<void> {
   const fromId = getFlag(args, '--from');
   const toId = getFlag(args, '--to');
@@ -1278,6 +1438,20 @@ async function main() {
       break;
     case 'renew':
       await cmdRenew(args.slice(1));
+      break;
+
+    // Human-readable commands (sugar over query)
+    case 'ready':
+      await cmdReady(args.slice(1));
+      break;
+    case 'list':
+      await cmdList(args.slice(1));
+      break;
+    case 'blocked':
+      await cmdBlocked(args.slice(1));
+      break;
+    case 'tree':
+      await cmdTree(args.slice(1));
       break;
 
     // Setup commands (sync, no daemon needed)
