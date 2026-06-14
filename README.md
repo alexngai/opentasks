@@ -401,19 +401,25 @@ opentasks://../other-repo/c-c4d5  # Relative path
 
 ### Global Store
 
-Use opentasks without initializing in a project. The global store at `~/.opentasks/` acts as a fallback when no project-level `.opentasks/` is found.
+A shared store at `~/.opentasks/` you can use from any directory — handy for a
+personal todo list that isn't tied to one repo. Commands are project-local by
+default; pass `--global` (or set `OPENTASKS_GLOBAL=1`) to target the global store
+instead.
 
 ```bash
 # One-time setup
 opentasks init --global
 
-# Now use from any directory (no per-project init needed)
+# Use from anywhere with --global (no per-project init needed)
 cd /any/directory
-opentasks create --type task --title "Read paper on transformers"
-opentasks query '{"ready": {}}'
+opentasks create --type task --title "Read paper on transformers" --status open --global
+opentasks ready --global
 ```
 
-The client discovers daemons in order: project `.opentasks/` > git worktree > global `~/.opentasks/`. Project stores always take precedence.
+`--global` routes both the auto-started daemon and the client at `~/.opentasks/`,
+so a task created from one directory is visible from any other. Without it, a
+command operates on the project store it discovers: project `.opentasks/` > git
+worktree > (fallback) global `~/.opentasks/`.
 
 ### Federation
 

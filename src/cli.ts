@@ -109,6 +109,11 @@ Setup commands:
   discover [options]            Find nearby opentasks locations
   merge-driver <O> <A> <B>     JSONL merge driver (for git)
 
+Global options (any command):
+  --global                      Target the shared store at ~/.opentasks (use from
+                                anywhere; same as OPENTASKS_GLOBAL=1)
+  --no-autostart                Don't auto-start a daemon (OPENTASKS_NO_AUTOSTART=1)
+
 Archive commands (require running daemon with archival enabled):
   archive list [--graph <id>] [--source <src>]   List archived sessions
   archive restore <uri>                          Restore a node from archive
@@ -157,7 +162,9 @@ function writeConfig(opentasksDir: string, config: Record<string, unknown>): voi
 function cmdInit(args: string[]): void {
   const nameIndex = args.indexOf('--name');
   const name = nameIndex !== -1 ? args[nameIndex + 1] : undefined;
-  const isGlobal = args.includes('--global');
+  // `--global` is stripped + routed via OPENTASKS_PROJECT_DIR in main(); detect
+  // it from the resolved target dir so the global init message still fires.
+  const isGlobal = resolveProjectDir() === path.join(os.homedir(), '.opentasks');
 
   // Global init delegates to the shared utility
   if (isGlobal) {
@@ -1427,15 +1434,25 @@ const DAEMON_COMMANDS = new Set([
 
 async function main() {
   const rawArgs = process.argv.slice(2);
-  // Global flag: strip it so per-command arg parsing isn't disturbed.
+  // Global flags, stripped so per-command arg parsing isn't disturbed.
   const autostart =
     !rawArgs.includes('--no-autostart') && process.env.OPENTASKS_NO_AUTOSTART !== '1';
-  const args = rawArgs.filter((a) => a !== '--no-autostart');
+  const globalMode = rawArgs.includes('--global') || process.env.OPENTASKS_GLOBAL === '1';
+  const args = rawArgs.filter((a) => a !== '--no-autostart' && a !== '--global');
   const command = args[0];
 
   if (!command || command === 'help' || command === '--help') {
     printHelp();
     process.exit(0);
+  }
+
+  // --global / OPENTASKS_GLOBAL: target the use-from-anywhere store at
+  // ~/.opentasks. Routing both the auto-start (resolveProjectDir) and the
+  // client's socket discovery (findOpenTasksDir) through OPENTASKS_PROJECT_DIR
+  // keeps them in agreement. ensureGlobalStoreInitialized creates the dir so the
+  // existence check downstream passes even on first use. (4.7)
+  if (globalMode) {
+    process.env.OPENTASKS_PROJECT_DIR = ensureGlobalStoreInitialized();
   }
 
   // Auto-start the daemon for commands that need it (4.1).

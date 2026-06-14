@@ -186,3 +186,56 @@ describe.skipIf(!distBuilt)('E2E: CLI human commands (4.4)', () => {
     expect(after).toContain('Active');
   }, 30_000);
 });
+
+describe.skipIf(!distBuilt)('E2E: CLI --global store (4.7)', () => {
+  let fakeHome: string;
+  let work1: string;
+  let work2: string;
+
+  // Run with an isolated HOME so the real ~/.opentasks is never touched.
+  function runG(cwd: string, args: string[]) {
+    const env = { ...process.env, HOME: fakeHome };
+    delete env.VITEST;
+    const r = spawnSync(process.execPath, [CLI, ...args], {
+      cwd,
+      env,
+      encoding: 'utf-8',
+      timeout: 30_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', status: r.status ?? 1 };
+  }
+
+  beforeEach(async () => {
+    fakeHome = await fs.mkdtemp(path.join(os.tmpdir(), 'opentasks-ghome-'));
+    work1 = await fs.mkdtemp(path.join(os.tmpdir(), 'opentasks-gw1-'));
+    work2 = await fs.mkdtemp(path.join(os.tmpdir(), 'opentasks-gw2-'));
+  });
+
+  afterEach(async () => {
+    runG(work1, ['daemon', 'stop', '--global']);
+    await new Promise((r) => setTimeout(r, 400));
+    for (const d of [fakeHome, work1, work2]) {
+      try {
+        await fs.rm(d, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  it('--global routes use-from-anywhere to ~/.opentasks (not cwd-local)', () => {
+    expect(runG(work1, ['init', '--global']).stdout).toContain('global');
+
+    // Create from one dir, read from a different dir — both via --global.
+    const created = runG(work1, ['create', '--type', 'task', '--title', 'Roaming', '--status', 'open', '--global']);
+    expect(created.status).toBe(0);
+
+    const list = runG(work2, ['list', '--global']);
+    expect(list.stdout).toContain('Roaming');
+
+    // No local store should have been created in either working dir.
+    expect(existsSync(path.join(work1, '.opentasks'))).toBe(false);
+    expect(existsSync(path.join(work2, '.opentasks'))).toBe(false);
+  }, 30_000);
+});
