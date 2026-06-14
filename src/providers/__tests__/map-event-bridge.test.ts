@@ -813,4 +813,104 @@ describe('MAPEventBridge', () => {
       expect(connection.send).not.toHaveBeenCalled();
     });
   });
+
+  // ==========================================================================
+  // Echo-loop audit (P5 5.3) — the three-layer round-trip (native ↔ opentasks
+  // ↔ MAP) must not amplify: a change that originated from MAP is never
+  // re-emitted to MAP, and each native change bridges exactly once. This is the
+  // deterministic substitute for the "1-hour soak: zero echo loops, zero
+  // duplicate nodes" acceptance.
+  // ==========================================================================
+
+  describe('echo-loop audit', () => {
+    function taskChange(
+      nodeId: string,
+      opts: { type?: 'created' | 'updated' | 'deleted'; uri?: string } = {},
+    ): ProviderChangeEvent {
+      const type = opts.type ?? 'created';
+      const uri = opts.uri ?? `native://${nodeId}`;
+      return {
+        kind: 'node',
+        event: {
+          type,
+          nodeId,
+          uri,
+          node:
+            type === 'deleted'
+              ? undefined
+              : {
+                  id: nodeId,
+                  uri,
+                  type: 'task',
+                  title: `Task ${nodeId}`,
+                  status: 'open',
+                  fetchedAt: new Date().toISOString(),
+                },
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
+
+    it('terminates the round-trip: opentasks → MAP → (back as a map node) → MAP is not re-emitted', () => {
+      const bridge = createMAPEventBridge({ send });
+
+      // Hop 1: a native task change bridges to MAP (this is the outbound event).
+      bridge.handleProviderChange('native', taskChange('t-1'));
+      expect(events).toHaveLength(1);
+
+      // Hop 2: the same task arrives back as a map:// node (inbound via the MAP
+      // provider). Bridging that again would close an infinite loop — it must be
+      // skipped because it originated from the `map` provider.
+      bridge.handleProviderChange(
+        'map',
+        taskChange('t-1', { type: 'updated', uri: 'map://default/t-1' }),
+      );
+      expect(events).toHaveLength(1); // still 1 — the loop terminated
+    });
+
+    it('does not amplify under many interleaved native + map changes', () => {
+      const bridge = createMAPEventBridge({ send });
+      const N = 250;
+
+      for (let i = 0; i < N; i++) {
+        // A native change (should bridge) and a map-origin change (must not).
+        bridge.handleProviderChange('native', taskChange(`n-${i}`));
+        bridge.handleProviderChange(
+          'map',
+          taskChange(`m-${i}`, { uri: `map://default/m-${i}` }),
+        );
+      }
+
+      // Exactly the native changes were emitted — zero amplification, zero echo.
+      expect(events).toHaveLength(N);
+
+      // Every emitted event is for a native node; no map-origin node leaked out.
+      // (task.created nests the task under data.task.)
+      const emittedIds = events.map((e) => (e.data.task as { id: string }).id);
+      expect(emittedIds.every((id) => id.startsWith('n-'))).toBe(true);
+      expect(emittedIds.some((id) => id.startsWith('m-'))).toBe(false);
+
+      // No node was emitted more than once (no duplicate-node emission).
+      expect(new Set(emittedIds).size).toBe(N);
+    });
+
+    it('keeps native + map changes for the same logical id from echoing', () => {
+      const bridge = createMAPEventBridge({ send });
+
+      // The native representation bridges once.
+      bridge.handleProviderChange('native', taskChange('shared'));
+      // The map:// representation of "the same" task must never bridge.
+      bridge.handleProviderChange(
+        'map',
+        taskChange('shared', { uri: 'map://default/shared' }),
+      );
+      bridge.handleProviderChange(
+        'map',
+        taskChange('shared', { type: 'updated', uri: 'map://default/shared' }),
+      );
+
+      expect(events).toHaveLength(1);
+      expect((events[0].data.task as { id: string }).id).toBe('shared');
+    });
+  });
 });
