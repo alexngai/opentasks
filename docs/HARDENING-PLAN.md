@@ -282,7 +282,8 @@ Can start in parallel with P2. Verbatim from the DX evaluation: *"OpenTasks curr
 
 **Progress**
 - [x] **4.1 / 4.2 DONE** (`hardening` `ba44820`): daemon-requiring CLI commands + the `mcp` server auto-start a detached daemon (spawn+unref, `--no-autostart`/`OPENTASKS_NO_AUTOSTART` opt-out); `daemon start` detaches by default (`--foreground` to block). Real-binary e2e in `src/__tests__/e2e-cli-autostart.test.ts`. Full suite 2712.
-- [ ] 4.3 quickstart · 4.4 human commands · 4.5 thin client · 4.6 stale-task hygiene · 4.7 global store — pending.
+- [x] **4.4 DONE** (`hardening` `4da0c0c`): human commands `ready` / `list` / `blocked` / `tree` — token-light one-line-per-task over `query`; `list` hides closed/failed/abandoned + archived by default (`--all`/`--status` to override), `--limit` (default 50) with a "… N more" footer. This also satisfies 4.6's "exclude closed by default" + "token-light output budget" — **4.6 reduces to just the `cleanup` command.**
+- [ ] 4.3 quickstart · 4.5 thin client (full, incl. `references/claude-code-swarm`) · 4.6 `cleanup` only · 4.7 global store (investigate first) — pending.
 
 **Acceptance criteria**
 - [~] Cold-start e2e: fresh temp dir, `npx opentasks init && npx opentasks create --type task --title x && npx opentasks ready` succeeds with zero manual daemon management. **Auto-start works (4.1)**; `ready` sugar lands in 4.4 (today the e2e uses `query '{"ready":{}}'`).
