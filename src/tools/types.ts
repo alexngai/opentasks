@@ -351,6 +351,12 @@ export interface TaskParams {
     priority?: number;
     /** Filter by assignee */
     assignee?: string;
+    /**
+     * Exclude tasks under a live claim (a non-expired lease). Off by default —
+     * a claim is a lease, not a status change. Set this when dispatching tasks
+     * directly off `ready` without going through claim/claimNext.
+     */
+    excludeClaimed?: boolean;
   };
 
   /** Assign a task to an owner */

@@ -276,4 +276,51 @@ describe('E2E: Watch Notifications', () => {
     expect(types).toContain('updated');
     expect(types).toContain('deleted');
   });
+
+  it('delivers to multiple subscribers and cleans up a subscriber on disconnect', async () => {
+    await startDaemon();
+
+    // Two independent subscriber connections (the harness' single `client` helper
+    // can't model this — manage them directly).
+    const a = createIPCClient(daemon!.socketPath);
+    const b = createIPCClient(daemon!.socketPath);
+    await a.connect();
+    await b.connect();
+    try {
+      await a.request('watch.subscribe');
+      await b.request('watch.subscribe');
+      await new Promise((r) => setTimeout(r, 300));
+
+      const collA = collectNotifications(a);
+      const collB = collectNotifications(b);
+
+      // First mutation: BOTH subscribers receive it.
+      await a.request<Node>('graph.create', { type: 'task', title: 'first', status: 'open' });
+      await a.request('flush');
+      await waitForEvents(collA.events, 1, 8000);
+      await waitForEvents(collB.events, 1, 8000);
+      expect(collA.events.length).toBeGreaterThanOrEqual(1);
+      expect(collB.events.length).toBeGreaterThanOrEqual(1);
+
+      // Disconnect A — its per-socket subscription must be removed on 'close'.
+      collA.stop();
+      a.disconnect();
+      await new Promise((r) => setTimeout(r, 100));
+
+      const beforeB = collB.events.length;
+
+      // Second mutation via B. The daemon must still broadcast to B without
+      // choking on the now-closed A socket — proving subscriptions.delete on
+      // close (no leaked, dead subscriber entry).
+      await b.request<Node>('graph.create', { type: 'task', title: 'second', status: 'open' });
+      await b.request('flush');
+      await waitForEvents(collB.events, beforeB + 1, 8000);
+      expect(collB.events.length).toBeGreaterThan(beforeB);
+
+      collB.stop();
+    } finally {
+      if (a.connected) a.disconnect();
+      if (b.connected) b.disconnect();
+    }
+  });
 });

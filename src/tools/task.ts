@@ -181,6 +181,7 @@ async function handleReady(
     tags: params.tags,
     priority: params.priority,
     assignee: params.assignee,
+    excludeClaimed: params.excludeClaimed,
   });
 
   const data: TaskReadyData = {

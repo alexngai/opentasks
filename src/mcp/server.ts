@@ -498,6 +498,7 @@ function registerGraphTools(server: McpServer, client: OpenTasksClient): void {
         priority: z.union([z.number(), z.object({ min: z.number().optional(), max: z.number().optional() })]).optional(),
         assignee: z.string().optional(),
         limit: z.number().optional(),
+        excludeClaimed: z.boolean().optional().describe('Exclude tasks under a live claim (lease). Off by default; set when dispatching directly off ready.'),
       }).optional(),
 
       blockers: z.object({

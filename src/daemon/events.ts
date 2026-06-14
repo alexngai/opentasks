@@ -25,7 +25,11 @@ export interface StampedEvent {
   seq: number;
   /** Per-daemon-process identity; changes on restart. */
   epoch: string;
-  /** ISO timestamp the event entered the stream (stream time, not node time). */
+  /**
+   * ISO timestamp the event entered the stream (stream time, not node time).
+   * Replay-only: surfaced via `events.since` but intentionally omitted from the
+   * live `watch.event` broadcast payload (which forwards only seq/epoch).
+   */
   emittedAt: string;
   /** The underlying graph change. */
   event: ProviderNodeChangeEvent;

@@ -101,6 +101,10 @@ function validActionsForStatus(status: string): TaskAction[] {
       return ['complete', 'block', 'close', 'fail', 'abandon'];
     case 'blocked':
       return ['reopen', 'close', 'fail', 'abandon'];
+    // All three terminal states allow only `reopen`. Reopening `failed`/
+    // `abandoned` is retry/resurrect; reopening a successfully `closed` task is
+    // intentional reactivation — note it un-clears the task as a blocker, so a
+    // dependent that became ready can revert to blocked.
     case 'closed':
     case 'failed':
     case 'abandoned':
@@ -682,6 +686,7 @@ export function createNativeProvider(
         priority: options?.priority,
         assignee: options?.assignee,
         limit: options?.limit,
+        excludeClaimed: options?.excludeClaimed,
       });
 
       return readyIssues.map(nodeToProviderNode);

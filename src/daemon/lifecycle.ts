@@ -34,7 +34,7 @@ import { registerProviderMethods } from './methods/provider.js';
 import { registerArchiveMethods } from './methods/archive.js';
 import { registerContextFilesMethods } from './methods/context-files.js';
 import { registerWatchMethods } from './methods/watch.js';
-import { registerSyncMethods } from './methods/sync.js';
+import { registerSyncMethods, registerMultiLocationSyncMethods } from './methods/sync.js';
 import { registerEventMethods } from './methods/events.js';
 import { createEventManager } from './events.js';
 import { createIdempotencyStore } from './idempotency.js';
@@ -52,6 +52,7 @@ import { createGlobalProvider } from '../providers/global.js';
 import {
   createLocationState,
   destroyLocationState,
+  reloadLocationGitSyncer,
   createSingleLocationResolver,
   createMultiLocationResolver,
   type LocationState,
@@ -671,7 +672,16 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
 
             if (options.doInitialPull && gitSyncConfig.pullOnStartup) {
               try {
-                await gitSyncer.pull();
+                const pullResult = await gitSyncer.pull();
+                // The startup pull mutates graph.jsonl on disk, but the file
+                // watcher isn't started yet and SQLite still holds the
+                // pre-pull snapshot. Reload so queries see the pulled peer
+                // data — and, critically, so the next local flush (a
+                // full-file overwrite from SQLite) can't clobber the pulled
+                // nodes back off disk.
+                if (pullResult.hasChanges) {
+                  await store.reload();
+                }
               } catch {
                 /* initial pull failure is non-fatal */
               }
@@ -1138,7 +1148,20 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
         | { onStartup?: ReconciliationTrigger; onReload?: ReconciliationTrigger; backgroundInterval?: number; providerIntervals?: Record<string, number> }
         | undefined;
 
-      const locState = await createLocationState(opentasksPath, hash, isPrimary, sharedSkillTrackerRegistry);
+      const locState = await createLocationState(
+        opentasksPath,
+        hash,
+        isPrimary,
+        sharedSkillTrackerRegistry,
+        {
+          // Count this location's reload-reconcile runs/errors + reload failures
+          // in the daemon's shared health counters (F10). Without this, a
+          // multi-location location's reload-path activity is invisible.
+          recordReconcileRun: () => healthCounters.recordReconcileRun(),
+          recordReconcileError: () => healthCounters.recordReconcileError(),
+          recordWatcherError: () => healthCounters.recordWatcherError(),
+        },
+      );
       // Wrap store with provider-aware dispatch
       const defaultProvider = (locationConfig?.defaultProvider as string | undefined) ?? 'native';
       locState.providerStore = createProviderAwareStore(locState.store, {
@@ -1417,6 +1440,22 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
           server: ipcServer,
           locationResolver,
           gitCommonDir,
+        });
+
+        // Archive methods are location-aware (resolve per `location` param), so
+        // they wire identically to single-location. Previously absent here.
+        registerArchiveMethods({
+          server: ipcServer,
+          locationResolver,
+        });
+
+        // Location-aware git sync — each worktree's sync runs through the SAME
+        // coordinated flush-freeze-reload as single-location, resolved per
+        // `location` param. Closes the C2 gap (uncoordinated per-location sync).
+        registerMultiLocationSyncMethods({
+          server: ipcServer,
+          locationResolver,
+          reloadLocationSyncer: (state) => reloadLocationGitSyncer(state),
         });
 
         // One event manager per daemon process (P3 M2) — see single-location path.

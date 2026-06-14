@@ -111,4 +111,32 @@ describe('Terminal states (failed / abandoned)', () => {
     expect((aNode as { status?: string }).status).toBe('closed');
     expect((bNode as { status?: string }).status).toBe('failed');
   });
+
+  it('a failed blocker keeps its dependent out of ready until the blocker is closed', async () => {
+    const blocker = await createTask('prerequisite');
+    const dependent = await createTask('downstream');
+    // blocker blocks dependent (from = blocker, to = dependent)
+    await store.createEdge({ from_id: blocker, to_id: dependent, type: 'blocks' });
+
+    // Open blocker -> dependent is not ready.
+    let ready = await store.query.ready();
+    expect(ready.map((t) => t.id)).not.toContain(dependent);
+
+    // Fail the blocker. A failed prerequisite did NOT deliver, so only 'closed'
+    // clears a blocker — the dependent must stay blocked (deliberate: failed and
+    // abandoned remain active blockers).
+    await task(providerStore, { transition: { id: blocker, action: 'start' } });
+    await task(providerStore, { transition: { id: blocker, action: 'fail' } });
+
+    ready = await store.query.ready();
+    expect(ready.map((t) => t.id)).not.toContain(dependent);
+
+    // Reopen + complete the blocker -> now closed -> the dependent becomes ready.
+    await task(providerStore, { transition: { id: blocker, action: 'reopen' } });
+    await task(providerStore, { transition: { id: blocker, action: 'start' } });
+    await task(providerStore, { transition: { id: blocker, action: 'complete' } });
+
+    ready = await store.query.ready();
+    expect(ready.map((t) => t.id)).toContain(dependent);
+  });
 });

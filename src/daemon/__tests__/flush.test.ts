@@ -303,4 +303,50 @@ describe('DaemonFlushManager', () => {
       expect(dirtyNodes).toContain('i-xyz2');
     });
   });
+
+  describe('durable flush drains nodes marked during an in-flight flush', () => {
+    it('flush() does not resolve until a node marked mid-flush is persisted', async () => {
+      // Real timers: this is an async-coordination test, not a timing one.
+      vi.useRealTimers();
+
+      let releaseFirst!: () => void;
+      const firstGate = new Promise<void>((r) => {
+        releaseFirst = r;
+      });
+      const batches: string[][] = [];
+      let calls = 0;
+
+      const onFlush: FlushOperation = async (nodeIds) => {
+        calls += 1;
+        batches.push([...nodeIds]);
+        // Hold the FIRST flush in-flight: its batch is already snapshotted, so a
+        // node marked dirty now is NOT in this batch.
+        if (calls === 1) {
+          await firstGate;
+        }
+      };
+
+      const fm = createDaemonFlushManager({ debounceMs: 10, maxDelayMs: 50 }, onFlush);
+
+      // Mark A and start a flush — doFlush synchronously snapshots [t-aaaa] and
+      // clears the dirty set, then blocks on the gate.
+      fm.markDirty('t-aaaa');
+      const firstFlush = fm.flush();
+
+      // A durable write B arrives while the first flush is mid-write.
+      fm.markDirty('t-bbbb');
+      const durableFlush = fm.flush();
+
+      // Releasing the first flush must NOT be enough — the durable flush has to
+      // ensure B is persisted before it resolves.
+      releaseFirst();
+      await firstFlush;
+      await durableFlush;
+
+      expect(batches.flat()).toContain('t-bbbb');
+      expect(fm.getDirtyNodes()).toHaveLength(0);
+
+      vi.useFakeTimers();
+    });
+  });
 });

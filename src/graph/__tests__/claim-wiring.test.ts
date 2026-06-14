@@ -122,6 +122,20 @@ describe('Claim wiring (task tool -> provider store -> graph store)', () => {
     expect((second.data as TaskClaimData).claimed).toBe(false);
   });
 
+  it('ready includes a claimed-but-open task by default, excludes it with excludeClaimed', async () => {
+    const id = await createTask('claimed but open');
+    await task(providerStore, { claim: { id, agentId: 'agent-a' } });
+
+    // Default: a claim is a lease, not a status change — the task is still open
+    // and still appears in `ready`.
+    const withClaimed = await store.query.ready();
+    expect(withClaimed.map((t) => t.id)).toContain(id);
+
+    // Opt-in lease-aware filter: the live-claimed task is hidden.
+    const withoutClaimed = await store.query.ready({ excludeClaimed: true });
+    expect(withoutClaimed.map((t) => t.id)).not.toContain(id);
+  });
+
   it('round-trips claim -> release -> reclaim via the tool', async () => {
     const id = await createTask('release me');
 

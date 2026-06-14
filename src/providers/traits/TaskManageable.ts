@@ -86,6 +86,13 @@ export interface ReadyTaskOptions {
 
   /** Filter by assignee */
   assignee?: string;
+
+  /**
+   * Exclude tasks under a live claim (a non-expired lease). Off by default.
+   * Lease-aware filtering only applies to providers that model claims (native);
+   * providers without a lease concept ignore this flag.
+   */
+  excludeClaimed?: boolean;
 }
 
 // ============================================================================

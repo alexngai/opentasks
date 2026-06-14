@@ -313,6 +313,13 @@ export function registerWatchMethods(options: WatchMethodsOptions): void {
     if (watched.has(state.hash)) return;
     watched.add(state.hash);
     await seedCache(state);
+    // If the location was removed (onLocationRemoved → unwatchLocation) during
+    // the seed await, abort: don't hook its now-torn-down watcher, and drop the
+    // cache entry seedCache may have re-created so no orphan state leaks.
+    if (!watched.has(state.hash)) {
+      caches.delete(state.hash);
+      return;
+    }
     try {
       state.watcher.onchange((event) => {
         if (event.category === 'graph') {

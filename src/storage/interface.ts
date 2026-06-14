@@ -254,7 +254,9 @@ export interface Storage {
    * @param claimant - Agent/owner ID acquiring the claim
    * @param opts.leaseMs - Lease duration in milliseconds from `now`
    * @param opts.now - ISO timestamp to evaluate expiry against (defaults to current time)
-   * @param opts.force - Claim even if held by another, unexpired claimant
+   * @param opts.force - Claim even if held by another, unexpired claimant.
+   *   Bypasses only the lease guard — the archived/non-task guards still apply,
+   *   so an archived or non-task node is never claimable, even with force.
    * @returns Outcome with the new fence on success, or the current holder on failure
    */
   claimNode(

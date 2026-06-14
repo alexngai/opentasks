@@ -556,6 +556,17 @@ export function createQueryEngine(options: QueryEngineOptions | Storage): QueryE
 
         if (options?.assignee && task.assignee !== options.assignee) continue;
 
+        // Lease-aware filter (opt-in). Mirrors claimNext's JS guard: skip a task
+        // that is open but under a live (non-expired) claim. Off by default —
+        // see ReadyOptions.excludeClaimed.
+        if (options?.excludeClaimed) {
+          const claimedBy = (task as { claimed_by?: string }).claimed_by;
+          const lockUntil = (task as { lock_until?: string }).lock_until;
+          if (claimedBy && lockUntil && new Date(lockUntil).getTime() > Date.now()) {
+            continue;
+          }
+        }
+
         // Check for active blockers
         const blockerEdges = await storage.getEdgesTo(task.id, 'blocks');
 

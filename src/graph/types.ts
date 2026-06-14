@@ -292,6 +292,15 @@ export interface ReadyOptions {
 
   /** Maximum results to return */
   limit?: number;
+
+  /**
+   * Exclude tasks under a live claim (a non-expired lease). Off by default: a
+   * claim is a lease, not a status change, so `ready` normally still lists
+   * claimed-but-open tasks and the atomic claim is the real guard against
+   * double-work. Set this when a dispatcher reads `ready` directly (not via
+   * claimNext/claim) and wants to avoid handing out a task another agent holds.
+   */
+  excludeClaimed?: boolean;
 }
 
 /**

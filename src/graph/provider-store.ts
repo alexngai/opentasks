@@ -1217,6 +1217,7 @@ export function createProviderAwareStore(
             tags: options?.tags,
             priority: options?.priority,
             assignee: options?.assignee,
+            excludeClaimed: options?.excludeClaimed,
           },
           options?.context,
         );
