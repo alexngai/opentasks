@@ -818,5 +818,210 @@ describe('registerWatchMethods', () => {
         expect.objectContaining({ type: 'created', nodeId: 'i-any' }),
       );
     });
+
+    it('delivers events whose location matches a locations filter', async () => {
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      await server.call('watch.subscribe', { filter: { locations: ['primary'] } });
+
+      const node = makeNode({ id: 'i-loc' });
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([node]);
+
+      watcher._emit({ type: 'change', path: '/tmp/.opentasks/graph.jsonl', category: 'graph' });
+      await vi.advanceTimersByTimeAsync(150);
+
+      expect(server.broadcastNotification).toHaveBeenCalledWith(
+        'watch.event',
+        expect.objectContaining({ type: 'created', nodeId: 'i-loc', location: 'primary' }),
+      );
+    });
+
+    it('drops events whose location does not match a locations filter', async () => {
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      await server.call('watch.subscribe', { filter: { locations: ['other-wt'] } });
+
+      const node = makeNode({ id: 'i-loc' });
+      (store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([node]);
+
+      watcher._emit({ type: 'change', path: '/tmp/.opentasks/graph.jsonl', category: 'graph' });
+      await vi.advanceTimersByTimeAsync(150);
+
+      expect(server.broadcastNotification).not.toHaveBeenCalled();
+    });
+  });
+});
+
+// ============================================================================
+// Multi-location watch (P3 fix 6a)
+// ============================================================================
+
+describe('registerWatchMethods — multi-location', () => {
+  function makeLocation(
+    hash: string,
+    primary: boolean,
+    nodes: Array<Record<string, unknown>> = [],
+  ) {
+    const store = createMockStore(nodes);
+    const watcher = createMockWatcher();
+    const state = {
+      hash,
+      opentasksPath: `/tmp/${hash}`,
+      store,
+      flushManager: {} as never,
+      watcher: watcher as never,
+      primary,
+      healthy: true,
+    } as unknown as LocationState;
+    return { hash, primary, store, watcher, state };
+  }
+
+  function createMultiResolver(locs: ReturnType<typeof makeLocation>[]): LocationResolver {
+    const states = new Map(locs.map((l) => [l.hash, l.state]));
+    const addListeners: Array<(s: LocationState) => void> = [];
+    const removeListeners: Array<(h: string) => void> = [];
+    const primaryOf = () =>
+      Array.from(states.values()).find((s) => s.primary) ?? Array.from(states.values())[0];
+    return {
+      resolve: (hash?: string) => {
+        const s = hash ? states.get(hash) : primaryOf();
+        if (!s) throw new Error(`location not found: ${hash}`);
+        return s;
+      },
+      getDefault: () => primaryOf(),
+      list: () =>
+        Array.from(states.values()).map((s) => ({
+          hash: s.hash,
+          opentasksPath: s.opentasksPath,
+          primary: s.primary,
+          healthy: s.healthy,
+        })),
+      has: (h: string) => states.has(h),
+      add: (s: LocationState) => {
+        states.set(s.hash, s);
+        for (const l of addListeners) l(s);
+      },
+      remove: async (h: string) => {
+        states.delete(h);
+        for (const l of removeListeners) l(h);
+      },
+      onLocationAdded: (l: (s: LocationState) => void) => {
+        addListeners.push(l);
+      },
+      onLocationRemoved: (l: (h: string) => void) => {
+        removeListeners.push(l);
+      },
+    };
+  }
+
+  let server: ReturnType<typeof createMockServer>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    server = createMockServer();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('emits events tagged with their originating non-primary location', async () => {
+    const a = makeLocation('primary', true, []);
+    const b = makeLocation('wt-2', false, []);
+    registerWatchMethods({ server, locationResolver: createMultiResolver([a, b]) });
+
+    await server.call('watch.subscribe', {});
+
+    const nodeB = makeNode({ id: 'b-1' });
+    (b.store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([nodeB]);
+    b.watcher._emit({ type: 'change', path: '/tmp/wt-2/graph.jsonl', category: 'graph' });
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(server.broadcastNotification).toHaveBeenCalledWith(
+      'watch.event',
+      expect.objectContaining({ type: 'created', nodeId: 'b-1', location: 'wt-2' }),
+    );
+  });
+
+  it('debounces each location independently', async () => {
+    const a = makeLocation('primary', true, []);
+    const b = makeLocation('wt-2', false, []);
+    registerWatchMethods({ server, locationResolver: createMultiResolver([a, b]) });
+    await server.call('watch.subscribe', {});
+
+    (a.store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([makeNode({ id: 'a-1' })]);
+    (b.store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([makeNode({ id: 'b-1' })]);
+    a.watcher._emit({ type: 'change', path: '/tmp/primary/graph.jsonl', category: 'graph' });
+    b.watcher._emit({ type: 'change', path: '/tmp/wt-2/graph.jsonl', category: 'graph' });
+    await vi.advanceTimersByTimeAsync(150);
+
+    const ids = (server.broadcastNotification as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => (c[1] as { nodeId: string }).nodeId,
+    );
+    expect(ids).toContain('a-1');
+    expect(ids).toContain('b-1');
+  });
+
+  it('filters events by location', async () => {
+    const a = makeLocation('primary', true, []);
+    const b = makeLocation('wt-2', false, []);
+    registerWatchMethods({ server, locationResolver: createMultiResolver([a, b]) });
+
+    await server.call('watch.subscribe', { filter: { locations: ['wt-2'] } });
+
+    (a.store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([makeNode({ id: 'a-1' })]);
+    a.watcher._emit({ type: 'change', path: '/tmp/primary/graph.jsonl', category: 'graph' });
+    await vi.advanceTimersByTimeAsync(150);
+
+    (b.store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([makeNode({ id: 'b-1' })]);
+    b.watcher._emit({ type: 'change', path: '/tmp/wt-2/graph.jsonl', category: 'graph' });
+    await vi.advanceTimersByTimeAsync(150);
+
+    const ids = (server.broadcastNotification as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => (c[1] as { nodeId: string }).nodeId,
+    );
+    expect(ids).toContain('b-1');
+    expect(ids).not.toContain('a-1');
+  });
+
+  it('watches a location added at runtime', async () => {
+    const a = makeLocation('primary', true, []);
+    const resolver = createMultiResolver([a]);
+    registerWatchMethods({ server, locationResolver: resolver });
+
+    await server.call('watch.subscribe', {});
+
+    // A worktree joins after the daemon is already watching.
+    const c = makeLocation('wt-3', false, []);
+    resolver.add(c.state);
+    await vi.advanceTimersByTimeAsync(1); // let the async seed + hook settle
+
+    const nodeC = makeNode({ id: 'c-1' });
+    (c.store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([nodeC]);
+    c.watcher._emit({ type: 'change', path: '/tmp/wt-3/graph.jsonl', category: 'graph' });
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(server.broadcastNotification).toHaveBeenCalledWith(
+      'watch.event',
+      expect.objectContaining({ type: 'created', nodeId: 'c-1', location: 'wt-3' }),
+    );
+  });
+
+  it('stops emitting for a removed location', async () => {
+    const a = makeLocation('primary', true, []);
+    const b = makeLocation('wt-2', false, []);
+    const resolver = createMultiResolver([a, b]);
+    registerWatchMethods({ server, locationResolver: resolver });
+    await server.call('watch.subscribe', {});
+
+    await resolver.remove('wt-2');
+
+    // A late change on the removed location must not emit.
+    (b.store.query.nodes as ReturnType<typeof vi.fn>).mockResolvedValue([makeNode({ id: 'b-late' })]);
+    b.watcher._emit({ type: 'change', path: '/tmp/wt-2/graph.jsonl', category: 'graph' });
+    await vi.advanceTimersByTimeAsync(150);
+
+    const ids = (server.broadcastNotification as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => (c[1] as { nodeId: string }).nodeId,
+    );
+    expect(ids).not.toContain('b-late');
   });
 });

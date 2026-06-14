@@ -107,6 +107,19 @@ export interface LocationResolver {
 
   /** Remove a location and tear down its state */
   remove(hash: string): Promise<void>;
+
+  /**
+   * Register a listener fired when a location is added at runtime (multi-location
+   * only). Lets the watch stream begin watching newly-added worktrees. No-op /
+   * absent in single-location mode, which cannot add locations.
+   */
+  onLocationAdded?(listener: (state: LocationState) => void): void;
+
+  /**
+   * Register a listener fired when a location is removed, so watchers can drop
+   * its per-location state. Receives the removed location's hash.
+   */
+  onLocationRemoved?(listener: (hash: string) => void): void;
 }
 
 // ============================================================================
@@ -477,6 +490,8 @@ export function createSingleLocationResolver(state: LocationState): LocationReso
  */
 export function createMultiLocationResolver(primaryHash: string): LocationResolver {
   const locations = new Map<string, LocationState>();
+  const addListeners = new Set<(state: LocationState) => void>();
+  const removeListeners = new Set<(hash: string) => void>();
 
   return {
     resolve(locationHash?: string): LocationState {
@@ -519,6 +534,13 @@ export function createMultiLocationResolver(primaryHash: string): LocationResolv
 
     add(state: LocationState): void {
       locations.set(state.hash, state);
+      for (const listener of addListeners) {
+        try {
+          listener(state);
+        } catch {
+          /* a listener failure must not block the add */
+        }
+      }
     },
 
     async remove(hash: string): Promise<void> {
@@ -526,7 +548,22 @@ export function createMultiLocationResolver(primaryHash: string): LocationResolv
       if (!state) return;
 
       locations.delete(hash);
+      for (const listener of removeListeners) {
+        try {
+          listener(hash);
+        } catch {
+          /* ignore */
+        }
+      }
       await destroyLocationState(state);
+    },
+
+    onLocationAdded(listener: (state: LocationState) => void): void {
+      addListeners.add(listener);
+    },
+
+    onLocationRemoved(listener: (hash: string) => void): void {
+      removeListeners.add(listener);
     },
   };
 }

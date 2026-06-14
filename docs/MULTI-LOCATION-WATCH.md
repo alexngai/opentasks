@@ -1,7 +1,7 @@
-# Scoping: Multi-Location Watch & Per-Location Event Stream (fix 6a)
+# Multi-Location Watch & Per-Location Event Stream (fix 6a)
 
-**Status:** Scoped, not implemented. Surfaced by the P3 multi-agent review (finding M1).
-**Owner:** TBD · **Estimated effort:** ~1–2 days · **Likely phase:** P4.
+**Status:** ✅ Implemented (2026-06-13). Surfaced by the P3 multi-agent review (finding M1).
+Chosen design: **one global event stream, location-tagged events**.
 
 ## Problem
 
@@ -63,22 +63,24 @@ the cursor stays global.
    needs a hook into the location lifecycle, not just a one-shot `list()` at first
    subscribe.
 
-## Work items
+## Work items — done
 
-- [ ] Per-location `cachedHashes` map + per-location activation (replace `watchActive` latch).
-- [ ] On activation, iterate `locationResolver.list()` → hook each `locState.watcher` + seed per-location.
-- [ ] Add `location` to `StampedEvent` + the `watch.event` payload (additive); decide uri policy.
-- [ ] `WatchFilter.locations?` + `eventMatchesFilter` support; thread through `client.subscribe`.
-- [ ] Hook location add/remove so runtime-added worktrees are watched and removed ones stop.
-- [ ] Confirm single-location path payload shape is unchanged (location optional, defaults to primary).
+- [x] Per-location `cachedHashes` (`Map<hash, Map<nodeId, hash>>`) + per-location `watched` set + per-location debounce timers (replaced the `watchActive` latch). [watch.ts](../src/daemon/methods/watch.ts)
+- [x] On subscribe, iterate `locationResolver.list()` → `watchLocation()` hooks each `state.watcher` + seeds per-location (idempotent).
+- [x] Added `location` to `ProviderNodeChangeEvent` (additive — rides on the `watch.event` payload + `StampedEvent.event`); kept `uri` as `global://${id}` to avoid breaking consumers (chose **new field**, not a uri change).
+- [x] `WatchFilter.locations?` + `eventMatchesFilter` (location applies to all event types incl. deletes; type/status still bypass for deletes); `client.subscribe` passes it through unchanged.
+- [x] `LocationResolver.onLocationAdded` / `onLocationRemoved` hooks (multi-location resolver fires them on `add`/`remove`); watch methods `watchLocation` newly-added worktrees and `unwatchLocation` removed ones.
+- [x] Single-location path unchanged: `hash: 'primary'`, events tagged `location: 'primary'`, payload otherwise identical (additive field).
 
-## Acceptance criteria
+## Acceptance criteria — met
 
-- [ ] In a multi-location daemon, a subscriber receives an event after a mutation in a **non-primary** location (integration test).
-- [ ] Events carry a `location` discriminator; `subscribe({ filter: { locations: [...] } })` delivers only matching locations.
-- [ ] A location added at runtime gets watched (its mutations emit); a removed one stops.
-- [ ] Single-location behavior and payload shape unchanged (regression).
-- [ ] `events.since` backfill includes non-primary-location events within the buffer window.
+- [x] A subscriber receives an event after a mutation in a **non-primary** location. **Evidence:** `watch.test.ts` "emits events tagged with their originating non-primary location" (multi-location mock resolver, deterministic).
+- [x] Events carry a `location` discriminator; `subscribe({ filter: { locations: [...] } })` delivers only matching locations. **Evidence:** `watch.test.ts` "filters events by location" + single-location location-filter cases + real-daemon `e2e-subscribe.test.ts` asserts `created.location === 'primary'`.
+- [x] A location added at runtime gets watched; a removed one stops. **Evidence:** `watch.test.ts` "watches a location added at runtime" + "stops emitting for a removed location".
+- [x] Single-location behavior and payload shape unchanged. **Evidence:** existing `watch.test.ts` / `e2e-watch.test.ts` / `e2e-subscribe.test.ts` all green (`objectContaining` assertions unaffected by the additive field).
+- [x] `events.since` backfill carries the location dimension (it lives on the event, so backfilled events include it automatically).
+
+Implementation note: per-location independent debounce (a change in one worktree doesn't reset another's timer) is also covered (`watch.test.ts` "debounces each location independently").
 
 ## Risks / watch-outs
 

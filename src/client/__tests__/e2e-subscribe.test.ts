@@ -120,6 +120,8 @@ describe('E2E: OpenTasksClient.subscribe', () => {
     const created = events.find((e) => e.nodeId === node.id);
     expect(created).toBeTruthy();
     expect(created!.type).toBe('created');
+    // The real daemon tags events with their originating location (6a).
+    expect(created!.location).toBe('primary');
   });
 
   it('delivers only filter-matching events; drops non-matching ones', async () => {
