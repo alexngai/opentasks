@@ -8,7 +8,7 @@
 
 // Client
 export type { ClientOptions } from './client.js';
-export { OpenTasksClient, ClientError, createClient } from './client.js';
+export { OpenTasksClient, ClientError, createClient, getDefaultSocketPath } from './client.js';
 
 // Re-export tool types for convenience
 export type {

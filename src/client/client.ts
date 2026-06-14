@@ -134,8 +134,11 @@ function findOpenTasksDir(startDir: string = process.cwd()): string | null {
  * Prefers .git/opentasks/daemon.sock (multi-location), then walks up for
  * .opentasks/daemon.sock (single-location), then falls back to
  * ~/.opentasks/daemon.sock (global store).
+ *
+ * Exported so thin-client consumers can discover the daemon socket without
+ * reimplementing the resolution (see `opentasks/client`).
  */
-function getDefaultSocketPath(): string {
+export function getDefaultSocketPath(): string {
   // 1. Check for multi-location daemon socket first
   const gitSocket = findGitDaemonSocket();
   if (gitSocket) {
