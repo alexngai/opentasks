@@ -8,35 +8,65 @@ npm install opentasks
 
 ## Quick Start
 
-The agent-facing API goes through a client connected to a running daemon. Start
-one first with `opentasks daemon start` (on-demand auto-start is on the roadmap —
-[docs/STATUS.md](docs/STATUS.md)).
+OpenTasks runs as a small daemon that the CLI, the MCP server, and the client all
+talk to over a Unix socket. **You don't manage it** — the first command that needs
+it starts one automatically (opt out with `--no-autostart`).
+
+### CLI
+
+```bash
+npm install -g opentasks            # or run any command below via `npx opentasks …`
+
+opentasks init                                            # create .opentasks/ in your repo
+opentasks create --type task --title "Wire up auth" --status open
+opentasks create --type task --title "Add OAuth provider" --status open
+
+opentasks ready                                           # unblocked tasks, ready to work on
+opentasks list                                            # open tasks (closed hidden)
+opentasks tree t-xxxx                                     # a task and its blocker tree
+```
+
+`ready` / `list` / `blocked` / `tree` are compact, token-light views. Linking
+edges, claiming tasks with a lease, and arbitrary graph queries are each one more
+subcommand — run `opentasks help`.
+
+### MCP (Claude Code / agents)
+
+Register the server once; the daemon auto-starts on first use:
+
+```bash
+claude mcp add opentasks -- npx opentasks mcp --scope all
+```
+
+…or in `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "opentasks": { "command": "npx", "args": ["opentasks", "mcp", "--scope", "all"] }
+  }
+}
+```
+
+Scopes are `tasks` (default), `graph`, `annotate`, `context`; `--scope all` enables
+everything. The agent gets `create_task`, `claim_task`, `query`, `events_since`, and
+the rest.
+
+### Programmatic (embedders)
 
 ```typescript
 import { createClient } from 'opentasks'
 
 const client = createClient({ autoConnect: true })
 
-// Connect a task to an external reference
-await client.link({ fromId: 't-x7k9', toId: 'jira://PROJ-123', type: 'blocks' })
-
 // What's ready to work on?
 const ready = await client.query({ ready: {} })
 
-// What blocks this task?
-const blockers = await client.query({
-  blockers: { nodeId: 't-x7k9', transitive: true },
-})
+// Connect a task to an external reference
+await client.link({ fromId: 't-x7k9', toId: 'beads://./bd-xyz', type: 'blocks' })
 
-// Leave feedback on a context
-await client.annotate({
-  targetId: 'c-a2b3',
-  create: {
-    content: 'Needs error handling for token refresh',
-    type: 'suggestion',
-    anchor: { text: 'OAuth2 with PKCE' },
-  },
-})
+// What blocks this task (full chain)?
+const blockers = await client.query({ blockers: { nodeId: 't-x7k9', transitive: true } })
 
 await client.disconnect()
 ```
@@ -226,14 +256,13 @@ Expose the full tool interface via [Model Context Protocol](https://modelcontext
 opentasks mcp --scope tasks,graph,annotate,context
 ```
 
-Register with Claude Code (the MCP server connects to the daemon, so start it first
-with `opentasks daemon start`):
+Register with Claude Code (the MCP server auto-starts the daemon on first use):
 
 ```bash
 claude mcp add opentasks -- npx opentasks mcp --scope tasks,graph,annotate,context
 ```
 
-19 tools across 4 scopes: `tasks` (CRUD + lifecycle + atomic claiming: `claim_task`, `claim_next`, `release_task`, `renew_claim`), `graph` (edges, queries, context summary), `annotate` (feedback), `context` (context CRUD with file/snippet/inline sources).
+20 tools across 4 scopes: `tasks` (CRUD + lifecycle + atomic claiming: `claim_task`, `claim_next`, `release_task`, `renew_claim`), `graph` (edges, queries, context summary, `events_since` change polling), `annotate` (feedback), `context` (context CRUD with file/snippet/inline sources).
 
 ## Programmatic API
 
