@@ -280,8 +280,12 @@ Can start in parallel with P2. Verbatim from the DX evaluation: *"OpenTasks curr
 - 4.6 Stale-task hygiene (the loudest day-2 complaint in the category): `opentasks cleanup` (archive closed > TTL); listings exclude closed by default; token-light output budgets.
 - 4.7 Global store: make `init --global` + use-from-anywhere actually work (depends on 4.1), or remove the section.
 
+**Progress**
+- [x] **4.1 / 4.2 DONE** (`hardening` `ba44820`): daemon-requiring CLI commands + the `mcp` server auto-start a detached daemon (spawn+unref, `--no-autostart`/`OPENTASKS_NO_AUTOSTART` opt-out); `daemon start` detaches by default (`--foreground` to block). Real-binary e2e in `src/__tests__/e2e-cli-autostart.test.ts`. Full suite 2712.
+- [ ] 4.3 quickstart · 4.4 human commands · 4.5 thin client · 4.6 stale-task hygiene · 4.7 global store — pending.
+
 **Acceptance criteria**
-- [ ] Cold-start e2e: fresh temp dir, `npx opentasks init && npx opentasks create --type task --title x && npx opentasks ready` succeeds with zero manual daemon management.
+- [~] Cold-start e2e: fresh temp dir, `npx opentasks init && npx opentasks create --type task --title x && npx opentasks ready` succeeds with zero manual daemon management. **Auto-start works (4.1)**; `ready` sugar lands in 4.4 (today the e2e uses `query '{"ready":{}}'`).
 - [ ] Fresh Claude Code session, MCP registered per README recipe only: agent creates, claims, completes a task. (Scriptable with the live-agent test rig.)
 - [ ] claude-code-swarm consumes the published thin client (PR merged there).
 - [ ] Default `list`/`ready` for a 500-task store ≤ ~2k tokens.
