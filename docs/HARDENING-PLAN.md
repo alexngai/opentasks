@@ -311,6 +311,11 @@ Can start in parallel with P2. Verbatim from the DX evaluation: *"OpenTasks curr
 - 5.3 claude-code-swarm: echo-loop audit across the three task layers (native tasks ↔ opentasks ↔ MAP) with all bridges active.
 - 5.4 A2A mapping doc: OpenTasks states ↔ A2A task lifecycle (`submitted/working/completed/failed/canceled/rejected`) — positioning artifact; A2A (Linux Foundation, v1.0.0) is the one protocol with real task lifecycle semantics.
 
+**Progress**
+- [x] **5.4 DONE** (`hardening` `b72535d`): `docs/A2A-MAPPING.md` — bidirectional OpenTasks↔A2A `TaskState` mapping + the semantic gaps (blocked↔dependencies, rejected→abandoned).
+- [x] **5.1 DONE** (swarm-dispatch `map-consolidation` `f9ae0e8`): real-daemon integration test — `createOpenTasksSource` driven against a real daemon over IPC (claim/fence-reject/renew/release/re-claim/start/complete/getTask/listInProgress); opentasks added as optional-peer + dev dep. **Finding the mocks hid:** `queryReady` does NOT exclude a claimed task (a claim is a lease, not a status change) — double-dispatch is prevented by the atomic claim failing, not by ready-exclusion. *Backlog candidate:* an opt-in lease-aware ready filter so the dispatcher polls a smaller set.
+- [ ] 5.2 git-cascade ingestion · 5.3 echo-loop audit · flagship demo — pending (5.2 form is a design fork: `cascade://` provider vs event-ingest handler).
+
 **Acceptance criteria**
 - [ ] **The flagship demo**: a task created in opentasks → claimed via swarm-dispatch → implemented on a git-cascade stream → merged → task closed `completed`, with provenance edges task → stream → commit queryable in one `query` call. Scripted, repeatable, in-repo.
 - [ ] 1-hour soak with all bridges active: zero event echo loops, zero duplicate nodes.
