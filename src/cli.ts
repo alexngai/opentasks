@@ -69,6 +69,7 @@ Views (compact, human-readable; --json for raw, --limit <n>, default ${DEFAULT_L
   list    [--type <t>] [--status <s>] [--tags a,b] [--all]   Tasks (closed hidden unless --all)
   blocked                        Open tasks waiting on an unresolved blocker
   tree    <id>                   A task and its blocker dependency tree
+  cleanup [--older-than-days <n>] [--dry-run]   Archive terminal tasks older than n days (default 30)
 
 Create options:
   --status <s>                  Status (required for tasks)
@@ -889,6 +890,47 @@ export async function cmdBlocked(args: string[]): Promise<void> {
   });
 }
 
+export async function cmdCleanup(args: string[]): Promise<void> {
+  const ttlDays = Number(getFlag(args, '--older-than-days') ?? 30);
+  const dryRun = hasFlag(args, '--dry-run');
+  const cutoff = Date.now() - ttlDays * 24 * 60 * 60 * 1000;
+  await withClient(async (client) => {
+    // Terminal, not-yet-archived tasks are the cleanup candidates.
+    const result = (await client.query({
+      nodes: { type: 'task', status: ['closed', 'failed', 'abandoned'], archived: false },
+    })) as { items?: TaskRow[] };
+    const candidates = result.items ?? [];
+
+    // NodeSummary carries no timestamp, so fetch each candidate to check age.
+    const stale: Array<{ id: string; title?: string; status?: string; ts: string }> = [];
+    for (const c of candidates) {
+      const full = (await client.getNode(c.id)) as
+        | { updated_at?: string; created_at?: string }
+        | null;
+      const ts = full?.updated_at ?? full?.created_at;
+      if (ts && new Date(ts).getTime() <= cutoff) {
+        stale.push({ id: c.id, title: c.title, status: c.status, ts });
+      }
+    }
+
+    if (dryRun) {
+      console.log(
+        JSON.stringify(
+          { dryRun: true, olderThanDays: ttlDays, wouldArchive: stale.length, tasks: stale },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
+    for (const t of stale) {
+      await client.updateNode(t.id, { archived: true });
+    }
+    console.log(JSON.stringify({ archived: stale.length, olderThanDays: ttlDays }, null, 2));
+  });
+}
+
 export async function cmdTree(args: string[]): Promise<void> {
   const id = args.find((a) => !a.startsWith('--'));
   if (!id) {
@@ -1452,6 +1494,9 @@ async function main() {
       break;
     case 'tree':
       await cmdTree(args.slice(1));
+      break;
+    case 'cleanup':
+      await cmdCleanup(args.slice(1));
       break;
 
     // Setup commands (sync, no daemon needed)

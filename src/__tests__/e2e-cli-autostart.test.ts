@@ -165,4 +165,24 @@ describe.skipIf(!distBuilt)('E2E: CLI human commands (4.4)', () => {
     expect(tree.stdout).toContain(beta);
     expect(tree.stdout).toContain(blocker);
   }, 30_000);
+
+  it('cleanup archives terminal tasks older than the TTL (dry-run is non-destructive)', () => {
+    run(tempDir, ['init']);
+    create('Active');
+    create('Finished', 'closed');
+
+    // dry-run reports candidates but changes nothing.
+    const dry = run(tempDir, ['cleanup', '--dry-run', '--older-than-days', '0']);
+    expect(JSON.parse(dry.stdout).wouldArchive).toBe(1);
+    expect(run(tempDir, ['list', '--all']).stdout).toContain('Finished');
+
+    // a 30-day TTL spares the just-created closed task.
+    expect(JSON.parse(run(tempDir, ['cleanup', '--older-than-days', '30']).stdout).archived).toBe(0);
+
+    // a 0-day TTL archives it → it drops out of listings, the open task stays.
+    expect(JSON.parse(run(tempDir, ['cleanup', '--older-than-days', '0']).stdout).archived).toBe(1);
+    const after = run(tempDir, ['list', '--all']).stdout;
+    expect(after).not.toContain('Finished');
+    expect(after).toContain('Active');
+  }, 30_000);
 });
