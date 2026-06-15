@@ -52,10 +52,26 @@ coordination; omission + 1.5× cost with racy coordination). The effect is the
 *opposite* of the single-session null — here the substrate is necessary, adopted,
 and net-cheaper than the realistic baseline.
 
-**Caveats:** n=1 per arm (needs k≥5 for a failure-rate distribution — esp. to
-characterize whether notes' omission is consistent or stochastic). No agent
-errors (the proxy handled 4 concurrent fine). Next: repeats + a contention sweep
-(N∈{2,8}) to show the baselines degrade monotonically, then cells C (continuity)
-and D (both).
+## Robustness (k=4 at N=4/M=8 — the run above + 3 repeats)
+
+| Arm | correct | failure mode(s) | tokens (range) |
+|---|---|---|---|
+| stock | **0/4** | duplication every run (6–24 double-emits) | 0.42–0.68M |
+| notes | **2/4** | **bimodal** — 1 run omits an item, 1 run duplicates (2 dup) | 1.6–2.05M |
+| opentasks | **4/4** | none — claimers=4/4 every run, clean even split | 1.2–1.55M |
+
+Per-run correct flags: stock = ✗✗✗✗; notes = ✗(miss) ✓ ✓ ✗(2 dup); opentasks = ✓✓✓✓.
+
+**The robust result:** OpenTasks is the only arm that is *reliably* correct (100%),
+and it is **cheaper than the coordinating baseline in every run** (notes is ~50%
+correct at 1.5–1.7× the tokens). The notes failure is **bimodal** — it loses
+items (orphaned reservation, no lease recovery) *or* duplicates them (TOCTOU on
+the shared file) depending on timing — precisely the two failure modes an atomic
+lease+fence eliminates. stock never coordinates and always duplicates.
+
+**Caveats:** k=4 (a clean separation but not yet CI-grade; k≥8 would tighten the
+notes failure-rate estimate). No agent errors (proxy handled 4 concurrent fine).
+Next: contention sweep (N∈{2,8}) for monotonic degradation, then cells C
+(continuity) and D (both).
 
 Traces: `evals/.runs/concB__{stock,notes,opentasks}__n4__m8__r0.json` (gitignored).

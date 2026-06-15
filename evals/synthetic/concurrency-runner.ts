@@ -15,7 +15,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import { BASE_TOOLS, parseStream, stopOpentasksDaemon, cleanupWorkDir } from '../runner.js';
-import { startCollector, scoreExactlyOnce, type ExactlyOnceScore } from './collector.js';
+import { startCollector, scoreExactlyOnce, type Collector, type ExactlyOnceScore } from './collector.js';
 import { SYNTH_ARMS, makeItems, buildPrompt, seedOpentasksGraph, type SynthArm } from './emit-queue.js';
 import type { ArmId } from '../types.js';
 
@@ -55,7 +55,7 @@ export interface ConcurrencyResult {
   agents: AgentSummary[];
 }
 
-async function runOneAgent(args: {
+export async function runOneAgent(args: {
   workDir: string;
   arm: SynthArm;
   agentId: string;
@@ -132,41 +132,59 @@ async function runOneAgent(args: {
   };
 }
 
+/**
+ * Build the shared substrate (work dir + collector + emit script + arm state +
+ * mcp config). Used by both the concurrency (cell B) and continuity (cell C/D)
+ * runners so the seeding stays identical.
+ */
+export async function setupSharedDir(
+  arm: SynthArm,
+  items: string[],
+  env?: Record<string, string>,
+): Promise<{ workDir: string; collector: Collector; mcpFile: string }> {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), `otc-synth-${arm.id}-`));
+  const collector = await startCollector();
+  // Emit script — the non-idempotent, not-on-disk side-effect (no read path).
+  const emitPath = path.join(workDir, 'emit');
+  fs.writeFileSync(
+    emitPath,
+    [
+      '#!/bin/sh',
+      `curl -s -X POST "http://127.0.0.1:${collector.port}/emit" --data-urlencode "id=$1" --data-urlencode "agent=\${AGENT_ID:-unknown}" >/dev/null 2>&1`,
+      'echo "emitted $1"',
+      '',
+    ].join('\n'),
+  );
+  fs.chmodSync(emitPath, 0o755);
+  // Work-list delivery: queue.txt for stock/notes; graph nodes for opentasks.
+  if (!arm.itemsViaGraph) fs.writeFileSync(path.join(workDir, 'queue.txt'), items.join('\n') + '\n');
+  // Shared MCP config (one file, all agents read it; same bytes).
+  const mcpFile = path.join(workDir, '.eval-mcp.json');
+  const serversCfg = arm.mcp ? { [arm.mcp.name]: { command: arm.mcp.command, args: arm.mcp.args } } : {};
+  fs.writeFileSync(mcpFile, JSON.stringify({ mcpServers: serversCfg }));
+  if (arm.itemsViaGraph) {
+    seedOpentasksGraph(workDir, items, { ...process.env, ...(env ?? {}) } as NodeJS.ProcessEnv);
+  }
+  return { workDir, collector, mcpFile };
+}
+
+export async function teardownSharedDir(
+  workDir: string,
+  collector: Collector,
+  env?: Record<string, string>,
+): Promise<void> {
+  await collector.close();
+  stopOpentasksDaemon(workDir, env);
+  cleanupWorkDir(workDir);
+}
+
 export async function runConcurrencyCell(armId: ArmId, opts: ConcurrencyOpts): Promise<ConcurrencyResult> {
   const arm = SYNTH_ARMS[armId];
   if (!arm) throw new Error(`Unknown synthetic arm: ${armId}`);
   const items = makeItems(opts.m);
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), `otc-conc-${armId}-`));
-  const collector = await startCollector();
+  const { workDir, collector, mcpFile } = await setupSharedDir(arm, items, opts.env);
 
   try {
-    // Emit script — the non-idempotent, not-on-disk side-effect (no read path).
-    const emitPath = path.join(workDir, 'emit');
-    fs.writeFileSync(
-      emitPath,
-      [
-        '#!/bin/sh',
-        `curl -s -X POST "http://127.0.0.1:${collector.port}/emit" --data-urlencode "id=$1" --data-urlencode "agent=\${AGENT_ID:-unknown}" >/dev/null 2>&1`,
-        'echo "emitted $1"',
-        '',
-      ].join('\n'),
-    );
-    fs.chmodSync(emitPath, 0o755);
-
-    // Work-list delivery: queue.txt for stock/notes; graph nodes for opentasks.
-    if (!arm.itemsViaGraph) {
-      fs.writeFileSync(path.join(workDir, 'queue.txt'), items.join('\n') + '\n');
-    }
-
-    // Shared MCP config (one file, all agents read it; same bytes).
-    const mcpFile = path.join(workDir, '.eval-mcp.json');
-    const serversCfg = arm.mcp ? { [arm.mcp.name]: { command: arm.mcp.command, args: arm.mcp.args } } : {};
-    fs.writeFileSync(mcpFile, JSON.stringify({ mcpServers: serversCfg }));
-
-    if (arm.itemsViaGraph) {
-      seedOpentasksGraph(workDir, items, { ...process.env, ...(opts.env ?? {}) } as NodeJS.ProcessEnv);
-    }
-
     const start = Date.now();
     const results = await Promise.all(
       Array.from({ length: opts.n }, (_, i) =>
@@ -211,8 +229,6 @@ export async function runConcurrencyCell(armId: ArmId, opts: ConcurrencyOpts): P
 
     return result;
   } finally {
-    await collector.close();
-    stopOpentasksDaemon(workDir, opts.env);
-    cleanupWorkDir(workDir);
+    await teardownSharedDir(workDir, collector, opts.env);
   }
 }

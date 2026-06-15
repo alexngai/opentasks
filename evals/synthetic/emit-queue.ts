@@ -124,10 +124,82 @@ export function buildPrompt(arm: SynthArm, opts: { items: string[]; agentId: str
     `  1. Call claim_next with agentId "${opts.agentId}" to ATOMICALLY claim the next available item.`,
     '     It returns {claimed, nodeId, fence} — or claimed:false when nothing is left.',
     '     The claim is race-free: if claimed:true, no other agent has that nodeId — safe to process.',
-    '  2. Call get_task with that nodeId to read its title — the title IS the item-id to emit.',
-    '  3. Run `./emit <item-id>` using that title.',
+    '  2. Call get_task with that nodeId to read its title. The TITLE (like "item-007") is the',
+    '     item-id to emit — NOT the nodeId (which looks like "t-3lji"). Emit the title.',
+    '  3. Run `./emit <item-id>` using that title (e.g. `./emit item-007`).',
     '  4. Call update_task on that nodeId with status "closed" to mark it done.',
     '  5. Repeat from step 1 until claim_next returns claimed:false, then stop.',
     'Only emit items you successfully claimed.',
+  ].join('\n');
+}
+
+/* ───────────────────────── continuity (cell C / D) prompts ───────────────────────── */
+
+const CONTINUITY_INTRO = [
+  'Process a queue of work items. Processing an item means running `./emit <item-id>`.',
+  'Emitting is an IRREVERSIBLE EXTERNAL action (like sending a message): there is NO way to',
+  'query or list what has already been emitted. So you must never emit the same item twice.',
+  '',
+];
+
+/** Phase 1 — a single agent starts the queue (will be interrupted by a wall-clock cap). */
+export function buildContinuityP1Prompt(arm: SynthArm, opts: { m: number; agentId: string }): string {
+  if (arm.id === 'opentasks') {
+    return [
+      ...CONTINUITY_INTRO,
+      'Get work ONLY from the OpenTasks graph (the MCP). Repeatedly:',
+      `  1. claim_next with agentId "${opts.agentId}" → {claimed, nodeId, fence} (claimed:false = none left).`,
+      '  2. get_task on the nodeId to read its title. Emit the TITLE (like "item-007"), NOT the nodeId ("t-3lji").',
+      '  3. `./emit <item-id>` using the title (e.g. `./emit item-007`).',
+      '  4. update_task on the nodeId with status "closed" to durably mark it done.',
+      '  Keep going until nothing is left. Always close a task right after emitting it.',
+    ].join('\n');
+  }
+  if (arm.id === 'notes') {
+    return [
+      ...CONTINUITY_INTRO,
+      `The ${opts.m} items are in queue.txt. For each: run \`./emit <item-id>\`, then IMMEDIATELY append`,
+      'that item-id as a line to done.txt so your progress is durably recorded on disk.',
+      'Work through the queue in order; always write to done.txt right after emitting.',
+    ].join('\n');
+  }
+  return [
+    ...CONTINUITY_INTRO,
+    `The ${opts.m} items are in queue.txt. Process each by running \`./emit <item-id>\`. Work in order.`,
+  ].join('\n');
+}
+
+/** Phase 2 — a FRESH agent (empty context) resumes; must not re-emit done items. */
+export function buildContinuityResumePrompt(arm: SynthArm, opts: { m: number; agentId: string }): string {
+  const head = [
+    'A PREVIOUS session already started processing this queue and was interrupted partway through.',
+    'Some items are ALREADY emitted. Emitting is irreversible and you CANNOT observe which items are',
+    'already done. You must emit ONLY the items that are NOT yet done — never re-emit a done item.',
+    '',
+  ];
+  if (arm.id === 'opentasks') {
+    return [
+      ...head,
+      'Recover progress from the OpenTasks graph (the MCP): a task with status "closed" is already done.',
+      'Repeatedly:',
+      `  1. claim_next with agentId "${opts.agentId}" — it returns ONLY items that still need doing`,
+      '     (closed/claimed items are not returned), or claimed:false when the queue is finished.',
+      '  2. get_task on the nodeId → read its title. Emit the TITLE (like "item-007"), NOT the nodeId.',
+      '  3. `./emit <item-id>` using the title; then update_task on the nodeId with status "closed".',
+      '  Repeat until claim_next returns claimed:false. This guarantees no item is emitted twice.',
+    ].join('\n');
+  }
+  if (arm.id === 'notes') {
+    return [
+      ...head,
+      'The full item list is in queue.txt; the previous session recorded finished items in done.txt.',
+      'Read done.txt first. Then for each item in queue.txt that is NOT already listed in done.txt:',
+      'run `./emit <item-id>` and append it to done.txt. Skip every item already in done.txt.',
+    ].join('\n');
+  }
+  return [
+    ...head,
+    'The full item list is in queue.txt. You have no other record of what the previous session did.',
+    'Finish the queue.',
   ].join('\n');
 }
