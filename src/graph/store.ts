@@ -25,6 +25,8 @@ import type { QueryEngine } from './query.js';
 import { createQueryEngine } from './query.js';
 import type { SyncManager, SyncConfig } from './sync.js';
 import { createSyncManager, DEFAULT_SYNC_CONFIG } from './sync.js';
+import type { ClaimManager, ClaimResult, ClaimOptions } from './coordination.js';
+import { createClaimManager } from './coordination.js';
 
 // ============================================================================
 // Types
@@ -39,6 +41,12 @@ export interface GraphTransaction {
   deleteNode(id: string): Promise<void>;
   createEdge(input: CreateEdgeInput): Promise<Edge>;
   deleteEdge(id: string): Promise<void>;
+}
+
+/** Options for claimNext */
+export interface ClaimNextOptions {
+  /** Lease duration in ms (default: 30 min) */
+  durationMs?: number;
 }
 
 /**
@@ -107,6 +115,28 @@ export interface GraphStore {
 
   /** Set a node resolver for cross-provider query support */
   setNodeResolver(resolver: import('./query.js').NodeResolver): void;
+
+  // === Coordination (atomic claiming) ===
+
+  /** Atomically claim a task for an agent (lease-based, race-free) */
+  claim(id: string, agentId: string, options?: ClaimOptions): Promise<ClaimResult>;
+
+  /** Release a claim; fenced when a fence token is supplied */
+  release(id: string, agentId: string, fence?: number): Promise<boolean>;
+
+  /** Renew/extend a claim's lease; fenced when a fence token is supplied */
+  renewClaim(
+    id: string,
+    agentId: string,
+    durationMs?: number,
+    fence?: number,
+  ): Promise<ClaimResult>;
+
+  /** Atomically claim the next ready, unclaimed task (returns null if none) */
+  claimNext(agentId: string, options?: ClaimNextOptions): Promise<ClaimResult | null>;
+
+  /** Atomically clear all expired claims; returns the cleared task IDs */
+  sweepExpiredClaims(): Promise<string[]>;
 
   // === Transactions ===
 
@@ -225,6 +255,7 @@ export function createGraphStore(
 ): GraphStore {
   const validation: ValidationService = createValidationService();
   let queryEngine: QueryEngine = createQueryEngine(storage);
+  const claimManager: ClaimManager = createClaimManager(storage);
 
   // Sync configuration
   const syncConfig: SyncConfig = {
@@ -324,6 +355,50 @@ export function createGraphStore(
 
     async flush(): Promise<void> {
       await syncManager.flush();
+    },
+
+    // =========================================================================
+    // Coordination (atomic claiming) — delegates to the ClaimManager, which is
+    // backed by atomic SQLite conditional UPDATEs (see graph/coordination.ts).
+    // =========================================================================
+
+    async claim(id: string, agentId: string, options?: ClaimOptions): Promise<ClaimResult> {
+      return claimManager.claim(id, agentId, options);
+    },
+
+    async release(id: string, agentId: string, fence?: number): Promise<boolean> {
+      return claimManager.release(id, agentId, fence);
+    },
+
+    async renewClaim(
+      id: string,
+      agentId: string,
+      durationMs?: number,
+      fence?: number,
+    ): Promise<ClaimResult> {
+      return claimManager.renew(id, agentId, durationMs, fence);
+    },
+
+    async claimNext(agentId: string, options?: ClaimNextOptions): Promise<ClaimResult | null> {
+      // Pull the ready set (open, unblocked tasks) and claim the first one that
+      // isn't under a live lease. Each claim is atomic, so losing a race just
+      // moves on to the next candidate.
+      const ready = await storage.getReady();
+      const nowMs = Date.now();
+      for (const node of ready) {
+        if (node.claimed_by && node.lock_until && new Date(node.lock_until).getTime() > nowMs) {
+          continue;
+        }
+        const result = await claimManager.claim(node.id, agentId, {
+          durationMs: options?.durationMs,
+        });
+        if (result.success) return result;
+      }
+      return null;
+    },
+
+    async sweepExpiredClaims(): Promise<string[]> {
+      return storage.sweepExpiredClaims();
     },
 
     async reload(): Promise<void> {

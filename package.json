@@ -1,6 +1,6 @@
 {
   "name": "opentasks",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Universal task graph data structure",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,13 +13,19 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "skills"
   ],
   "scripts": {
-    "build": "tsc",
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:slow": "RUN_SLOW_TESTS=1 vitest run",
@@ -68,9 +74,11 @@
     "type": "git",
     "url": "git+https://github.com/alexngai/opentasks.git"
   },
+  "optionalDependencies": {
+    "@multi-agent-protocol/sdk": "^0.1.9"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "@multi-agent-protocol/sdk": "^0.1.9",
     "agent-session-parser": "^0.1.0",
     "better-sqlite3": "^12.6.2",
     "chokidar": "^5.0.0",

@@ -575,7 +575,14 @@ async function queryContextSummary(
         siblingIds.add(sibling.id);
 
         const relevance = `sibling-via:${ctx.id}`;
-        if (sibling.status === 'closed') {
+        // Terminal states (closed/failed/abandoned) are concluded work — group
+        // them as "recently completed" (the breadcrumb carries the real status),
+        // never as active. Only open/in_progress are active.
+        if (
+          sibling.status === 'closed' ||
+          sibling.status === 'failed' ||
+          sibling.status === 'abandoned'
+        ) {
           if (result.recentlyCompleted.length < limit) {
             result.recentlyCompleted.push(toBreadcrumb(sibling, relevance));
           }
@@ -599,10 +606,10 @@ async function queryContextSummary(
   }
 
   // Broader queries: recent tasks by branch/tags
-  // Recently completed tasks
+  // Recently concluded tasks (terminal: completed, failed, or abandoned)
   const closedTasks = await store.query.nodes({
     type: 'task',
-    status: 'closed',
+    status: ['closed', 'failed', 'abandoned'],
     archived: false,
     orderBy: 'updated_at',
     orderDirection: 'desc',

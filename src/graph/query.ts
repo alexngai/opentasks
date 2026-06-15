@@ -148,7 +148,13 @@ function safeParseNode(stored: StoredNode): Node | null {
 }
 
 /**
- * Check if a node is active (not closed, not archived)
+ * Check if a node is active (not closed, not archived).
+ *
+ * Deliberate: only `closed` (= successfully completed) clears a blocker.
+ * `failed`/`abandoned` blockers stay ACTIVE so their dependents remain blocked —
+ * a prerequisite that failed or was dropped didn't deliver what the dependent
+ * needs, so the dependent must wait for an explicit reopen/retry rather than
+ * silently becoming ready. (Same rule as the `ready_tasks` SQL view.)
  */
 function isActiveNode(node: StoredNode): boolean {
   return !node.archived && node.status !== 'closed';
@@ -549,6 +555,17 @@ export function createQueryEngine(options: QueryEngineOptions | Storage): QueryE
         if (!matchesPriority(task, options?.priority)) continue;
 
         if (options?.assignee && task.assignee !== options.assignee) continue;
+
+        // Lease-aware filter (opt-in). Mirrors claimNext's JS guard: skip a task
+        // that is open but under a live (non-expired) claim. Off by default —
+        // see ReadyOptions.excludeClaimed.
+        if (options?.excludeClaimed) {
+          const claimedBy = (task as { claimed_by?: string }).claimed_by;
+          const lockUntil = (task as { lock_until?: string }).lock_until;
+          if (claimedBy && lockUntil && new Date(lockUntil).getTime() > Date.now()) {
+            continue;
+          }
+        }
 
         // Check for active blockers
         const blockerEdges = await storage.getEdgesTo(task.id, 'blocks');

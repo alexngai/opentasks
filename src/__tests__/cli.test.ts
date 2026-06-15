@@ -48,7 +48,9 @@ async function runCli(
 // Tests
 // ============================================================================
 
-describe('CLI', () => {
+// Spawns the CLI as a `node` subprocess per case; under full-suite parallel
+// load these can exceed vitest's default 5s per-test timeout. See HARDENING-PLAN P0.
+describe('CLI', { timeout: 30_000 }, () => {
   describe('help command', () => {
     it('should show help when no command provided', async () => {
       const { stdout, exitCode } = await runCli([]);
@@ -65,6 +67,28 @@ describe('CLI', () => {
       expect(exitCode).toBe(0);
       expect(stdout).toContain('opentasks');
       expect(stdout).toContain('Usage:');
+    });
+
+    it('documents the claim/release/renew coordination commands', async () => {
+      const { stdout } = await runCli(['help']);
+      expect(stdout).toContain('claim');
+      expect(stdout).toContain('claim-next');
+      expect(stdout).toContain('release');
+      expect(stdout).toContain('renew');
+    });
+  });
+
+  describe('claim command validation (daemon-free)', () => {
+    it('errors with usage when claim is missing args', async () => {
+      const { stderr, exitCode } = await runCli(['claim']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('Usage: opentasks claim');
+    });
+
+    it('errors with usage when release is missing --agent', async () => {
+      const { stderr, exitCode } = await runCli(['release', 't-x']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('Usage: opentasks release');
     });
   });
 

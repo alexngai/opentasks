@@ -1,5 +1,7 @@
 # OpenTasks Persistence Layer
 
+> **Design intent, not as-built.** Describes the intended persistence design. Note in particular that the daemon currently writes `graph.jsonl` as a full-file snapshot on a debounced flush (not append-only). For current behavior, see [STATUS.md](./STATUS.md).
+
 This document describes the persistence architecture for OpenTasks. The design enables flexible, pluggable storage while maintaining a consistent graph data model.
 
 **See also:** [DESIGN.md](./DESIGN.md) (vision) · [SCHEMA.md](./SCHEMA.md) (data model) · [ARCHITECTURE.md](./ARCHITECTURE.md) (hierarchy, daemon) · [PROVIDERS.md](./PROVIDERS.md) (integrations) · [INTERFACE.md](./INTERFACE.md) (API)

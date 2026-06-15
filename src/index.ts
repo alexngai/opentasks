@@ -266,6 +266,16 @@ export {
   type MAPNotificationSender,
 } from './providers/map-connector.js';
 
+// MAP Client Factory (connects to a MAP server; SDK is dynamically imported)
+export {
+  createMAPClient,
+  type MAPClientOptions,
+  type MAPClientResult,
+} from './providers/map-client-factory.js';
+
+// MAP Provider (inbound — surfaces remote MAP tasks as map:// nodes)
+export { createMAPProvider, type MAPProviderConfig } from './providers/map.js';
+
 // Provider-Aware Store
 export type { ProviderAwareStore, ProviderStoreConfig, ResolveOptions } from './graph/index.js';
 

@@ -342,7 +342,9 @@ async function waitFor(
 // 1. Checkpoint Store E2E
 // ============================================================================
 
-describe('E2E: Checkpoint Store via createNativeSessionlogStore', () => {
+// Real-git e2e (TestRepo); under full-suite parallel load these exceed
+// vitest's default 5s per-test timeout. See HARDENING-PLAN P0.
+describe('E2E: Checkpoint Store via createNativeSessionlogStore', { timeout: 30_000 }, () => {
   let repo: TestRepo;
 
   beforeEach(() => {
@@ -449,7 +451,7 @@ describe('E2E: Checkpoint Store via createNativeSessionlogStore', () => {
 // 2. Provider Checkpoint Pipeline
 // ============================================================================
 
-describe('E2E: Provider Checkpoint Pipeline', () => {
+describe('E2E: Provider Checkpoint Pipeline', { timeout: 30_000 }, () => {
   let repo: TestRepo;
   let provider: Provider;
 
@@ -789,7 +791,7 @@ describe.skipIf(!SLOW_TESTS)('E2E: Sessionlog watcher filesystem events', () => 
 // 4. Transcript Extractor E2E
 // ============================================================================
 
-describe('E2E: TranscriptExtractor with real git', () => {
+describe('E2E: TranscriptExtractor with real git', { timeout: 30_000 }, () => {
   let repo: TestRepo;
 
   beforeEach(() => {
@@ -918,7 +920,7 @@ describe('E2E: TranscriptExtractor with real git', () => {
 // 5. Full Session Lifecycle
 // ============================================================================
 
-describe('E2E: Full session lifecycle (store + watcher + extractor)', () => {
+describe('E2E: Full session lifecycle (store + watcher + extractor)', { timeout: 30_000 }, () => {
   let repo: TestRepo;
 
   beforeEach(() => {

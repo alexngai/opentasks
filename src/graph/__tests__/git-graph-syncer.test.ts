@@ -122,7 +122,9 @@ afterEach(() => {
 // Tests
 // ============================================================================
 
-describe('Git Graph Syncer', () => {
+// Spawns real `git` subprocesses; under full-suite parallel load these
+// routinely exceed vitest's default 5s per-test timeout. See HARDENING-PLAN P0.
+describe('Git Graph Syncer', { timeout: 30_000 }, () => {
   // --------------------------------------------------------------------------
   // commitIfDirty
   // --------------------------------------------------------------------------

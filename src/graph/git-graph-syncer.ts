@@ -88,6 +88,9 @@ export interface SyncerHealth {
 
   /** ISO timestamp of the last fully-successful sync cycle. */
   lastSuccessAt: string | null;
+
+  /** Cumulative count of failed ops (commit/pull/push) since process start. */
+  errorCount: number;
 }
 
 export interface GitGraphSyncer {
@@ -194,11 +197,13 @@ export function createGitGraphSyncer(config: GitGraphSyncerConfig): GitGraphSync
     lastErrorAt: null,
     lastErrorOp: null,
     lastSuccessAt: null,
+    errorCount: 0,
   };
   function recordError(op: 'commit' | 'pull' | 'push', message: string): void {
     health.lastError = message;
     health.lastErrorAt = new Date().toISOString();
     health.lastErrorOp = op;
+    health.errorCount += 1;
   }
   function clearError(): void {
     health.lastError = null;
@@ -428,6 +433,7 @@ export function createGitGraphSyncer(config: GitGraphSyncerConfig): GitGraphSync
         lastErrorAt: health.lastErrorAt,
         lastErrorOp: health.lastErrorOp,
         lastSuccessAt: health.lastSuccessAt,
+        errorCount: health.errorCount,
       };
     },
   };

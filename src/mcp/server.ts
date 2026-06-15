@@ -16,6 +16,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { OpenTasksClient, type ClientOptions } from '../client/client.js';
+import { VERSION } from '../version.js';
+import { TASK_ACTIONS } from '../providers/traits/TaskManageable.js';
 
 // ============================================================================
 // Types
@@ -56,7 +58,7 @@ export function createMCPServer(options?: MCPServerOptions): McpServer {
 
   const server = new McpServer({
     name: 'opentasks',
-    version: '0.0.5',
+    version: VERSION,
   });
 
   // Always register tasks scope
@@ -97,13 +99,14 @@ function registerTaskTools(server: McpServer, client: OpenTasksClient): void {
       parent_id: z.string().optional().describe('Parent node ID'),
       metadata: z.record(z.string(), z.unknown()).optional().describe('Additional metadata'),
       scheme: z.string().optional().describe('Provider scheme to route creation to (e.g. beads, sudocode)'),
+      idempotency_key: z.string().optional().describe('Dedup key: retrying create with the same key returns the original task instead of a duplicate'),
     },
     async (args) => {
       try {
-        const { scheme, ...params } = args;
+        const { scheme, idempotency_key, ...params } = args;
         const result = await client.createNode(
           { type: 'task', ...params },
-          scheme ? { scheme } : undefined,
+          scheme || idempotency_key ? { scheme, idempotencyKey: idempotency_key } : undefined,
         );
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
@@ -149,8 +152,8 @@ function registerTaskTools(server: McpServer, client: OpenTasksClient): void {
       archived: z.boolean().optional().describe('Archive/unarchive'),
       metadata: z.record(z.string(), z.unknown()).optional().describe('Update metadata (merged)'),
       // Semantic transitions
-      transition: z.enum(['start', 'complete', 'block', 'reopen', 'close']).optional()
-        .describe('Semantic status transition (alternative to setting status directly)'),
+      transition: z.enum(TASK_ACTIONS).optional()
+        .describe('Semantic status transition (alternative to setting status directly). fail/abandon are terminal outcomes distinct from complete/close.'),
       // Blocker management
       addBlockedBy: z.array(z.string()).optional().describe('Add blocker task IDs (these block this task)'),
       removeBlockedBy: z.array(z.string()).optional().describe('Remove blocker task IDs'),
@@ -352,6 +355,79 @@ function registerTaskTools(server: McpServer, client: OpenTasksClient): void {
       }
     },
   );
+
+  server.tool(
+    'claim_task',
+    'Atomically claim a task for an agent (lease-based, race-free). Returns claimed:false (not an error) when another agent already holds it. Use the returned fence with release_task/renew_claim.',
+    {
+      id: z.string().describe('Task ID (native tasks only)'),
+      agentId: z.string().describe('Agent acquiring the claim'),
+      durationMs: z.number().optional().describe('Lease duration in ms (default: 30 min)'),
+      force: z.boolean().optional().describe('Claim even if held by another, unexpired agent'),
+    },
+    async (args) => {
+      try {
+        const result = await client.task({ claim: args });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
+    'claim_next',
+    'Atomically claim the next ready, unclaimed task for an agent (fused ready-query + claim). Returns claimed:false when nothing is available.',
+    {
+      agentId: z.string().describe('Agent acquiring the claim'),
+      durationMs: z.number().optional().describe('Lease duration in ms (default: 30 min)'),
+    },
+    async (args) => {
+      try {
+        const result = await client.task({ claimNext: args });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
+    'release_task',
+    'Release a claim on a task. Pass the fence from claim_task to reject a stale/superseded release.',
+    {
+      id: z.string().describe('Task ID (native tasks only)'),
+      agentId: z.string().describe('Agent that holds the claim'),
+      fence: z.number().optional().describe('Fence token from the claim'),
+    },
+    async (args) => {
+      try {
+        const result = await client.task({ release: args });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
+    'renew_claim',
+    "Renew/extend a claim's lease (heartbeat). Pass the fence from claim_task to reject a stale/superseded renew.",
+    {
+      id: z.string().describe('Task ID (native tasks only)'),
+      agentId: z.string().describe('Agent that holds the claim'),
+      durationMs: z.number().optional().describe('New lease duration in ms (default: 30 min)'),
+      fence: z.number().optional().describe('Fence token from the claim'),
+    },
+    async (args) => {
+      try {
+        const result = await client.task({ renew: args });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
 }
 
 // ============================================================================
@@ -422,6 +498,7 @@ function registerGraphTools(server: McpServer, client: OpenTasksClient): void {
         priority: z.union([z.number(), z.object({ min: z.number().optional(), max: z.number().optional() })]).optional(),
         assignee: z.string().optional(),
         limit: z.number().optional(),
+        excludeClaimed: z.boolean().optional().describe('Exclude tasks under a live claim (lease). Off by default; set when dispatching directly off ready.'),
       }).optional(),
 
       blockers: z.object({
@@ -489,6 +566,62 @@ function registerGraphTools(server: McpServer, client: OpenTasksClient): void {
       try {
         const result = await client.contextSummary(args);
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
+    'events_since',
+    `Pull graph change events since a cursor (token-cheap polling — get just what changed instead of re-querying the world).
+Pass back the { epoch, seq } cursor from a previous call; omit both to get a baseline cursor from the current head (no events).
+Returns { events, nextCursor }. If the cursor is too old or the daemon restarted, returns { resync: true, nextCursor } — re-query state and adopt nextCursor.`,
+    {
+      epoch: z.string().optional().describe('Cursor epoch from a prior call (omit for a baseline)'),
+      seq: z.number().optional().describe('Cursor seq from a prior call (omit for a baseline)'),
+    },
+    async (args) => {
+      try {
+        // No cursor → hand back the current head as a baseline to poll from.
+        if (args.epoch === undefined || args.seq === undefined) {
+          const cursor = await client.eventsCurrent();
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ events: [], nextCursor: cursor }, null, 2),
+              },
+            ],
+          };
+        }
+
+        const result = await client.eventsSince({ epoch: args.epoch, seq: args.seq });
+        if ('resync' in result && result.resync) {
+          const cursor = await client.eventsCurrent();
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ resync: true, nextCursor: cursor }, null, 2),
+              },
+            ],
+          };
+        }
+
+        const events = result.events;
+        const last = events.length > 0 ? events[events.length - 1] : null;
+        const nextCursor = last
+          ? { epoch: last.epoch, seq: last.seq }
+          : { epoch: args.epoch, seq: args.seq };
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ events, nextCursor }, null, 2),
+            },
+          ],
+        };
       } catch (error) {
         return errorResult(error);
       }

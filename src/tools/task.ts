@@ -17,8 +17,11 @@ import type {
   TaskReadyData,
   TaskAssignData,
   TaskValidActionsData,
+  TaskClaimData,
+  TaskReleaseData,
   NodeSummary,
 } from './types.js';
+import { TASK_ACTIONS } from '../providers/traits/TaskManageable.js';
 
 // ============================================================================
 // Summary Converter
@@ -51,8 +54,15 @@ function countOperations(params: TaskParams): number {
   if (params.ready !== undefined) count++;
   if (params.assign !== undefined) count++;
   if (params.validActions !== undefined) count++;
+  if (params.claim !== undefined) count++;
+  if (params.claimNext !== undefined) count++;
+  if (params.release !== undefined) count++;
+  if (params.renew !== undefined) count++;
   return count;
 }
+
+const OPERATION_LIST =
+  'transition, ready, assign, validActions, claim, claimNext, release, renew';
 
 // ============================================================================
 // Task Tool Implementation
@@ -72,15 +82,14 @@ export async function task(store: ProviderAwareStore, params: TaskParams): Promi
   if (opCount === 0) {
     return {
       success: false,
-      error: 'No operation specified. Provide one of: transition, ready, assign, validActions',
+      error: `No operation specified. Provide one of: ${OPERATION_LIST}`,
     };
   }
 
   if (opCount > 1) {
     return {
       success: false,
-      error:
-        'Multiple operations specified. Provide exactly one of: transition, ready, assign, validActions',
+      error: `Multiple operations specified. Provide exactly one of: ${OPERATION_LIST}`,
     };
   }
 
@@ -99,6 +108,22 @@ export async function task(store: ProviderAwareStore, params: TaskParams): Promi
 
     if (params.validActions) {
       return await handleValidActions(store, params.validActions);
+    }
+
+    if (params.claim) {
+      return await handleClaim(store, params.claim);
+    }
+
+    if (params.claimNext) {
+      return await handleClaimNext(store, params.claimNext);
+    }
+
+    if (params.release) {
+      return await handleRelease(store, params.release);
+    }
+
+    if (params.renew) {
+      return await handleRenew(store, params.renew);
     }
 
     return { success: false, error: 'Unknown operation' };
@@ -127,11 +152,10 @@ async function handleTransition(
     return { success: false, error: 'Missing required parameter: action' };
   }
 
-  const validActions = ['start', 'complete', 'block', 'reopen', 'close'];
-  if (!validActions.includes(action)) {
+  if (!TASK_ACTIONS.includes(action)) {
     return {
       success: false,
-      error: `Invalid action: ${action}. Must be one of: ${validActions.join(', ')}`,
+      error: `Invalid action: ${action}. Must be one of: ${TASK_ACTIONS.join(', ')}`,
     };
   }
 
@@ -157,6 +181,7 @@ async function handleReady(
     tags: params.tags,
     priority: params.priority,
     assignee: params.assignee,
+    excludeClaimed: params.excludeClaimed,
   });
 
   const data: TaskReadyData = {
@@ -208,6 +233,118 @@ async function handleValidActions(
     type: 'validActions',
     actions,
   };
+
+  return { success: true, data };
+}
+
+async function handleClaim(
+  store: ProviderAwareStore,
+  params: NonNullable<TaskParams['claim']>,
+): Promise<TaskResult> {
+  const { id, agentId, durationMs, force } = params;
+
+  if (!id) return { success: false, error: 'Missing required parameter: id' };
+  if (!agentId) return { success: false, error: 'Missing required parameter: agentId' };
+
+  const result = await store.taskClaim(id, agentId, { durationMs, force });
+
+  // A claim blocked by another holder is a normal outcome (claimed=false), not
+  // a tool error. A genuine failure (e.g. node not found) has neither a claim
+  // nor an existing holder.
+  if (!result.success && !result.existingClaim) {
+    return { success: false, error: result.error ?? `Cannot claim ${id}` };
+  }
+
+  const data: TaskClaimData =
+    result.success && result.claim
+      ? {
+          type: 'claim',
+          claimed: true,
+          nodeId: id,
+          agentId,
+          fence: result.claim.fence,
+          lockUntil: result.claim.lockUntil,
+        }
+      : {
+          type: 'claim',
+          claimed: false,
+          nodeId: id,
+          agentId,
+          reason: result.error,
+          existingClaim: result.existingClaim
+            ? { agentId: result.existingClaim.agentId, lockUntil: result.existingClaim.lockUntil }
+            : undefined,
+        };
+
+  return { success: true, data };
+}
+
+async function handleClaimNext(
+  store: ProviderAwareStore,
+  params: NonNullable<TaskParams['claimNext']>,
+): Promise<TaskResult> {
+  const { agentId, durationMs } = params;
+  if (!agentId) return { success: false, error: 'Missing required parameter: agentId' };
+
+  const result = await store.taskClaimNext(agentId, { durationMs });
+
+  if (!result || !result.claim) {
+    const data: TaskClaimData = { type: 'claimNext', claimed: false, agentId };
+    return { success: true, data };
+  }
+
+  const data: TaskClaimData = {
+    type: 'claimNext',
+    claimed: true,
+    nodeId: result.claim.nodeId,
+    agentId,
+    fence: result.claim.fence,
+    lockUntil: result.claim.lockUntil,
+  };
+  return { success: true, data };
+}
+
+async function handleRelease(
+  store: ProviderAwareStore,
+  params: NonNullable<TaskParams['release']>,
+): Promise<TaskResult> {
+  const { id, agentId, fence } = params;
+  if (!id) return { success: false, error: 'Missing required parameter: id' };
+  if (!agentId) return { success: false, error: 'Missing required parameter: agentId' };
+
+  const released = await store.taskRelease(id, agentId, fence);
+
+  const data: TaskReleaseData = { type: 'release', released, nodeId: id };
+  return { success: true, data };
+}
+
+async function handleRenew(
+  store: ProviderAwareStore,
+  params: NonNullable<TaskParams['renew']>,
+): Promise<TaskResult> {
+  const { id, agentId, durationMs, fence } = params;
+  if (!id) return { success: false, error: 'Missing required parameter: id' };
+  if (!agentId) return { success: false, error: 'Missing required parameter: agentId' };
+
+  const result = await store.taskRenew(id, agentId, durationMs, fence);
+
+  const data: TaskClaimData =
+    result.success && result.claim
+      ? {
+          type: 'renew',
+          claimed: true,
+          nodeId: id,
+          agentId,
+          fence: result.claim.fence,
+          lockUntil: result.claim.lockUntil,
+        }
+      : {
+          type: 'renew',
+          claimed: false,
+          nodeId: id,
+          agentId,
+          reason: result.error,
+        };
 
   return { success: true, data };
 }

@@ -129,7 +129,17 @@ export function createDaemonFlushManager(
 
     async flush(): Promise<void> {
       if (isPaused) return;
-      await flusher.flush();
+      // Drain fully. A single flusher.flush() may coalesce onto an in-flight
+      // flush whose batch was snapshotted (doFlush copies + clears dirtyNodes)
+      // BEFORE a just-marked node — e.g. a durable claim/terminal write that
+      // calls markDirty() then flush() while a debounced flush is mid-write.
+      // Awaiting only that in-flight promise would resolve with the durable
+      // node still dirty (in SQLite, not JSONL), breaking the "on disk before
+      // the RPC returns" guarantee. Loop until the dirty set is empty — or a
+      // concurrent pause (git sync) defers the remainder to resume().
+      do {
+        await flusher.flush();
+      } while (!isPaused && dirtyNodes.size > 0);
     },
 
     pause(): void {

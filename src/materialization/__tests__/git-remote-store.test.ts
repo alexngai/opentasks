@@ -109,7 +109,9 @@ afterEach(() => {
 // Tests
 // ============================================================================
 
-describe('Git Remote Store', () => {
+// Spawns real `git` subprocesses; under full-suite parallel load these
+// routinely exceed vitest's default 5s per-test timeout. See HARDENING-PLAN P0.
+describe('Git Remote Store', { timeout: 30_000 }, () => {
   describe('creation', () => {
     it('should create a store with valid config', () => {
       const store = createGitRemoteStore(makeConfig());

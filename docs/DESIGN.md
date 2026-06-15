@@ -1,5 +1,7 @@
 # OpenTasks Design Document
 
+> **Design intent, not as-built.** This captures vision and design decisions, some not yet implemented. For current behavior, see [STATUS.md](./STATUS.md).
+
 **See also:** [SCHEMA.md](./SCHEMA.md) (data model) · [ARCHITECTURE.md](./ARCHITECTURE.md) (hierarchy, daemon) · [PERSISTENCE.md](./PERSISTENCE.md) (storage) · [PROVIDERS.md](./PROVIDERS.md) (integrations) · [INTERFACE.md](./INTERFACE.md) (API)
 
 ---

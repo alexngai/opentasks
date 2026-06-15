@@ -34,7 +34,9 @@ function git(cwd: string, args: string): string {
   }).trim();
 }
 
-describe('E2E: Git Sync', () => {
+// Spawns real `git` subprocesses; under full-suite parallel load these
+// routinely exceed vitest's default 5s per-test timeout. See HARDENING-PLAN P0.
+describe('E2E: Git Sync', { timeout: 30_000 }, () => {
   let tempDir: string;
   let repoDir: string;
   let bareRemote: string;
@@ -240,6 +242,82 @@ describe('E2E: Git Sync', () => {
   });
 
   // --------------------------------------------------------------------------
+  // pullOnStartup — the startup pull must land in SQLite, not just on disk
+  // --------------------------------------------------------------------------
+
+  describe('pullOnStartup', () => {
+    // A peer is another opentasks instance, so its node ids follow the local
+    // id format (`^[ctfex]-...`) — that's what graph.get's provider-aware
+    // path treats as a direct store lookup rather than a provider URI.
+    const PEER_ID = 't-peernode1';
+
+    // Push a peer node to the remote BEFORE the daemon starts, so the
+    // startup pull (doInitialPull) has something to fetch.
+    async function pushPeerNode(): Promise<void> {
+      const peerDir = path.join(tempDir, 'peer');
+      git(tempDir, `clone "${bareRemote}" "${peerDir}"`);
+      git(peerDir, 'config user.email "peer@example.com"');
+      git(peerDir, 'config user.name "Peer"');
+      const peerOpentasks = path.join(peerDir, '.opentasks');
+      await fs.mkdir(peerOpentasks, { recursive: true });
+      const line = JSON.stringify({
+        id: PEER_ID,
+        uuid: PEER_ID,
+        type: 'task',
+        title: 'From the peer',
+        status: 'open',
+        archived: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+      await fs.writeFile(path.join(peerOpentasks, 'graph.jsonl'), line + '\n');
+      git(peerDir, 'add .opentasks/graph.jsonl');
+      git(peerDir, 'commit -m "peer: add a task"');
+      git(peerDir, 'push origin main');
+    }
+
+    it('makes the pulled node queryable (reloads SQLite after the startup pull)', async () => {
+      await pushPeerNode();
+
+      // Daemon boots with pullOnStartup — the pull rewrites graph.jsonl on
+      // disk before the watcher is live. Without a post-pull store.reload(),
+      // SQLite would still hold the pre-pull (empty) snapshot.
+      await startDaemon({ enabled: true, remote: 'origin', pullOnStartup: true });
+      const c = await connectClient();
+
+      // The pulled node must be visible through the normal query path — not
+      // just present in the file.
+      const node = await c.request<Node | null>('graph.get', { id: PEER_ID });
+      expect(node).not.toBeNull();
+      expect(node!.id).toBe(PEER_ID);
+      expect(node!.title).toBe('From the peer');
+    });
+
+    it('does not clobber the pulled node on the next local flush', async () => {
+      await pushPeerNode();
+
+      await startDaemon({ enabled: true, remote: 'origin', pullOnStartup: true });
+      const c = await connectClient();
+
+      // A local write triggers a full-file flush from SQLite. If the startup
+      // pull never reloaded SQLite, this flush rewrites graph.jsonl from the
+      // stale snapshot and silently drops the pulled peer node — data loss.
+      await c.request<Node>('graph.create', { type: 'task', title: 'Local task', status: 'open' });
+      await c.request('flush');
+      await new Promise((r) => setTimeout(r, 200));
+
+      const ourGraph = await fs.readFile(path.join(opentasksPath, 'graph.jsonl'), 'utf-8');
+      expect(ourGraph).toContain(PEER_ID);
+      expect(ourGraph).toContain('From the peer');
+      expect(ourGraph).toContain('Local task');
+
+      // And the pulled node is still queryable after the local flush.
+      const peerNode = await c.request<Node | null>('graph.get', { id: PEER_ID });
+      expect(peerNode).not.toBeNull();
+    });
+  });
+
+  // --------------------------------------------------------------------------
   // Health surface — lastError / lastSuccessAt on sync.status
   // --------------------------------------------------------------------------
 
@@ -282,6 +360,7 @@ describe('E2E: Git Sync', () => {
         health?: {
           lastError: string | null;
           lastErrorOp: 'commit' | 'pull' | 'push' | null;
+          errorCount: number;
         };
       }>('sync.status');
 
@@ -290,6 +369,18 @@ describe('E2E: Git Sync', () => {
       // Pull runs before push and also targets 'bogus' — whichever op
       // runs first records the error. Both are valid error surfaces here.
       expect(['pull', 'push']).toContain(status.health!.lastErrorOp);
+      expect(status.health!.errorCount).toBeGreaterThanOrEqual(1);
+
+      // The daemon `health` method surfaces the same sync health + the
+      // watcher/reconcile counters (F10).
+      const health = await c.request<{
+        sync?: { errorCount: number; lastErrorOp: string | null };
+        counters?: { watcherErrors: number; reconcileRuns: number; reconcileErrors: number };
+      }>('health');
+      expect(health.sync).toBeDefined();
+      expect(health.sync!.errorCount).toBeGreaterThanOrEqual(1);
+      expect(health.counters).toBeDefined();
+      expect(typeof health.counters!.reconcileRuns).toBe('number');
     });
   });
 

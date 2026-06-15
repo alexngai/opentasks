@@ -8,6 +8,7 @@
 
 import * as path from 'node:path';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { createGraphStore, type GraphStore } from '../graph/store.js';
 import type { ProviderAwareStore } from '../graph/provider-store.js';
 import { createSQLitePersister } from '../storage/sqlite.js';
@@ -72,6 +73,15 @@ export interface LocationState {
   /** Git graph syncer (if enabled) */
   graphSyncer?: GitGraphSyncer;
 
+  /** Resolved git sync config flags (for sync.status); undefined when disabled */
+  gitSyncConfig?: {
+    enabled: boolean;
+    remote?: string;
+    autoCommit: boolean;
+    autoPush: boolean;
+    pullOnStartup: boolean;
+  };
+
   /** Reconciliation trigger mode for reload events (default: 'async') */
   reconciliationOnReload?: 'async' | 'blocking' | 'none';
 
@@ -80,6 +90,9 @@ export interface LocationState {
 
   /** Per-provider reconciliation interval handles */
   providerReconciliationIntervals?: Map<string, ReturnType<typeof setInterval>>;
+
+  /** Lease reaper interval handle (clears expired claims for this location) */
+  claimSweepInterval?: ReturnType<typeof setInterval>;
 }
 
 /**
@@ -104,6 +117,19 @@ export interface LocationResolver {
 
   /** Remove a location and tear down its state */
   remove(hash: string): Promise<void>;
+
+  /**
+   * Register a listener fired when a location is added at runtime (multi-location
+   * only). Lets the watch stream begin watching newly-added worktrees. No-op /
+   * absent in single-location mode, which cannot add locations.
+   */
+  onLocationAdded?(listener: (state: LocationState) => void): void;
+
+  /**
+   * Register a listener fired when a location is removed, so watchers can drop
+   * its per-location state. Receives the removed location's hash.
+   */
+  onLocationRemoved?(listener: (hash: string) => void): void;
 }
 
 // ============================================================================
@@ -146,6 +172,118 @@ export async function createStoreForLocation(opentasksPath: string): Promise<Gra
 }
 
 // ============================================================================
+// Git Syncer Builder (shared by startup + sync.reload)
+// ============================================================================
+
+/**
+ * Build a git syncer for a location from its on-disk config.
+ *
+ * Shared by createLocationState (startup) and the multi-location sync.reload
+ * path. Returns the syncer + resolved config flags, or both undefined when git
+ * sync is disabled or construction fails (git sync is optional).
+ *
+ * @param opts.doInitialPull when true, honor `pullOnStartup` — pull then reload
+ *   SQLite so the pulled peer data is queryable and the next flush (a full-file
+ *   overwrite from SQLite) can't clobber it. The reload path passes false; a
+ *   caller wanting a pull issues sync.pull (which is coordinated).
+ */
+export async function buildLocationGitSyncer(opts: {
+  opentasksPath: string;
+  store: GraphStore;
+  doInitialPull: boolean;
+}): Promise<{ syncer?: GitGraphSyncer; config?: LocationState['gitSyncConfig'] }> {
+  const { opentasksPath, store, doInitialPull } = opts;
+  try {
+    // Read sync.git straight from .opentasks/config.json. We intentionally do
+    // NOT route through loadConfig/loadConfigFile: its PartialConfigSchema only
+    // models storage/daemon/providers/logging and STRIPS the `sync` block, so a
+    // sync-enabled config comes back empty. The single-location sync.reload path
+    // reads raw JSON for exactly this reason (see lifecycle.ts).
+    let gitCfg:
+      | {
+          enabled?: boolean;
+          remote?: string;
+          autoCommit?: boolean;
+          autoPush?: boolean;
+          pullOnStartup?: boolean;
+          pushDebounceMs?: number;
+        }
+      | undefined;
+    try {
+      const raw = await readFile(path.join(opentasksPath, 'config.json'), 'utf-8');
+      const parsed = JSON.parse(raw) as { sync?: { git?: typeof gitCfg } } | null;
+      gitCfg = parsed?.sync?.git;
+    } catch {
+      // No config or unreadable — git sync disabled for this location.
+    }
+    if (!gitCfg?.enabled) {
+      return {};
+    }
+    const syncer = createGitGraphSyncer({
+      opentasksPath,
+      remote: gitCfg.remote,
+      autoCommit: gitCfg.autoCommit,
+      autoPush: gitCfg.autoPush,
+      pushDebounceMs: gitCfg.pushDebounceMs,
+    });
+    syncer.installMergeDriver();
+
+    if (doInitialPull && gitCfg.pullOnStartup) {
+      const pullResult = await syncer.pull();
+      // The startup pull rewrites graph.jsonl on disk before the watcher's
+      // reload handler is active, so SQLite still holds the pre-pull snapshot.
+      // Reload it now — otherwise queries return stale data and the next local
+      // flush (a full-file overwrite from SQLite) clobbers the pulled peer
+      // nodes back off disk.
+      if (pullResult.hasChanges) {
+        await store.reload();
+      }
+    }
+
+    if (gitCfg.autoCommit || gitCfg.autoPush) {
+      syncer.startAutoSync();
+    }
+
+    return {
+      syncer,
+      config: {
+        enabled: true,
+        remote: gitCfg.remote,
+        autoCommit: gitCfg.autoCommit ?? false,
+        autoPush: gitCfg.autoPush ?? false,
+        pullOnStartup: gitCfg.pullOnStartup ?? false,
+      },
+    };
+  } catch {
+    // Git sync is optional — continue without it
+    return {};
+  }
+}
+
+/**
+ * Rebuild a location's git syncer in place from its current on-disk config.
+ * Tears down the previous syncer's auto-sync timer first. Used by the
+ * multi-location `sync.reload` IPC method to hot-swap a worktree's sync config.
+ * Does not auto-pull (mirrors single-location sync.reload).
+ */
+export async function reloadLocationGitSyncer(state: LocationState): Promise<void> {
+  if (state.graphSyncer) {
+    try {
+      state.graphSyncer.stopAutoSync();
+    } catch {
+      /* ignore */
+    }
+  }
+  const { syncer, config } = await buildLocationGitSyncer({
+    opentasksPath: state.opentasksPath,
+    store: state.store,
+    doInitialPull: false,
+  });
+  state.graphSyncer = syncer;
+  state.gitSyncConfig = config;
+}
+
+// ============================================================================
 // LocationState Factory
 // ============================================================================
 
@@ -153,11 +291,24 @@ export async function createStoreForLocation(opentasksPath: string): Promise<Gra
  * Create a full LocationState for a location.
  * Creates store, flush manager, and watcher.
  */
+/**
+ * Health-counter hooks so a location's reload-reconcile and reload failures are
+ * counted in the daemon's `health` surface (F10). Without these, a multi-location
+ * location's reload-triggered reconcile runs/errors are invisible (the single-
+ * location path counts them via the daemon's own onchange handler).
+ */
+export interface LocationHealthHooks {
+  recordReconcileRun(): void;
+  recordReconcileError(): void;
+  recordWatcherError(): void;
+}
+
 export async function createLocationState(
   opentasksPath: string,
   hash: string,
   primary: boolean = false,
   skillTrackerRegistry?: SkillTrackerRegistry,
+  healthHooks?: LocationHealthHooks,
 ): Promise<LocationState> {
   const store = await createStoreForLocation(opentasksPath);
 
@@ -190,17 +341,24 @@ export async function createLocationState(
       void store.reload().then(async () => {
         flushManager.resume();
 
-        // Trigger onReload reconciliation if a provider store is attached
+        // Trigger onReload reconciliation if a provider store is attached.
+        // Count the run/error so the daemon `health` surface sees multi-location
+        // reload-reconciles (previously swallowed and invisible — F10 gap).
         const providerStore = stateRef?.providerStore;
         const onReload = stateRef?.reconciliationOnReload ?? 'async';
         if (providerStore && onReload !== 'none') {
-          const run = providerStore.reconcileProviders().catch(() => null);
+          const run = providerStore.reconcileProviders().then(
+            () => healthHooks?.recordReconcileRun(),
+            () => healthHooks?.recordReconcileError(),
+          );
           if (onReload === 'blocking') {
             await run;
           }
         }
       }).catch(() => {
+        // A reload failure is an otherwise-silent watcher-path error.
         flushManager.resume();
+        healthHooks?.recordWatcherError();
       });
     }
   });
@@ -255,33 +413,13 @@ export async function createLocationState(
     archiver = undefined;
   }
 
-  // Initialize GitGraphSyncer (if configured)
-  let graphSyncer: GitGraphSyncer | undefined;
-
-  try {
-    const syncConfig = (await loadConfig(opentasksPath)).sync;
-    if (syncConfig?.git?.enabled) {
-      graphSyncer = createGitGraphSyncer({
-        opentasksPath,
-        remote: syncConfig.git.remote,
-        autoCommit: syncConfig.git.autoCommit,
-        autoPush: syncConfig.git.autoPush,
-        pushDebounceMs: syncConfig.git.pushDebounceMs,
-      });
-      graphSyncer.installMergeDriver();
-
-      if (syncConfig.git.pullOnStartup) {
-        await graphSyncer.pull();
-      }
-
-      if (syncConfig.git.autoCommit || syncConfig.git.autoPush) {
-        graphSyncer.startAutoSync();
-      }
-    }
-  } catch {
-    // Git sync is optional — continue without it
-    graphSyncer = undefined;
-  }
+  // Initialize GitGraphSyncer (if configured). Built via the shared helper so
+  // the multi-location sync.reload path can rebuild it identically.
+  const { syncer: graphSyncer, config: gitSyncConfig } = await buildLocationGitSyncer({
+    opentasksPath,
+    store,
+    doInitialPull: true,
+  });
 
   // Initialize Sessionlog integration (watcher + auto-linker + transcript extractor)
   let sessionlogWatcher: SessionlogWatcher | undefined;
@@ -338,6 +476,7 @@ export async function createLocationState(
     sessionlogLinker,
     archiver,
     graphSyncer,
+    gitSyncConfig,
   };
 
   // Allow the reload watcher closure to access providerStore
@@ -354,6 +493,10 @@ export async function destroyLocationState(state: LocationState): Promise<void> 
   if (state.reconciliationInterval) {
     clearInterval(state.reconciliationInterval);
     state.reconciliationInterval = undefined;
+  }
+  if (state.claimSweepInterval) {
+    clearInterval(state.claimSweepInterval);
+    state.claimSweepInterval = undefined;
   }
   if (state.providerReconciliationIntervals) {
     for (const handle of state.providerReconciliationIntervals.values()) {
@@ -470,6 +613,8 @@ export function createSingleLocationResolver(state: LocationState): LocationReso
  */
 export function createMultiLocationResolver(primaryHash: string): LocationResolver {
   const locations = new Map<string, LocationState>();
+  const addListeners = new Set<(state: LocationState) => void>();
+  const removeListeners = new Set<(hash: string) => void>();
 
   return {
     resolve(locationHash?: string): LocationState {
@@ -512,6 +657,13 @@ export function createMultiLocationResolver(primaryHash: string): LocationResolv
 
     add(state: LocationState): void {
       locations.set(state.hash, state);
+      for (const listener of addListeners) {
+        try {
+          listener(state);
+        } catch {
+          /* a listener failure must not block the add */
+        }
+      }
     },
 
     async remove(hash: string): Promise<void> {
@@ -519,7 +671,22 @@ export function createMultiLocationResolver(primaryHash: string): LocationResolv
       if (!state) return;
 
       locations.delete(hash);
+      for (const listener of removeListeners) {
+        try {
+          listener(hash);
+        } catch {
+          /* ignore */
+        }
+      }
       await destroyLocationState(state);
+    },
+
+    onLocationAdded(listener: (state: LocationState) => void): void {
+      addListeners.add(listener);
+    },
+
+    onLocationRemoved(listener: (hash: string) => void): void {
+      removeListeners.add(listener);
     },
   };
 }

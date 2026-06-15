@@ -1,0 +1,19 @@
+model_list:
+  # GLM-5 on Bedrock Mantle (OpenAI chat/completions path).
+  # LiteLLM's bedrock_mantle provider hits the correct /v1/chat/completions
+  # endpoint but only authenticates with a static Bearer token. We have no
+  # Mantle bearer key -- only AWS SigV4 creds -- so api_base points at a local
+  # SigV4-signing shim (sigv4_shim.py) that re-signs and forwards to the real
+  # Mantle endpoint. The api_key here is a throwaway: the shim ignores it and
+  # signs with the account's AWS credentials instead.
+  - model_name: glm-5
+    litellm_params:
+      model: bedrock_mantle/zai.glm-5
+      api_base: "http://127.0.0.1:8787/v1"
+      api_key: "unused-shim-signs-with-sigv4"
+
+litellm_settings:
+  drop_params: true
+
+general_settings:
+  master_key: sk-glm5-spike-master

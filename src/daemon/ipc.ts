@@ -43,9 +43,25 @@ export interface IPCError {
 }
 
 /**
- * Method handler function
+ * Per-connection context passed to method handlers. Lets a handler register a
+ * subscription filter bound to the requesting connection, so the server can do
+ * filtered per-subscriber broadcasts (see `broadcastToSubscribers`).
  */
-export type MethodHandler<P = unknown, R = unknown> = (params: P) => Promise<R>;
+export interface ConnectionContext {
+  /** Register/replace this connection's subscription filter. */
+  subscribe(filter: unknown): void;
+  /** Clear this connection's subscription. */
+  unsubscribe(): void;
+}
+
+/**
+ * Method handler function. The optional `ctx` carries per-connection state;
+ * handlers that don't need it simply ignore the second argument.
+ */
+export type MethodHandler<P = unknown, R = unknown> = (
+  params: P,
+  ctx: ConnectionContext,
+) => Promise<R>;
 
 /**
  * Handler for server-push notifications (messages with id: null and a method field)
@@ -67,6 +83,16 @@ export interface IPCServer {
 
   /** Send a JSON-RPC notification to all connected clients */
   broadcastNotification(method: string, params: unknown): void;
+
+  /**
+   * Send a notification only to subscriber connections whose registered filter
+   * satisfies `matches`. Connections without a subscription receive nothing.
+   */
+  broadcastToSubscribers(
+    method: string,
+    params: unknown,
+    matches: (filter: unknown) => boolean,
+  ): void;
 
   /** Get current connection count */
   getConnectionCount(): number;
@@ -99,6 +125,8 @@ export const JSON_RPC_ERRORS = {
 export function createIPCServer(socketPath: string): IPCServer {
   const handlers = new Map<string, MethodHandler>();
   const connections = new Set<net.Socket>();
+  /** Per-connection subscription filters, for filtered broadcasts. */
+  const subscriptions = new Map<net.Socket, unknown>();
   let server: net.Server | null = null;
 
   /**
@@ -166,7 +194,10 @@ export function createIPCServer(socketPath: string): IPCServer {
   /**
    * Handle a single request
    */
-  async function handleRequest(request: IPCRequest): Promise<IPCResponse | null> {
+  async function handleRequest(
+    request: IPCRequest,
+    ctx: ConnectionContext,
+  ): Promise<IPCResponse | null> {
     // Notifications (id is null) don't get responses
     const isNotification = request.id === null;
 
@@ -177,7 +208,7 @@ export function createIPCServer(socketPath: string): IPCServer {
     }
 
     try {
-      const result = await handler(request.params);
+      const result = await handler(request.params, ctx);
       if (isNotification) return null;
       return successResponse(request.id, result);
     } catch (error) {
@@ -200,6 +231,12 @@ export function createIPCServer(socketPath: string): IPCServer {
    */
   function handleConnection(socket: net.Socket): void {
     connections.add(socket);
+
+    // Per-connection context — lets watch.subscribe bind a filter to this socket.
+    const ctx: ConnectionContext = {
+      subscribe: (filter) => subscriptions.set(socket, filter),
+      unsubscribe: () => subscriptions.delete(socket),
+    };
 
     let buffer = '';
 
@@ -233,7 +270,7 @@ export function createIPCServer(socketPath: string): IPCServer {
         }
 
         // Handle request
-        const response = await handleRequest(requestOrError);
+        const response = await handleRequest(requestOrError, ctx);
         if (response) {
           socket.write(JSON.stringify(response) + '\n');
         }
@@ -242,10 +279,12 @@ export function createIPCServer(socketPath: string): IPCServer {
 
     socket.on('close', () => {
       connections.delete(socket);
+      subscriptions.delete(socket);
     });
 
     socket.on('error', () => {
       connections.delete(socket);
+      subscriptions.delete(socket);
     });
   }
 
@@ -289,6 +328,7 @@ export function createIPCServer(socketPath: string): IPCServer {
         socket.destroy();
       }
       connections.clear();
+      subscriptions.clear();
 
       // Close server
       return new Promise((resolve) => {
@@ -313,6 +353,22 @@ export function createIPCServer(socketPath: string): IPCServer {
       for (const socket of connections) {
         try {
           socket.write(notification + '\n');
+        } catch {
+          // Connection may be dead — ignore
+        }
+      }
+    },
+
+    broadcastToSubscribers(
+      method: string,
+      params: unknown,
+      matches: (filter: unknown) => boolean,
+    ): void {
+      const notification =
+        JSON.stringify({ jsonrpc: '2.0', id: null, method, params }) + '\n';
+      for (const [socket, filter] of subscriptions) {
+        try {
+          if (matches(filter)) socket.write(notification);
         } catch {
           // Connection may be dead — ignore
         }

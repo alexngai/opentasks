@@ -26,6 +26,8 @@ const mockClient = {
   checkContextFileDrift: vi.fn(),
   checkContextFileDriftBatch: vi.fn(),
   syncContextFile: vi.fn(),
+  eventsSince: vi.fn(),
+  eventsCurrent: vi.fn(),
 };
 
 vi.mock('../../client/client.js', () => {
@@ -79,7 +81,7 @@ describe('MCP Server - Scopes', () => {
     const client = await createTestClient();
     const tools = await listToolNames(client);
 
-    expect(tools).toEqual(['create_task', 'delete_task', 'get_task', 'list_providers', 'list_tasks', 'reconcile', 'update_task']);
+    expect(tools).toEqual(['claim_next', 'claim_task', 'create_task', 'delete_task', 'get_task', 'list_providers', 'list_tasks', 'reconcile', 'release_task', 'renew_claim', 'update_task']);
   });
 
   it('should register graph tools when graph scope enabled', async () => {
@@ -116,13 +118,16 @@ describe('MCP Server - Scopes', () => {
     const client = await createTestClient([...ALL_SCOPES]);
     const tools = await listToolNames(client);
 
-    expect(tools).toHaveLength(15);
+    expect(tools).toHaveLength(20);
     expect(tools).toEqual([
       'annotate',
+      'claim_next',
+      'claim_task',
       'context_summary',
       'create_context',
       'create_task',
       'delete_task',
+      'events_since',
       'get_context',
       'get_task',
       'link',
@@ -131,6 +136,8 @@ describe('MCP Server - Scopes', () => {
       'list_tasks',
       'query',
       'reconcile',
+      'release_task',
+      'renew_claim',
       'update_context',
       'update_task',
     ]);
@@ -140,7 +147,7 @@ describe('MCP Server - Scopes', () => {
     const client = await createTestClient(['graph']);
     const tools = await listToolNames(client);
 
-    expect(tools).toEqual(['context_summary', 'link', 'query']);
+    expect(tools).toEqual(['context_summary', 'events_since', 'link', 'query']);
     expect(tools).not.toContain('create_task');
   });
 });
@@ -624,6 +631,54 @@ describe('MCP Server - Graph Tools', () => {
       expect(mockClient.query).toHaveBeenCalledWith(
         expect.objectContaining({ edges: { type: 'blocks', from_id: 't-1' } }),
       );
+    });
+  });
+
+  describe('events_since', () => {
+    it('returns a baseline cursor when no cursor is given', async () => {
+      mockClient.eventsCurrent.mockResolvedValue({ epoch: 'e1', seq: 7 });
+
+      const { parsed, isError } = await callTool(client, 'events_since', {});
+
+      expect(isError).toBeFalsy();
+      expect(parsed.events).toEqual([]);
+      expect(parsed.nextCursor).toEqual({ epoch: 'e1', seq: 7 });
+      expect(mockClient.eventsCurrent).toHaveBeenCalled();
+    });
+
+    it('returns the delta and a nextCursor for a served cursor', async () => {
+      mockClient.eventsSince.mockResolvedValue({
+        epoch: 'e1',
+        events: [
+          { seq: 5, epoch: 'e1', event: { type: 'created', nodeId: 'n5' } },
+          { seq: 6, epoch: 'e1', event: { type: 'updated', nodeId: 'n6' } },
+        ],
+      });
+
+      const { parsed } = await callTool(client, 'events_since', { epoch: 'e1', seq: 4 });
+
+      expect(mockClient.eventsSince).toHaveBeenCalledWith({ epoch: 'e1', seq: 4 });
+      expect(parsed.events).toHaveLength(2);
+      expect(parsed.nextCursor).toEqual({ epoch: 'e1', seq: 6 });
+    });
+
+    it('keeps the input cursor when the delta is empty', async () => {
+      mockClient.eventsSince.mockResolvedValue({ epoch: 'e1', events: [] });
+
+      const { parsed } = await callTool(client, 'events_since', { epoch: 'e1', seq: 9 });
+
+      expect(parsed.events).toEqual([]);
+      expect(parsed.nextCursor).toEqual({ epoch: 'e1', seq: 9 });
+    });
+
+    it('signals resync with a fresh baseline cursor', async () => {
+      mockClient.eventsSince.mockResolvedValue({ epoch: 'e2', resync: true });
+      mockClient.eventsCurrent.mockResolvedValue({ epoch: 'e2', seq: 3 });
+
+      const { parsed } = await callTool(client, 'events_since', { epoch: 'e1', seq: 100 });
+
+      expect(parsed.resync).toBe(true);
+      expect(parsed.nextCursor).toEqual({ epoch: 'e2', seq: 3 });
     });
   });
 

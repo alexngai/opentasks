@@ -11,6 +11,7 @@
 
 import type { IPCServer } from '../ipc.js';
 import type { LocationResolver } from '../location-state.js';
+import type { IdempotencyStore } from '../idempotency.js';
 import type {
   NodeType,
   CreateNodeInput,
@@ -34,6 +35,13 @@ export interface GraphMethodsOptions {
 
   /** Location resolver for routing to correct store */
   locationResolver: LocationResolver;
+
+  /**
+   * Optional idempotency store (P3 M3 / F9). When present, a `graph.create`
+   * carrying an `idempotency_key` is deduped within the store's TTL window so a
+   * retried create returns the original node instead of a duplicate.
+   */
+  idempotencyStore?: IdempotencyStore;
 }
 
 // ============================================================================
@@ -57,6 +65,11 @@ interface CreateParams extends CreateNodeInput {
   location?: string;
   /** Target provider scheme (overrides defaultProvider config) */
   scheme?: string;
+  /**
+   * Optional idempotency key (F9). A retried create with the same key inside the
+   * daemon's TTL window returns the original node instead of a duplicate.
+   */
+  idempotency_key?: string;
 }
 
 interface UpdateParams extends UpdateNodeInput {
@@ -91,7 +104,7 @@ interface CreateEdgeParams {
  * Register graph method handlers on an IPC server
  */
 export function registerGraphMethods(options: GraphMethodsOptions): void {
-  const { server, locationResolver } = options;
+  const { server, locationResolver, idempotencyStore } = options;
 
   // graph.query - Query nodes
   server.handle<QueryParams, unknown[]>('graph.query', async (params) => {
@@ -135,28 +148,36 @@ export function registerGraphMethods(options: GraphMethodsOptions): void {
       throw new Error('Missing required parameters');
     }
 
-    const { location, scheme, ...createParams } = params;
+    const { location, scheme, idempotency_key, ...createParams } = params;
     const state = locationResolver.resolve(location);
 
-    // Use provider-aware create when available
-    if (state.providerStore) {
-      const result = await state.providerStore.providerCreate(createParams, { scheme });
-
-      // Mark dirty and schedule flush
-      state.flushManager.markDirty(result.node.id);
+    // Create a node (provider-aware when available), mark dirty + schedule flush.
+    const doCreate = async (): Promise<{ id: string }> => {
+      if (state.providerStore) {
+        const result = await state.providerStore.providerCreate(createParams, { scheme });
+        state.flushManager.markDirty(result.node.id);
+        state.flushManager.schedule();
+        return result.node;
+      }
+      const node = await state.store.createNode(createParams);
+      state.flushManager.markDirty(node.id);
       state.flushManager.schedule();
+      return node;
+    };
 
-      return result.node;
+    // Idempotent retry (F9): dedupe BOTH sequential retries (TTL window) and
+    // concurrent in-flight retries with the same key. `run` reserves the key
+    // before the create, closing the get→create race; if the mapped node was
+    // deleted since (or a concurrent creator failed), it recreates.
+    if (idempotency_key && idempotencyStore) {
+      const fetchNode = (id: string): Promise<{ id: string } | null | undefined> =>
+        (state.providerStore
+          ? state.providerStore.providerGet(id)
+          : state.store.getNode(id)) as Promise<{ id: string } | null | undefined>;
+      return idempotencyStore.run(idempotency_key, doCreate, fetchNode);
     }
 
-    // Fallback: direct store create
-    const node = await state.store.createNode(createParams);
-
-    // Mark dirty and schedule flush
-    state.flushManager.markDirty(node.id);
-    state.flushManager.schedule();
-
-    return node;
+    return doCreate();
   });
 
   // graph.update - Update node (with provider routing for external nodes)

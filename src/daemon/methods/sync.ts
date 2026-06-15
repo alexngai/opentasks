@@ -9,7 +9,52 @@
  */
 
 import type { IPCServer } from '../ipc.js';
+import type { LocationResolver, LocationState } from '../location-state.js';
 import type { GitGraphSyncer, SyncCycleResult, PullResult, SyncerHealth } from '../../graph/git-graph-syncer.js';
+
+// ============================================================================
+// Coordination helper (shared by single- and multi-location sync methods)
+// ============================================================================
+
+interface FlushGate {
+  flush(): Promise<void>;
+  pause(): void;
+  resume(): void;
+}
+
+/**
+ * Serialize a git sync/pull with the debounced SQLite→JSONL flush:
+ *   drain pending flush (so local writes are in JSONL for the commit/merge)
+ *   → freeze the flush (so it can't fire mid-pull and clobber the pulled file)
+ *   → run the git op
+ *   → reload SQLite from the merged JSONL (only when a pull changed it)
+ *   → resume the flush.
+ * Without a flushManager this is a passthrough (legacy / uncoordinated behavior).
+ */
+async function runCoordinated<T>(
+  flushManager: FlushGate | undefined,
+  reloadStore: (() => Promise<void>) | undefined,
+  run: () => Promise<T>,
+  pulledChanges: (result: T) => boolean,
+): Promise<T> {
+  if (flushManager) {
+    await flushManager.flush();
+    flushManager.pause();
+  }
+  try {
+    const result = await run();
+    if (reloadStore && pulledChanges(result)) {
+      try {
+        await reloadStore();
+      } catch {
+        /* best-effort: a reload hiccup shouldn't fail the sync */
+      }
+    }
+    return result;
+  } finally {
+    flushManager?.resume();
+  }
+}
 
 // ============================================================================
 // Types
@@ -48,6 +93,20 @@ export interface SyncMethodsOptions {
    * subsequent `sync.now` / `sync.pull` calls return `ran: false`.
    */
   reloadSyncer(): Promise<ReturnType<SyncMethodsOptions['getSyncStatus']>>;
+
+  /**
+   * The daemon flush manager. When present, `sync.now`/`sync.pull` drain and
+   * freeze the debounced SQLite→JSONL flush around the git op so a pending
+   * flush can't fire mid-pull and overwrite the freshly-pulled `graph.jsonl`
+   * (the F2 data-loss race). Optional — when absent, sync runs uncoordinated.
+   */
+  flushManager?: { flush(): Promise<void>; pause(): void; resume(): void };
+
+  /**
+   * Re-sync SQLite from the (possibly merged) JSONL after a pull brought
+   * changes. Called only when a pull actually changed the file.
+   */
+  reloadStore?: () => Promise<void>;
 }
 
 export interface SyncNowResult {
@@ -90,14 +149,22 @@ export interface SyncReloadResult {
  * sync.status   — inspection; returns the active config + autoSync state
  */
 export function registerSyncMethods(options: SyncMethodsOptions): void {
-  const { server, getSyncer, getSyncStatus, reloadSyncer } = options;
+  const { server, getSyncer, getSyncStatus, reloadSyncer, flushManager, reloadStore } = options;
+
+  const coordinated = <T>(
+    run: () => Promise<T>,
+    pulledChanges: (result: T) => boolean,
+  ): Promise<T> => runCoordinated(flushManager, reloadStore, run, pulledChanges);
 
   server.handle<Record<string, never>, SyncNowResult>('sync.now', async () => {
     const syncer = getSyncer();
     if (!syncer) {
       return { ran: false, reason: 'git sync is not enabled for this daemon' };
     }
-    const result = await syncer.sync();
+    const result = await coordinated(
+      () => syncer.sync(),
+      (r) => r.pull.pulled && r.pull.hasChanges,
+    );
     return { ran: true, result };
   });
 
@@ -106,7 +173,14 @@ export function registerSyncMethods(options: SyncMethodsOptions): void {
     if (!syncer) {
       return { ran: false, reason: 'git sync is not enabled for this daemon' };
     }
-    const result = await syncer.pull();
+    // Commit any (now-flushed) local changes before pulling so the merge
+    // driver merges local + remote instead of git refusing the pull over
+    // uncommitted changes — and so un-flushed local work isn't lost on reload.
+    // This still does not push, preserving sync.pull's "pull, don't push" intent.
+    const result = await coordinated(async () => {
+      await syncer.commitIfDirty();
+      return syncer.pull();
+    }, (r) => r.pulled && r.hasChanges);
     return { ran: true, result };
   });
 
@@ -125,6 +199,108 @@ export function registerSyncMethods(options: SyncMethodsOptions): void {
       return {
         reloaded: false,
         status: getSyncStatus(),
+        error: (err as Error).message,
+      };
+    }
+  });
+}
+
+// ============================================================================
+// Multi-location sync methods
+// ============================================================================
+
+/** Sync status snapshot shape (shared with single-location `getSyncStatus`). */
+export type SyncStatusSnapshot = ReturnType<SyncMethodsOptions['getSyncStatus']>;
+
+export interface MultiLocationSyncMethodsOptions {
+  /** IPC server to register handlers on */
+  server: IPCServer;
+
+  /** Resolves a `location` param to its LocationState */
+  locationResolver: LocationResolver;
+
+  /**
+   * Rebuild a location's git syncer from its on-disk config (for `sync.reload`).
+   * Mutates `state.graphSyncer` / `state.gitSyncConfig` in place. Wired by the
+   * daemon to the location-state syncer builder.
+   */
+  reloadLocationSyncer(state: LocationState): Promise<void>;
+}
+
+/** Build a sync.status snapshot for one location from its state. */
+function locationSyncStatus(state: LocationState): SyncStatusSnapshot {
+  const cfg = state.gitSyncConfig;
+  const syncer = state.graphSyncer;
+  return {
+    enabled: cfg?.enabled ?? false,
+    remote: cfg?.remote,
+    autoCommit: cfg?.autoCommit ?? false,
+    autoPush: cfg?.autoPush ?? false,
+    pullOnStartup: cfg?.pullOnStartup ?? false,
+    autoSyncRunning: syncer?.isAutoSyncRunning() ?? false,
+    health: syncer?.getHealth(),
+  };
+}
+
+/**
+ * Register location-aware sync.now / sync.pull / sync.status / sync.reload.
+ *
+ * Each handler takes an optional `location` param (the worktree hash). The git
+ * op runs through the SAME coordinated flush-freeze-reload as single-location,
+ * but resolved per location — so a debounced flush on one worktree can't clobber
+ * that worktree's freshly-pulled graph.jsonl (the F2 race), and pulls reload
+ * that location's SQLite.
+ */
+export function registerMultiLocationSyncMethods(options: MultiLocationSyncMethodsOptions): void {
+  const { server, locationResolver, reloadLocationSyncer } = options;
+
+  server.handle<{ location?: string }, SyncNowResult>('sync.now', async (params) => {
+    const state = locationResolver.resolve(params?.location);
+    const syncer = state.graphSyncer;
+    if (!syncer) {
+      return { ran: false, reason: 'git sync is not enabled for this location' };
+    }
+    const result = await runCoordinated(
+      state.flushManager,
+      () => state.store.reload(),
+      () => syncer.sync(),
+      (r) => r.pull.pulled && r.pull.hasChanges,
+    );
+    return { ran: true, result };
+  });
+
+  server.handle<{ location?: string }, SyncPullOnlyResult>('sync.pull', async (params) => {
+    const state = locationResolver.resolve(params?.location);
+    const syncer = state.graphSyncer;
+    if (!syncer) {
+      return { ran: false, reason: 'git sync is not enabled for this location' };
+    }
+    const result = await runCoordinated(
+      state.flushManager,
+      () => state.store.reload(),
+      async () => {
+        await syncer.commitIfDirty();
+        return syncer.pull();
+      },
+      (r) => r.pulled && r.hasChanges,
+    );
+    return { ran: true, result };
+  });
+
+  server.handle<{ location?: string }, SyncStatusSnapshot>('sync.status', async (params) => {
+    const state = locationResolver.resolve(params?.location);
+    return locationSyncStatus(state);
+  });
+
+  server.handle<{ location?: string }, SyncReloadResult>('sync.reload', async (params) => {
+    const state = locationResolver.resolve(params?.location);
+    try {
+      await reloadLocationSyncer(state);
+      return { reloaded: true, status: locationSyncStatus(state) };
+    } catch (err) {
+      return {
+        reloaded: false,
+        status: locationSyncStatus(state),
         error: (err as Error).message,
       };
     }

@@ -40,6 +40,8 @@ export interface StoredNode {
   claimed_by?: string;
   claimed_at?: string;
   lock_until?: string;
+  /** Monotonic fence token, bumped on each successful (re)claim/steal */
+  claim_fence?: number;
 
   // === LIFECYCLE (optional) ===
   archived?: boolean;

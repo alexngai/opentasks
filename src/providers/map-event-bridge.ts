@@ -219,6 +219,7 @@ function toMAPStatus(status?: string): MAPTaskStatus {
     case 'closed': return 'completed';
     case 'completed': return 'completed';
     case 'failed': return 'failed';
+    case 'abandoned': return 'failed';
     default: return 'open';
   }
 }

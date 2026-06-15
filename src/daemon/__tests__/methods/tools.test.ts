@@ -473,6 +473,7 @@ describe('Tools Methods - tools.task', () => {
   let mockStore: GraphStore;
   let mockProviderStore: ProviderAwareStore;
   let flushManager: DaemonFlushManager;
+  let flushedBatches: string[][];
 
   const sampleNode = {
     id: 'x-task1',
@@ -518,9 +519,28 @@ describe('Tools Methods - tools.task', () => {
       taskReady: vi.fn().mockResolvedValue([sampleNode]),
       taskAssign: vi.fn().mockResolvedValue(sampleNode),
       taskValidActions: vi.fn().mockResolvedValue(['start', 'complete', 'close']),
+      taskClaim: vi.fn().mockResolvedValue({
+        success: true,
+        claim: {
+          nodeId: 'c-claim1',
+          agentId: 'a',
+          fence: 1,
+          claimedAt: '2024-01-01T00:00:00Z',
+          lockUntil: '2024-01-01T00:30:00Z',
+          isValid: true,
+          isExpired: false,
+          remainingMs: 1_800_000,
+        },
+      }),
     } as unknown as ProviderAwareStore;
 
-    flushManager = createDaemonFlushManager({ debounceMs: 100, maxDelayMs: 500 }, async () => {});
+    flushedBatches = [];
+    flushManager = createDaemonFlushManager(
+      { debounceMs: 100, maxDelayMs: 500 },
+      async (ids) => {
+        flushedBatches.push(ids);
+      },
+    );
 
     server = createIPCServer(socketPath);
     const locationState = {
@@ -633,6 +653,41 @@ describe('Tools Methods - tools.task', () => {
 
     const dirty = flushManager.getDirtyNodes();
     expect(dirty).toContain('x-task1');
+  });
+
+  // --- Durability tiers (P2.2): coordination-critical writes flush before the
+  // RPC returns; ordinary edits keep the debounce. ---
+
+  it('flushes a claim immediately (durable tier)', async () => {
+    await client.request<TaskResult>('tools.task', {
+      claim: { id: 'c-claim1', agentId: 'a' },
+    });
+
+    expect(flushedBatches.flat()).toContain('c-claim1');
+    expect(flushManager.getDirtyNodes()).not.toContain('c-claim1');
+  });
+
+  it('flushes a terminal transition immediately (durable tier)', async () => {
+    vi.mocked(mockProviderStore.taskTransition).mockResolvedValue({
+      node: { ...sampleNode, id: 'c-done1', status: 'closed' },
+      provider: 'native',
+      action: 'complete',
+    });
+
+    await client.request<TaskResult>('tools.task', {
+      transition: { id: 'c-done1', action: 'complete' },
+    });
+
+    expect(flushedBatches.flat()).toContain('c-done1');
+  });
+
+  it('keeps a non-terminal transition on the debounce (not flushed immediately)', async () => {
+    await client.request<TaskResult>('tools.task', {
+      transition: { id: 'x-task1', action: 'start' },
+    });
+
+    expect(flushManager.getDirtyNodes()).toContain('x-task1');
+    expect(flushedBatches.flat()).not.toContain('x-task1');
   });
 
   it('should handle provider errors gracefully', async () => {

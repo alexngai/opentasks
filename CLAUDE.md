@@ -83,9 +83,9 @@ Outbound: emits OpenTasks graph changes as MAP task events.
 
 Creates `MAPTaskClient` + `MAPEventSender` from a MAP server URL.
 
-- Dynamically imports `@multi-agent-protocol/sdk` (optional dependency)
+- Dynamically imports `@multi-agent-protocol/sdk` (via `await import()`, the only SDK reference in the codebase)
 - Returns `null` if SDK not installed or connection fails — graceful degradation
-- No `package.json` dependency on the SDK
+- Declared in `package.json` as an **`optionalDependency`** — the package installs and runs without it; only the inbound MAP client path needs it
 
 ### Why Agent-Owned (Not Daemon-Owned)
 

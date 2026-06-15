@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   claimed_by TEXT,
   claimed_at TEXT,
   lock_until TEXT,
+  claim_fence INTEGER DEFAULT 0,
 
   -- Context
   location TEXT,
@@ -118,7 +119,13 @@ export const CREATE_INDEXES = [
 
 /**
  * Create ready_tasks view
- * Shows tasks that are open, not archived, and have no open blockers
+ * Shows tasks that are open, not archived, and have no active blockers.
+ *
+ * Deliberate: only `closed` (successfully completed) clears a blocker. A
+ * `failed`/`abandoned` blocker is still `!= 'closed'`, so it keeps blocking its
+ * dependents — a prerequisite that failed or was dropped didn't deliver what
+ * the dependent needs; the dependent waits for an explicit reopen/retry rather
+ * than silently becoming ready. (Mirrors `isActiveNode` in graph/query.ts.)
  */
 export const CREATE_READY_VIEW = `
 CREATE VIEW IF NOT EXISTS ready_tasks AS
@@ -146,6 +153,8 @@ export const MIGRATIONS = [
   `ALTER TABLE edges ADD COLUMN cached_at TEXT`,
   // Add metadata column to nodes table (v1.2.0) — for provider reconciliation
   `ALTER TABLE nodes ADD COLUMN metadata TEXT`,
+  // Add claim fence token for atomic claiming (v1.3.0)
+  `ALTER TABLE nodes ADD COLUMN claim_fence INTEGER DEFAULT 0`,
 ];
 
 /**

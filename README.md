@@ -1,6 +1,6 @@
 # OpenTasks
 
-Cross-system graph for tasks and specs. Link Claude Tasks to Beads issues to Jira tickets. Query blockers and ready work across all of them.
+Cross-system graph for tasks and specs. Link Claude Tasks, Beads issues, and native tasks today — Jira, Linear, and other remote trackers are on the roadmap ([docs/STATUS.md](docs/STATUS.md)). Query blockers and ready work across all of them.
 
 ```
 npm install opentasks
@@ -8,34 +8,73 @@ npm install opentasks
 
 ## Quick Start
 
-```typescript
-import { link, query, annotate } from 'opentasks'
+OpenTasks runs as a small daemon that the CLI, the MCP server, and the client all
+talk to over a Unix socket. **You don't manage it** — the first command that needs
+it starts one automatically (opt out with `--no-autostart`).
 
-// Connect a Beads issue to a Jira ticket
-await link({
-  fromId: 't-x7k9',
-  toId: 'jira://PROJ-123',
-  type: 'blocks',
-})
+### CLI
+
+```bash
+npm install -g opentasks            # or run any command below via `npx opentasks …`
+
+opentasks init                                            # create .opentasks/ in your repo
+opentasks create --type task --title "Wire up auth" --status open
+opentasks create --type task --title "Add OAuth provider" --status open
+
+opentasks ready                                           # unblocked tasks, ready to work on
+opentasks list                                            # open tasks (closed hidden)
+opentasks tree t-xxxx                                     # a task and its blocker tree
+```
+
+`ready` / `list` / `blocked` / `tree` are compact, token-light views. Linking
+edges, claiming tasks with a lease, and arbitrary graph queries are each one more
+subcommand — run `opentasks help`.
+
+### MCP (Claude Code / agents)
+
+Register the server once; the daemon auto-starts on first use:
+
+```bash
+claude mcp add opentasks -- npx opentasks mcp --scope all
+```
+
+…or in `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "opentasks": { "command": "npx", "args": ["opentasks", "mcp", "--scope", "all"] }
+  }
+}
+```
+
+Scopes are `tasks` (default), `graph`, `annotate`, `context`; `--scope all` enables
+everything. The agent gets `create_task`, `claim_task`, `query`, `events_since`, and
+the rest.
+
+### Programmatic (embedders)
+
+```typescript
+import { createClient } from 'opentasks'
+
+const client = createClient({ autoConnect: true })
 
 // What's ready to work on?
-const ready = await query({ ready: {} })
+const ready = await client.query({ ready: {} })
 
-// What blocks this task?
-const blockers = await query({
-  blockers: { nodeId: 't-x7k9', transitive: true },
-})
+// Connect a task to an external reference
+await client.link({ fromId: 't-x7k9', toId: 'beads://./bd-xyz', type: 'blocks' })
 
-// Leave feedback on a context
-await annotate({
-  targetId: 'c-a2b3',
-  create: {
-    content: 'Needs error handling for token refresh',
-    type: 'suggestion',
-    anchor: { text: 'OAuth2 with PKCE' },
-  },
-})
+// What blocks this task (full chain)?
+const blockers = await client.query({ blockers: { nodeId: 't-x7k9', transitive: true } })
+
+await client.disconnect()
 ```
+
+> The top-level `link`/`query`/`annotate` exports are the lower-level forms that
+> take a `GraphStore` as their first argument — see [Programmatic API](#programmatic-api)
+> for daemon-free usage. The `client.*` methods above take params only and route
+> through the daemon.
 
 ## The Problem
 
@@ -77,6 +116,10 @@ graph TD
 You keep using each system's native tools. OpenTasks owns the graph.
 
 ## Three Tools
+
+*Examples below use the bare tool form for brevity. Through a daemon, call them
+as `client.link(...)` / `client.query(...)` / `client.annotate(...)` (params only);
+the top-level `link`/`query`/`annotate` functions take a `GraphStore` first arg.*
 
 ### link()
 
@@ -129,10 +172,12 @@ Four types, all stored in `.opentasks/graph.jsonl`:
 
 | Type | Prefix | Purpose |
 |------|--------|---------|
-| Spec | s- | Requirements, context, user intent |
-| Task | i- | Actionable work with status (open / in_progress / blocked / closed) |
+| Context | c- | Requirements, specs, user intent (inline or file-backed) |
+| Task | t- | Actionable work with status (open / in_progress / blocked / closed) |
 | Feedback | f- | Anchored comments on nodes, with threading |
-| ExternalNode | e- | References to Jira, Beads, Linear, GitHub |
+| ExternalNode | e- | References to Beads — and (planned) Jira, Linear, GitHub |
+
+Edges carry an `x-` prefix.
 
 A typical feature graph looks like this:
 
@@ -211,7 +256,13 @@ Expose the full tool interface via [Model Context Protocol](https://modelcontext
 opentasks mcp --scope tasks,graph,annotate,context
 ```
 
-15 tools across 4 scopes: `tasks` (CRUD + lifecycle), `graph` (edges, queries, context summary), `annotate` (feedback), `context` (context CRUD with file/snippet/inline sources).
+Register with Claude Code (the MCP server auto-starts the daemon on first use):
+
+```bash
+claude mcp add opentasks -- npx opentasks mcp --scope tasks,graph,annotate,context
+```
+
+20 tools across 4 scopes: `tasks` (CRUD + lifecycle + atomic claiming: `claim_task`, `claim_next`, `release_task`, `renew_claim`), `graph` (edges, queries, context summary, `events_since` change polling), `annotate` (feedback), `context` (context CRUD with file/snippet/inline sources).
 
 ## Programmatic API
 
@@ -262,7 +313,7 @@ await client.disconnect()
 
 ```
 .opentasks/
-├── graph.jsonl       # Append-only source of truth (git-tracked)
+├── graph.jsonl       # Git-tracked source of truth (rewritten on flush)
 ├── tombstones.jsonl  # Soft deletes with configurable TTL
 ├── cache.db          # SQLite for fast queries (gitignored, rebuilt from JSONL)
 ├── config.json       # Location config, providers, retention
@@ -286,7 +337,7 @@ graph TB
     style MD fill:#f0f0f0,stroke:#999,stroke-dasharray: 5 5
 ```
 
-JSONL is the source of truth (git-tracked, append-only). SQLite is the query cache (gitignored, rebuilt on startup). Markdown is optional human-readable expansion.
+JSONL is the source of truth (git-tracked). The daemon writes it as a full-file snapshot on a debounced flush (not literally append-only). SQLite is the query cache (gitignored, rebuilt on startup). Markdown is optional human-readable expansion.
 
 ## Providers
 
@@ -294,7 +345,7 @@ OpenTasks owns the graph. Providers own node content. Three patterns:
 
 | Pattern | Use | Example |
 |---------|-----|---------|
-| Provider | Resolve URIs on demand | Jira, Linear, GitHub |
+| Provider | Resolve URIs on demand | Jira, Linear, GitHub *(planned)* |
 | Adapter | Delegate all CRUD to backend | Beads (`bd` CLI) |
 | SyncTarget | Two-way sync | Sudocode |
 | IPC Bridge | Federate across daemons | Global store (`~/.opentasks`) |
@@ -350,19 +401,25 @@ opentasks://../other-repo/c-c4d5  # Relative path
 
 ### Global Store
 
-Use opentasks without initializing in a project. The global store at `~/.opentasks/` acts as a fallback when no project-level `.opentasks/` is found.
+A shared store at `~/.opentasks/` you can use from any directory — handy for a
+personal todo list that isn't tied to one repo. Commands are project-local by
+default; pass `--global` (or set `OPENTASKS_GLOBAL=1`) to target the global store
+instead.
 
 ```bash
 # One-time setup
 opentasks init --global
 
-# Now use from any directory (no per-project init needed)
+# Use from anywhere with --global (no per-project init needed)
 cd /any/directory
-opentasks create --type task --title "Read paper on transformers"
-opentasks query '{"ready": {}}'
+opentasks create --type task --title "Read paper on transformers" --status open --global
+opentasks ready --global
 ```
 
-The client discovers daemons in order: project `.opentasks/` > git worktree > global `~/.opentasks/`. Project stores always take precedence.
+`--global` routes both the auto-started daemon and the client at `~/.opentasks/`,
+so a task created from one directory is visible from any other. Without it, a
+command operates on the project store it discovers: project `.opentasks/` > git
+worktree > (fallback) global `~/.opentasks/`.
 
 ### Federation
 
@@ -429,7 +486,7 @@ graph TB
     style W3 fill:#fff3cd,stroke:#ffc107
 ```
 
-One daemon serves all worktrees. Workers redirect reads and writes to the manager. Hash-based IDs prevent collisions across concurrent agents. Append-only JSONL plus a custom merge driver handle branch merges.
+One daemon serves all worktrees. Workers redirect reads and writes to the manager. Hash-based IDs prevent collisions across concurrent agents. A custom git merge driver handles branch merges of `graph.jsonl`.
 
 ```gitattributes
 .opentasks/graph.jsonl merge=opentasks
@@ -446,6 +503,8 @@ Hash-based, collision-resistant. Generated from UUID v4 through SHA256 and base3
 | < 35,000 | 6 chars | t-x7k9pm |
 
 ## Git Sync
+
+> For the full consistency model — durability tiers, flush↔pull serialization, graceful shutdown, and the multi-machine last-writer-wins caveat — see [docs/SYNC.md](docs/SYNC.md).
 
 OpenTasks can auto-commit and auto-push `graph.jsonl` to a git remote. When enabled in `.opentasks/config.json`:
 

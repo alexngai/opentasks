@@ -74,6 +74,13 @@ export interface ProviderNodeChangeEvent {
   /** Canonical URI for the node */
   uri: string;
 
+  /**
+   * Location hash the change originated from. Set by the daemon's watch stream
+   * so multi-location (worktree) subscribers can attribute and filter events by
+   * worktree; absent for providers that don't carry a location dimension.
+   */
+  location?: string;
+
   /** Full node data (absent for deletes, may be absent if provider can't supply cheaply) */
   node?: ProviderNode;
 

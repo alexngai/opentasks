@@ -162,15 +162,49 @@ export function registerToolsMethods(options: ToolsMethodsOptions): void {
 
       const result = await task(state.providerStore, taskParams);
 
-      // Mark nodes dirty and schedule flush for mutations
+      // Persist mutations with two durability tiers. Coordination-critical
+      // writes — claims/leases and terminal transitions — flush to JSONL
+      // *before* the RPC returns so a crash can't lose a claim or a terminal
+      // outcome. Ordinary edits (assign, non-terminal transitions) keep the
+      // debounced flush.
       if (result.success && result.data) {
-        if (result.data.type === 'transition' && isLocalId(result.data.node.id)) {
-          state.flushManager.markDirty(result.data.node.id);
-          state.flushManager.schedule();
+        const d = result.data;
+        let dirtyId: string | undefined;
+        let durable = false;
+
+        if (d.type === 'transition' && isLocalId(d.node.id)) {
+          dirtyId = d.node.id;
+          durable =
+            d.action === 'complete' ||
+            d.action === 'close' ||
+            d.action === 'fail' ||
+            d.action === 'abandon';
+        } else if (d.type === 'assign' && isLocalId(d.node.id)) {
+          dirtyId = d.node.id;
+        } else if (
+          // Coordination mutations carry a nodeId when they touched a task.
+          // claimNext with nothing to claim has no nodeId and is skipped.
+          (d.type === 'claim' ||
+            d.type === 'renew' ||
+            d.type === 'claimNext' ||
+            d.type === 'release') &&
+          d.nodeId &&
+          isLocalId(d.nodeId)
+        ) {
+          dirtyId = d.nodeId;
+          durable = true; // claims/leases are coordination-critical
         }
-        if (result.data.type === 'assign' && isLocalId(result.data.node.id)) {
-          state.flushManager.markDirty(result.data.node.id);
-          state.flushManager.schedule();
+
+        if (dirtyId) {
+          state.flushManager.markDirty(dirtyId);
+          if (durable) {
+            // Durable tier: persist before returning. flush() is a no-op while
+            // a git sync has the flush paused — the node stays dirty and is
+            // flushed when sync resumes.
+            await state.flushManager.flush();
+          } else {
+            state.flushManager.schedule();
+          }
         }
       }
 

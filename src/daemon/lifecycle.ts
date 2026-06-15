@@ -34,7 +34,11 @@ import { registerProviderMethods } from './methods/provider.js';
 import { registerArchiveMethods } from './methods/archive.js';
 import { registerContextFilesMethods } from './methods/context-files.js';
 import { registerWatchMethods } from './methods/watch.js';
-import { registerSyncMethods } from './methods/sync.js';
+import { registerSyncMethods, registerMultiLocationSyncMethods } from './methods/sync.js';
+import { registerEventMethods } from './methods/events.js';
+import { createEventManager } from './events.js';
+import { createIdempotencyStore } from './idempotency.js';
+import { createHealthCounters } from './health-counters.js';
 import {
   createGitGraphSyncer,
   type GitGraphSyncer,
@@ -48,6 +52,7 @@ import { createGlobalProvider } from '../providers/global.js';
 import {
   createLocationState,
   destroyLocationState,
+  reloadLocationGitSyncer,
   createSingleLocationResolver,
   createMultiLocationResolver,
   type LocationState,
@@ -352,6 +357,7 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
   let sessionlogLinker: SessionlogAutoLinker | null = null;
   let reconciliationIntervalHandle: ReturnType<typeof setInterval> | null = null;
   let providerIntervalHandles: Map<string, ReturnType<typeof setInterval>> | null = null;
+  let claimSweepIntervalHandle: ReturnType<typeof setInterval> | null = null;
 
   // Git graph syncer — null when `sync.git.enabled` is false (default).
   // When enabled: installed merge driver + optional pull-on-startup + optional
@@ -511,6 +517,11 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         };
         const locationResolver = createSingleLocationResolver(locationState);
 
+        // Tracks otherwise-silent watcher/reconcile failures so `health` can
+        // surface them (P3 M3 / F10). Git sync failures come from the syncer's
+        // own SyncerHealth, exposed alongside via getSyncHealth below.
+        const healthCounters = createHealthCounters();
+
         // 9. Register method handlers
         registerLifecycleMethods({
           server: ipcServer,
@@ -518,11 +529,18 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           shutdown: () => daemon.stop(),
           version,
           startedAt: new Date(startedAt),
+          getHealthCounters: () => healthCounters.snapshot(),
+          getSyncHealth: () => gitSyncer?.getHealth() ?? null,
         });
+
+        // One idempotency store per daemon: dedupes retried creates carrying an
+        // idempotency_key within a TTL window (P3 M3 / F9).
+        const idempotencyStore = createIdempotencyStore();
 
         registerGraphMethods({
           server: ipcServer,
           locationResolver,
+          idempotencyStore,
         });
 
         // Create shared skill tracker registry (only if enabled in config)
@@ -552,10 +570,31 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           locationResolver,
         });
 
+        // One event manager per daemon process: the watch broadcaster stamps
+        // each event through it (seq + epoch + ring buffer), and events.since
+        // replays from the same buffer (P3 M2).
+        const eventManager = createEventManager();
+
         registerWatchMethods({
           server: ipcServer,
           locationResolver,
+          eventManager,
+          onWatcherError: () => healthCounters.recordWatcherError(),
         });
+
+        registerEventMethods({
+          server: ipcServer,
+          eventManager,
+        });
+
+        // Record reconcile outcomes for `health` (F10) while preserving the
+        // existing swallow-errors behavior (a reconcile failure is non-fatal).
+        const trackReconcile = (p: Promise<unknown>): void => {
+          void p.then(
+            () => healthCounters.recordReconcileRun(),
+            () => healthCounters.recordReconcileError(),
+          );
+        };
 
         // 9b. Set up the git syncer if enabled. The initialization is
         // factored into `buildSyncer` so it can run both at startup (using
@@ -633,7 +672,16 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
 
             if (options.doInitialPull && gitSyncConfig.pullOnStartup) {
               try {
-                await gitSyncer.pull();
+                const pullResult = await gitSyncer.pull();
+                // The startup pull mutates graph.jsonl on disk, but the file
+                // watcher isn't started yet and SQLite still holds the
+                // pre-pull snapshot. Reload so queries see the pulled peer
+                // data — and, critically, so the next local flush (a
+                // full-file overwrite from SQLite) can't clobber the pulled
+                // nodes back off disk.
+                if (pullResult.hasChanges) {
+                  await store.reload();
+                }
               } catch {
                 /* initial pull failure is non-fatal */
               }
@@ -660,6 +708,12 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         registerSyncMethods({
           server: ipcServer,
           getSyncer: () => gitSyncer,
+          // Serialize manual sync/pull with the flush so a pending flush can't
+          // clobber a freshly-pulled graph.jsonl (F2 race); reload SQLite after.
+          flushManager: flushManager ?? undefined,
+          reloadStore: async () => {
+            await store.reload();
+          },
           getSyncStatus: () => ({
             enabled: gitSyncConfig.enabled,
             remote: gitSyncConfig.remote,
@@ -711,7 +765,7 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         fileWatcher.onchange((event) => {
           if (event.category === 'graph' && onReload !== 'none' && activeProviderStore) {
             // After external graph changes, reconcile provider-backed nodes
-            void activeProviderStore.reconcileProviders().catch(() => {});
+            trackReconcile(activeProviderStore.reconcileProviders());
           }
         });
 
@@ -732,10 +786,28 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         if (bgInterval > 0) {
           reconciliationIntervalHandle = setInterval(() => {
             if (activeProviderStore) {
-              void activeProviderStore.reconcileProviders().catch(() => {});
+              trackReconcile(activeProviderStore.reconcileProviders());
             }
           }, bgInterval);
         }
+
+        // 12c-bis. Background lease reaper — atomically clears expired claims so
+        // a crashed/AFK agent's tasks become claimable again and the change
+        // flushes (reaching watchers). Steal-on-expiry already makes them
+        // reclaimable; this actively cleans up the stale claim fields + notifies.
+        const LEASE_SWEEP_INTERVAL_MS = 60_000;
+        claimSweepIntervalHandle = setInterval(() => {
+          if (!activeProviderStore || !flushManager) return;
+          const fm = flushManager;
+          void activeProviderStore
+            .sweepExpiredClaims()
+            .then((cleared) => {
+              if (cleared.length === 0) return;
+              for (const id of cleared) fm.markDirty(id);
+              fm.schedule();
+            })
+            .catch(() => {});
+        }, LEASE_SWEEP_INTERVAL_MS);
 
         // 12d. Start per-provider reconciliation intervals
         const providerIntervals = reconciliationConfig?.providerIntervals as Record<string, number> | undefined;
@@ -747,7 +819,9 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
                 providerName,
                 setInterval(() => {
                   if (activeProviderStore) {
-                    void activeProviderStore.reconcileProviders({ providers: [providerName] }).catch(() => {});
+                    trackReconcile(
+                      activeProviderStore.reconcileProviders({ providers: [providerName] }),
+                    );
                   }
                 }, interval),
               );
@@ -806,6 +880,10 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
         if (providerIntervalHandles) {
           for (const handle of providerIntervalHandles.values()) clearInterval(handle);
           providerIntervalHandles = null;
+        }
+        if (claimSweepIntervalHandle) {
+          clearInterval(claimSweepIntervalHandle);
+          claimSweepIntervalHandle = null;
         }
 
         if (gitSyncer) {
@@ -891,6 +969,10 @@ function createSingleLocationDaemon(config: SingleLocationDaemonConfig): Daemon 
           if (providerIntervalHandles) {
             for (const handle of providerIntervalHandles.values()) clearInterval(handle);
             providerIntervalHandles = null;
+          }
+          if (claimSweepIntervalHandle) {
+            clearInterval(claimSweepIntervalHandle);
+            claimSweepIntervalHandle = null;
           }
 
           // Stop provider watching before tearing down file watcher and store
@@ -997,6 +1079,17 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
   const lockManager: LockManager = createLockManager(daemonHomePath);
   const registryManager: RegistryManager = createRegistryManager(registryPath);
 
+  // Tracks otherwise-silent watcher/reconcile failures so `health` can surface
+  // them (P3 M3 / F10). Factory-scoped so the per-location watcher setup and the
+  // IPC method registration share one tracker.
+  const healthCounters = createHealthCounters();
+  const trackReconcile = (p: Promise<unknown>): void => {
+    void p.then(
+      () => healthCounters.recordReconcileRun(),
+      () => healthCounters.recordReconcileError(),
+    );
+  };
+
   // Components
   let ipcServer: IPCServer | null = null;
   let locationResolver: LocationResolver | null = null;
@@ -1055,7 +1148,20 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
         | { onStartup?: ReconciliationTrigger; onReload?: ReconciliationTrigger; backgroundInterval?: number; providerIntervals?: Record<string, number> }
         | undefined;
 
-      const locState = await createLocationState(opentasksPath, hash, isPrimary, sharedSkillTrackerRegistry);
+      const locState = await createLocationState(
+        opentasksPath,
+        hash,
+        isPrimary,
+        sharedSkillTrackerRegistry,
+        {
+          // Count this location's reload-reconcile runs/errors + reload failures
+          // in the daemon's shared health counters (F10). Without this, a
+          // multi-location location's reload-path activity is invisible.
+          recordReconcileRun: () => healthCounters.recordReconcileRun(),
+          recordReconcileError: () => healthCounters.recordReconcileError(),
+          recordWatcherError: () => healthCounters.recordWatcherError(),
+        },
+      );
       // Wrap store with provider-aware dispatch
       const defaultProvider = (locationConfig?.defaultProvider as string | undefined) ?? 'native';
       locState.providerStore = createProviderAwareStore(locState.store, {
@@ -1103,7 +1209,7 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
       if (bgInterval > 0) {
         locState.reconciliationInterval = setInterval(() => {
           if (locState.providerStore) {
-            void locState.providerStore.reconcileProviders().catch(() => {});
+            trackReconcile(locState.providerStore.reconcileProviders());
           }
         }, bgInterval);
       }
@@ -1118,13 +1224,32 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
               providerName,
               setInterval(() => {
                 if (locState.providerStore) {
-                  void locState.providerStore.reconcileProviders({ providers: [providerName] }).catch(() => {});
+                  trackReconcile(
+                    locState.providerStore.reconcileProviders({ providers: [providerName] }),
+                  );
                 }
               }, interval),
             );
           }
         }
       }
+
+      // Background lease reaper — clears expired claims so a crashed/AFK agent's
+      // tasks become claimable again, per location (mirrors the single-location
+      // daemon). Steal-on-expiry already makes them reclaimable; this is active
+      // cleanup + watcher notification.
+      locState.claimSweepInterval = setInterval(() => {
+        const fm = locState.flushManager;
+        if (!locState.providerStore || !fm) return;
+        void locState.providerStore
+          .sweepExpiredClaims()
+          .then((cleared) => {
+            if (cleared.length === 0) return;
+            for (const id of cleared) fm.markDirty(id);
+            fm.schedule();
+          })
+          .catch(() => {});
+      }, 60_000);
 
       return locState;
     } catch {
@@ -1281,11 +1406,18 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
             if (unhealthy.length > 0) return 'degraded';
             return 'healthy';
           },
+          getHealthCounters: () => healthCounters.snapshot(),
+          // Multi-location daemons don't own a single git syncer; sync health is
+          // not surfaced here.
         });
+
+        // One idempotency store per daemon (P3 M3 / F9) — see single-location path.
+        const idempotencyStore = createIdempotencyStore();
 
         registerGraphMethods({
           server: ipcServer,
           locationResolver,
+          idempotencyStore,
         });
 
         registerToolsMethods({
@@ -1310,9 +1442,35 @@ function createMultiLocationDaemon(config: MultiLocationDaemonConfig): Daemon {
           gitCommonDir,
         });
 
+        // Archive methods are location-aware (resolve per `location` param), so
+        // they wire identically to single-location. Previously absent here.
+        registerArchiveMethods({
+          server: ipcServer,
+          locationResolver,
+        });
+
+        // Location-aware git sync — each worktree's sync runs through the SAME
+        // coordinated flush-freeze-reload as single-location, resolved per
+        // `location` param. Closes the C2 gap (uncoordinated per-location sync).
+        registerMultiLocationSyncMethods({
+          server: ipcServer,
+          locationResolver,
+          reloadLocationSyncer: (state) => reloadLocationGitSyncer(state),
+        });
+
+        // One event manager per daemon process (P3 M2) — see single-location path.
+        const eventManager = createEventManager();
+
         registerWatchMethods({
           server: ipcServer,
           locationResolver,
+          eventManager,
+          onWatcherError: () => healthCounters.recordWatcherError(),
+        });
+
+        registerEventMethods({
+          server: ipcServer,
+          eventManager,
         });
 
         // 14. Start IPC server

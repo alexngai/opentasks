@@ -10,6 +10,8 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { generateLocationIdentity } from './core/location.js';
 import { ensureGlobalStoreInitialized } from './core/init.js';
 import { createConnection, checkAllConnectionHealth, type Connection } from './core/connections.js';
@@ -23,6 +25,7 @@ import { mergeJsonl, installMergeDriver } from './core/merge-driver.js';
 import { discoverLocations } from './core/discover.js';
 import { OpenTasksClient } from './client/client.js';
 import { createDaemonWithStore, createMultiLocationDaemonFromGit, checkExistingDaemon } from './daemon/index.js';
+import { VERSION } from './version.js';
 
 const OPENTASKS_DIR = '.opentasks';
 const SWARM_OPENTASKS_DIR = '.swarm/opentasks';
@@ -42,12 +45,12 @@ function resolveProjectDir(baseDir: string = process.cwd()): string {
 
 function printHelp() {
   console.log(`
-opentasks v0.1.0
+opentasks v${VERSION}
 
 Usage:
   opentasks <command> [options]
 
-Tool commands (require running daemon):
+Tool commands (auto-start the daemon if needed; --no-autostart to opt out):
   link    --from <id> --to <id> --type <type> [--remove] [--metadata <json>]
   query   <json>                Query the graph (pass QueryParams as JSON)
   annotate <json>               Manage feedback (pass AnnotateParams as JSON)
@@ -56,6 +59,17 @@ Tool commands (require running daemon):
   update  <id> [options]        Update a node
   delete  <id> [--hard]         Delete a node
   context-summary [options]     Get context summary breadcrumbs for session continuity
+  claim   <id> --agent <id> [--duration <ms>] [--force]      Atomically claim a task (lease)
+  claim-next --agent <id> [--duration <ms>]                  Claim the next ready, unclaimed task
+  release <id> --agent <id> [--fence <n>]                    Release a claim
+  renew   <id> --agent <id> [--duration <ms>] [--fence <n>]  Renew/extend a claim's lease
+
+Views (compact, human-readable; --json for raw, --limit <n>, default ${DEFAULT_LIST_LIMIT}):
+  ready   [--tags a,b]           Unblocked tasks ready to work on
+  list    [--type <t>] [--status <s>] [--tags a,b] [--all]   Tasks (closed hidden unless --all)
+  blocked                        Open tasks waiting on an unresolved blocker
+  tree    <id>                   A task and its blocker dependency tree
+  cleanup [--older-than-days <n>] [--dry-run]   Archive terminal tasks older than n days (default 30)
 
 Create options:
   --status <s>                  Status (required for tasks)
@@ -94,6 +108,11 @@ Setup commands:
   worktree teardown <path|hash> Teardown a worktree
   discover [options]            Find nearby opentasks locations
   merge-driver <O> <A> <B>     JSONL merge driver (for git)
+
+Global options (any command):
+  --global                      Target the shared store at ~/.opentasks (use from
+                                anywhere; same as OPENTASKS_GLOBAL=1)
+  --no-autostart                Don't auto-start a daemon (OPENTASKS_NO_AUTOSTART=1)
 
 Archive commands (require running daemon with archival enabled):
   archive list [--graph <id>] [--source <src>]   List archived sessions
@@ -143,7 +162,9 @@ function writeConfig(opentasksDir: string, config: Record<string, unknown>): voi
 function cmdInit(args: string[]): void {
   const nameIndex = args.indexOf('--name');
   const name = nameIndex !== -1 ? args[nameIndex + 1] : undefined;
-  const isGlobal = args.includes('--global');
+  // `--global` is stripped + routed via OPENTASKS_PROJECT_DIR in main(); detect
+  // it from the resolved target dir so the global init message still fires.
+  const isGlobal = resolveProjectDir() === path.join(os.homedir(), '.opentasks');
 
   // Global init delegates to the shared utility
   if (isGlobal) {
@@ -524,12 +545,78 @@ function cmdDiscover(args: string[]): void {
 // Daemon Commands
 // ============================================================================
 
+/** Resolve the path to this CLI entrypoint (dist/cli.js) for re-spawning. */
+function cliEntrypoint(): string {
+  return fileURLToPath(import.meta.url);
+}
+
+/**
+ * Spawn a detached daemon process (`daemon start --foreground`) and let it
+ * outlive this process. The child inherits cwd + env so it resolves the same
+ * project as the parent.
+ */
+function spawnDetachedDaemon(): void {
+  const child = spawn(process.execPath, [cliEntrypoint(), 'daemon', 'start', '--foreground'], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+}
+
+/** Sleep helper for poll loops. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Poll until the daemon for `opentasksDir` reports running, or throw on timeout.
+ */
+async function waitForDaemon(opentasksDir: string, timeoutMs = 10_000): Promise<void> {
+  const start = Date.now();
+  for (;;) {
+    const existing = await checkExistingDaemon(opentasksDir);
+    if (existing.running) return;
+    if (Date.now() - start >= timeoutMs) {
+      throw new Error(`Daemon did not start within ${timeoutMs}ms`);
+    }
+    await delay(100);
+  }
+}
+
+/**
+ * Ensure a daemon is running for `opentasksDir`, auto-starting one if needed
+ * (4.1). Auto-start is on by default; opt out with `--no-autostart` or
+ * `OPENTASKS_NO_AUTOSTART=1`. When auto-start is disabled and no daemon is
+ * running, this is a no-op — the subsequent client connect surfaces a clear
+ * "not connected" error.
+ */
+async function ensureDaemonRunning(
+  opentasksDir: string,
+  options: { autostart: boolean } = { autostart: true },
+): Promise<void> {
+  const existing = await checkExistingDaemon(opentasksDir);
+  if (existing.running) return;
+  if (!options.autostart) return;
+
+  process.stderr.write('opentasks: no daemon running — starting one…\n');
+  spawnDetachedDaemon();
+  try {
+    await waitForDaemon(opentasksDir);
+    const started = await checkExistingDaemon(opentasksDir);
+    process.stderr.write(`opentasks: daemon started (pid ${started.pid ?? '?'})\n`);
+  } catch (error) {
+    process.stderr.write(
+      `opentasks: daemon auto-start failed: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+  }
+}
+
 /**
  * Start the daemon process.
  *
- * By default runs in the foreground (keeps the process alive).
- * The caller (e.g., claude-code-swarm's ensureDaemon) spawns this
- * as a detached subprocess.
+ * Detaches by default and returns once the daemon is accepting connections.
+ * Pass `--foreground` to run it in the foreground (used by the detached child
+ * and by callers that manage the lifecycle themselves).
  */
 async function cmdDaemonStart(args: string[]): Promise<void> {
   const opentasksDir = resolveProjectDir();
@@ -554,9 +641,25 @@ async function cmdDaemonStart(args: string[]): Promise<void> {
     return;
   }
 
+  // Detach by default (4.2): re-spawn ourselves in the foreground, wait until
+  // the daemon is accepting connections, then report and return. `--foreground`
+  // runs the blocking daemon loop in-process.
+  if (!args.includes('--foreground')) {
+    spawnDetachedDaemon();
+    await waitForDaemon(opentasksDir);
+    const started = await checkExistingDaemon(opentasksDir);
+    console.log(JSON.stringify({
+      status: 'started',
+      detached: true,
+      pid: started.pid,
+      socketPath: started.socketPath,
+    }));
+    return;
+  }
+
   // Detect multi-location (git worktree) vs single-location mode
   const gitCommonDir = getGitCommonDir(path.dirname(opentasksDir));
-  const version = '0.0.5';
+  const version = VERSION;
 
   let daemon;
   if (gitCommonDir) {
@@ -677,6 +780,201 @@ async function runToolCommand(fn: () => Promise<unknown>): Promise<void> {
   }
 }
 
+// ============================================================================
+// Human-readable commands (token-light sugar over `query`) — P4 4.4
+// ============================================================================
+
+const DEFAULT_LIST_LIMIT = 50;
+const TERMINAL_STATUSES = new Set(['closed', 'failed', 'abandoned']);
+
+interface TaskRow {
+  id: string;
+  type?: string;
+  title?: string;
+  status?: string;
+  priority?: number;
+}
+
+/** One compact line per task — id, status, priority, truncated title. */
+function printTaskRows(rows: TaskRow[], total: number, limit: number): void {
+  if (rows.length === 0) {
+    console.log('(none)');
+    return;
+  }
+  const shown = rows.slice(0, limit);
+  for (const r of shown) {
+    const id = (r.id ?? '').padEnd(10).slice(0, 10);
+    const status = (r.status ?? '').padEnd(11).slice(0, 11);
+    const pri = r.priority !== undefined ? `P${r.priority}` : '  ';
+    const raw = r.title ?? '';
+    const title = raw.length > 64 ? raw.slice(0, 63) + '…' : raw;
+    console.log(`${id}  ${status} ${pri}  ${title}`);
+  }
+  const omitted = total - shown.length;
+  if (omitted > 0) {
+    console.log(`… ${omitted} more (showing ${shown.length} of ${total}; use --limit / --all)`);
+  }
+}
+
+/** Run `fn` with a connected client; report errors as JSON; always disconnect. */
+async function withClient(fn: (client: OpenTasksClient) => Promise<void>): Promise<void> {
+  const client = new OpenTasksClient();
+  try {
+    await fn(client);
+  } catch (error) {
+    console.error(
+      JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+    );
+    process.exitCode = 1;
+  } finally {
+    client.disconnect();
+  }
+}
+
+export async function cmdReady(args: string[]): Promise<void> {
+  const limit = Number(getFlag(args, '--limit') ?? DEFAULT_LIST_LIMIT);
+  const tags = getFlag(args, '--tags')?.split(',').map((s) => s.trim());
+  const json = hasFlag(args, '--json');
+  await withClient(async (client) => {
+    const result = (await client.query({ ready: { limit, tags } })) as {
+      items?: TaskRow[];
+      total?: number;
+    };
+    const items = result.items ?? [];
+    if (json) {
+      console.log(JSON.stringify(items, null, 2));
+      return;
+    }
+    printTaskRows(items, result.total ?? items.length, limit);
+  });
+}
+
+export async function cmdList(args: string[]): Promise<void> {
+  const type = getFlag(args, '--type');
+  const status = getFlag(args, '--status');
+  const tags = getFlag(args, '--tags')?.split(',').map((s) => s.trim());
+  const all = hasFlag(args, '--all');
+  const limit = Number(getFlag(args, '--limit') ?? DEFAULT_LIST_LIMIT);
+  const json = hasFlag(args, '--json');
+  await withClient(async (client) => {
+    const nodes: Record<string, unknown> = { archived: false };
+    if (type) nodes.type = type;
+    if (status) nodes.status = status;
+    if (tags) nodes.tags = tags;
+    const result = (await client.query({ nodes })) as { items?: TaskRow[] };
+    let items = result.items ?? [];
+    // Hide terminal (closed/failed/abandoned) tasks by default; --all or an
+    // explicit --status overrides.
+    if (!all && !status) {
+      items = items.filter((i) => !TERMINAL_STATUSES.has(i.status ?? ''));
+    }
+    if (json) {
+      console.log(JSON.stringify(items.slice(0, limit), null, 2));
+      return;
+    }
+    printTaskRows(items, items.length, limit);
+  });
+}
+
+export async function cmdBlocked(args: string[]): Promise<void> {
+  const limit = Number(getFlag(args, '--limit') ?? DEFAULT_LIST_LIMIT);
+  const json = hasFlag(args, '--json');
+  await withClient(async (client) => {
+    const [active, ready] = await Promise.all([
+      client.query({ nodes: { type: 'task', archived: false } }) as Promise<{ items?: TaskRow[] }>,
+      client.query({ ready: { limit: 100_000 } }) as Promise<{ items?: TaskRow[] }>,
+    ]);
+    const readyIds = new Set((ready.items ?? []).map((i) => i.id));
+    // An open/blocked task that isn't in the ready set is waiting on a blocker.
+    const blocked = (active.items ?? []).filter(
+      (i) => (i.status === 'open' || i.status === 'blocked') && !readyIds.has(i.id),
+    );
+    if (json) {
+      console.log(JSON.stringify(blocked, null, 2));
+      return;
+    }
+    printTaskRows(blocked, blocked.length, limit);
+  });
+}
+
+export async function cmdCleanup(args: string[]): Promise<void> {
+  const ttlDays = Number(getFlag(args, '--older-than-days') ?? 30);
+  const dryRun = hasFlag(args, '--dry-run');
+  const cutoff = Date.now() - ttlDays * 24 * 60 * 60 * 1000;
+  await withClient(async (client) => {
+    // Terminal, not-yet-archived tasks are the cleanup candidates.
+    const result = (await client.query({
+      nodes: { type: 'task', status: ['closed', 'failed', 'abandoned'], archived: false },
+    })) as { items?: TaskRow[] };
+    const candidates = result.items ?? [];
+
+    // NodeSummary carries no timestamp, so fetch each candidate to check age.
+    const stale: Array<{ id: string; title?: string; status?: string; ts: string }> = [];
+    for (const c of candidates) {
+      const full = (await client.getNode(c.id)) as
+        | { updated_at?: string; created_at?: string }
+        | null;
+      const ts = full?.updated_at ?? full?.created_at;
+      if (ts && new Date(ts).getTime() <= cutoff) {
+        stale.push({ id: c.id, title: c.title, status: c.status, ts });
+      }
+    }
+
+    if (dryRun) {
+      console.log(
+        JSON.stringify(
+          { dryRun: true, olderThanDays: ttlDays, wouldArchive: stale.length, tasks: stale },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
+    for (const t of stale) {
+      await client.updateNode(t.id, { archived: true });
+    }
+    console.log(JSON.stringify({ archived: stale.length, olderThanDays: ttlDays }, null, 2));
+  });
+}
+
+export async function cmdTree(args: string[]): Promise<void> {
+  const id = args.find((a) => !a.startsWith('--'));
+  if (!id) {
+    console.error('Usage: opentasks tree <id> [--json]');
+    process.exit(1);
+  }
+  const json = hasFlag(args, '--json');
+  await withClient(async (client) => {
+    const root = (await client.getNode(id)) as TaskRow | null;
+    if (!root) {
+      console.error(JSON.stringify({ error: `Not found: ${id}` }));
+      process.exitCode = 1;
+      return;
+    }
+    // Walk the blocker tree (what this task depends on), depth-limited + cycle-safe.
+    const lines: string[] = [];
+    const seen = new Set<string>();
+    async function walk(node: TaskRow, depth: number): Promise<void> {
+      const indent = '  '.repeat(depth);
+      const marker = depth === 0 ? '' : '↳ ';
+      lines.push(`${indent}${marker}${node.id}  [${node.status ?? '?'}]  ${node.title ?? ''}`);
+      if (seen.has(node.id) || depth >= 6) return;
+      seen.add(node.id);
+      const blockers = (await client.blockers(node.id)) as unknown as TaskRow[];
+      for (const b of blockers) {
+        await walk(b, depth + 1);
+      }
+    }
+    await walk(root, 0);
+    if (json) {
+      console.log(JSON.stringify({ root: id, tree: lines }, null, 2));
+      return;
+    }
+    console.log(lines.join('\n'));
+  });
+}
+
 export async function cmdLink(args: string[]): Promise<void> {
   const fromId = getFlag(args, '--from');
   const toId = getFlag(args, '--to');
@@ -733,6 +1031,84 @@ export async function cmdAnnotate(args: string[]): Promise<void> {
   await runToolCommand(async () => {
     const params = JSON.parse(json);
     const result = await client.annotate(params);
+    client.disconnect();
+    return result;
+  });
+}
+
+export async function cmdClaim(args: string[]): Promise<void> {
+  const id = args[0];
+  const agentId = getFlag(args, '--agent');
+  if (!id || id.startsWith('--') || !agentId) {
+    console.error('Usage: opentasks claim <id> --agent <agentId> [--duration <ms>] [--force]');
+    process.exit(1);
+  }
+  const durationStr = getFlag(args, '--duration');
+  const claim: Record<string, unknown> = { id, agentId };
+  if (durationStr) claim.durationMs = Number(durationStr);
+  if (hasFlag(args, '--force')) claim.force = true;
+
+  const client = new OpenTasksClient();
+  await runToolCommand(async () => {
+    const result = await client.task({ claim } as never);
+    client.disconnect();
+    return result;
+  });
+}
+
+export async function cmdClaimNext(args: string[]): Promise<void> {
+  const agentId = getFlag(args, '--agent');
+  if (!agentId) {
+    console.error('Usage: opentasks claim-next --agent <agentId> [--duration <ms>]');
+    process.exit(1);
+  }
+  const durationStr = getFlag(args, '--duration');
+  const claimNext: Record<string, unknown> = { agentId };
+  if (durationStr) claimNext.durationMs = Number(durationStr);
+
+  const client = new OpenTasksClient();
+  await runToolCommand(async () => {
+    const result = await client.task({ claimNext } as never);
+    client.disconnect();
+    return result;
+  });
+}
+
+export async function cmdRelease(args: string[]): Promise<void> {
+  const id = args[0];
+  const agentId = getFlag(args, '--agent');
+  if (!id || id.startsWith('--') || !agentId) {
+    console.error('Usage: opentasks release <id> --agent <agentId> [--fence <n>]');
+    process.exit(1);
+  }
+  const fenceStr = getFlag(args, '--fence');
+  const release: Record<string, unknown> = { id, agentId };
+  if (fenceStr) release.fence = Number(fenceStr);
+
+  const client = new OpenTasksClient();
+  await runToolCommand(async () => {
+    const result = await client.task({ release } as never);
+    client.disconnect();
+    return result;
+  });
+}
+
+export async function cmdRenew(args: string[]): Promise<void> {
+  const id = args[0];
+  const agentId = getFlag(args, '--agent');
+  if (!id || id.startsWith('--') || !agentId) {
+    console.error('Usage: opentasks renew <id> --agent <agentId> [--duration <ms>] [--fence <n>]');
+    process.exit(1);
+  }
+  const durationStr = getFlag(args, '--duration');
+  const fenceStr = getFlag(args, '--fence');
+  const renew: Record<string, unknown> = { id, agentId };
+  if (durationStr) renew.durationMs = Number(durationStr);
+  if (fenceStr) renew.fence = Number(fenceStr);
+
+  const client = new OpenTasksClient();
+  await runToolCommand(async () => {
+    const result = await client.task({ renew } as never);
     client.disconnect();
     return result;
   });
@@ -1007,6 +1383,14 @@ async function cmdMcp(args: string[]): Promise<void> {
     }
   }
 
+  // Auto-start the project daemon so a fresh MCP session works with zero manual
+  // daemon management (4.1). Skip when an explicit `--socket` is given (the
+  // daemon is externally managed) or auto-start is disabled. Notices go to
+  // stderr so they don't corrupt the stdio JSON-RPC channel.
+  if (!socketPath && process.env.OPENTASKS_NO_AUTOSTART !== '1') {
+    await ensureDaemonRunning(resolveProjectDir(), { autostart: true });
+  }
+
   const { startMCPServer, ALL_SCOPES } = await import('./mcp/index.js');
   const scopes = scopeStr === 'all'
     ? [...ALL_SCOPES]
@@ -1024,13 +1408,56 @@ function padRight(str: string, len: number): string {
   return str.length >= len ? str + '  ' : str + ' '.repeat(len - str.length);
 }
 
+/**
+ * Commands that talk to the daemon. For these, `main` ensures a daemon is
+ * running first (auto-starting one unless opted out).
+ */
+const DAEMON_COMMANDS = new Set([
+  'link',
+  'query',
+  'annotate',
+  'create',
+  'get',
+  'update',
+  'delete',
+  'context-summary',
+  'claim',
+  'claim-next',
+  'release',
+  'renew',
+  'ready',
+  'list',
+  'tree',
+  'blocked',
+  'cleanup',
+]);
+
 async function main() {
-  const args = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
+  // Global flags, stripped so per-command arg parsing isn't disturbed.
+  const autostart =
+    !rawArgs.includes('--no-autostart') && process.env.OPENTASKS_NO_AUTOSTART !== '1';
+  const globalMode = rawArgs.includes('--global') || process.env.OPENTASKS_GLOBAL === '1';
+  const args = rawArgs.filter((a) => a !== '--no-autostart' && a !== '--global');
   const command = args[0];
 
   if (!command || command === 'help' || command === '--help') {
     printHelp();
     process.exit(0);
+  }
+
+  // --global / OPENTASKS_GLOBAL: target the use-from-anywhere store at
+  // ~/.opentasks. Routing both the auto-start (resolveProjectDir) and the
+  // client's socket discovery (findOpenTasksDir) through OPENTASKS_PROJECT_DIR
+  // keeps them in agreement. ensureGlobalStoreInitialized creates the dir so the
+  // existence check downstream passes even on first use. (4.7)
+  if (globalMode) {
+    process.env.OPENTASKS_PROJECT_DIR = ensureGlobalStoreInitialized();
+  }
+
+  // Auto-start the daemon for commands that need it (4.1).
+  if (DAEMON_COMMANDS.has(command)) {
+    await ensureDaemonRunning(resolveProjectDir(), { autostart });
   }
 
   switch (command) {
@@ -1058,6 +1485,35 @@ async function main() {
       break;
     case 'context-summary':
       await cmdContextSummary(args.slice(1));
+      break;
+    case 'claim':
+      await cmdClaim(args.slice(1));
+      break;
+    case 'claim-next':
+      await cmdClaimNext(args.slice(1));
+      break;
+    case 'release':
+      await cmdRelease(args.slice(1));
+      break;
+    case 'renew':
+      await cmdRenew(args.slice(1));
+      break;
+
+    // Human-readable commands (sugar over query)
+    case 'ready':
+      await cmdReady(args.slice(1));
+      break;
+    case 'list':
+      await cmdList(args.slice(1));
+      break;
+    case 'blocked':
+      await cmdBlocked(args.slice(1));
+      break;
+    case 'tree':
+      await cmdTree(args.slice(1));
+      break;
+    case 'cleanup':
+      await cmdCleanup(args.slice(1));
       break;
 
     // Setup commands (sync, no daemon needed)

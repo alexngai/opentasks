@@ -9,6 +9,9 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { createIPCClient, type IPCClient } from '../daemon/ipc.js';
+import type { WatchFilter } from '../daemon/methods/watch.js';
+import type { EventCursor, SinceResult, WatchEventPayload } from '../daemon/events.js';
+import type { ProviderNodeChangeEvent } from '../providers/traits/Watchable.js';
 import { getGitCommonDir } from '../core/worktree.js';
 import { ensureGlobalStoreInitialized } from '../core/init.js';
 import type {
@@ -131,8 +134,11 @@ function findOpenTasksDir(startDir: string = process.cwd()): string | null {
  * Prefers .git/opentasks/daemon.sock (multi-location), then walks up for
  * .opentasks/daemon.sock (single-location), then falls back to
  * ~/.opentasks/daemon.sock (global store).
+ *
+ * Exported so thin-client consumers can discover the daemon socket without
+ * reimplementing the resolution (see `opentasks/client`).
  */
-function getDefaultSocketPath(): string {
+export function getDefaultSocketPath(): string {
   // 1. Check for multi-location daemon socket first
   const gitSocket = findGitDaemonSocket();
   if (gitSocket) {
@@ -461,9 +467,16 @@ export class OpenTasksClient {
    * @param options - Optional provider routing options
    * @returns The created node (materialized locally if via external provider)
    */
-  async createNode(params: CreateNodeInput, options?: { scheme?: string }): Promise<unknown> {
+  async createNode(
+    params: CreateNodeInput,
+    options?: { scheme?: string; idempotencyKey?: string },
+  ): Promise<unknown> {
     await this.ensureConnected();
-    return this.client!.request('graph.create', { ...params, scheme: options?.scheme });
+    return this.client!.request('graph.create', {
+      ...params,
+      scheme: options?.scheme,
+      idempotency_key: options?.idempotencyKey,
+    });
   }
 
   /**
@@ -625,6 +638,140 @@ export class OpenTasksClient {
       id,
       force: options?.force,
     });
+  }
+
+  // ==========================================================================
+  // Watch / Events
+  // ==========================================================================
+
+  /**
+   * Subscribe to real-time graph change events from the daemon's watch stream.
+   *
+   * The daemon pushes `watch.event` notifications for node creates, updates, and
+   * deletes. The optional `filter` narrows delivery server-side by provider node
+   * type and/or status — an empty or omitted filter receives every event. Delete
+   * events are always delivered (they carry no node to filter on, and only prompt
+   * a re-poll).
+   *
+   * When the daemon has an event manager (P3 M2), each delivered event carries a
+   * `seq` + `epoch`. Persist the latest and pass it back as `options.since` on a
+   * later `subscribe` to backfill what was missed while disconnected — events
+   * within the daemon's buffer window are replayed before live delivery resumes.
+   * If the cursor can't be served (buffer evicted it, or the daemon restarted →
+   * new epoch), `options.onResync` fires and the caller should re-query state.
+   * Delivery is de-duplicated by `(epoch, seq)`, so the handler sees each event
+   * at most once across backfill + live.
+   *
+   * @param filter - Optional coarse type/status filter. Pass `undefined` for all events.
+   * @param handler - Invoked for each matching change event (carries `seq`/`epoch` when stamped).
+   * @param options.since - Resume cursor from a prior subscription to backfill the gap.
+   * @param options.onResync - Called when the cursor is unservable; re-query current state.
+   * @returns An async unsubscribe function; call it to stop receiving events.
+   */
+  async subscribe(
+    filter: WatchFilter | undefined,
+    handler: (event: WatchEventPayload) => void,
+    options?: { since?: EventCursor; onResync?: () => void },
+  ): Promise<() => Promise<void>> {
+    await this.ensureConnected();
+
+    // Capture the active connection so unsubscribe targets the same socket even
+    // if the client reconnects later.
+    const client = this.client!;
+    const since = options?.since;
+
+    // De-dupe by (epoch, seq): the stream is at-least-once, so a backfilled
+    // event can overlap a live one. Unstamped events (no event manager on the
+    // daemon) bypass de-dupe and pass straight through.
+    let lastEpoch: string | null = null;
+    let lastSeq = 0;
+    const deliver = (event: WatchEventPayload): void => {
+      if (typeof event.seq === 'number' && typeof event.epoch === 'string') {
+        if (event.epoch !== lastEpoch) {
+          lastEpoch = event.epoch;
+          lastSeq = 0;
+        }
+        if (event.seq <= lastSeq) return;
+        lastSeq = event.seq;
+      }
+      handler(event);
+    };
+
+    // While backfilling, buffer live events and flush them (de-duped) once the
+    // backfill completes, so the handler sees a monotonic seq order.
+    let live = !since;
+    const pending: WatchEventPayload[] = [];
+    const removeHandler = client.onNotification((method, params) => {
+      if (method !== 'watch.event') return;
+      const event = params as WatchEventPayload;
+      if (live) deliver(event);
+      else pending.push(event);
+    });
+
+    try {
+      await client.request('watch.subscribe', { filter: filter ?? {} });
+    } catch (error) {
+      removeHandler();
+      throw error;
+    }
+
+    if (since) {
+      try {
+        const result = await client.request<SinceResult>('events.since', { cursor: since });
+        if ('resync' in result && result.resync) {
+          options?.onResync?.();
+        } else if ('events' in result) {
+          for (const stamped of result.events) {
+            deliver({ ...stamped.event, seq: stamped.seq, epoch: stamped.epoch });
+          }
+        }
+      } catch {
+        // Backfill RPC failed (timeout / transient daemon error) — the gap was
+        // NOT recovered, so signal resync just like an unservable cursor. Live
+        // delivery still resumes below; the caller re-queries to fill the gap.
+        options?.onResync?.();
+      }
+      // Open the gate and flush events that arrived during the backfill.
+      live = true;
+      for (const event of pending.splice(0)) deliver(event);
+    }
+
+    let unsubscribed = false;
+    return async () => {
+      if (unsubscribed) return;
+      unsubscribed = true;
+      removeHandler();
+      // Best-effort: drop this connection's server-side subscription. If the
+      // daemon or socket is already gone, the local handler removal is enough.
+      if (this.client === client && client.connected) {
+        try {
+          await client.request('watch.unsubscribe', {});
+        } catch {
+          // Daemon unreachable — nothing more to clean up locally.
+        }
+      }
+    };
+  }
+
+  /**
+   * Replay change events after a cursor (P3 M2). Returns the events with
+   * `seq > cursor.seq` for the same epoch, or `{ resync: true }` if the cursor
+   * can't be served (evicted from the buffer, or a different epoch). Most callers
+   * should prefer `subscribe(..., { since })`, which backfills automatically;
+   * this is the raw primitive (used by the MCP `events_since` tool).
+   */
+  async eventsSince(cursor: EventCursor): Promise<SinceResult> {
+    await this.ensureConnected();
+    return this.client!.request<SinceResult>('events.since', { cursor });
+  }
+
+  /**
+   * The daemon's current head cursor (epoch + latest seq). Use as a baseline for
+   * a fresh subscriber that wants to track a cursor without waiting for an event.
+   */
+  async eventsCurrent(): Promise<EventCursor> {
+    await this.ensureConnected();
+    return this.client!.request<EventCursor>('events.current');
   }
 
   // ==========================================================================
