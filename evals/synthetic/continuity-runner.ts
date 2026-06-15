@@ -24,8 +24,10 @@ import type { ArmId } from '../types.js';
 export interface ContinuityOpts {
   model: string;
   m: number;
+  /** Items phase 1 processes before stopping (deterministic partial progress). */
+  k: number;
   repeat: number;
-  /** Wall-clock cap for phase 1 (ms) — it SHOULD interrupt mid-queue. */
+  /** Completion budget for phase 1 (ms) — generous; phase 1 stops after k items. */
   phase1Ms: number;
   /** Budget for phase 2 (ms). */
   timeoutMs: number;
@@ -64,7 +66,7 @@ export async function runContinuityCell(armId: ArmId, opts: ContinuityOpts): Pro
       workDir,
       arm,
       agentId: 'agent-1',
-      prompt: buildContinuityP1Prompt(arm, { m: opts.m, agentId: 'agent-1' }),
+      prompt: buildContinuityP1Prompt(arm, { m: opts.m, k: opts.k, agentId: 'agent-1' }),
       model: opts.model,
       timeoutMs: opts.phase1Ms,
       env: opts.env,

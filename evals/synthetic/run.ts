@@ -28,7 +28,9 @@ const REPEATS = Number(process.env.EVAL_REPEATS ?? 1);
 const TIMEOUT = Number(process.env.EVAL_TIMEOUT ?? 240_000);
 // Cell: B = concurrency (N agents, 1 session); C = continuity (1 agent, reset).
 const CELL = (process.env.EVAL_CELL ?? 'B').toUpperCase();
-const PHASE1_MS = Number(process.env.EVAL_PHASE1_MS ?? 60_000);
+const PHASE1_MS = Number(process.env.EVAL_PHASE1_MS ?? 200_000);
+// Items phase 1 processes before stopping (continuity cell). Default ~half.
+const K = Number(process.env.EVAL_K ?? Math.max(1, Math.floor(M / 2)));
 const ARM_IDS = (process.env.EVAL_ARMS ?? 'stock,notes,opentasks').split(',').map((s) => s.trim()) as ArmId[];
 const TRACE_DIR = path.resolve(process.cwd(), 'evals/.runs');
 
@@ -60,13 +62,12 @@ async function runCellB(): Promise<void> {
 
 async function runCellC(): Promise<void> {
   console.log(
-    `[cell C · continuity] model=${MODEL} arms=${ARM_IDS.join(',')} M=${M} ` +
-      `phase1=${Math.round(PHASE1_MS / 1000)}s repeats=${REPEATS}`,
+    `[cell C · continuity] model=${MODEL} arms=${ARM_IDS.join(',')} M=${M} K=${K} (phase1 does first K) repeats=${REPEATS}`,
   );
   for (const armId of ARM_IDS) {
     for (let r = 0; r < REPEATS; r++) {
       const res = await runContinuityCell(armId, {
-        model: MODEL, m: M, repeat: r, phase1Ms: PHASE1_MS, timeoutMs: TIMEOUT, env: passEnv, traceDir: TRACE_DIR,
+        model: MODEL, m: M, k: K, repeat: r, phase1Ms: PHASE1_MS, timeoutMs: TIMEOUT, env: passEnv, traceDir: TRACE_DIR,
       });
       const s = res.score;
       const errs = [res.phase1, res.phase2].filter((p) => p.error).length;

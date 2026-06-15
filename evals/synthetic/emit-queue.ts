@@ -142,30 +142,38 @@ const CONTINUITY_INTRO = [
   '',
 ];
 
-/** Phase 1 — a single agent starts the queue (will be interrupted by a wall-clock cap). */
-export function buildContinuityP1Prompt(arm: SynthArm, opts: { m: number; agentId: string }): string {
+/**
+ * Phase 1 — a single agent processes EXACTLY the first `k` items, then stops.
+ * Deterministic progress (no flaky wall-clock interruption); phase 2 still has to
+ * DISCOVER which are done (it cannot observe emits), so the continuity test holds.
+ */
+export function buildContinuityP1Prompt(arm: SynthArm, opts: { m: number; k: number; agentId: string }): string {
+  const items = makeItems(opts.m);
+  const lastK = items[opts.k - 1];
+  const firstUndone = opts.k < opts.m ? items[opts.k] : '(none)';
   if (arm.id === 'opentasks') {
     return [
       ...CONTINUITY_INTRO,
-      'Get work ONLY from the OpenTasks graph (the MCP). Repeatedly:',
-      `  1. claim_next with agentId "${opts.agentId}" → {claimed, nodeId, fence} (claimed:false = none left).`,
-      '  2. get_task on the nodeId to read its title. Emit the TITLE (like "item-007"), NOT the nodeId ("t-3lji").',
+      `Get work ONLY from the OpenTasks graph (the MCP). Process EXACTLY ${opts.k} items, then STOP. Repeat ${opts.k} times:`,
+      `  1. claim_next with agentId "${opts.agentId}" → {claimed, nodeId, fence}.`,
+      '  2. get_task on the nodeId → read its title. Emit the TITLE (like "item-007"), NOT the nodeId ("t-3lji").',
       '  3. `./emit <item-id>` using the title (e.g. `./emit item-007`).',
       '  4. update_task on the nodeId with status "closed" to durably mark it done.',
-      '  Keep going until nothing is left. Always close a task right after emitting it.',
+      `  After processing exactly ${opts.k} items this way, STOP — do not process any more.`,
     ].join('\n');
   }
   if (arm.id === 'notes') {
     return [
       ...CONTINUITY_INTRO,
-      `The ${opts.m} items are in queue.txt. For each: run \`./emit <item-id>\`, then IMMEDIATELY append`,
-      'that item-id as a line to done.txt so your progress is durably recorded on disk.',
-      'Work through the queue in order; always write to done.txt right after emitting.',
+      `The ${opts.m} items are in queue.txt. Emit ONLY the first ${opts.k} items (item-001 through ${lastK}).`,
+      'For each one: run `./emit <item-id>`, then IMMEDIATELY append that item-id as a line to done.txt.',
+      `Then STOP — do NOT emit ${firstUndone} or any later item.`,
     ].join('\n');
   }
   return [
     ...CONTINUITY_INTRO,
-    `The ${opts.m} items are in queue.txt. Process each by running \`./emit <item-id>\`. Work in order.`,
+    `The ${opts.m} items are in queue.txt. Emit ONLY the first ${opts.k} items (item-001 through ${lastK}) by`,
+    `running \`./emit <item-id>\` for each. Then STOP — do NOT emit ${firstUndone} or any later item.`,
   ].join('\n');
 }
 
