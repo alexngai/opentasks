@@ -19,6 +19,7 @@
 import * as path from 'node:path';
 import { runConcurrencyCell } from './concurrency-runner.js';
 import { runContinuityCell } from './continuity-runner.js';
+import { runCellD } from './celld-runner.js';
 import type { ArmId } from '../types.js';
 
 const MODEL = process.env.EVAL_MODEL ?? 'haiku';
@@ -82,8 +83,32 @@ async function runCellC(): Promise<void> {
   }
 }
 
+async function runCellDish(): Promise<void> {
+  console.log(
+    `[cell D · swarm×reset] model=${MODEL} arms=${ARM_IDS.join(',')} N=${N} M=${M} K=${K} ` +
+      `repeats=${REPEATS}`,
+  );
+  for (const armId of ARM_IDS) {
+    for (let r = 0; r < REPEATS; r++) {
+      const res = await runCellD(armId, {
+        model: MODEL, n: N, m: M, k: K, repeat: r, phase1Ms: PHASE1_MS, timeoutMs: TIMEOUT, env: passEnv, traceDir: TRACE_DIR,
+      });
+      const s = res.score;
+      const errs = [...res.phase1, ...res.phase2].filter((p) => p.error).length;
+      console.log(
+        `  ${armId.padEnd(9)} r${r}: exactlyOnce=${s.exactlyOnce}/${s.m} ` +
+          `doubleEmits=${s.doubleEmits} missed=${s.missed} correct=${s.correct} ` +
+          `| p1Emits=${res.phase1Emits} p2Emits=${res.phase2Emits} p2ReEmits=${res.phase2ReEmits} ` +
+          `tokens=${res.tokenCost} ${Math.round(res.durationMs / 1000)}s` +
+          `${res.armId === 'opentasks' ? ` mcp=${res.mcpConnected}` : ''}${errs ? ` ERRS=${errs}` : ''}`,
+      );
+    }
+  }
+}
+
 async function main(): Promise<void> {
   if (CELL === 'C') await runCellC();
+  else if (CELL === 'D') await runCellDish();
   else await runCellB();
 }
 

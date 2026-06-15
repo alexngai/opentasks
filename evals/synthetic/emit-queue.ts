@@ -211,3 +211,53 @@ export function buildContinuityResumePrompt(arm: SynthArm, opts: { m: number; ag
     'Finish the queue.',
   ].join('\n');
 }
+
+/* ───────────────────────── cell D (both axes: swarm × reset) ───────────────────────── */
+
+const CELLD_CONCUR = (agentId: string) =>
+  [
+    `You are one of several agents ("${agentId}") working the SAME queue CONCURRENTLY.`,
+    'Processing an item = `./emit <item-id>`. Emitting is IRREVERSIBLE and UNOBSERVABLE: you cannot',
+    'check what has already been emitted. Goal across all agents: every item emitted EXACTLY ONCE.',
+    '',
+  ];
+
+/** Cell-D phase 1 — a swarm does the first K items, then stops. */
+export function buildCellDPhase1Prompt(arm: SynthArm, opts: { m: number; k: number; agentId: string }): string {
+  if (arm.id === 'opentasks') return buildPrompt(arm, { items: makeItems(opts.m), agentId: opts.agentId, m: opts.m });
+  const items = makeItems(opts.m);
+  const lastK = items[opts.k - 1];
+  const firstUndone = opts.k < opts.m ? items[opts.k] : '(none)';
+  if (arm.id === 'notes') {
+    return [
+      ...CELLD_CONCUR(opts.agentId),
+      `Process ONLY the first ${opts.k} items (item-001 through ${lastK}) from queue.txt. Coordinate with the`,
+      'other agents via claims.txt: append `<agent>: <id>` before emitting and skip ids another agent already',
+      'claimed. After emitting an id, ALSO append it to done.txt (durable progress record).',
+      `Then STOP — do not touch ${firstUndone} or later.`,
+    ].join('\n');
+  }
+  return [
+    ...CELLD_CONCUR(opts.agentId),
+    `Process ONLY the first ${opts.k} items (item-001 through ${lastK}) from queue.txt by running \`./emit <item-id>\`.`,
+    `Then STOP — do not touch ${firstUndone} or later.`,
+  ].join('\n');
+}
+
+/** Cell-D phase 2 — a FRESH swarm resumes: must finish without re-emitting AND without racing. */
+export function buildCellDPhase2Prompt(arm: SynthArm, opts: { m: number; k: number; agentId: string }): string {
+  if (arm.id === 'opentasks') return buildPrompt(arm, { items: makeItems(opts.m), agentId: opts.agentId, m: opts.m });
+  return [
+    ...CELLD_CONCUR(opts.agentId),
+    'A PREVIOUS swarm already processed some items and was reset. Some items are ALREADY emitted and you',
+    'CANNOT observe which. Emit only items that are NOT yet done, and never let two agents do the same item.',
+    '',
+    ...(arm.id === 'notes'
+      ? [
+          'The full list is in queue.txt; finished items are recorded in done.txt; use claims.txt for live',
+          'coordination. For each queue.txt item NOT in done.txt: append `<agent>: <id>` to claims.txt, re-read',
+          'and skip if another agent took it, run `./emit <item-id>`, then append the id to done.txt.',
+        ]
+      : ['The full list is in queue.txt. You have no record of what is done. Finish the queue.']),
+  ].join('\n');
+}

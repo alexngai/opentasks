@@ -141,6 +141,9 @@ export async function setupSharedDir(
   arm: SynthArm,
   items: string[],
   env?: Record<string, string>,
+  /** Graph nodes to seed initially (opentasks arm). Defaults to all `items`;
+   *  cell D passes only the first K to stage phase-1 vs phase-2 work. */
+  graphItems?: string[],
 ): Promise<{ workDir: string; collector: Collector; mcpFile: string }> {
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), `otc-synth-${arm.id}-`));
   const collector = await startCollector();
@@ -163,7 +166,7 @@ export async function setupSharedDir(
   const serversCfg = arm.mcp ? { [arm.mcp.name]: { command: arm.mcp.command, args: arm.mcp.args } } : {};
   fs.writeFileSync(mcpFile, JSON.stringify({ mcpServers: serversCfg }));
   if (arm.itemsViaGraph) {
-    seedOpentasksGraph(workDir, items, { ...process.env, ...(env ?? {}) } as NodeJS.ProcessEnv);
+    seedOpentasksGraph(workDir, graphItems ?? items, { ...process.env, ...(env ?? {}) } as NodeJS.ProcessEnv);
   }
   return { workDir, collector, mcpFile };
 }
