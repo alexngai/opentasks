@@ -21,6 +21,7 @@ import * as path from 'node:path';
 import { ARMS } from './arms.js';
 import { runTaskWithArm } from './runner.js';
 import { SMOKE_TASK } from './tasks/smoke.js';
+import { BUILD_TODO_TASK } from './tasks/build-todo.js';
 import type { ArmId, EvalTask } from './types.js';
 
 const MODEL = process.env.EVAL_MODEL ?? 'haiku';
@@ -45,7 +46,10 @@ const PASSTHROUGH = [
 const passEnv: Record<string, string> = {};
 for (const k of PASSTHROUGH) if (process.env[k]) passEnv[k] = process.env[k]!;
 
-const ALL_TASKS: Record<string, EvalTask> = { [SMOKE_TASK.id]: SMOKE_TASK };
+const ALL_TASKS: Record<string, EvalTask> = {
+  [SMOKE_TASK.id]: SMOKE_TASK,
+  [BUILD_TODO_TASK.id]: BUILD_TODO_TASK,
+};
 
 function main(): void {
   const tasks = TASK_IDS.map((id) => {
