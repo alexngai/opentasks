@@ -333,6 +333,18 @@ Can start in parallel with P2. Verbatim from the DX evaluation: *"OpenTasks curr
 
 No established benchmark isolates the task-coordination substrate; these are custom ablations assembled from established parts (task sources, scoring pipelines, control methodology). Report all results with the coordination-metrics vocabulary from [arXiv:2512.08296](https://arxiv.org/abs/2512.08296) (coordination efficiency, overhead fraction, error amplification, redundancy). **Never score by graph state — completion is verified by tests only** ([arXiv:2507.02825](https://arxiv.org/abs/2507.02825): agents reward-hack weak verifiers).
 
+> **Status (2026-06-15): P6 IN PROGRESS — approach evolved.** E1 (swarm duplication) and E2
+> (continuity) are unified as a **concurrency × continuity 2×2** (E1 ≈ cells B/D, E2 ≈ cells C/D).
+> Current design, empirical results, and the full follow-up list:
+> [docs/evaluations/2026-06-15-cellD-concurrency-continuity-design.md](./evaluations/2026-06-15-cellD-concurrency-continuity-design.md)
+> (§11 results, §12 follow-ups); raw write-ups in [evals/results/](../evals/results/).
+> **Done:** Stage-1 synthetic 2×2 (GLM-5) — substrate is null where state fits in one context,
+> wins on concurrency (B), ties on continuity-alone (C), and is the only race-clean arm on the
+> combination (D, k=5). **Next:** harden the GLM-5 proxy (it has no retry/backoff and fell over
+> under load), then the **TheAgentCompany GitLab-only host** (the established anchor) instantiating
+> cell D on recognized tasks. The E1/E2/E4/E5 specs below are the original framing, partly
+> subsumed by the synthetic 2×2; E2 on TheAgentCompany remains the standardized headline.
+
 **E2 — Cross-session continuity** *(run first: single-agent, cheap, tests the strongest claim)*
 - Design: long-horizon repo tasks (TheAgentCompany checkpoint scoring, [arXiv:2412.14161](https://arxiv.org/abs/2412.14161), or multi-session epics on this repo); kill the agent every K turns; restart with fresh context. 3–5 resets/task, 5 tasks, 5+ runs/condition.
 - Baseline: restart with repo + whatever markdown notes the agent left. Treatment: restart with the OpenTasks graph via MCP.

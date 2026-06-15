@@ -195,3 +195,64 @@ contention → raise contention or conclude value is elsewhere).
   stock LLM judge); never score by graph state.
 - **Single-source host risk** → TheAgentCompany anchors credibility; EntCollabBench is the
   extension, not the foundation.
+
+## 11. Status & empirical results (as of 2026-06-15)
+
+**Implementation:** the substrate (HARDENING-PLAN P0–P5 — atomic claim/lease/fence, sync
+coordination, events, DX, ecosystem) is **complete**. P6 (this eval program) is the active
+phase. Harness built: `evals/synthetic/` (cells B/C/D — collector + emit-queue + the three
+runners), the base `evals/` harness, the GLM-5 stack (`evals/glm5/`), and the AppWorld+GLM-5
+pipeline (`evals/appworld/`, stock arm validated).
+
+**What's been proven (GLM-5; results in `evals/results/`):**
+
+| Experiment | Result | File |
+|---|---|---|
+| build-todo, single session | **null with overhead** — saturated model, 0 graph calls, +2.4× tokens | `…-build-todo-glm5.md` |
+| build-todo, reset (file-recoverable) | **clean null** — adopted but no value (work-dir is the state) | `…-build-todo-reset-glm5.md` |
+| **Cell B** (concurrency, k=4) | opentasks **4/4** correct & cheapest-correct; notes 2/4 (bimodal); stock 0/4 | `…-synthetic-cellB-…md` |
+| **Cell C** (continuity, n=1) | opentasks **ties** disciplined-notes (both 6/6); stock fails; opentasks pricier single-agent | `…-synthetic-cellC-…md` |
+| **Cell D** (both, k=5) | opentasks **0 races in all 5** (4/5 fully correct, 1 infra-miss); notes 0/5 (1–4 races every run); stock 0/5 | `…-synthetic-cellD-and-2x2-summary.md` |
+
+**Bottom line (thesis demonstrated):** OpenTasks is a coordination-**safety** substrate —
+*null* when state fits in one context (anchor / single-session), a *qualitative* win on
+concurrency (B), a *tie* on continuity-alone (C, a disciplined log suffices), and
+**irreplaceable on the combination** (D — the swarm-across-reset regime, where the baselines
+fail super-additively and only the atomic primitive stays race-clean). The two nulls are
+load-bearing context: they show the effect is real (it appears only where predicted), not a
+artifact of a rigged setup.
+
+## 12. Follow-ups / open validations
+
+**Eval infra (do first — currently blocking):**
+- **GLM-5 proxy reliability.** The SigV4 shim → Mantle path has **no retry/backoff** and low
+  TPM; it falls over under sustained load (it crashed mid the cell-D/C k=5 battery on
+  2026-06-15, invalidating the cell-C repeat). Add retry+exponential backoff in the shim and a
+  concurrency cap in the harness before scaling any runs.
+
+**Stage 1 finish (synthetic):**
+- Clean **cell-C k≥5** (blocked on the proxy fix; the existing cell-C is n=1).
+- **Contention sweep** N∈{2, 8} on cells B/D for monotonic baseline degradation (watch N=8 vs
+  proxy TPM).
+- A **second model** (saturation curve) — show the effect varies with capability.
+- **Token-matching** enforced at swarm-sum, **pass^k** + CIs for publication-grade numbers.
+
+**Stage 2 (the big lift — standardized anchor):**
+- **TheAgentCompany GitLab-only host:** write a headless `claude -p` driver (TAC ships only an
+  OpenHands one), add an **exactly-once evaluator gate**, inject 2-agent concurrency + a
+  mid-task reset, run the 3 arms — i.e. instantiate cell D on recognized tasks.
+
+**Stage 3 (gated):**
+- **EntCollabBench** host — resolve its missing LICENSE + verify Apple-Silicon image arch
+  first; add the deterministic exactly-once gate (its stock scoring is LLM-judge); parallelize
+  the subtask loop; durable-resume wiring.
+- **AppWorld** OpenTasks/NOTES arms (the pipeline already runs the stock arm).
+
+**Carried over from hardening (deferred by design, revisit if eval surfaces them):**
+- F8 wall-clock LWW merge (no causality/CRDT — still in place); swarm-dispatch *real-daemon*
+  e2e; E2-baseline never captured (current HEAD is the reference point); lint debt (~245
+  pre-existing errors, F10).
+
+**Release hygiene:** the `hardening` branch is far ahead of `origin` and **unpushed**;
+`opentasks@0.1.4` is **unpublished**; 2 spawned follow-up task chips remain (multi-loc
+materialization config; 3 deferred daemon-coverage e2es).

@@ -41,6 +41,32 @@ CLAUDE_CODE_USE_BEDROCK=1 AWS_REGION=us-west-1 \
 `CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, `AWS_PROFILE`, `ANTHROPIC_BASE_URL`,
 `ANTHROPIC_MODEL` are passed through to the spawned agent when set.
 
+## Synthetic 2×2 — concurrency × continuity (cells B/C/D)
+
+`evals/synthetic/` is the microbenchmark that isolates *where* OpenTasks is
+load-bearing, ahead of the standard-benchmark hosts. N agents work a shared queue;
+processing an item = `./emit <id>` to an in-process HTTP collector with **no read
+path**, so "done-ness" is not observable to agents (the property build-todo lacked).
+Ground truth = each item emitted **exactly once**. Arms: `stock` (none) / `notes`
+(racy claim-by-convention) / `opentasks` (atomic `claim_next` + complete).
+
+| Cell | Stressor | How to run |
+|---|---|---|
+| B · concurrency | N agents, 1 session | `EVAL_CELL=B EVAL_N=4 EVAL_M=8 …` |
+| C · continuity | 1 agent, reset (phase 1 does K, phase 2 finishes) | `EVAL_CELL=C EVAL_M=6 EVAL_K=3 …` |
+| D · both | swarm across a reset | `EVAL_CELL=D EVAL_N=3 EVAL_M=6 EVAL_K=3 …` |
+
+```bash
+# GLM-5 (proxy stack must be up: bash evals/glm5/start-stack.sh)
+EVAL_CELL=D EVAL_MODEL=glm-5 ANTHROPIC_BASE_URL=http://127.0.0.1:4000 \
+  ANTHROPIC_API_KEY=sk-glm5-spike-master EVAL_N=3 EVAL_M=6 EVAL_K=3 EVAL_REPEATS=5 \
+  npx tsx evals/synthetic/run.ts
+```
+
+Headline metric = **race incidents** (`doubleEmits`) and **re-emits** (`p2ReEmits`),
+not completion (saturation hides completion). Design + results:
+[docs/evaluations/2026-06-15-cellD-concurrency-continuity-design.md](../docs/evaluations/2026-06-15-cellD-concurrency-continuity-design.md).
+
 ## Scoring (hard rules)
 
 - **Ground-truth only.** Pass/fail comes from checkpoints run against the work
@@ -56,7 +82,12 @@ CLAUDE_CODE_USE_BEDROCK=1 AWS_REGION=us-west-1 \
 - `runner.ts` — spawn `claude -p` (stream-json), parse trace + usage, verify.
 - `metrics.ts` — graph-read + re-exploration from the trace.
 - `run.ts` — CLI: (task × arm × repeat) → console + `.runs/*.json`.
-- `tasks/` — task definitions (currently a smoke task; TheAgentCompany SDE next).
+- `reset-runner.ts` — cross-session continuity (phase1 capped → reset → phase2).
+- `tasks/` — task definitions (smoke + `build-todo`).
+- `synthetic/` — the concurrency × continuity 2×2 (cells B/C/D; collector +
+  emit-queue + concurrency/continuity/cellD runners + its own `run.ts`).
+- `results/` — dated empirical write-ups (the proven findings).
+- `glm5/`, `appworld/` — the GLM-5 proxy stack and the AppWorld setup recipe.
 
 ## Eval hygiene
 
@@ -68,9 +99,20 @@ MCP into the stock/notes arms and break the ablation. OMC is disabled via
 `CLAUDE.md` is a constant across arms, not a differential confound — is a future
 hardening item.)
 
-## Status
+## Status (2026-06-15)
 
-Skeleton + smoke task validated end-to-end (all 3 arms; ground-truth scoring,
-token accounting, tool-call trace, MCP isolation confirmed: stock=none,
-opentasks=only-opentasks). **Next:** wire TheAgentCompany SDE tasks (its Docker
-services + checkpoint evaluators) and confirm the `bedrock-mantle`/GLM-5 model id.
+**Stage 1 (synthetic 2×2) — done, robust.** On GLM-5: two informative nulls
+(single-session; reset-with-file-recoverable-state), then the 2×2 — cell B
+(concurrency, k=4) opentasks 4/4 & cheapest-correct; cell C (continuity, n=1)
+opentasks ties disciplined-notes; **cell D (both, k=5) opentasks is the only
+race-clean arm** (0 races in all 5; notes 0/5, stock 0/5). Super-additivity
+confirmed. Full write-ups in `results/`.
+
+**Open / next:**
+- **Eval-infra (blocking):** the GLM-5 proxy (`glm5/`) has no retry/backoff and
+  falls over under sustained load — it crashed the cell-C k=5 repeat. Harden it
+  (retry+backoff, concurrency cap) before scaling runs.
+- Clean cell-C k≥5 + contention sweep (N∈{2,8}) + a second model.
+- **Stage 2:** the TheAgentCompany GitLab-only host (headless `claude -p` driver,
+  exactly-once evaluator gate, 2-agent concurrency + reset injection) — instantiate
+  cell D on recognized tasks. See the design doc §12 for the full follow-up list.
