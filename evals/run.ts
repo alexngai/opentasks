@@ -20,6 +20,7 @@
 import * as path from 'node:path';
 import { ARMS } from './arms.js';
 import { runTaskWithArm } from './runner.js';
+import { runTaskWithReset } from './reset-runner.js';
 import { SMOKE_TASK } from './tasks/smoke.js';
 import { BUILD_TODO_TASK } from './tasks/build-todo.js';
 import type { ArmId, EvalTask } from './types.js';
@@ -27,6 +28,10 @@ import type { ArmId, EvalTask } from './types.js';
 const MODEL = process.env.EVAL_MODEL ?? 'haiku';
 const REPEATS = Number(process.env.EVAL_REPEATS ?? 1);
 const TIMEOUT = Number(process.env.EVAL_TIMEOUT ?? 600_000);
+// Cross-session continuity (reset) mode: run each cell as phase1(capped) → reset
+// → phase2(fresh context). This is where OpenTasks is load-bearing (E2′ proper).
+const RESET = process.env.EVAL_RESET === '1';
+const PHASE1_MS = Number(process.env.EVAL_PHASE1_MS ?? 90_000);
 const ARM_IDS = (process.env.EVAL_ARMS ?? 'stock,notes,opentasks')
   .split(',')
   .map((s) => s.trim()) as ArmId[];
@@ -58,13 +63,19 @@ function main(): void {
     return t;
   });
 
-  console.log(`model=${MODEL} arms=${ARM_IDS.join(',')} tasks=${TASK_IDS.join(',')} repeats=${REPEATS} bedrock=${passEnv.CLAUDE_CODE_USE_BEDROCK ?? 'off'}`);
+  console.log(
+    `model=${MODEL} arms=${ARM_IDS.join(',')} tasks=${TASK_IDS.join(',')} repeats=${REPEATS} ` +
+      `bedrock=${passEnv.CLAUDE_CODE_USE_BEDROCK ?? 'off'}` +
+      (RESET ? ` mode=RESET phase1=${Math.round(PHASE1_MS / 1000)}s` : ''),
+  );
   for (const task of tasks) {
     for (const armId of ARM_IDS) {
       const arm = ARMS[armId];
       if (!arm) throw new Error(`Unknown arm: ${armId}`);
       for (let r = 0; r < REPEATS; r++) {
-        const res = runTaskWithArm(task, arm, { model: MODEL, repeat: r, timeoutMs: TIMEOUT, env: passEnv, traceDir: TRACE_DIR });
+        const res = RESET
+          ? runTaskWithReset(task, arm, { model: MODEL, repeat: r, timeoutMs: TIMEOUT, env: passEnv, traceDir: TRACE_DIR, phase1Ms: PHASE1_MS })
+          : runTaskWithArm(task, arm, { model: MODEL, repeat: r, timeoutMs: TIMEOUT, env: passEnv, traceDir: TRACE_DIR });
         const tag = res.infraFailure ? 'INFRA-FAIL' : res.timedOut ? 'TIMEOUT' : '';
         const mcp = res.mcpServers.length
           ? ` mcp=[${res.mcpServers.map((s) => `${s.name}:${s.status}`).join(',')}]`
@@ -77,6 +88,20 @@ function main(): void {
             `${Math.round(res.durationMs / 1000)}s ${tag}` +
             (res.error ? ` ERR:${res.error.slice(0, 100)}` : ''),
         );
+        // In reset mode the headline is phase 2 (re-orientation after the reset).
+        if (res.phases) {
+          const { phase1: p1, phase2: p2 } = res.phases;
+          console.log(
+            `      ↳ phase1(capped): S=${p1.sPartial.toFixed(2)} tokens=${p1.tokenCost} ` +
+              `tools=${p1.numToolCalls} readGraph=${p1.readGraph} ${Math.round(p1.durationMs / 1000)}s` +
+              (p1.completedCleanly ? ' [finished early]' : ' [interrupted]'),
+          );
+          console.log(
+            `      ↳ phase2(resume): S=${p2.sPartial.toFixed(2)} tokens=${p2.tokenCost} ` +
+              `tools=${p2.numToolCalls} readGraph=${p2.readGraph} redundant=${p2.redundantExplorationOps} ` +
+              `${Math.round(p2.durationMs / 1000)}s`,
+          );
+        }
       }
     }
   }

@@ -56,6 +56,25 @@ export interface ToolCallEvent {
   input: unknown;
 }
 
+/**
+ * Per-phase summary for the cross-session continuity (reset) variant. Phase 2 is
+ * the headline: how cheaply a fresh-context agent RE-ORIENTS after a reset given
+ * its arm's durable state (graph / NOTES.md / nothing).
+ */
+export interface PhaseSummary {
+  tokenCost: number;
+  durationMs: number;
+  numToolCalls: number;
+  redundantExplorationOps: number;
+  readGraph: boolean;
+  timedOut: boolean;
+  /** Reached a final `result` event. False = interrupted (phase 1 hitting its cap). */
+  completedCleanly: boolean;
+  /** S_partial measured against ground-truth checkpoints at the END of this phase. */
+  sPartial: number;
+  sFull: boolean;
+}
+
 export interface RunResult {
   taskId: string;
   armId: ArmId;
@@ -86,4 +105,11 @@ export interface RunResult {
   timedOut: boolean;
   infraFailure: boolean;
   error?: string;
+
+  /**
+   * Set only by the cross-session continuity (reset) runner. The top-level
+   * cost/diagnostic fields are the COMBINED phase1+phase2 totals; `phases` breaks
+   * them out. Phase 2 is the re-orientation-after-reset measurement.
+   */
+  phases?: { phase1: PhaseSummary; phase2: PhaseSummary };
 }
