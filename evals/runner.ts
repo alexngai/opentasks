@@ -20,7 +20,7 @@ import * as path from 'node:path';
 import type { Checkpoint, EvalArm, EvalTask, RunResult, ToolCallEvent } from './types.js';
 import { computeRedundantExplorationOps, didReadGraph } from './metrics.js';
 
-const BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'];
+export const BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'];
 
 export interface RunOpts {
   model: string;
@@ -252,7 +252,7 @@ export function runTaskWithArm(task: EvalTask, arm: EvalArm, opts: RunOpts): Run
 }
 
 /** Parse the `--output-format stream-json` NDJSON: init mcp status + tool_use events + final usage. */
-function parseStream(stdout: string): {
+export function parseStream(stdout: string): {
   toolCalls: ToolCallEvent[];
   tokenCost: number;
   streamedTokens: number;
