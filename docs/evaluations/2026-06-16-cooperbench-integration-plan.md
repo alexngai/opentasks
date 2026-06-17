@@ -1,6 +1,6 @@
 # CooperBench × OpenTasks — Integration Plan (2026-06-16)
 
-**Status:** Architecture mapped. Backend (`ot_client.py` + the OpenTasks-backed `coop-task-*` CLI) **built + tested** against a live daemon (atomic claim + attempts). **No-fork injection module built** (`opentasks_cooperbench.py`) — loaded via CooperBench's `COOPERBENCH_EXTERNAL_AGENTS` hook, monkeypatches two seams, gated by `CB_OPENTASKS=1`; **CooperBench is NOT modified.** End-to-end needs a full `cooperbench run` (prepare + Docker task images + LLM key) to verify.
+**Status:** Architecture mapped. Backend (`ot_client.py` + the OpenTasks-backed `coop-task-*` CLI) **built + tested** against a live daemon (atomic claim + attempts). **No-fork injection module built** (`opentasks_cooperbench.py`) — loaded via CooperBench's `COOPERBENCH_EXTERNAL_AGENTS` hook, monkeypatches two seams, gated by `CB_OPENTASKS=1`; **CooperBench is NOT modified.** **VERIFIED end-to-end on AWS Bedrock (2026-06-17):** `--setting team`, 2 agents (haiku), the injection provisioned the daemon sidecar + the agents coordinated through OpenTasks (task `t-1idd` created by lead → atomically claimed by member → closed); eval ran (0% pass — haiku is weak, as expected; scoring is intact). Runner: `evals/cooperbench/integration/run-bedrock.sh`.
 **Companion to:** [E6 eval design](./2026-06-16-cooperbench-coordination-eval-design.md) · [compose draft](./2026-06-16-cooperbench-compose-draft.md). CooperBench vendored at `references/cooperbench`.
 
 ---
