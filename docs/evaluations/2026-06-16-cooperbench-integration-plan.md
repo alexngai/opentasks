@@ -1,6 +1,6 @@
 # CooperBench × OpenTasks — Integration Plan (2026-06-16)
 
-**Status:** Architecture mapped; the integration *crux* (Python OpenTasks client over the wire) is **built + proven**. CooperBench-side wiring (the `coop_task.py` backend swap + adapter mounts + MCP registration) is specced below, not yet applied.
+**Status:** Architecture mapped. Backend (`ot_client.py` + the OpenTasks-backed `coop-task-*` CLI) **built + tested** against a live daemon (atomic claim + attempts). **No-fork injection module built** (`opentasks_cooperbench.py`) — loaded via CooperBench's `COOPERBENCH_EXTERNAL_AGENTS` hook, monkeypatches two seams, gated by `CB_OPENTASKS=1`; **CooperBench is NOT modified.** End-to-end needs a full `cooperbench run` (prepare + Docker task images + LLM key) to verify.
 **Companion to:** [E6 eval design](./2026-06-16-cooperbench-coordination-eval-design.md) · [compose draft](./2026-06-16-cooperbench-compose-draft.md). CooperBench vendored at `references/cooperbench`.
 
 ---
@@ -37,24 +37,33 @@ The agents' task-repo containers are python/go/rust images, **not** node — the
 
 This de-risks the whole integration: the protocol, the atomic claim, and the attempt/verify layer all work from a non-node process over the wire.
 
-## Remaining CooperBench-side wiring (specced, not applied)
+## No-fork injection (built) — `opentasks_cooperbench.py`
 
-*New files:*
-- `src/cooperbench/infra/opentasks.py` — `ensure_opentasks_daemon(run_id)`: a per-run daemon sidecar container + a `cb-ot-<run_id>` named volume for its socket (mirrors `infra/redis.py` + the git-server sidecar).
-- `src/cooperbench/team_harness/opentasks_task.py` — the `coop-task-*` verbs backed by `ot_client.py` (drop-in for `coop_task.py`; same JSON output), **+** `coop-attempt-record` / `coop-attempt-list`.
+CooperBench exposes an external-agent hook (`agents/registry.py:93`: `COOPERBENCH_EXTERNAL_AGENTS=<module>` is `__import__`ed at startup). We ship a module from the OpenTasks side that, on import (gated by our own `CB_OPENTASKS=1`), **monkeypatches two seams** so `team` mode coordinates through OpenTasks — **nothing under `references/cooperbench` is modified** (verified: all three targets exist where expected):
 
-*Modify:*
-- `cli.py:196` — add `--task-backend {redis,opentasks}`; thread through `run()`.
-- `runner/core.py:109,143` — call `ensure_opentasks_daemon` when selected (next to `ensure_redis`); forward the flag.
-- `runner/team.py:121-162,286-297` — provision the daemon sidecar + shared-socket volume; pre-seed + harvest via OpenTasks.
-- adapters (`mini_swe_agent_v2`, `claude_code`, `codex`) — mount the shared socket volume into agent containers; install the OpenTasks-backed `coop-task-*` wrappers; (CLI agents) point MCP registration at the OpenTasks MCP for attempt/verify.
-- `team_harness/runtime.py:build_team_env` — inject `CB_OPENTASKS_SOCKET=/srv/ot/daemon.sock`.
+1. `TeamSession.scratchpad_mount_args` (`team_harness/__init__.py:231`) → also mount a per-run named volume `cb-ot-<run_id>:/srv/ot` (the daemon socket) into each agent container.
+2. `mini_swe_agent_v2.adapter._install_team_cli_in_container` (`adapter.py:30`) → idempotently provision a per-run daemon sidecar (`ensure_opentasks_daemon`, mirrors `infra/redis.py`), `write_file_in_container` (`_coop/runtime.py:135`) the `ot_client.py` + OpenTasks-backed CLI, create the `coop-task-*` / `coop-attempt-*` wrappers pointing at `/srv/ot/daemon.sock`, and set `CB_OPENTASKS_SOCKET` on the container env.
 
-*Do NOT touch:* `eval/` — scoring is backend-agnostic.
+Files (all in `evals/cooperbench/integration/`):
+- `ot_client.py` — stdlib Python JSON-RPC client (**tested**).
+- `coop_task_opentasks.py` — the `coop-task-*` CLI backed by OpenTasks, same verbs/JSON/exit-codes as `coop_task.py`, **+** `attempt-record` / `attempt-list` (**tested** via `run-coop-task-cli-test.sh`: atomic-claim rejection rc=2, done↔closed mapping, attempts).
+- `opentasks_cooperbench.py` — the injection glue (the two monkeypatches + `ensure_opentasks_daemon`). Imports cleanly; targets verified present. *Needs a full `cooperbench run` to verify end-to-end.*
 
-## Next
+Invocation (no fork):
+```bash
+PYTHONPATH=evals/cooperbench/integration CB_OPENTASKS=1 \
+  OPENTASKS_DAEMON_IMAGE=opentasks-daemon:smoke \
+  COOPERBENCH_EXTERNAL_AGENTS=opentasks_cooperbench \
+  cooperbench run --backend docker --setting team -a mini_swe_agent_v2 ...
+```
 
-1. Bring up the daemon sidecar via the agent task-repo image (the `coop-task-*` wrappers need python3 + `ot_client.py` in-container — both already present in repo images; mount `ot_client.py` + the socket).
-2. Wire `opentasks_task.py` behind the `coop-task-*` wrappers + the `--task-backend opentasks` flag.
-3. `cooperbench prepare` a tiny subset → run one task pair under `--backend docker --setting team --task-backend opentasks -a mini_swe_agent` → confirm agents coordinate via OpenTasks and `cooperbench eval` scores it.
-4. Then the headline: solo-vs-coop retention, Redis vs OpenTasks backend, on the mid-difficulty band.
+*Do NOT touch:* `eval/` — scoring is backend-agnostic (§7), so this stays a clean Redis-vs-OpenTasks A/B.
+
+## Next (verify the injection end-to-end)
+
+1. `pip install -e references/cooperbench` (+ its mini-swe deps) and `cooperbench prepare` a tiny subset (one repo, one task).
+2. Run one task pair with the no-fork invocation above (needs Docker + an LLM key). Confirm: the daemon sidecar comes up, the `coop-task-*` wrappers resolve to OpenTasks, agents coordinate, and `cooperbench eval` scores the merged patches.
+3. Fix whatever the real run surfaces (the way the daemon e2e + the smoke each caught real bugs) — likely candidates: container can't reach the named-volume socket, `write_file_in_container` quirks, wrapper PATH.
+4. Then the headline A/B: solo vs coop, Redis-backend vs OpenTasks-backend, on the mid-difficulty band — same tasks, same scoring, only the coordination substrate differs.
+
+*(Optional later: Option B — register the OpenTasks MCP for the CLI agents (claude_code/codex) so `record_attempt`/`list_attempts` surface as MCP tools, via the same monkeypatch approach on `TeamSession.mcp_config`.)*
