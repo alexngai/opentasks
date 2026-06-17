@@ -175,7 +175,7 @@ Agents need only the **socket** visible (thin clients; all reads/writes go throu
 **Only harness change:** add `--socket $OT_SOCK` to the `opentasks` arm's MCP launch in [`evals/arms.ts`](../../evals/arms.ts) (env-gated, so the single-container E2′/synthetic runs are unaffected).
 
 **Remaining pilot gates (non-code, compose-level):**
-1. **Bind-mount, not a named volume** — the socket inode must sit on a host dir shared by same-host containers (the `docker.sock`-sharing pattern); overlayfs/named volumes don't reliably carry socket files.
+1. **The shared socket must sit on a real filesystem that supports Unix sockets** — corrected empirically: on **Docker Desktop (macOS) virtiofs bind mounts do NOT support Unix sockets**, so use a **named volume** (the VM's ext4); on native Linux a same-host bind mount or named volume both work. (Verified: `evals/cooperbench/run-smoke.sh` passes the cross-container claim gate with a named volume.)
 2. **uid/permission alignment** — the sidecar creates the socket; both agent containers' users need rw on it.
 3. **Ordering** — sidecar up + socket bound before agents connect (compose healthcheck / wait-for).
 4. **The correctness gate** — two containers race `claim_next` on the same node, **exactly one wins**: the cross-container analog of the cell-B/D race-clean result. The single must-pass check before scaling.

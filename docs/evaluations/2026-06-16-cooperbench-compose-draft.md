@@ -1,6 +1,6 @@
 # CooperBench × OpenTasks — Compose Topology Draft (2026-06-16)
 
-**Status:** Draft template, to reconcile with CooperBench's actual harness images.
+**Status:** Cross-container claim smoke **BUILT + PASSING** — see [`evals/cooperbench/`](../../evals/cooperbench/) (`./run-smoke.sh`: two agents in separate containers raced `claim_next`, 4/2 split, exactly-once, 0 double-claims). Full CooperBench *task* integration still pending its harness.
 **Companion to:** [E6 CooperBench eval design](./2026-06-16-cooperbench-coordination-eval-design.md) §8 (the resolved sidecar decision).
 
 This is the `opentasks` arm's runtime: **one daemon sidecar (sole writer) + two symmetric agent containers**, sharing one graph over a **bind-mounted Unix socket**. Single host. The `stock` arm runs CooperBench unmodified (its SQL message bus); the `notes` arm swaps the shared socket for a shared scratchpad file. Only the `opentasks` arm needs this topology.
@@ -11,7 +11,7 @@ This is the `opentasks` arm's runtime: **one daemon sidecar (sole writer) + two 
 
 - **Zero OpenTasks code change.** `opentasks mcp --socket <path>` is the externally-managed-daemon mode (skips auto-start, connects to the shared socket). `OPENTASKS_PROJECT_DIR` places the daemon's socket + store on the shared mount.
 - **One writer.** Single daemon ⇒ the atomic claim's conditional-UPDATE serializes exactly as in the proven single-writer case. Two daemons over a shared file is the rejected alternative.
-- **Same host, bind mount (not a named volume).** A Unix-socket inode must live on a host dir shared by same-host containers (the `docker.sock`-sharing pattern); overlayfs / named volumes don't reliably carry socket files. Multi-host ⇒ needs the (unbuilt) TCP transport fallback.
+- **Same host; the socket must live on a real shared filesystem that supports Unix sockets.** Corrected empirically (2026-06-16): on **Docker Desktop (macOS) a host bind mount goes through virtiofs, which does NOT support Unix domain sockets** — so the smoke uses a **named volume** (the Linux VM's ext4) for the shared `/srv/ot`. On a **native-Linux host** either a same-host bind mount or a named volume works. (The original "bind mount, not named volume" advice was wrong for Docker Desktop.) Multi-host ⇒ needs the (unbuilt) TCP transport fallback.
 
 ---
 

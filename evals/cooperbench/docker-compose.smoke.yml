@@ -1,0 +1,65 @@
+# Cross-container claim smoke for the CooperBench sidecar topology.
+#
+#   ot-daemon (sole writer)  ──shared named volume /srv/ot──  agent containers
+#
+# One OpenTasks daemon owns the store and binds its Unix socket on a SHARED
+# volume; the agents are thin clients in their OWN containers connecting to that
+# socket. A clean drain proves cross-container atomic claiming works.
+#
+# Volume note: a NAMED VOLUME (not a host bind mount) is used deliberately —
+# on Docker Desktop the VM's ext4 supports Unix domain sockets, whereas a
+# macOS bind mount (virtiofs) does not. On a native-Linux host either works.
+#
+# Orchestrated by run-smoke.sh (which manages ordering + the race).
+name: opentasks-cooperbench-smoke
+
+services:
+  ot-daemon:
+    build:
+      context: ../..
+      dockerfile: evals/cooperbench/Dockerfile
+    image: opentasks-daemon:smoke
+    environment:
+      OPENTASKS_PROJECT_DIR: /srv/ot
+    # init is idempotent-guarded; exec so the daemon is PID 1 (clean shutdown).
+    command: ["sh", "-c", "node dist/cli.js init 2>/dev/null || true; exec node dist/cli.js daemon start --foreground"]
+    volumes:
+      - ot-shared:/srv/ot
+    healthcheck:
+      test: ["CMD", "test", "-S", "/srv/ot/daemon.sock"]
+      interval: 1s
+      timeout: 2s
+      retries: 60
+
+  # One-shot thin clients. OT_AGENT_ID is supplied at `compose run` time.
+  seed:
+    image: opentasks-daemon:smoke
+    pull_policy: never
+    environment:
+      OT_SOCK: /srv/ot/daemon.sock
+      OT_TASKS: "6"
+    command: ["node", "evals/cooperbench/smoke/seed.cjs"]
+    volumes:
+      - ot-shared:/srv/ot
+
+  agent:
+    image: opentasks-daemon:smoke
+    pull_policy: never
+    environment:
+      OT_SOCK: /srv/ot/daemon.sock
+      OPENTASKS_NO_AUTOSTART: "1"
+    command: ["node", "evals/cooperbench/smoke/drain.cjs"]
+    volumes:
+      - ot-shared:/srv/ot
+
+  check:
+    image: opentasks-daemon:smoke
+    pull_policy: never
+    environment:
+      OT_TASKS: "6"
+    command: ["node", "evals/cooperbench/smoke/check.cjs"]
+    volumes:
+      - ot-shared:/srv/ot
+
+volumes:
+  ot-shared:
