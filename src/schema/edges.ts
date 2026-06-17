@@ -41,9 +41,24 @@ export type SkillEdgeType =
   | 'used-skill'; // session → context node: "this session used this skill"
 
 /**
+ * Attempt/verify edge types (see docs/ATTEMPT-VERIFY-SCHEMA.md §5)
+ */
+export type VerificationEdgeType =
+  | 'verifies' // verifier's attempt → verified attempt (verdict + evidence in metadata)
+  | 'verified-by' // inverse of verifies
+  | 'reproduces' // independent re-derivation of another attempt's result
+  | 'reproduced-by'; // inverse of reproduces
+
+/**
  * All edge types (extensible via string)
  */
-export type EdgeType = CoreEdgeType | ExtendedEdgeType | SessionlogEdgeType | SkillEdgeType | string;
+export type EdgeType =
+  | CoreEdgeType
+  | ExtendedEdgeType
+  | SessionlogEdgeType
+  | SkillEdgeType
+  | VerificationEdgeType
+  | string;
 
 /**
  * Edge - Represents a relationship between nodes

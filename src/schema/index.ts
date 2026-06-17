@@ -8,7 +8,17 @@
 export type { Anchor, BaseNode } from './base.js';
 
 // Node types
-export type { Context, Task, Feedback, ExternalNode, Node, NodeType } from './nodes.js';
+export type {
+  Context,
+  Task,
+  Feedback,
+  ExternalNode,
+  Attempt,
+  AttemptMetadata,
+  EvidenceRef,
+  Node,
+  NodeType,
+} from './nodes.js';
 
 // Edge types
 export type { Edge, EdgeType, CoreEdgeType, ExtendedEdgeType, SkillEdgeType } from './edges.js';
@@ -30,6 +40,7 @@ export {
   isTask,
   isFeedback,
   isExternal,
+  isAttempt,
   validateStoredNode,
   parseNode,
   tryParseNode,

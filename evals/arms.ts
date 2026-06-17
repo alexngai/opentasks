@@ -34,7 +34,11 @@ const OPENTASKS: EvalArm = {
     'You have an OpenTasks MCP server (tools prefixed mcp__opentasks__). Use it as your durable ' +
     'task graph: create_task for each subtask, link dependencies, update_task as you progress, and ' +
     'query / get_context / context_summary to recover what is already known BEFORE doing new work. ' +
-    'Consult the graph before re-exploring files you have already analyzed.',
+    'Consult the graph before re-exploring files you have already analyzed. ' +
+    'When working alongside other agents: call list_attempts({inProgress:true}) before you start, to ' +
+    'see what others are doing and avoid duplicating their work; record_attempt to log your effort ' +
+    '(name the files/areas you touch); and when finished, record_attempt with the outcome ' +
+    '(success/failure) and attach evidence (e.g. the test result) so your completion is checkable.',
   extraTools: [
     'mcp__opentasks__create_task',
     'mcp__opentasks__get_task',
@@ -46,6 +50,8 @@ const OPENTASKS: EvalArm = {
     'mcp__opentasks__get_context',
     'mcp__opentasks__list_contexts',
     'mcp__opentasks__context_summary',
+    'mcp__opentasks__record_attempt',
+    'mcp__opentasks__list_attempts',
   ],
   mcp: { name: 'opentasks', command: 'node', args: [OPENTASKS_CLI, 'mcp', '--scope', 'all'] },
 };

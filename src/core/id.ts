@@ -10,7 +10,7 @@ import { createHash, randomUUID } from 'node:crypto';
 /**
  * Node type for ID generation
  */
-export type IdNodeType = 'context' | 'task' | 'feedback' | 'external' | 'edge';
+export type IdNodeType = 'context' | 'task' | 'feedback' | 'external' | 'attempt' | 'edge';
 
 /**
  * ID prefixes by type
@@ -20,6 +20,7 @@ const TYPE_PREFIXES: Record<IdNodeType, string> = {
   task: 't',
   feedback: 'f',
   external: 'e',
+  attempt: 'a',
   edge: 'x',
 };
 
@@ -167,6 +168,7 @@ export function inferTypeFromId(id: string): IdNodeType | null {
     t: 'task',
     f: 'feedback',
     e: 'external',
+    a: 'attempt',
     x: 'edge',
   };
 

@@ -25,7 +25,7 @@ const MAX_CONTENT_LENGTH = 100_000;
 const MIN_PRIORITY = 0;
 const MAX_PRIORITY = 4;
 
-const VALID_NODE_TYPES = ['context', 'task', 'feedback', 'external'] as const;
+const VALID_NODE_TYPES = ['context', 'task', 'feedback', 'external', 'attempt'] as const;
 const VALID_TASK_STATUSES = ['open', 'in_progress', 'blocked', 'closed'] as const;
 const VALID_FEEDBACK_TYPES = ['comment', 'suggestion', 'request'] as const;
 const VALID_EDGE_TYPES = [
@@ -41,6 +41,9 @@ const VALID_EDGE_TYPES = [
   'supersedes',
   'depends-on',
   'discovered-from',
+  // Attempt/verify (see docs/ATTEMPT-VERIFY-SCHEMA.md §5)
+  'verifies',
+  'reproduces',
 ] as const;
 
 // ============================================================================
@@ -245,6 +248,22 @@ function validateFeedbackFields(
 }
 
 /**
+ * Validate attempt-specific fields
+ */
+function validateAttemptFields(
+  input: CreateNodeInput,
+  errors: ValidationError[],
+  _warnings: ValidationWarning[],
+): void {
+  // target_id (the task being attempted) is required
+  if (!input.target_id) {
+    errors.push(error('REQUIRED', 'Target ID (the task) is required for attempts', 'target_id'));
+  } else if (typeof input.target_id !== 'string') {
+    errors.push(error('INVALID_TYPE', 'Target ID must be a string', 'target_id'));
+  }
+}
+
+/**
  * Validate external node-specific fields
  */
 function validateExternalFields(
@@ -315,7 +334,7 @@ async function validateEdge(
   }
 
   // Verify nodes exist (for local IDs)
-  const isLocalId = (id: string) => id.match(/^[ctfex]-[a-z0-9]+$/) && !id.includes('://');
+  const isLocalId = (id: string) => id.match(/^[ctfexa]-[a-z0-9]+$/) && !id.includes('://');
 
   if (isLocalId(input.from_id)) {
     const fromNode = await getNode(input.from_id);
@@ -465,6 +484,9 @@ export function createValidationService(): ValidationService {
           break;
         case 'feedback':
           validateFeedbackFields(input, errors, warnings);
+          break;
+        case 'attempt':
+          validateAttemptFields(input, errors, warnings);
           break;
         case 'external':
           validateExternalFields(input, errors, warnings);

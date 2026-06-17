@@ -14,7 +14,7 @@ export type { EdgeType, Anchor } from '../schema/index.js';
 // ============================================================================
 
 /** Valid node types */
-export type NodeType = 'context' | 'task' | 'feedback' | 'external';
+export type NodeType = 'context' | 'task' | 'feedback' | 'external' | 'attempt';
 
 // ============================================================================
 // Node Input Types

@@ -201,6 +201,13 @@ function buildStoredNode(input: CreateNodeInput, id: string, uuid: string): Stor
         source: input.source,
         materialized: input.materialized ?? false,
       };
+    case 'attempt':
+      return {
+        ...base,
+        target_id: input.target_id,
+        status: input.status || 'in_progress',
+        assignee: input.assignee,
+      };
     default:
       return base;
   }

@@ -15,7 +15,7 @@ import { ToolError } from './types.js';
 /**
  * Pattern for local node IDs (c-xxx, t-xxx, f-xxx, e-xxx)
  */
-const LOCAL_ID_PATTERN = /^[ctfex]-[a-z0-9]+$/;
+const LOCAL_ID_PATTERN = /^[ctfexa]-[a-z0-9]+$/;
 
 // ============================================================================
 // Helper Functions

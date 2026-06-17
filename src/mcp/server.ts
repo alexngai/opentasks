@@ -11,6 +11,7 @@
  *   - graph: Full graph operations — link, query (all node types, edges, blockers)
  *   - annotate: Feedback lifecycle — create, resolve, dismiss, reopen
  *   - context: Context/spec CRUD — create, get, update, list
+ *   - attempts: Attempt/verify coordination — record_attempt, list_attempts (verifies edges via link)
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -18,13 +19,20 @@ import { z } from 'zod';
 import { OpenTasksClient, type ClientOptions } from '../client/client.js';
 import { VERSION } from '../version.js';
 import { TASK_ACTIONS } from '../providers/traits/TaskManageable.js';
+import {
+  attemptOutcome,
+  isUnevidencedCompletion,
+  type AttemptLike,
+  type EdgeLike,
+} from '../graph/attempts.js';
+import type { UpdateNodeInput } from '../graph/types.js';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 /** Available MCP scopes */
-export type MCPScope = 'tasks' | 'graph' | 'annotate' | 'context';
+export type MCPScope = 'tasks' | 'graph' | 'annotate' | 'context' | 'attempts';
 
 export interface MCPServerOptions {
   /** Options for the OpenTasks client */
@@ -50,7 +58,7 @@ export interface MCPServerOptions {
  * Additional scopes can be opted in:
  *   --scope tasks,graph,annotate,context
  */
-export const ALL_SCOPES: MCPScope[] = ['tasks', 'graph', 'annotate', 'context'];
+export const ALL_SCOPES: MCPScope[] = ['tasks', 'graph', 'annotate', 'context', 'attempts'];
 
 export function createMCPServer(options?: MCPServerOptions): McpServer {
   const client = new OpenTasksClient(options?.clientOptions);
@@ -76,6 +84,10 @@ export function createMCPServer(options?: MCPServerOptions): McpServer {
 
   if (scopes.has('context')) {
     registerContextTools(server, client);
+  }
+
+  if (scopes.has('attempts')) {
+    registerAttemptTools(server, client);
   }
 
   return server;
@@ -441,7 +453,7 @@ function registerGraphTools(server: McpServer, client: OpenTasksClient): void {
     {
       fromId: z.string().describe('Source node ID or provider URI'),
       toId: z.string().describe('Target node ID or provider URI'),
-      type: z.string().describe('Relationship type: blocks, implements, references, depends-on, related, parent-of, child-of, duplicates, supersedes, discovered-from'),
+      type: z.string().describe('Relationship type: blocks, implements, references, depends-on, related, parent-of, child-of, duplicates, supersedes, discovered-from, verifies, reproduces'),
       remove: z.boolean().optional().describe('Remove the edge instead of creating (default: false)'),
       metadata: z.record(z.string(), z.unknown()).optional().describe('Additional metadata'),
     },
@@ -948,6 +960,172 @@ By default returns the node metadata (lightweight). Use resolve: true to include
             type: 'text' as const,
             text: JSON.stringify({ ...result, items }, null, 2),
           }],
+        };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+}
+
+// ============================================================================
+// Scope: attempts (opt-in)
+// ============================================================================
+
+const ATTEMPT_OUTCOMES = ['pending', 'success', 'failure', 'abandoned', 'inconclusive'] as const;
+const TERMINAL_OUTCOMES = new Set<string>(['success', 'failure', 'abandoned', 'inconclusive']);
+
+function registerAttemptTools(server: McpServer, client: OpenTasksClient): void {
+  const evidenceSchema = z
+    .object({
+      kind: z.enum(['test', 'command', 'commit', 'context', 'external', 'url']),
+      ref: z.string().describe('test-suite id / command / git sha / context node id / uri'),
+      detail: z.string().optional().describe('exit code, "12/12 passed", metric value'),
+      hash: z.string().optional().describe('content hash for tamper-evidence'),
+    })
+    .describe('Pointer to an independently checkable artifact — the Commitment lever');
+
+  server.tool(
+    'record_attempt',
+    "Record (create or update) an attempt at a task — one agent's effort, with outcome + evidence. " +
+      'Omit `id` to start a new attempt; pass `id` to update. A terminal outcome ' +
+      '(success/failure/abandoned/inconclusive) closes the attempt; the parent task is left open ' +
+      '(a retry is a new attempt). Claiming for exclusivity is separate — use claim_task.',
+    {
+      taskId: z.string().describe('The task being attempted (the attempt target)'),
+      agent: z.string().describe('Agent making the attempt'),
+      id: z.string().optional().describe('Existing attempt ID to update; omit to create'),
+      outcome: z
+        .enum(ATTEMPT_OUTCOMES)
+        .optional()
+        .describe('Result (default: pending on create). Terminal values close the attempt.'),
+      summary: z
+        .string()
+        .optional()
+        .describe('What was tried / what happened — name files or areas touched so partners see overlap'),
+      evidence: evidenceSchema.optional(),
+      failureReason: z
+        .string()
+        .optional()
+        .describe('Why it failed / was abandoned — the negative-result record'),
+      fromId: z
+        .string()
+        .optional()
+        .describe('Prior attempt this follows (creates a discovered-from link)'),
+    },
+    async (args) => {
+      try {
+        const { taskId, agent, id, outcome, summary, evidence: ev, failureReason, fromId } = args;
+
+        // Build the metadata.attempt patch from the provided fields only.
+        const patch: Record<string, unknown> = {};
+        if (outcome !== undefined) patch.outcome = outcome;
+        if (summary !== undefined) patch.summary = summary;
+        if (ev !== undefined) patch.evidence = ev;
+        if (failureReason !== undefined) patch.failureReason = failureReason;
+
+        // CREATE
+        if (!id) {
+          const oc = outcome ?? 'pending';
+          const node = await client.createNode({
+            type: 'attempt',
+            title: summary ? summary.slice(0, 120) : `Attempt at ${taskId} by ${agent}`,
+            target_id: taskId,
+            assignee: agent,
+            status: TERMINAL_OUTCOMES.has(oc) ? 'closed' : 'in_progress',
+            metadata: { attempt: { outcome: oc, ...patch } },
+          });
+          const createdId = (node as { id?: string }).id;
+          if (fromId && createdId) {
+            await client.link({ fromId: createdId, toId: fromId, type: 'discovered-from' });
+          }
+          return { content: [{ type: 'text' as const, text: JSON.stringify(node, null, 2) }] };
+        }
+
+        // UPDATE — merge into the existing metadata.attempt (the tool is its sole writer).
+        const existing = (await client.getNode(id)) as
+          | { metadata?: { attempt?: Record<string, unknown> } }
+          | null;
+        if (!existing) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Attempt not found', id }) }],
+            isError: true,
+          };
+        }
+        const mergedAttempt = { ...(existing.metadata?.attempt ?? {}), ...patch };
+        const updates: UpdateNodeInput = { metadata: { attempt: mergedAttempt } };
+        if (outcome !== undefined) {
+          updates.status = TERMINAL_OUTCOMES.has(outcome) ? 'closed' : 'in_progress';
+        }
+        if (fromId) {
+          await client.link({ fromId: id, toId: fromId, type: 'discovered-from' });
+        }
+        const node = await client.updateNode(id, updates);
+        return { content: [{ type: 'text' as const, text: JSON.stringify(node, null, 2) }] };
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
+    'list_attempts',
+    'List attempts and their verification state — the coordination read: what every agent is doing ' +
+      "now, and which completions are unevidenced. Verification edges are created via `link` (type 'verifies').",
+    {
+      taskId: z.string().optional().describe('Only attempts of this task'),
+      agent: z.string().optional().describe("Only this agent's attempts"),
+      status: z.enum(['in_progress', 'closed']).optional(),
+      outcome: z.enum(ATTEMPT_OUTCOMES).optional(),
+      inProgress: z
+        .boolean()
+        .optional()
+        .describe('Shortcut for status=in_progress — "what is everyone doing right now"'),
+      unverified: z
+        .boolean()
+        .optional()
+        .describe('Only success attempts that are unevidenced (no checkable evidence, no passing verifies edge)'),
+      includeVerifications: z
+        .boolean()
+        .optional()
+        .describe("Attach each attempt's verifies edges (default: true)"),
+    },
+    async (args) => {
+      try {
+        const { taskId, agent, status, outcome, inProgress, unverified, includeVerifications } = args;
+        const effStatus = inProgress ? 'in_progress' : status;
+
+        const nodeResult = await client.query({
+          nodes: { type: 'attempt', ...(effStatus ? { status: effStatus } : {}) },
+          verbose: true,
+        });
+        let items = ((nodeResult.items as unknown as AttemptLike[]) ?? []).filter(
+          (n) => n.type === 'attempt',
+        );
+
+        if (taskId) items = items.filter((n) => n.target_id === taskId);
+        if (agent) items = items.filter((n) => n.assignee === agent);
+        if (outcome) items = items.filter((n) => attemptOutcome(n) === outcome);
+
+        // Verification edges are needed for the unverified filter or to attach them.
+        const needEdges = Boolean(unverified) || includeVerifications !== false;
+        let edges: EdgeLike[] = [];
+        if (needEdges) {
+          const edgeResult = await client.query({ edges: { type: 'verifies' }, verbose: true });
+          edges = (edgeResult.items as unknown as EdgeLike[]) ?? [];
+        }
+
+        if (unverified) items = items.filter((n) => isUnevidencedCompletion(n, edges));
+
+        const out =
+          includeVerifications === false
+            ? items
+            : items.map((n) => ({ ...n, verifications: edges.filter((e) => e.to_id === n.id) }));
+
+        return {
+          content: [
+            { type: 'text' as const, text: JSON.stringify({ items: out, count: out.length }, null, 2) },
+          ],
         };
       } catch (error) {
         return errorResult(error);

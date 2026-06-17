@@ -46,6 +46,14 @@ export function computeContentHash(node: StoredNode): string {
     substantive.target_anchor = node.target_anchor;
   }
 
+  if (node.type === 'attempt') {
+    // The task being attempted + the assignee identify the attempt. The
+    // outcome/evidence live in metadata (excluded from the content hash by
+    // design) — an attempt is identified by id, not content-deduped.
+    substantive.target_id = node.target_id;
+    substantive.assignee = node.assignee;
+  }
+
   if (node.type === 'external') {
     substantive.uri = node.uri;
     substantive.source = node.source;
