@@ -1,6 +1,6 @@
 /**
  * Adapter layer: run OpenTasks' OWN eval tasks + arms through the shared
- * `swarmkit-eval` package (symlinked into node_modules; see ./README.md).
+ * `swarmkit-eval` package (a published devDependency; see ./README.md).
  *
  * OpenTasks' eval types are a near-exact ancestor of swarmkit-eval's, so this is
  * a thin field-rename, not a rewrite:
@@ -18,12 +18,15 @@ import type {
   FileSeed,
   MockSpec,
   PublicTask,
+  RawRun,
+  TraceEvent,
 } from 'swarmkit-eval';
 
 import { ARMS } from '../arms.js';
 import type { EvalArm, EvalTask as OtTask, ArmId } from '../types.js';
 import { SMOKE_TASK } from '../tasks/smoke.js';
 import { BUILD_TODO_TASK } from '../tasks/build-todo.js';
+import { didReadGraph, computeRedundantExplorationOps } from '../metrics.js';
 
 const ALL_TASKS: Record<string, OtTask> = {
   [SMOKE_TASK.id]: SMOKE_TASK,
@@ -80,6 +83,17 @@ export function opentasksBenchmark(taskIds: string[]): BenchmarkAdapter {
       if (opts.taskIds?.length) out = out.filter((t) => opts.taskIds!.includes(t.id));
       if (opts.limit != null) out = out.slice(0, opts.limit);
       return out;
+    },
+    // Layer OpenTasks' graph-adoption diagnostics onto the ground-truth score
+    // (never affects pass/fail) — derived from the captured tool-call trajectory.
+    metricsOf(raw: RawRun): Record<string, number> {
+      const toolCalls = raw.trajectory
+        .filter((e): e is Extract<TraceEvent, { type: 'tool' }> => e.type === 'tool')
+        .map((e) => ({ name: e.name, input: e.input }));
+      return {
+        readGraph: didReadGraph(toolCalls) ? 1 : 0,
+        redundantExplorationOps: computeRedundantExplorationOps(toolCalls),
+      };
     },
   };
 }

@@ -5,8 +5,10 @@ Runs OpenTasks' **own** eval tasks + arms through the shared
 a proof that the ecosystem can share one eval substrate (matrix → sealed boundary → `claude -p` →
 ground-truth grade → content-addressed store/resume → cluster-bootstrap stats → Pareto/CI report).
 
-The local `evals/` harness (`../run.ts`, `../runner.ts`, …) is **untouched** and still works; this is a
-parallel entrypoint for comparison.
+This is now the **canonical** harness: the homegrown entrypoints (`../run.ts`, `../reset-runner.ts`,
+`../synthetic/run.ts`) have been retired in favour of swarmkit-eval. `../runner.ts` (the `claude -p`
+spawn/parse/score helpers) and `../metrics.ts` (the graph-adoption diagnostics) remain as the shared
+OpenTasks-specific pieces these adapters build on.
 
 Two entrypoints:
 - **`run.ts`** — the single-agent E2′ tasks (smoke / build-todo), 3 arms, checkpoint grading. (Below.)
@@ -32,19 +34,20 @@ field-rename, not a rewrite:
 (pipeline) and a real `EVAL_ARMS=stock,notes` run (live `claude -p` via the
 Max-plan keychain, 0 env errors) both produce the full CI + Pareto report.
 
-**Dependency (resolved 2026-06-17).** `swarmkit-eval@0.0.2` is published and
+**Dependency (pinned `^0.0.3`, 2026-06-17).** `swarmkit-eval` is published and
 pinned here as a devDependency — no symlink, no sibling-repo requirement,
 reproducible on CI:
 
 ```bash
-npm i -D swarmkit-eval@0.0.2
+npm i -D swarmkit-eval@0.0.3
 ```
 
-Validated against the **published** package: both `EVAL_MOCK=1 run.ts` (the E2′
-pipeline) and `EVAL_FAKE=1 EVAL_CELL=D synth-run.ts` (the synthetic 2×2 —
-exercises the v0.0.2 metric aggregation: `doubleEmits`/`p2ReEmits`/`exactlyOnce`
-→ per-arm CIs) are green. Bump the pin as swarmkit-eval evolves; for live co-dev
-of the package, `npm link swarmkit-eval` against a local checkout.
+Validated against the **published** package: `EVAL_MOCK=1 run.ts` (the E2′
+pipeline), `EVAL_FAKE=1 EVAL_CELL=D synth-run.ts` (the synthetic 2×2 metric
+aggregation: `doubleEmits`/`p2ReEmits`/`exactlyOnce` → per-arm CIs), and
+`bench-check.ts` (the `metricsOf` diagnostics hook new in 0.0.3) are all green.
+Bump the pin as swarmkit-eval evolves; for live co-dev of the package,
+`npm link swarmkit-eval` against a local checkout.
 
 ## Run
 
@@ -88,10 +91,12 @@ same cells resumes instead of re-spawning).
 - **Stats are task-clustered.** swarmkit-eval averages seeds into per-task scores and bootstraps the CI
   over **tasks** (the D9 methodology), so a single task yields a degenerate `n=1` CI. Real CIs need a
   task **suite** — the local runner's per-repeat variance is not a substitute.
-- **Not yet ported:** the `readGraph` / `redundantExplorationOps` diagnostic metrics
-  (`../metrics.ts`) need the adapter to capture the per-tool-call trace (swarmkit-eval's `native-cli`
-  currently emits only a single `llm` usage event). *(The cross-session **reset** mode is ported — see the
-  synthetic cells C/D below, which run phase1→reset→phase2 through swarmkit-eval.)*
+- **Diagnostics (ported, 0.0.3):** the `readGraph` / `redundantExplorationOps` metrics (`../metrics.ts`)
+  are folded onto the score by [`bench.ts`](./bench.ts)'s `metricsOf` hook. swarmkit-eval's `native-cli`
+  captures the full per-tool-call trajectory (`{type:'tool', name, input}` per `tool_use` block), and the
+  orchestrator's `metricsOf` seam (new in 0.0.3) derives the graph-adoption scalars from it post-grade —
+  never affecting pass/fail — so they aggregate into per-arm CIs. *(The cross-session **reset** mode is
+  also ported — see cells C/D below, phase1→reset→phase2 through swarmkit-eval.)*
 - **Cost** is blank unless you run through swarmkit-eval's LiteLLM gateway (cost comes from the
   spend-log, not the CLI's self-estimate).
 
