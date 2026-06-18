@@ -67,6 +67,13 @@ trap _cleanup_sidecars EXIT INT TERM
 
 cd "$CB"
 
+# Load the injection for EVERY arm so seam-5 hardening (timeout/modify_params/caps)
+# applies to the redis baseline + solo too (fair A/B). Seams 1-4 (OpenTasks backend)
+# gate on CB_OPENTASKS, set only for the opentasks arm below.
+export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
+export COOPERBENCH_EXTERNAL_AGENTS=opentasks_cooperbench
+export OPENTASKS_DAEMON_IMAGE="$DAEMON_IMAGE"
+
 run_cell () {  # $1=arm label  $2=run-name  $3=setting
   local spec repo tid feats rc
   for spec in "${TASKS[@]}"; do
@@ -88,11 +95,7 @@ if [[ "$ARM" == "redis" || "$ARM" == "all" ]]; then
   run_cell redis "${TAG}-redis" team
 fi
 if [[ "$ARM" == "opentasks" || "$ARM" == "all" ]]; then
-  # No-fork injection: CooperBench __import__s our patch via its external-agent hook.
-  export CB_OPENTASKS=1
-  export OPENTASKS_DAEMON_IMAGE="$DAEMON_IMAGE"
-  export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
-  export COOPERBENCH_EXTERNAL_AGENTS=opentasks_cooperbench
+  export CB_OPENTASKS=1   # activates seams 1-4 (OpenTasks backend); seam 5 already on for all arms
   run_cell opentasks "${TAG}-ot" team
 fi
 

@@ -8,10 +8,12 @@ Load via CooperBench's external-agent hook (it just `__import__`s the module):
     COOPERBENCH_EXTERNAL_AGENTS=opentasks_cooperbench \
     cooperbench run --backend docker --setting team -a mini_swe_agent_v2 ...
 
-When `CB_OPENTASKS=1`, importing this module monkeypatches five CooperBench seams
-so the `team` setting coordinates through an OpenTasks daemon (a REAL atomic
-claim + the attempt/verify layer) instead of Redis. Nothing under
-`references/cooperbench` is modified:
+Importing this module ALWAYS applies seam 5 (provider/budget hardening — a
+backend-agnostic Bedrock/litellm + step-cap correctness fix, so the redis baseline
+gets the same treatment and the A/B stays fair). When `CB_OPENTASKS=1` it
+ADDITIONALLY monkeypatches seams 1-4 so the `team` setting coordinates through an
+OpenTasks daemon (a REAL atomic claim + the attempt/verify layer) instead of Redis.
+Nothing under `references/cooperbench` is modified:
 
   1. ``TeamSession.scratchpad_mount_args`` — also mount a per-run named volume
      holding the daemon's Unix socket into each agent container.
@@ -317,12 +319,9 @@ def ensure_socat_bridge(run_id: str) -> None:
     if insp.returncode == 0 and insp.stdout.strip() == "true":
         _wait_bridge_ready(BRIDGE_PORT)
         return
-    # Free the fixed host port from any bridge (stale other-run, or our own stopped).
-    stale = subprocess.run(
-        ["docker", "ps", "-aq", "--filter", "name=cb-otbridge-"], capture_output=True, text=True
-    ).stdout.split()
-    for sid in stale:
-        subprocess.run(["docker", "rm", "-f", sid], capture_output=True)
+    # Remove only THIS run's stale bridge (same name) to free it — concurrent runs
+    # use distinct run_ids + ports (CB_OT_BRIDGE_PORT), so never touch theirs.
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
     subprocess.run(
         [
             "docker", "run", "-d", "--name", name,
@@ -422,10 +421,6 @@ def _patch() -> None:
 
     th.TeamSession.__init__ = _ts_init  # type: ignore[assignment]
 
-    # --- seam 5: provider + budget hardening (litellm timeout/modify_params +
-    # raised agent cost/step caps). Safe at load time. ---
-    _harden_runtime()
-
     # Self-clean the per-run daemon sidecars + bridges + volumes when the run exits.
     atexit.register(_teardown_all)
 
@@ -447,6 +442,16 @@ def _patch() -> None:
         except (ValueError, OSError):
             pass  # not the main thread / unsupported platform
 
+
+# Seam 5 (provider + budget hardening) is backend-AGNOSTIC — a Bedrock/litellm +
+# step-cap correctness fix, not an OpenTasks feature. Apply it to EVERY arm (solo,
+# the redis baseline, opentasks) whenever this module is loaded, so the A/B is fair.
+# The OpenTasks backend swap (seams 1-4) still only activates under CB_OPENTASKS=1.
+try:
+    _harden_runtime()
+    _log.info("opentasks_cooperbench: runtime hardening applied (timeout/modify_params/caps)")
+except Exception as e:  # noqa: BLE001
+    _log.warning("opentasks_cooperbench: runtime hardening failed (%s)", e)
 
 if _enabled():
     try:
