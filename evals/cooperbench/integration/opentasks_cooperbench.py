@@ -93,6 +93,31 @@ def _host_endpoint() -> str:
     return f"tcp://127.0.0.1:{BRIDGE_PORT}"
 
 
+_SEAM4_INSTALLED = False
+
+
+def _install_storage_redirect() -> None:
+    """Point the host task paths (pre-seed + poller) at the OpenTasks shim. Idempotent.
+
+    DEFERRED to run time (called from the TeamSession.__init__ wrapper) on purpose:
+    at module-load time this module is imported *during* ``cooperbench.agents`` init
+    (the external-agent hook), so ``import cooperbench.runner.team`` — which does
+    ``from cooperbench.agents import get_runner`` — hits a circular import. By the
+    time a TeamSession is constructed, cooperbench is fully loaded; and that still
+    happens BEFORE the bench pre-seeds the task list (runner/team.py).
+    """
+    global _SEAM4_INSTALLED
+    if _SEAM4_INSTALLED:
+        return
+    from ot_redis_shim import OpenTasksRedisShim
+    import cooperbench.runner.team as team_mod
+    import cooperbench.team_harness.loop_refresh as loop_refresh
+
+    team_mod._redis_client = lambda *_a, **_k: OpenTasksRedisShim(_host_endpoint())
+    loop_refresh.TeamPoller._ensure_client = lambda self: OpenTasksRedisShim(_host_endpoint())
+    _SEAM4_INSTALLED = True
+
+
 def _teardown_all() -> None:
     """Remove every per-run daemon sidecar (+ its volume) this process provisioned.
 
@@ -296,15 +321,11 @@ def _patch() -> None:
     th.build_team_instruction = build_team_instruction  # type: ignore[assignment]
     th.team_task_section = team_task_section  # type: ignore[assignment]
 
-    # --- seam 4: redirect the HOST task paths (pre-seed + auto-refresh poller)
-    # to the SAME OpenTasks store the agents' CLI uses — closes the split-brain.
-    # The host reaches the container daemon socket via a per-run socat TCP bridge. ---
-    from ot_redis_shim import OpenTasksRedisShim
-    import cooperbench.runner.team as team_mod
-    import cooperbench.team_harness.loop_refresh as loop_refresh
-
-    # Provision daemon + bridge when the session is constructed — BEFORE the bench
-    # pre-seeds the task list (runner/team.py creates the tasks right after).
+    # --- seam 4: redirect the HOST task paths (pre-seed + auto-refresh poller) to
+    # the SAME OpenTasks store the agents' CLI uses — closes the split-brain. The
+    # host reaches the container daemon socket via a per-run socat TCP bridge.
+    # The storage redirect is installed LAZILY from this wrapper (run time) — see
+    # _install_storage_redirect for why it can't happen at module-load time. ---
     _orig_ts_init = th.TeamSession.__init__
 
     def _ts_init(self, *a, **kw):  # type: ignore[no-untyped-def]
@@ -314,17 +335,11 @@ def _patch() -> None:
         try:
             ensure_opentasks_daemon(_CURRENT_RUN_ID)
             ensure_socat_bridge(_CURRENT_RUN_ID)
+            _install_storage_redirect()  # idempotent; runs before the pre-seed
         except Exception as e:  # noqa: BLE001
-            _log.warning("opentasks daemon/bridge provisioning failed: %s", e)
+            _log.warning("opentasks daemon/bridge/redirect setup failed: %s", e)
 
     th.TeamSession.__init__ = _ts_init  # type: ignore[assignment]
-
-    # _redis_client(url) (pre-seed + harvest) and TeamPoller._ensure_client (poll)
-    # both now hand back an OpenTasks-backed _RedisLike pointed at the bridge.
-    team_mod._redis_client = lambda *_a, **_k: OpenTasksRedisShim(_host_endpoint())  # type: ignore[assignment]
-    loop_refresh.TeamPoller._ensure_client = (  # type: ignore[assignment]
-        lambda self: OpenTasksRedisShim(_host_endpoint())
-    )
 
     # Self-clean the per-run daemon sidecars + bridges + volumes when the run exits.
     atexit.register(_teardown_all)
