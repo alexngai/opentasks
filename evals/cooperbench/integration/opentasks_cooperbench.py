@@ -8,7 +8,7 @@ Load via CooperBench's external-agent hook (it just `__import__`s the module):
     COOPERBENCH_EXTERNAL_AGENTS=opentasks_cooperbench \
     cooperbench run --backend docker --setting team -a mini_swe_agent_v2 ...
 
-When `CB_OPENTASKS=1`, importing this module monkeypatches four CooperBench seams
+When `CB_OPENTASKS=1`, importing this module monkeypatches five CooperBench seams
 so the `team` setting coordinates through an OpenTasks daemon (a REAL atomic
 claim + the attempt/verify layer) instead of Redis. Nothing under
 `references/cooperbench` is modified:
@@ -33,6 +33,13 @@ claim + the attempt/verify layer) instead of Redis. Nothing under
      (Docker Desktop can't carry a Unix socket over a host bind mount). Daemon +
      bridge are provisioned at ``TeamSession.__init__`` so they're up before the
      pre-seed runs.
+  5. provider + budget hardening (``_harden_runtime``): a per-call timeout +
+     retries on ``litellm.completion`` (a Bedrock call once stalled a run ~1h),
+     ``litellm.modify_params=True`` (the auto-refresh poller injects a user msg
+     after each tool result -> consecutive user blocks Bedrock rejects; this
+     inserts a dummy assistant turn instead of lossy merging), and raised agent
+     cost/step caps (the default $3 cost_limit fits a solo agent but cut the team
+     LEAD off mid-integration). Tunable via CB_LLM_TIMEOUT / CB_COST_LIMIT / etc.
 
 The per-run daemon sidecar, socat bridge, and named volume are torn down at
 process exit (``atexit``) and on SIGTERM/SIGINT so a battery doesn't leak them.
@@ -67,6 +74,13 @@ SOCKET_PATH = f"{MOUNT_DIR}/daemon.sock"
 # socket inside a Docker named volume, so a socat sidecar exposes it on localhost.
 BRIDGE_PORT = int(os.environ.get("CB_OT_BRIDGE_PORT", "47600"))
 BRIDGE_IMAGE = os.environ.get("CB_OT_BRIDGE_IMAGE", "alpine/socat")
+
+# Provider + budget hardening (seam 5). Bedrock-via-litellm team runs hung (no
+# timeout) and the default $3 cost cap cut the team lead off mid-integration.
+LLM_TIMEOUT = float(os.environ.get("CB_LLM_TIMEOUT", "300"))  # per-call Bedrock timeout (s)
+LLM_RETRIES = int(os.environ.get("CB_LLM_RETRIES", "2"))
+COST_LIMIT = float(os.environ.get("CB_COST_LIMIT", "8.0"))  # raise the $3 cap so the lead can finish
+STEP_LIMIT = int(os.environ.get("CB_STEP_LIMIT", "150"))
 
 
 def _enabled() -> bool:
@@ -116,6 +130,62 @@ def _install_storage_redirect() -> None:
     team_mod._redis_client = lambda *_a, **_k: OpenTasksRedisShim(_host_endpoint())
     loop_refresh.TeamPoller._ensure_client = lambda self: OpenTasksRedisShim(_host_endpoint())
     _SEAM4_INSTALLED = True
+
+
+def _harden_runtime() -> None:
+    """Seam 5 — provider + budget hardening for Bedrock-via-litellm team runs.
+
+    (1) per-call timeout + retries on every litellm.completion so a stalled Bedrock
+        response can't hang a run for an hour (observed: a cell froze ~1h, no error);
+    (2) litellm.modify_params=True so the consecutive user blocks created by the
+        auto-refresh poller (it injects a user msg after each tool result) are
+        handled by inserting a dummy assistant turn rather than lossy merging
+        (3793 "consecutive user/tool blocks" warnings in a team run vs 0 in solo);
+    (3) raise the agent cost/step caps — the default $3 cost_limit fits a solo agent
+        but cut the team LEAD off mid-integration (implement + integrate + verify),
+        so the result measured budget-fit, not coordination. Both are no-ops if the
+        config already allows more.
+
+    Safe at load time (no cooperbench.runner.team import); idempotent.
+    """
+    try:
+        import litellm
+
+        litellm.modify_params = True
+        if not getattr(litellm.completion, "_ot_wrapped", False):
+            _orig_completion = litellm.completion
+
+            def _completion(*a, **kw):  # type: ignore[no-untyped-def]
+                kw.setdefault("timeout", LLM_TIMEOUT)
+                kw.setdefault("num_retries", LLM_RETRIES)
+                return _orig_completion(*a, **kw)
+
+            _completion._ot_wrapped = True  # type: ignore[attr-defined]
+            litellm.completion = _completion  # type: ignore[assignment]
+    except Exception as e:  # noqa: BLE001
+        _log.warning("litellm hardening failed: %s", e)
+
+    try:
+        from cooperbench.agents.mini_swe_agent_v2.agents.default import DefaultAgent
+
+        if not getattr(DefaultAgent.__init__, "_ot_wrapped", False):
+            _orig_agent_init = DefaultAgent.__init__
+
+            def _agent_init(self, *a, **kw):  # type: ignore[no-untyped-def]
+                _orig_agent_init(self, *a, **kw)
+                try:
+                    c = self.config
+                    if getattr(c, "cost_limit", 0) and c.cost_limit < COST_LIMIT:
+                        c.cost_limit = COST_LIMIT
+                    if getattr(c, "step_limit", 0) and c.step_limit < STEP_LIMIT:
+                        c.step_limit = STEP_LIMIT
+                except Exception:  # noqa: BLE001
+                    pass
+
+            _agent_init._ot_wrapped = True  # type: ignore[attr-defined]
+            DefaultAgent.__init__ = _agent_init  # type: ignore[assignment]
+    except Exception as e:  # noqa: BLE001
+        _log.warning("agent cap hardening failed: %s", e)
 
 
 def _teardown_all() -> None:
@@ -351,6 +421,10 @@ def _patch() -> None:
             _log.warning("opentasks daemon/bridge/redirect setup failed: %s", e)
 
     th.TeamSession.__init__ = _ts_init  # type: ignore[assignment]
+
+    # --- seam 5: provider + budget hardening (litellm timeout/modify_params +
+    # raised agent cost/step caps). Safe at load time. ---
+    _harden_runtime()
 
     # Self-clean the per-run daemon sidecars + bridges + volumes when the run exits.
     atexit.register(_teardown_all)

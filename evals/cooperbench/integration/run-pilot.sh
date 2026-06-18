@@ -45,7 +45,12 @@ case "$REGION" in
   *)               _PFX=us ;;
 esac
 MODEL="${CB_MODEL:-bedrock/${_PFX}.anthropic.claude-sonnet-4-5-20250929-v1:0}"
-export AWS_REGION_NAME="$REGION" AWS_DEFAULT_REGION="$REGION"
+# Bedrock-only AWS region/quota routing. To ISOLATE the provider, set
+# CB_MODEL=anthropic/claude-sonnet-4-5-... with ANTHROPIC_API_KEY in the env
+# (litellm reads it) — AWS routing is then skipped.
+if [[ "$MODEL" == bedrock/* ]]; then
+  export AWS_REGION_NAME="$REGION" AWS_DEFAULT_REGION="$REGION"
+fi
 
 # Belt-and-suspenders teardown: the injection's atexit/signal handler already cleans
 # the specific run's sidecar; if THIS wrapper is killed, clean any cb-ot-* here too.

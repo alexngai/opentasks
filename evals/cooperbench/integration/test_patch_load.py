@@ -48,5 +48,12 @@ import cooperbench.runner.team as team_mod  # noqa: E402
 check(isinstance(team_mod._redis_client("redis://x"), OpenTasksRedisShim), "redirect installs at run time")
 check(ot._SEAM4_INSTALLED is True, "redirect marked installed (idempotent)")
 
+# seam 5: provider + budget hardening applied at load time.
+import litellm  # noqa: E402
+check(litellm.modify_params is True, "litellm.modify_params on (consecutive-block fix)")
+check(getattr(litellm.completion, "_ot_wrapped", False), "litellm.completion wrapped (timeout + retries)")
+from cooperbench.agents.mini_swe_agent_v2.agents.default import DefaultAgent  # noqa: E402
+check(getattr(DefaultAgent.__init__, "_ot_wrapped", False), "agent cost/step caps raised")
+
 print("\n" + ("PASS: injection applies on the real load path" if ok else "FAILED"))
 sys.exit(0 if ok else 1)
