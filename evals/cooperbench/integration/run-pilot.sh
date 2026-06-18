@@ -52,8 +52,8 @@ export AWS_REGION_NAME="$REGION" AWS_DEFAULT_REGION="$REGION"
 # (Assumes serial pilot runs — removes ALL cb-ot-* sidecars, not just one run's.)
 _cleanup_sidecars() {
   local c v
-  c=$(docker ps -aq --filter name=cb-ot- 2>/dev/null)
-  v=$(docker volume ls -q --filter name=cb-ot- 2>/dev/null)
+  c=$(docker ps -aq --filter name=cb-ot 2>/dev/null)        # cb-ot-<run> daemons + cb-otbridge-<run>
+  v=$(docker volume ls -q --filter name=cb-ot- 2>/dev/null)  # cb-ot-<run> socket volumes
   [ -n "$c" ] && docker rm -f $c >/dev/null 2>&1
   [ -n "$v" ] && docker volume rm $v >/dev/null 2>&1
   return 0

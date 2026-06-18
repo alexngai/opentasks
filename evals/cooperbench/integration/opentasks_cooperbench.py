@@ -8,7 +8,7 @@ Load via CooperBench's external-agent hook (it just `__import__`s the module):
     COOPERBENCH_EXTERNAL_AGENTS=opentasks_cooperbench \
     cooperbench run --backend docker --setting team -a mini_swe_agent_v2 ...
 
-When `CB_OPENTASKS=1`, importing this module monkeypatches three CooperBench seams
+When `CB_OPENTASKS=1`, importing this module monkeypatches four CooperBench seams
 so the `team` setting coordinates through an OpenTasks daemon (a REAL atomic
 claim + the attempt/verify layer) instead of Redis. Nothing under
 `references/cooperbench` is modified:
@@ -23,19 +23,29 @@ claim + the attempt/verify layer) instead of Redis. Nothing under
      block teaching agents to record *evidenced* attempts and verify a partner's
      work before relying on it (exercises the attempt/verify layer Redis can't
      express). The block is appended only for real (>=2-agent) teams.
+  4. ``runner.team._redis_client`` + ``loop_refresh.TeamPoller._ensure_client`` —
+     redirect the HOST-side task paths (the bench's task pre-seed and the
+     auto-refresh poller) to the SAME OpenTasks store via an ``OpenTasksRedisShim``
+     (``ot_redis_shim.py``). Without this only the agents' CLI was swapped, so the
+     pre-seeded tasks + auto-refresh stayed in Redis while ``coop-task-list`` read
+     an empty OpenTasks store — a split-brain that confused agents. The host
+     reaches the (container) daemon socket through a per-run ``socat`` TCP bridge
+     (Docker Desktop can't carry a Unix socket over a host bind mount). Daemon +
+     bridge are provisioned at ``TeamSession.__init__`` so they're up before the
+     pre-seed runs.
 
-The per-run daemon sidecar + its named volume are torn down at process exit
-(``atexit``) so a battery of runs doesn't leak containers/volumes.
+The per-run daemon sidecar, socat bridge, and named volume are torn down at
+process exit (``atexit``) and on SIGTERM/SIGINT so a battery doesn't leak them.
 
 The agents keep the identical ``coop-task-*`` shell interface; only the
 substrate changes. Scoring is untouched (CooperBench scores patches against
 ground-truth tests, independent of the coordination backend — verified in the
 integration plan, §7).
 
-STATUS: the backend it wires in (``ot_client.py`` + ``coop_task_opentasks.py``)
-is unit-tested against a live daemon. This injection glue needs a full
-``cooperbench run`` (prepare + Docker task images + an LLM key) to verify
-end-to-end; the monkeypatch targets are pinned to the vendored CooperBench.
+STATUS: the OpenTasks backend (``ot_client.py`` + ``coop_task_opentasks.py``) and
+the host-side shim (``ot_redis_shim.py``) are unit-tested against a live daemon
+(``run-shim-test.sh``). This injection glue needs a full ``cooperbench run`` to
+verify end-to-end; the monkeypatch targets are pinned to the vendored CooperBench.
 """
 
 from __future__ import annotations
@@ -53,6 +63,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 DAEMON_IMAGE = os.environ.get("OPENTASKS_DAEMON_IMAGE", "opentasks-daemon:smoke")
 MOUNT_DIR = "/srv/ot"
 SOCKET_PATH = f"{MOUNT_DIR}/daemon.sock"
+# Host<->daemon TCP bridge (socat): the host pre-seed + poller can't reach a Unix
+# socket inside a Docker named volume, so a socat sidecar exposes it on localhost.
+BRIDGE_PORT = int(os.environ.get("CB_OT_BRIDGE_PORT", "47600"))
+BRIDGE_IMAGE = os.environ.get("CB_OT_BRIDGE_IMAGE", "alpine/socat")
 
 
 def _enabled() -> bool:
@@ -71,6 +85,12 @@ def _vol(run_id: str) -> str:
 # --- teardown: the per-run daemon sidecar + its named volume leak otherwise ---
 _CREATED_RUNS: set[str] = set()
 _PREV_SIGNAL: dict[int, object] = {}
+_CURRENT_RUN_ID: str = ""
+
+
+def _host_endpoint() -> str:
+    """ot_client endpoint the HOST (pre-seed + poller) uses to reach the daemon."""
+    return f"tcp://127.0.0.1:{BRIDGE_PORT}"
 
 
 def _teardown_all() -> None:
@@ -81,8 +101,8 @@ def _teardown_all() -> None:
     so a hard ``rm -f`` + volume rm after the run is safe.
     """
     for rid in list(_CREATED_RUNS):
-        name = f"cb-ot-{rid}"
-        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+        subprocess.run(["docker", "rm", "-f", f"cb-ot-{rid}"], capture_output=True)
+        subprocess.run(["docker", "rm", "-f", f"cb-otbridge-{rid}"], capture_output=True)
         subprocess.run(["docker", "volume", "rm", _vol(rid)], capture_output=True)
     _CREATED_RUNS.clear()
 
@@ -163,6 +183,54 @@ def ensure_opentasks_daemon(run_id: str) -> None:
     _wait_socket(name)
 
 
+def _wait_tcp(port: int, tries: int = 80) -> None:
+    """Block until the socat bridge is accepting on 127.0.0.1:port."""
+    import socket as _socket
+
+    for _ in range(tries):
+        try:
+            with _socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                return
+        except OSError:
+            time.sleep(0.25)
+    _log.warning("opentasks socat bridge not reachable on 127.0.0.1:%s", port)
+
+
+def ensure_socat_bridge(run_id: str) -> None:
+    """Expose the (container) daemon Unix socket as a localhost TCP port.
+
+    The host pre-seed + poller can't reach a Unix socket living inside a Docker
+    named volume, so a tiny socat sidecar mounts that volume and bridges
+    TCP->unix. Fixed host port (runs are serial); any stale bridge is removed
+    first to free it.
+    """
+    name = f"cb-otbridge-{run_id or 'default'}"
+    insp = subprocess.run(
+        ["docker", "inspect", "-f", "{{.State.Running}}", name], capture_output=True, text=True
+    )
+    if insp.returncode == 0 and insp.stdout.strip() == "true":
+        _wait_tcp(BRIDGE_PORT)
+        return
+    # Free the fixed host port from any bridge (stale other-run, or our own stopped).
+    stale = subprocess.run(
+        ["docker", "ps", "-aq", "--filter", "name=cb-otbridge-"], capture_output=True, text=True
+    ).stdout.split()
+    for sid in stale:
+        subprocess.run(["docker", "rm", "-f", sid], capture_output=True)
+    subprocess.run(
+        [
+            "docker", "run", "-d", "--name", name,
+            "-v", f"{_vol(run_id)}:{MOUNT_DIR}",
+            "-p", f"127.0.0.1:{BRIDGE_PORT}:{BRIDGE_PORT}",
+            BRIDGE_IMAGE,
+            f"TCP-LISTEN:{BRIDGE_PORT},fork,reuseaddr",
+            f"UNIX-CONNECT:{SOCKET_PATH}",
+        ],
+        capture_output=True,
+    )
+    _wait_tcp(BRIDGE_PORT)
+
+
 # Shell that creates the coop-task-* / coop-attempt-* wrappers in the container,
 # each exec'ing the OpenTasks-backed CLI at /tmp/cb-coop-task.py.
 _WRAPPER_SNIPPET = r"""
@@ -228,7 +296,37 @@ def _patch() -> None:
     th.build_team_instruction = build_team_instruction  # type: ignore[assignment]
     th.team_task_section = team_task_section  # type: ignore[assignment]
 
-    # Self-clean the per-run daemon sidecars + volumes when the run process exits.
+    # --- seam 4: redirect the HOST task paths (pre-seed + auto-refresh poller)
+    # to the SAME OpenTasks store the agents' CLI uses — closes the split-brain.
+    # The host reaches the container daemon socket via a per-run socat TCP bridge. ---
+    from ot_redis_shim import OpenTasksRedisShim
+    import cooperbench.runner.team as team_mod
+    import cooperbench.team_harness.loop_refresh as loop_refresh
+
+    # Provision daemon + bridge when the session is constructed — BEFORE the bench
+    # pre-seeds the task list (runner/team.py creates the tasks right after).
+    _orig_ts_init = th.TeamSession.__init__
+
+    def _ts_init(self, *a, **kw):  # type: ignore[no-untyped-def]
+        _orig_ts_init(self, *a, **kw)
+        global _CURRENT_RUN_ID
+        _CURRENT_RUN_ID = getattr(self, "run_id", "") or ""
+        try:
+            ensure_opentasks_daemon(_CURRENT_RUN_ID)
+            ensure_socat_bridge(_CURRENT_RUN_ID)
+        except Exception as e:  # noqa: BLE001
+            _log.warning("opentasks daemon/bridge provisioning failed: %s", e)
+
+    th.TeamSession.__init__ = _ts_init  # type: ignore[assignment]
+
+    # _redis_client(url) (pre-seed + harvest) and TeamPoller._ensure_client (poll)
+    # both now hand back an OpenTasks-backed _RedisLike pointed at the bridge.
+    team_mod._redis_client = lambda *_a, **_k: OpenTasksRedisShim(_host_endpoint())  # type: ignore[assignment]
+    loop_refresh.TeamPoller._ensure_client = (  # type: ignore[assignment]
+        lambda self: OpenTasksRedisShim(_host_endpoint())
+    )
+
+    # Self-clean the per-run daemon sidecars + bridges + volumes when the run exits.
     atexit.register(_teardown_all)
 
     # atexit doesn't fire when the run is *killed*; also tear down on SIGTERM/SIGINT,
