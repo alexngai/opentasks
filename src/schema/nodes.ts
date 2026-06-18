@@ -109,11 +109,70 @@ export interface ExternalNode extends BaseNode {
 }
 
 /**
+ * EvidenceRef - a pointer to an independently checkable artifact
+ * (a test result, commit, context node, or url). Never the agent's prose —
+ * the value of evidence is that a partner can verify it themselves.
+ */
+export interface EvidenceRef {
+  kind: 'test' | 'command' | 'commit' | 'context' | 'external' | 'url';
+  /** test-suite id / command / git sha / context node id / uri */
+  ref: string;
+  /** exit code, "12/12 passed", metric value */
+  detail?: string;
+  /** content hash for tamper-evidence */
+  hash?: string;
+}
+
+/**
+ * AttemptMetadata - stored on `attempt.metadata.attempt`.
+ *
+ * `outcome` is a RESULT, not a workflow status: a failed attempt is
+ * `status: closed` + `outcome: failure`, while the parent task stays open
+ * (a retry is a new attempt).
+ */
+export interface AttemptMetadata {
+  outcome: 'pending' | 'success' | 'failure' | 'abandoned' | 'inconclusive';
+  /** What was tried / what happened; name files/areas touched for overlap visibility */
+  summary?: string;
+  /** Pointer to an independently checkable artifact — the Commitment lever */
+  evidence?: EvidenceRef;
+  /** Why it failed / was abandoned — the negative-result record */
+  failureReason?: string;
+  /** Best-of-N: this attempt was selected (paired with a `supersedes` edge) */
+  selected?: boolean;
+}
+
+/**
+ * Attempt - one agent's effort at a task, carrying an outcome + evidence.
+ *
+ * Subordinate to a task (like Feedback, via `target_id`), but with a
+ * task-like lifecycle (claimable, status). Multiple attempts may target one
+ * task concurrently — collaborative dedup and best-of-N are the same shape,
+ * differing only in orchestration policy. The result lives in
+ * `metadata.attempt` ({@link AttemptMetadata}).
+ */
+export interface Attempt extends BaseNode {
+  type: 'attempt';
+
+  /** The task this attempts (required) */
+  target_id: string;
+
+  /**
+   * Workflow status. Starts `in_progress`; a terminal outcome closes it.
+   * The result (success/failure/…) is in `metadata.attempt.outcome`, not here.
+   */
+  status: 'open' | 'in_progress' | 'blocked' | 'closed' | string;
+
+  /** The agent making the attempt */
+  assignee?: string;
+}
+
+/**
  * Discriminated union of all node types
  */
-export type Node = Context | Task | Feedback | ExternalNode;
+export type Node = Context | Task | Feedback | ExternalNode | Attempt;
 
 /**
  * Node type literal union
  */
-export type NodeType = 'context' | 'task' | 'feedback' | 'external';
+export type NodeType = 'context' | 'task' | 'feedback' | 'external' | 'attempt';

@@ -420,7 +420,7 @@ export interface ProviderAwareStore extends GraphStore {
 /**
  * Pattern for local node IDs (s-, i-, f-, e-, x-)
  */
-const LOCAL_ID_PATTERN = /^[ctfex]-[a-z0-9]+$/;
+const LOCAL_ID_PATTERN = /^[ctfexa]-[a-z0-9]+$/;
 
 // ============================================================================
 // Helper Functions

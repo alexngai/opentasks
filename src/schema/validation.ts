@@ -2,7 +2,7 @@
  * Type guards and validation for OpenTasks nodes
  */
 
-import type { Context, Task, Feedback, ExternalNode, Node } from './nodes.js';
+import type { Context, Task, Feedback, ExternalNode, Attempt, Node } from './nodes.js';
 import type { StoredNode } from './storage.js';
 
 /**
@@ -61,6 +61,13 @@ export function isExternal(node: Node): node is ExternalNode {
   return node.type === 'external';
 }
 
+/**
+ * Check if node is an Attempt
+ */
+export function isAttempt(node: Node): node is Attempt {
+  return node.type === 'attempt';
+}
+
 // === Validation ===
 
 /**
@@ -114,6 +121,16 @@ export function validateStoredNode(stored: StoredNode): ValidationResult {
         errors.push({
           field: 'feedback_type',
           message: 'Required for feedback',
+          code: 'REQUIRED',
+        });
+      }
+      break;
+
+    case 'attempt':
+      if (!stored.target_id) {
+        errors.push({
+          field: 'target_id',
+          message: 'Required for attempts',
           code: 'REQUIRED',
         });
       }
@@ -180,6 +197,8 @@ export function parseNode(stored: StoredNode): Node {
       return stored as unknown as Task;
     case 'feedback':
       return stored as unknown as Feedback;
+    case 'attempt':
+      return stored as unknown as Attempt;
     case 'external':
       return stored as unknown as ExternalNode;
     default:
@@ -204,6 +223,6 @@ export function tryParseNode(stored: StoredNode): Node | null {
  */
 export function hasKnownType(
   stored: StoredNode,
-): stored is StoredNode & { type: 'context' | 'task' | 'feedback' | 'external' } {
-  return ['context', 'task', 'feedback', 'external'].includes(stored.type);
+): stored is StoredNode & { type: 'context' | 'task' | 'feedback' | 'external' | 'attempt' } {
+  return ['context', 'task', 'feedback', 'external', 'attempt'].includes(stored.type);
 }

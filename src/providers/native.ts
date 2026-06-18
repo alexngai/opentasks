@@ -42,9 +42,9 @@ import { ProviderError as ProviderErrorClass } from './types.js';
 // ============================================================================
 
 /**
- * Pattern for local node IDs (c-, t-, f-, e-, x-)
+ * Pattern for local node IDs (c-, t-, f-, e-, x-, a-)
  */
-const LOCAL_ID_PATTERN = /^[ctfex]-[a-z0-9]+$/;
+const LOCAL_ID_PATTERN = /^[ctfexa]-[a-z0-9]+$/;
 
 /**
  * Pattern for native:// or opentasks:// URIs
@@ -66,6 +66,8 @@ function mapNodeType(nodeType: string): ProviderNodeType {
       return 'issue';
     case 'feedback':
       return 'feedback';
+    case 'attempt':
+      return 'attempt';
     case 'external':
       return 'external';
     default:
@@ -76,7 +78,9 @@ function mapNodeType(nodeType: string): ProviderNodeType {
 /**
  * Map provider node types to OpenTasks node types
  */
-function mapProviderType(providerType: string): 'context' | 'task' | 'feedback' | 'external' {
+function mapProviderType(
+  providerType: string,
+): 'context' | 'task' | 'feedback' | 'external' | 'attempt' {
   switch (providerType) {
     case 'spec':
       return 'context';
@@ -85,6 +89,8 @@ function mapProviderType(providerType: string): 'context' | 'task' | 'feedback' 
       return 'task';
     case 'feedback':
       return 'feedback';
+    case 'attempt':
+      return 'attempt';
     default:
       return 'external';
   }

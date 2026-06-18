@@ -280,6 +280,7 @@ export class SQLitePersister implements Storage {
       'claim_fence',
       'location',
       'branch',
+      'metadata',
     ];
 
     for (const field of updateableFields) {
@@ -290,6 +291,8 @@ export class SQLitePersister implements Storage {
         // Convert booleans to integers
         if (typeof value === 'boolean') {
           value = value ? 1 : 0;
+        } else if (field === 'metadata' && typeof value === 'object' && value !== null) {
+          value = JSON.stringify(value);
         }
 
         values[field] = value ?? null;

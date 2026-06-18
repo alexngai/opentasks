@@ -18,14 +18,18 @@ verifier).
 
 ## Run
 
+The harness is the shared [`swarmkit-eval`](../package.json) package (matrix →
+sealed `claude -p` → ground-truth grade → content-addressed store/resume → stats →
+report); the files under `evals/swarmkit/` are thin OpenTasks adapters over it.
+
 ```bash
 npm run build                      # ensure dist/cli.js exists (opentasks arm uses it)
-EVAL_MODEL=haiku EVAL_ARMS=stock npx tsx evals/run.ts          # smoke one arm (Max plan)
-EVAL_ARMS=stock,notes,opentasks npx tsx evals/run.ts           # all 3 arms
+EVAL_MODEL=haiku EVAL_ARMS=stock npx tsx evals/swarmkit/run.ts   # smoke one arm (Max plan)
+EVAL_ARMS=stock,notes,opentasks npx tsx evals/swarmkit/run.ts    # all 3 arms
 
 # On Bedrock (GLM-5 / mantle): creds come from the AWS default profile / env.
 CLAUDE_CODE_USE_BEDROCK=1 AWS_REGION=us-west-1 \
-  EVAL_MODEL=<glm-5-model-id> npx tsx evals/run.ts
+  EVAL_MODEL=<glm-5-model-id> npx tsx evals/swarmkit/run.ts
 ```
 
 ### Env
@@ -60,7 +64,7 @@ Ground truth = each item emitted **exactly once**. Arms: `stock` (none) / `notes
 # GLM-5 (proxy stack must be up: bash evals/glm5/start-stack.sh)
 EVAL_CELL=D EVAL_MODEL=glm-5 ANTHROPIC_BASE_URL=http://127.0.0.1:4000 \
   ANTHROPIC_API_KEY=sk-glm5-spike-master EVAL_N=3 EVAL_M=6 EVAL_K=3 EVAL_REPEATS=5 \
-  npx tsx evals/synthetic/run.ts
+  npx tsx evals/swarmkit/synth-run.ts   # +CIs/report; synth-marble-run.ts = native multi-agent engine
 ```
 
 Headline metric = **race incidents** (`doubleEmits`) and **re-emits** (`p2ReEmits`),
@@ -79,13 +83,17 @@ not completion (saturation hides completion). Design + results:
 
 - `types.ts` — Arm / Task / Checkpoint / RunResult.
 - `arms.ts` — the 3 arms.
-- `runner.ts` — spawn `claude -p` (stream-json), parse trace + usage, verify.
+- `runner.ts` — reusable `claude -p` spawn/parse/score helpers (stream-json trace +
+  usage + checkpoint verify), consumed by the synthetic runners.
 - `metrics.ts` — graph-read + re-exploration from the trace.
-- `run.ts` — CLI: (task × arm × repeat) → console + `.runs/*.json`.
-- `reset-runner.ts` — cross-session continuity (phase1 capped → reset → phase2).
+- `swarmkit/` — the canonical harness: thin adapters over `swarmkit-eval` plus the
+  entrypoints — `run.ts` (task × arm × repeat), `synth-run.ts` / `synth-marble-run.ts`
+  (the synthetic 2×2), and `bench.ts` (whose `metricsOf` folds the graph-adoption
+  diagnostics onto the ground-truth score).
 - `tasks/` — task definitions (smoke + `build-todo`).
-- `synthetic/` — the concurrency × continuity 2×2 (cells B/C/D; collector +
-  emit-queue + concurrency/continuity/cellD runners + its own `run.ts`).
+- `synthetic/` — the concurrency × continuity 2×2 *execution* (cells B/C/D): collector
+  + emit-queue + concurrency/continuity/cellD runners (driven from `swarmkit/`).
+- `cooperbench/` — CooperBench team-mode integration (OpenTasks as the coordination backend).
 - `results/` — dated empirical write-ups (the proven findings).
 - `glm5/`, `appworld/` — the GLM-5 proxy stack and the AppWorld setup recipe.
 

@@ -139,6 +139,38 @@ export const BUILTIN_EDGE_TYPES: EdgeTypeDefinition[] = [
     direction: 'directed',
     providers: ['native'],
   },
+  {
+    name: 'verifies',
+    description: 'An independent check of an attempt (or task) — verdict + evidence in edge metadata',
+    inverseOf: 'verified-by',
+    affectsReady: false,
+    direction: 'directed',
+    providers: ['native'],
+  },
+  {
+    name: 'verified-by',
+    description: 'Target was verified by source (inverse of verifies)',
+    inverseOf: 'verifies',
+    affectsReady: false,
+    direction: 'directed',
+    providers: ['native'],
+  },
+  {
+    name: 'reproduces',
+    description: "An independent re-derivation of another attempt's result (stronger than verifies)",
+    inverseOf: 'reproduced-by',
+    affectsReady: false,
+    direction: 'directed',
+    providers: ['native'],
+  },
+  {
+    name: 'reproduced-by',
+    description: 'Target was reproduced by source (inverse of reproduces)',
+    inverseOf: 'reproduces',
+    affectsReady: false,
+    direction: 'directed',
+    providers: ['native'],
+  },
 ];
 
 /**

@@ -118,7 +118,7 @@ describe('MCP Server - Scopes', () => {
     const client = await createTestClient([...ALL_SCOPES]);
     const tools = await listToolNames(client);
 
-    expect(tools).toHaveLength(20);
+    expect(tools).toHaveLength(22);
     expect(tools).toEqual([
       'annotate',
       'claim_next',
@@ -131,11 +131,13 @@ describe('MCP Server - Scopes', () => {
       'get_context',
       'get_task',
       'link',
+      'list_attempts',
       'list_contexts',
       'list_providers',
       'list_tasks',
       'query',
       'reconcile',
+      'record_attempt',
       'release_task',
       'renew_claim',
       'update_context',

@@ -13,7 +13,7 @@ import type { Provider, ProviderRegistry } from './types.js';
 /**
  * Pattern for local node IDs (c-, t-, f-, e-, x-)
  */
-const LOCAL_ID_PATTERN = /^[ctfex]-[a-z0-9]+$/;
+const LOCAL_ID_PATTERN = /^[ctfexa]-[a-z0-9]+$/;
 
 /**
  * Pattern for URI with scheme

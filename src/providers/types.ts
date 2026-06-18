@@ -102,7 +102,7 @@ export interface UriOptions {
 /**
  * Node type in provider context
  */
-export type ProviderNodeType = 'spec' | 'issue' | 'task' | 'feedback' | 'external';
+export type ProviderNodeType = 'spec' | 'issue' | 'task' | 'feedback' | 'external' | 'attempt';
 
 /**
  * Normalized node representation from a provider

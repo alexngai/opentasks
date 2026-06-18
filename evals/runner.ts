@@ -1,35 +1,22 @@
 /**
- * Core runner: execute one (task × arm × repeat) by spawning a headless
- * `claude -p` agent, capture its tool-call trace + token cost, then score
- * with ground-truth checkpoints.
+ * Reusable runner primitives: spawn a headless `claude -p` agent in a work dir,
+ * capture its tool-call trace + token cost (stream-json, so we get per-tool-call
+ * events for the re-exploration / graph-read metrics), and score against
+ * ground-truth checkpoints (weighted, TheAgentCompany S_partial).
  *
- * Modeled on skill-tree's eval runner. Differences: stream-json output (so we
- * capture per-tool-call events for the re-exploration / graph-read metrics),
- * and weighted checkpoint scoring (TheAgentCompany S_partial).
- *
- * The spawn/parse/score internals are factored into reusable pieces
- * (`runAgentPhase`, `scoreCheckpoints`, `stopOpentasksDaemon`) so the
- * cross-session continuity runner (`reset-runner.ts`) can drive TWO phases in
- * one persistent work dir without duplicating any of this.
+ * These are library pieces — `seedWorkDir`, `runAgentPhase`, `scoreCheckpoints`,
+ * `stopOpentasksDaemon`, `cleanupWorkDir`, `parseStream` — consumed by the
+ * synthetic concurrency runners. The single-shot (task × arm × repeat) driver
+ * now lives in the shared `swarmkit-eval` orchestrator (see evals/swarmkit/).
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { Checkpoint, EvalArm, EvalTask, RunResult, ToolCallEvent } from './types.js';
-import { computeRedundantExplorationOps, didReadGraph } from './metrics.js';
+import type { Checkpoint, EvalArm, EvalTask, ToolCallEvent } from './types.js';
 
 export const BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'];
-
-export interface RunOpts {
-  model: string;
-  repeat: number;
-  timeoutMs: number;
-  /** Extra env for the spawned claude (e.g. Bedrock/mantle vars). */
-  env?: Record<string, string>;
-  traceDir: string;
-}
 
 /** One headless `claude -p` invocation in a (persistent) work dir. */
 export interface PhaseOpts {
@@ -200,54 +187,6 @@ export function cleanupWorkDir(workDir: string): void {
     fs.rmSync(workDir, { recursive: true, force: true });
   } catch {
     /* ignore cleanup errors */
-  }
-}
-
-export function runTaskWithArm(task: EvalTask, arm: EvalArm, opts: RunOpts): RunResult {
-  const workDir = seedWorkDir(task, `otc-${task.id}-${arm.id}-`);
-  try {
-    const phase = runAgentPhase({
-      workDir,
-      prompt: task.prompt,
-      arm,
-      model: opts.model,
-      timeoutMs: opts.timeoutMs,
-      env: opts.env,
-    });
-
-    const score = scoreCheckpoints(task, workDir);
-    // Infra failure (rate-limit/auth/crash): errored with ~no model output, nothing passed.
-    const infraFailure = !!phase.error && !phase.timedOut && phase.tokenCost < 200 && score.earned === 0;
-
-    const result: RunResult = {
-      taskId: task.id,
-      armId: arm.id,
-      repeat: opts.repeat,
-      model: opts.model,
-      checkpointResults: score.checkpointResults,
-      sPartial: score.sPartial,
-      sFull: score.sFull,
-      tokenCost: phase.tokenCost,
-      durationMs: phase.durationMs,
-      mcpServers: phase.mcpServers,
-      toolCalls: phase.toolCalls,
-      redundantExplorationOps: computeRedundantExplorationOps(phase.toolCalls),
-      readGraph: didReadGraph(phase.toolCalls),
-      timedOut: phase.timedOut,
-      infraFailure,
-      error: phase.error,
-    };
-
-    fs.mkdirSync(opts.traceDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(opts.traceDir, `${task.id}__${arm.id}__r${opts.repeat}.json`),
-      JSON.stringify({ ...result, resultText: phase.resultText.slice(0, 4000) }, null, 2),
-    );
-
-    return result;
-  } finally {
-    stopOpentasksDaemon(workDir, opts.env);
-    cleanupWorkDir(workDir);
   }
 }
 
