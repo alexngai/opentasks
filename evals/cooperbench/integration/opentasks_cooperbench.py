@@ -8,7 +8,7 @@ Load via CooperBench's external-agent hook (it just `__import__`s the module):
     COOPERBENCH_EXTERNAL_AGENTS=opentasks_cooperbench \
     cooperbench run --backend docker --setting team -a mini_swe_agent_v2 ...
 
-When `CB_OPENTASKS=1`, importing this module monkeypatches two CooperBench seams
+When `CB_OPENTASKS=1`, importing this module monkeypatches three CooperBench seams
 so the `team` setting coordinates through an OpenTasks daemon (a REAL atomic
 claim + the attempt/verify layer) instead of Redis. Nothing under
 `references/cooperbench` is modified:
@@ -19,6 +19,13 @@ claim + the attempt/verify layer) instead of Redis. Nothing under
      per-run daemon sidecar, ship ``ot_client.py`` + the OpenTasks-backed
      ``coop-task`` CLI into the container, create the ``coop-task-*`` /
      ``coop-attempt-*`` wrappers, and point them at the shared socket.
+  3. ``team_harness.{build_team_instruction,team_task_section}`` — append a short
+     block teaching agents to record *evidenced* attempts and verify a partner's
+     work before relying on it (exercises the attempt/verify layer Redis can't
+     express). The block is appended only for real (>=2-agent) teams.
+
+The per-run daemon sidecar + its named volume are torn down at process exit
+(``atexit``) so a battery of runs doesn't leak containers/volumes.
 
 The agents keep the identical ``coop-task-*`` shell interface; only the
 substrate changes. Scoring is untouched (CooperBench scores patches against
@@ -33,8 +40,10 @@ end-to-end; the monkeypatch targets are pinned to the vendored CooperBench.
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
+import signal
 import subprocess
 import time
 
@@ -59,6 +68,59 @@ def _vol(run_id: str) -> str:
     return f"cb-ot-{run_id or 'default'}"
 
 
+# --- teardown: the per-run daemon sidecar + its named volume leak otherwise ---
+_CREATED_RUNS: set[str] = set()
+_PREV_SIGNAL: dict[int, object] = {}
+
+
+def _teardown_all() -> None:
+    """Remove every per-run daemon sidecar (+ its volume) this process provisioned.
+
+    Registered with ``atexit`` so a ``cooperbench run`` self-cleans. The graph is
+    a per-run isolated coordination scratch — scoring reads patches, not the graph —
+    so a hard ``rm -f`` + volume rm after the run is safe.
+    """
+    for rid in list(_CREATED_RUNS):
+        name = f"cb-ot-{rid}"
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+        subprocess.run(["docker", "volume", "rm", _vol(rid)], capture_output=True)
+    _CREATED_RUNS.clear()
+
+
+def _is_team(kw: dict) -> bool:
+    """True when the prompt call is for a real (>=2 agent) team — gates the nudge."""
+    ags = kw.get("agents")
+    return bool(kw.get("team_role")) and bool(ags) and len(ags) >= 2 and bool(kw.get("agent_id"))
+
+
+# Appended to the team prompt so agents actually exercise the attempt/verify layer
+# (the OpenTasks differentiator Redis can't express). Targets CooperBench's two
+# named pair-failure causes: Commitment ("unverifiable claims") + Expectation
+# ("can't model partner's in-progress work").
+_ATTEMPT_BLOCK = """
+
+### Shared attempt + verification log (do NOT trust a bare "done")
+
+The coop-task commands above are backed by a shared **task graph**. It also records
+*evidenced* attempts so teammates can verify each other's work instead of trusting
+claims — the single biggest reason paired agents fail is acting on a partner's
+unverifiable "done".
+
+```bash
+coop-attempt-record <task_id> --outcome success --summary "<what you did>" --evidence '{"kind":"test","ref":"<the command or file that proves it>"}'
+coop-attempt-record <task_id> --outcome failure --failure-reason "<why it did not work>"
+coop-attempt-list <task_id>
+```
+
+- When you finish a task, record a `success` attempt whose `--evidence` names the
+  test or command that proves it — in addition to `coop-task-update done`.
+- Hit a dead-end? Record a `failure` attempt so no teammate repeats it.
+- BEFORE you integrate or build on a teammate's task, run `coop-attempt-list <task_id>`
+  and read their evidence. If an attempt has no checkable evidence, re-run their test
+  yourself before relying on it.
+"""
+
+
 def _wait_socket(name: str, tries: int = 80) -> None:
     """Block until the daemon (in container ``name``) has bound its socket."""
     for _ in range(tries):
@@ -78,6 +140,7 @@ def ensure_opentasks_daemon(run_id: str) -> None:
     creates it, the rest find it running.
     """
     name = f"cb-ot-{run_id or 'default'}"
+    _CREATED_RUNS.add(run_id or "default")  # mark for atexit teardown
     inspect = subprocess.run(
         ["docker", "inspect", "-f", "{{.State.Running}}", name], capture_output=True, text=True
     )
@@ -147,6 +210,44 @@ def _patch() -> None:
             _log.warning("opentasks team CLI install failed: %s", e)
 
     v2._install_team_cli_in_container = _install_team_cli_in_container
+
+    # --- seam 3: nudge agents to use the attempt/verify layer (the OpenTasks
+    # differentiator). Append the block to the team prompt; both prompt seams
+    # are bare-name globals in `th`, so reassigning them here is picked up. ---
+    _orig_bti = th.build_team_instruction
+    _orig_tts = th.team_task_section
+
+    def build_team_instruction(*a, **kw):  # type: ignore[no-untyped-def]
+        text = _orig_bti(*a, **kw)
+        return text + _ATTEMPT_BLOCK if _is_team(kw) else text
+
+    def team_task_section(*a, **kw):  # type: ignore[no-untyped-def]
+        text = _orig_tts(*a, **kw)
+        return text + _ATTEMPT_BLOCK if _is_team(kw) else text
+
+    th.build_team_instruction = build_team_instruction  # type: ignore[assignment]
+    th.team_task_section = team_task_section  # type: ignore[assignment]
+
+    # Self-clean the per-run daemon sidecars + volumes when the run process exits.
+    atexit.register(_teardown_all)
+
+    # atexit doesn't fire when the run is *killed*; also tear down on SIGTERM/SIGINT,
+    # chaining to any handler CooperBench installed so we don't swallow its shutdown.
+    def _signal_teardown(signum, frame):  # type: ignore[no-untyped-def]
+        _teardown_all()
+        prev = _PREV_SIGNAL.get(signum)
+        if callable(prev):
+            prev(signum, frame)
+        else:
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
+
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            _PREV_SIGNAL[_sig] = signal.getsignal(_sig)
+            signal.signal(_sig, _signal_teardown)
+        except (ValueError, OSError):
+            pass  # not the main thread / unsupported platform
 
 
 if _enabled():
