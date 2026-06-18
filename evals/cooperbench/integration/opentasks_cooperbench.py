@@ -208,17 +208,28 @@ def ensure_opentasks_daemon(run_id: str) -> None:
     _wait_socket(name)
 
 
-def _wait_tcp(port: int, tries: int = 80) -> None:
-    """Block until the socat bridge is accepting on 127.0.0.1:port."""
-    import socket as _socket
+def _wait_bridge_ready(port: int, tries: int = 120) -> None:
+    """Block until a real request succeeds over the bridge (host -> socat -> daemon).
 
+    A plain TCP connect only proves socat is *listening*; the daemon behind it may
+    not be accepting yet — that startup race made the very first pre-seed request
+    fail with "daemon closed the connection". Probe with an actual list_tasks until
+    it succeeds so the path is proven before the pre-seed runs.
+    """
+    from ot_client import OpenTasksClient, OpenTasksError
+
+    ep = f"tcp://127.0.0.1:{port}"
     for _ in range(tries):
         try:
-            with _socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            c = OpenTasksClient(ep, timeout=2)
+            try:
+                c.list_tasks()
                 return
-        except OSError:
+            finally:
+                c.close()
+        except (OpenTasksError, OSError):
             time.sleep(0.25)
-    _log.warning("opentasks socat bridge not reachable on 127.0.0.1:%s", port)
+    _log.warning("opentasks bridge not serving requests on 127.0.0.1:%s", port)
 
 
 def ensure_socat_bridge(run_id: str) -> None:
@@ -234,7 +245,7 @@ def ensure_socat_bridge(run_id: str) -> None:
         ["docker", "inspect", "-f", "{{.State.Running}}", name], capture_output=True, text=True
     )
     if insp.returncode == 0 and insp.stdout.strip() == "true":
-        _wait_tcp(BRIDGE_PORT)
+        _wait_bridge_ready(BRIDGE_PORT)
         return
     # Free the fixed host port from any bridge (stale other-run, or our own stopped).
     stale = subprocess.run(
@@ -253,7 +264,7 @@ def ensure_socat_bridge(run_id: str) -> None:
         ],
         capture_output=True,
     )
-    _wait_tcp(BRIDGE_PORT)
+    _wait_bridge_ready(BRIDGE_PORT)
 
 
 # Shell that creates the coop-task-* / coop-attempt-* wrappers in the container,
