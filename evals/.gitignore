@@ -1,5 +1,8 @@
 # Per-run traces + scratch — not committed.
 .runs/
+.tac-runs/
+.tac-pool-runs/
+tac/e2b.toml
 
 # GLM-5 stack runtime
 glm5/.venv/

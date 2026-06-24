@@ -31,15 +31,15 @@ const OPENTASKS: EvalArm = {
   id: 'opentasks',
   label: 'OpenTasks MCP',
   systemPromptAppendix:
-    'You have an OpenTasks MCP server (tools prefixed mcp__opentasks__). Use it as your durable ' +
-    'task graph: create_task for each subtask, link dependencies, update_task as you progress, and ' +
-    'query / get_context / context_summary to recover what is already known BEFORE doing new work. ' +
-    'Consult the graph before re-exploring files you have already analyzed. ' +
-    'When working alongside other agents: call list_attempts({inProgress:true}) before you start, to ' +
-    'see what others are doing and avoid duplicating their work; record_attempt to log your effort ' +
-    '(name the files/areas you touch); and when finished, record_attempt with the outcome ' +
-    '(success/failure) and attach evidence (e.g. the test result) so your completion is checkable.',
+    'You have an OpenTasks MCP server (native tools prefixed mcp__opentasks__) and a project skill named opentasks. ' +
+    'Use the opentasks skill for the minimal TAC graph protocol. Use native MCP tools only; do not invoke ' +
+    'mcp__opentasks__ tool names as shell commands. If tools are hidden or pending, use ToolSearch with ' +
+    'select:mcp__opentasks__list_tasks or select:mcp__opentasks__record_attempt, then call the returned native tool. ' +
+    'Inspect the seeded task once near the start, use Bash/curl/git/service APIs for the TAC work, and record one final ' +
+    'outcome/evidence update after verification. Create no duplicate top-level task when a seeded TAC task already exists.',
   extraTools: [
+    'Skill',
+    'ToolSearch',
     'mcp__opentasks__create_task',
     'mcp__opentasks__get_task',
     'mcp__opentasks__update_task',

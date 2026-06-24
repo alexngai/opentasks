@@ -94,6 +94,9 @@ not completion (saturation hides completion). Design + results:
 - `synthetic/` — the concurrency × continuity 2×2 *execution* (cells B/C/D): collector
   + emit-queue + concurrency/continuity/cellD runners (driven from `swarmkit/`).
 - `cooperbench/` — CooperBench team-mode integration (OpenTasks as the coordination backend).
+- `tac/` — TheAgentCompany adapter path over `swarmkit-eval` (task inventory,
+  TAC-native score mapping, fake execution smoke, and Docker task lifecycle for
+  local/E2B runs).
 - `results/` — dated empirical write-ups (the proven findings).
 - `glm5/`, `appworld/` — the GLM-5 proxy stack and the AppWorld setup recipe.
 
@@ -121,6 +124,7 @@ confirmed. Full write-ups in `results/`.
   falls over under sustained load — it crashed the cell-C k=5 repeat. Harden it
   (retry+backoff, concurrency cap) before scaling runs.
 - Clean cell-C k≥5 + contention sweep (N∈{2,8}) + a second model.
-- **Stage 2:** the TheAgentCompany GitLab-only host (headless `claude -p` driver,
-  exactly-once evaluator gate, 2-agent concurrency + reset injection) — instantiate
-  cell D on recognized tasks. See the design doc §12 for the full follow-up list.
+- **Stage 2:** the TheAgentCompany GitLab-only host as a `swarmkit-eval`
+  benchmark adapter (TAC-native `S_partial`, stock/notes/opentasks arms, reset
+  and width variants after the pilot). See
+  [the TAC experiment design](../docs/evaluations/2026-06-18-theagentcompany-experiment-design.md).

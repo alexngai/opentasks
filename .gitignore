@@ -7,3 +7,12 @@ __pycache__/
 .opentasks/
 
 evals/.swarmkit*
+references/cooperbench/
+
+# Terraform local state/cache
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log
+crash.*.log

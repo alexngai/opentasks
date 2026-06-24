@@ -448,6 +448,23 @@ describe('CLI Tool Commands', () => {
       expect(result.type).toBe('task');
     });
 
+    it('defaults task status to open', async () => {
+      mockClient.createNode.mockResolvedValueOnce({
+        id: 't-new1',
+        type: 'task',
+        title: 'New Task',
+        status: 'open',
+      });
+
+      await cmdCreate(['--type', 'task', '--title', 'New Task']);
+
+      expect(mockClient.createNode).toHaveBeenCalledWith({
+        type: 'task',
+        title: 'New Task',
+        status: 'open',
+      });
+    });
+
     it('should create a context node', async () => {
       mockClient.createNode.mockResolvedValueOnce({
         id: 'c-new1',
@@ -562,6 +579,7 @@ describe('CLI Tool Commands', () => {
       expect(mockClient.createNode).toHaveBeenCalledWith({
         type: 'task',
         title: 'Minimal',
+        status: 'open',
       });
     });
 
