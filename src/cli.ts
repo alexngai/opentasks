@@ -72,7 +72,7 @@ Views (compact, human-readable; --json for raw, --limit <n>, default ${DEFAULT_L
   cleanup [--older-than-days <n>] [--dry-run]   Archive terminal tasks older than n days (default 30)
 
 Create options:
-  --status <s>                  Status (required for tasks)
+  --status <s>                  Status (default: open for tasks)
   --content <text>              Markdown content
   --uri <uri>                   External URI (for external nodes)
   --source <src>                Source system (for external nodes)
@@ -1135,6 +1135,7 @@ export async function cmdCreate(args: string[]): Promise<void> {
   const metadataStr = getFlag(args, '--metadata');
 
   if (status) params.status = status;
+  else if (type === 'task') params.status = 'open';
   if (content) params.content = content;
   if (uri) params.uri = uri;
   if (source) params.source = source;

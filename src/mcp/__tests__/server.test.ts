@@ -185,6 +185,20 @@ describe('MCP Server - Task Tools', () => {
       );
     });
 
+    it('defaults task status to open when omitted', async () => {
+      const createdNode = { id: 't-abc1', type: 'task', title: 'My Task', status: 'open' };
+      mockClient.createNode.mockResolvedValue(createdNode);
+
+      await callTool(client, 'create_task', {
+        title: 'My Task',
+      });
+
+      expect(mockClient.createNode).toHaveBeenCalledWith(
+        { type: 'task', title: 'My Task', status: 'open' },
+        undefined,
+      );
+    });
+
     it('should route to provider when scheme specified', async () => {
       mockClient.createNode.mockResolvedValue({ id: 'x-ext1' });
 
@@ -408,7 +422,7 @@ describe('MCP Server - Task Tools', () => {
   describe('list_tasks', () => {
     it('should list tasks with filters', async () => {
       const queryResult = {
-        items: [{ id: 't-1', type: 'task', title: 'Task 1', status: 'open', archived: false }],
+        items: [{ id: 't-1', type: 'task', title: 'Task 1', status: 'open', archived: false, content: 'Full task instructions' }],
         hasMore: false,
       };
       mockClient.query.mockResolvedValue(queryResult);
@@ -418,7 +432,20 @@ describe('MCP Server - Task Tools', () => {
         tags: ['backend'],
       });
 
-      expect(parsed).toEqual(queryResult);
+      expect(parsed).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 't-1',
+            title: 'Task 1',
+            contentPreview: 'Full task instructions',
+            contentLength: 22,
+            fullContentAvailableViaGetTask: true,
+            getTaskHint: 'Call get_task with id "t-1" to read the full task content before acting.',
+          }),
+        ],
+        hasMore: false,
+        listHint: expect.stringContaining('call get_task'),
+      });
       expect(mockClient.query).toHaveBeenCalledWith({
         nodes: expect.objectContaining({ type: 'task', status: 'open', tags: ['backend'] }),
       });
@@ -436,7 +463,21 @@ describe('MCP Server - Task Tools', () => {
         tags: ['urgent'],
       });
 
-      expect(parsed).toEqual(readyResult);
+      expect(parsed).toEqual({
+        success: true,
+        data: {
+          type: 'ready',
+          items: [
+            expect.objectContaining({
+              id: 't-1',
+              fullContentAvailableViaGetTask: true,
+              getTaskHint: 'Call get_task with id "t-1" to read the full task content before acting.',
+            }),
+          ],
+          total: 1,
+          listHint: expect.stringContaining('call get_task'),
+        },
+      });
       expect(mockClient.task).toHaveBeenCalledWith({
         ready: expect.objectContaining({ tags: ['urgent'] }),
       });
@@ -453,7 +494,18 @@ describe('MCP Server - Task Tools', () => {
         blockersOf: 't-abc1',
       });
 
-      expect(parsed).toEqual(blockerResult);
+      expect(parsed).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 't-blocker',
+            title: 'Blocker',
+            fullContentAvailableViaGetTask: true,
+            getTaskHint: 'Call get_task with id "t-blocker" to read the full task content before acting.',
+          }),
+        ],
+        hasMore: false,
+        listHint: expect.stringContaining('call get_task'),
+      });
       expect(mockClient.query).toHaveBeenCalledWith({
         blockers: { nodeId: 't-abc1' },
       });

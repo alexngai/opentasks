@@ -115,9 +115,9 @@ function registerTaskTools(server: McpServer, client: OpenTasksClient): void {
     },
     async (args) => {
       try {
-        const { scheme, idempotency_key, ...params } = args;
+        const { scheme, idempotency_key, status = 'open', ...params } = args;
         const result = await client.createNode(
-          { type: 'task', ...params },
+          { type: 'task', status, ...params },
           scheme || idempotency_key ? { scheme, idempotencyKey: idempotency_key } : undefined,
         );
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
@@ -344,24 +344,24 @@ function registerTaskTools(server: McpServer, client: OpenTasksClient): void {
               priority: typeof filters.priority === 'number' ? filters.priority : undefined,
             },
           });
-          return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+          return { content: [{ type: 'text' as const, text: JSON.stringify(withTaskListHints(result), null, 2) }] };
         }
 
         // Blocker queries
         if (blockersOf) {
           const result = await client.query({ blockers: { nodeId: blockersOf } });
-          return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+          return { content: [{ type: 'text' as const, text: JSON.stringify(withTaskListHints(result), null, 2) }] };
         }
         if (blockedBy) {
           const result = await client.query({ blocking: { nodeId: blockedBy } });
-          return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+          return { content: [{ type: 'text' as const, text: JSON.stringify(withTaskListHints(result), null, 2) }] };
         }
 
         // General task list
         const result = await client.query({
           nodes: { type: 'task', ...filters },
         });
-        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text' as const, text: JSON.stringify(withTaskListHints(result), null, 2) }] };
       } catch (error) {
         return errorResult(error);
       }
@@ -1140,6 +1140,50 @@ function registerAttemptTools(server: McpServer, client: OpenTasksClient): void 
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function withTaskListHints(result: unknown): unknown {
+  if (!isRecord(result)) return result;
+  const output: Record<string, unknown> = { ...result };
+  if (Array.isArray(output.items)) {
+    output.items = output.items.map(withTaskItemHints);
+    output.listHint =
+      'list_tasks returns summaries. If a task may have more instructions than the title shows, call get_task with the id and read content before acting.';
+  }
+
+  const data = output.data;
+  if (isRecord(data) && Array.isArray(data.items)) {
+    output.data = {
+      ...data,
+      items: data.items.map(withTaskItemHints),
+      listHint:
+        'list_tasks returns summaries. If a task may have more instructions than the title shows, call get_task with the id and read content before acting.',
+    };
+  }
+
+  return output;
+}
+
+function withTaskItemHints(item: unknown): unknown {
+  if (!isRecord(item)) return item;
+  const id = typeof item.id === 'string' ? item.id : undefined;
+  const content = typeof item.content === 'string' ? item.content : undefined;
+  return {
+    ...item,
+    contentPreview: content ? previewText(content, 360) : undefined,
+    contentLength: content?.length ?? undefined,
+    fullContentAvailableViaGetTask: Boolean(id),
+    getTaskHint: id ? `Call get_task with id "${id}" to read the full task content before acting.` : undefined,
+  };
+}
+
+function previewText(text: string, max: number): string {
+  const compact = text.replace(/\s+/g, ' ').trim();
+  return compact.length <= max ? compact : `${compact.slice(0, max - 1).trimEnd()}…`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function errorResult(error: unknown) {

@@ -1,7 +1,8 @@
 # P6 — Evaluation & Long-Horizon Improvement Design (2026-06-14)
 
-**Status:** Design draft for review. No harness code yet (design-first, per decision 2026-06-14).
+**Status:** Historical design draft, partially superseded by the 2026-06-15 Cell-D design and the 2026-06-16 CooperBench integration plan. Harness code now exists for the shared eval runner, synthetic 2x2, and CooperBench injection; the TheAgentCompany adapter is still the next standardized-anchor build.
 **Extends:** [2026-06-11 evaluation appendix](./2026-06-11-evaluation-appendix.md) (Report 5 = prior literature base) and Phase 6 of [docs/HARDENING-PLAN.md](../HARDENING-PLAN.md).
+**Concrete TAC plan:** [2026-06-18 TheAgentCompany experiment design](./2026-06-18-theagentcompany-experiment-design.md).
 **Scope shift (Alex, 2026-06-14):** P6 is no longer only *defensively prove the narrow claims*. It is also *find where OpenTasks measurably improves long-horizon-benchmark success, and how it lets us take advantage of multi-agent / swarm execution* (cf. Kimi Agent Swarm). The evals are how we tell the difference between a real lever and wishful positioning.
 
 ---
@@ -11,9 +12,10 @@
 - The 2026 literature converged on a sharp, useful conclusion: **a shared task substrate buys coordination *safety* (race-free claims, zero duplicate work, resumable state), not a universal performance multiplier.** Multi-agent helps on *decomposable / breadth-first / read-heavy* work and *hurts* on *coupled / write-heavy* work; even Kimi's swarm routes coupled coding back to a single agent.
 - Long-horizon failure is dominated by **execution-state management** (context rot, self-conditioning on prior errors, goal drift, memory limits), not raw reasoning — exactly the failure class an external structured graph attacks.
 - **The single most valuable study in the field does not exist yet:** *typed dependency graph vs. freeform `NOTES.md` vs. stock long-context, holding total tokens constant.* OpenTasks is uniquely positioned to run it. This is our **headline eval (E2′)** — and we run it on a **standard benchmark (TheAgentCompany)** as a harness ablation, so the numbers compare directly to published results rather than to a bespoke corpus.
-- **Benchmarks (decided 2026-06-14):** E2′ on **TheAgentCompany** (long-horizon/state; `S_partial` scoring), E1 on **MultiAgentBench/MARBLE** (coordination; add OpenTasks as a topology). No custom benchmark — OpenTasks is the independent variable, the benchmark is canonical. Continuity tested *indirectly* on the long tasks (no forced-reset protocol).
+- **Benchmarks (current plan):** E2′ on **TheAgentCompany** (long-horizon/state; `S_partial` scoring), plus **CooperBench** for coordination through an existing team harness. MARBLE was the 2026-06-14 candidate but was later dropped for the safety claim because it is turn-based and judge-scored rather than a real shared-state race.
 - We adopt **test-/ground-truth-verified scoring** (never graph state), **cost-matched budgets** (Pareto curve, not a point), and a **3-baseline** design (token-matched single agent / stock or message-passing baseline / `NOTES.md`-or-shared-markdown).
-- First build: stand up TheAgentCompany + OpenHands, graft the OpenTasks MCP, run the **E2′ pilot** (~3 tasks × 3 arms × 3 runs) to de-risk plumbing and confirm agents actually *read* the graph — then scale.
+- Current build path: synthetic Cell-D has demonstrated the mechanism; CooperBench has proven a no-fork OpenTasks coordination backend injection; next is a **TheAgentCompany GitLab-only smoke** as a `swarmkit-eval` benchmark adapter using the native Claude-CLI/Bedrock execution adapter, then the **E2′ pilot** (~3 tasks × 3 arms × 3 runs) to de-risk TAC plumbing and confirm agents actually *read* the graph.
+- **Organizing frame (§2.5, added 2026-06-18):** the program runs along **three orthogonal coordination axes — A. safety/correctness (concurrency), B. scaling/saturation (agent count), C. retention/continuity (resets/horizon)** — each its own experiment/sweep, with the P6 deliverable being the substrate strategy that **jointly maximizes all three** at matched cost.
 
 ---
 
@@ -75,6 +77,28 @@ Stated as falsifiable bets, each mapped to an eval.
 
 ---
 
+## 2.5 — The three coordination axes (2026-06-18 reframe)
+
+The four bets in §2 collapse into **three orthogonal stress axes** — each a dimension along which a single agent context becomes insufficient and an external substrate can earn its keep. Treat them as the experimental backbone: each axis has its own independent variable to sweep, its own dependent metric, and its own "owning" eval. They are not competing framings of one experiment — they are **three experiments**, and the end goal is a **coordination strategy that maximizes all three jointly** (and that characterizes the trade-offs between them).
+
+| Axis | Failure it targets | Stress knob (IV) | Primary metric (DV) | Owning eval | Differentiator type |
+|---|---|---|---|---|---|
+| **A. Safety / correctness** | two agents claim or mutate the same work → duplicate or conflicting writes | **concurrency** — agent width N; shared-item overlap | task success · duplicate-claim rate · semantic-conflict rate · `R` | **Synthetic 2×2** (mechanism) + **CooperBench** | **correctness** (needs *non-idempotent* work) |
+| **B. Scaling / saturation** | coordination overhead overtakes parallelism gain → negative returns | **agent-count sweep** N ∈ {1,2,4,8} at matched total tokens | success-per-token · `E_c` · `O` · the N where marginal returns go negative | **CooperBench + E4** (+ TAC width sweep) | **efficiency / frontier** |
+| **C. Retention / continuity** | context loss (compaction, reset, handoff) → redo, goal drift, forgotten state | **resets / horizon** — forced reset phases; task length | redundant-exploration tokens · retention (work preserved across reset) · time-to-first-productive-action · `pass^k` | **Synthetic cell C/D** + **TAC E2′ / TAC Cell-D variant** | **efficiency + correctness** |
+
+**How each axis is exercised — and what we already know:**
+
+- **A — Safety.** The atomic claim (conditional-UPDATE + fence token) makes "exactly once" a hard guarantee a markdown file cannot provide (a `NOTES.md` claim is a read-modify-write race). This axis is only *visible* when duplicates **break correctness** — i.e. *non-idempotent* work. The **synthetic 2×2 already demonstrates it**: OpenTasks is the only arm race-clean in cell D; `notes` silently double-claims. **TheAgentCompany cannot carry axis A** — its real GitLab ops (close/delete) are *idempotent*, so duplicates waste rather than fail; on TAC this axis degrades into axis B (efficiency). Sweep: width N and item-overlap over a non-idempotent item set.
+
+- **B — Scaling.** The honest multi-agent question (§1.4): does adding an agent still pay? The literature puts negative returns past ~45% single-agent capability (β = −0.408). The substrate's claim is that it **pushes that saturation point out** — more agents stay productive because claims stay race-free and work stays partitioned. Sweep: N ∈ {1,2,4,8} at matched swarm-sum tokens; the headline number is the crossover N at which `graph` keeps positive marginal returns while `stock`/`notes` go negative. **E4 (token-matched single agent) is the floor** — multi-agent, and therefore the substrate, only matters above it.
+
+- **C — Retention.** The strongest real-world hook: every agent system hits context limits, so "resume from durable external state instead of re-deriving" is a constant cost. AMA-Bench is the support (causal-graph memory +11 pts; memory *architecture* induced 0.45 accuracy variance vs only 0.038 from scaling the model). Sweep: number/timing of forced resets, and task horizon. Metric: fraction of completed work preserved across a reset (retention) + redundant-exploration tokens. **Synthetic cell C/D** tests it directly (reset phase); **TAC** tests it indirectly through long tasks in E2′, and can test it directly only in a labeled Cell-D variant with forced reset.
+
+**The meta-goal — a joint optimum, not three isolated wins.** We are not only proving three claims; we want the *configuration* (claim/lease discipline, agent count, context-reinjection policy, spec-on-node) that is **simultaneously safe, scalable, and retentive**, plus the trade-off surface between the axes: more agents raises contention → axis-A pressure; longer horizon → axis-C pressure; **both at once is the cell-D regime where the substrate is irreplaceable**. Each axis-experiment yields a curve; the optimum is the substrate strategy whose curves dominate on all three at matched cost. That joint optimum — not any single-axis result — is the P6 deliverable. (Status note 2026-06-18: axis A is demonstrated on the synthetic 2×2; CooperBench proves the real team-harness injection path; TAC remains the next external anchor to instantiate the same three-arm pattern on company-state tasks.)
+
+---
+
 ## 3. The eval program (revised)
 
 Cross-cutting principles (non-negotiable, from §1.4):
@@ -86,8 +110,8 @@ Cross-cutting principles (non-negotiable, from §1.4):
 
 | Eval | Benchmark | Question | Baselines (arms) | Primary metrics |
 |---|---|---|---|---|
-| **E2′** (headline) | **TheAgentCompany** | Does OpenTasks-as-external-state beat `NOTES.md` and the stock scaffold on long tasks at equal tokens? | NOTES.md · stock OpenHands | `S_partial`, redundant-exploration tokens, time-to-first-productive-action, `pass^k` |
-| **E1** | **MARBLE** | Does an OpenTasks coordination protocol match/beat MARBLE's topologies and cut duplication/conflict at equal tokens? | MARBLE graph/star/chain topologies · token-matched single agent | milestone KPI, duplicate-claim rate, **semantic-conflict rate**, `R`, `A_e`, `E_c` |
+| **E2′** (headline) | **TheAgentCompany** via `swarmkit-eval` | Does OpenTasks-as-external-state beat `NOTES.md` and the stock scaffold on long tasks at equal tokens? | NOTES.md · stock runner | `S_partial`, redundant-exploration tokens, time-to-first-productive-action, `pass^k` |
+| **E1** | **CooperBench** | Does replacing the benchmark's stock team coordination backend with OpenTasks improve coordination safety/efficiency at equal tokens? | stock team backend · token-matched single agent · shared-notes control where applicable | merged-test success, duplicate-claim rate, redundant work, `R`, `A_e`, `E_c` |
 | **E4** | (control for E1) | Is the swarm's win real or just more compute? | token-matched single agent | completion & cost vs E1 treatment at matched budget |
 | **E5** | (audit over E1/E2′ traces) | How many completion signals are self-assertable? | — | count/severity of agent-assertable completion paths (MAST "task verification" lens) |
 | **E3** (optional) | TheAgentCompany | Is a graph-only handoff better than a transcript handoff? | transcript-summary handoff | MAST failure-mode rate (validated LLM-judge, report κ) |
@@ -107,10 +131,12 @@ Cross-cutting principles (non-negotiable, from §1.4):
 
 **Hypothesis.** On TheAgentCompany's long, multi-step tasks, **at equal total token budget**, an agent whose scaffold has **OpenTasks as external structured state (via MCP)** reaches a higher `S_partial` and spends **≥30% fewer redundant-exploration tokens** than the same agent with (a) a freeform `NOTES.md`/`todo.md`, or (b) the stock scaffold (native context only / compaction).
 
-**Three arms — same tasks, same model, same OpenHands harness; only the state mechanism varies (this is the "typed graph vs notes vs long-context" RCT the field is missing, instantiated on a standard benchmark):**
-1. **Graph** — stock OpenHands **+ OpenTasks MCP** (cc-swarm's MCP server). Agent records/queries tasks, deps, and context nodes.
-2. **Notes** — stock OpenHands + an instructed `NOTES.md`/`todo.md` discipline (the honest baseline — beating a good markdown file is the bar, not beating "nothing").
-3. **Stock** — unmodified OpenHands (its native context handling / compaction), no external task store.
+**Runner architecture.** TheAgentCompany is a `swarmkit-eval` benchmark adapter: swarmkit owns the matrix (task × arm × seed), content-addressed resume/store, retries, concurrency, JSONL trace capture, aggregation, bootstrap CIs, and reports. The TAC adapter owns the benchmark-specific lifecycle: select/build the task image, run `/utils/init.sh`, execute the agent against `/instruction/task.md`, run `/utils/eval.py`, parse native TAC checkpoint output, and return `S_partial` as the ground-truth score.
+
+**Three arms — same TAC adapter, same model, same execution adapter; only the state mechanism varies (this is the "typed graph vs notes vs long-context" RCT the field is missing, instantiated on a standard benchmark):**
+1. **Graph** — `swarmkit-eval` NativeCliAdapter / Claude-CLI on Bedrock **+ OpenTasks MCP**. Agent records/queries tasks, deps, and context nodes.
+2. **Notes** — same adapter + an instructed `NOTES.md`/`todo.md` discipline (the honest baseline — beating a good markdown file is the bar, not beating "nothing").
+3. **Stock** — same adapter with no external task store.
 
 **Continuity is tested *indirectly* (decided: no forced-reset protocol).** TheAgentCompany's ~29-step tasks naturally exceed the working window, so external-state vs notes vs compaction is exercised by the benchmark's own length — keeping the task **and** the `S_partial` score fully canonical. (A labeled forced-reset variant is explicitly out of scope for now; revisit only if the indirect signal can't discriminate.)
 
@@ -122,19 +148,19 @@ Cross-cutting principles (non-negotiable, from §1.4):
 
 **Decision rule.** Higher `S_partial` at matched budget **and** ≥30% redundant-token reduction → headline claim, publish on TheAgentCompany's scale. Null → fix graph-surfacing, rerun once. Still null → persistence value prop weaker than believed; pivot to the pure edge-layer/routing value.
 
-**Task subset + run matrix.** Pick a representative subset (e.g., the SWE/PM/Admin-heavy tasks where multi-step dependency tracking is densest) rather than all 175 to bound cost. **Pilot first:** ~3 tasks × 3 arms × 3 runs to validate the OpenHands+OpenTasks harness, the token-match, and the graph-read instrumentation; then scale to ~15–25 tasks × 3 arms × ≥5 runs.
+**Task subset + run matrix.** Start with the GitLab-only SDE subset to avoid the full multi-service/browser stack, then expand to SWE/PM/Admin-heavy tasks where multi-step dependency tracking is densest. **Pilot first:** ~3 tasks × 3 arms × 3 runs to validate the `swarmkit-eval` TAC adapter + OpenTasks MCP, the token-match, and the graph-read instrumentation; then scale to ~15–25 tasks × 3 arms × ≥5 runs.
 
 ---
 
-## 5. Multi-agent / swarm — the coordination claim, on MARBLE (E1)
+## 5. Multi-agent / swarm — the coordination claim, on CooperBench (E1)
 
-**Benchmark (decided 2026-06-14): MultiAgentBench / MARBLE** (arXiv:2503.01935, ACL 2025; `ulab-uiuc/MARBLE`) — a modular multi-agent framework with a **Coordination Engine** + **Agent Graph Module** that already **ablates coordination topologies** (star / chain / tree / graph) and reports milestone-based KPIs. Their headline finding: the **graph topology wins** for research tasks. This is the ideal home for the OpenTasks coordination claim because it is *built to compare topologies* — we add OpenTasks as **one more coordination protocol** and compare on the same tasks + same KPIs. Open-source, so we extend rather than fork.
+**Benchmark (current plan): CooperBench** — a software-engineering benchmark with a `team` setting whose agents already coordinate through a shared backend. Its evaluator scores the merged patches with ground-truth tests and is backend-agnostic, which makes it a clean substrate ablation: replace the stock coordination backend with OpenTasks while keeping the tasks, model, prompts, agent count, and scorer fixed.
 
 Given §1.1, the swarm eval's honest target is **safety and the structural decision**, not raw speedup:
 
-- **Treatment:** a new MARBLE coordination protocol — agents coordinate **through the OpenTasks task graph** (atomic `claimNext`, dependency edges, push events → *observe the graph* rather than message-pass; CodeCRDT's stigmergic pattern), driven via swarm-dispatch's `claimNext` TaskSource.
-- **Comparators (MARBLE's own + our controls):** MARBLE's built-in **graph topology** (the published winner — the bar to beat or match), **star/chain** message-passing topologies, plus a **token-matched single agent** (E4) to test whether any swarm win is real or just more compute.
-- **Primary results we expect and will report honestly:** duplicate-claim rate → ~0 (structural, post-P1); **semantic-conflict rate** the interesting residual (expect 5–10% per CodeCRDT) and whether a **spec-carrying task node** (condition: task links its interface contract) reduces it where conflict-reports wouldn't; redundancy `R` lower at equal budget; milestone KPI *parity-or-better* vs MARBLE's graph topology; per model (benefit shrinks above ~45% single-agent saturation).
+- **Treatment:** a CooperBench `team` run where `coop-task-*` commands coordinate **through the OpenTasks task graph** via the Python JSON-RPC client and per-run daemon sidecar. Atomic claim, attempt/verify, and leases replace the stock read-then-write task list semantics.
+- **Comparators:** CooperBench stock team backend, token-matched single agent (E4), and a shared-notes/claim-by-convention control where applicable.
+- **Primary results we expect and will report honestly:** duplicate-claim rate → ~0 (structural, post-P1); redundant work lower at equal budget; merged-test success parity-or-better vs stock team backend; `E_c` and `O` determine whether the safety win pays for its overhead; per model (benefit shrinks above ~45% single-agent saturation).
 - **Substrate affordances this motivates (candidate roadmap, gated on E1 signal):** (a) a decomposability hint surfaced from dependency edges so an orchestrator parallelizes only when the graph is wide; (b) first-class spec/contract attachment on task nodes; (c) `excludeClaimed` lease-aware ready (already shipped) as the dispatcher primitive.
 
 ---
@@ -144,15 +170,15 @@ Given §1.1, the swarm eval's honest target is **safety and the structural decis
 The agent scaffold is the integration surface; P5 already built the pieces. Across all arms we hold **model + harness fixed** and vary only the OpenTasks involvement.
 
 **TheAgentCompany (E2′):**
-- Runner (decided 2026-06-14): **reuse the skill-tree eval harness pattern** (`~/GitHub/skill-tree/test/eval/disclosure`) — a **headless Claude-CLI runner on Bedrock**, model-swappable via `EVAL_MODEL`, region-multiplexed for rate limits, k-repeats + batched, already MCP-capable. This is our proven infra and *is* the (task × arm) shape. **OpenHands is NOT required** — it's only TheAgentCompany's reference agent + a browser, and GLM-5 has no published TAC number to match anyway.
-- The three arms are the same runner + same model; only the state mechanism differs: *Graph* = runner + **OpenTasks MCP** (cc-swarm's `run-opentasks-mcp` → daemon over Unix socket); *Notes* = runner + a `NOTES.md` instruction; *Stock* = runner alone.
+- Runner (current): **`swarmkit-eval` is the harness**. TAC is implemented as a benchmark adapter, and agent execution uses the same model-swappable NativeCliAdapter / Claude-CLI-on-Bedrock path already used by the OpenTasks evals. **OpenHands is NOT required** — it's only TheAgentCompany's reference agent + a browser, and GLM-5 has no published TAC number to match anyway.
+- The three arms are the same `swarmkit-eval` matrix + same TAC adapter + same model; only the state mechanism differs: *Graph* = NativeCliAdapter + **OpenTasks MCP**; *Notes* = NativeCliAdapter + a `NOTES.md` instruction; *Stock* = NativeCliAdapter alone.
 - Setup per task: boot the OpenTasks daemon in the task container (auto-start, P4), register the MCP, add a short system-prompt nudge to record/consult tasks. Tasks, Docker services, and `S_partial` scoring are TheAgentCompany-stock.
 - **Risk to verify in the pilot:** can the headless coding agent complete the **SDE subset's** interaction surface (GitLab via API/MCP vs strictly web UI)? If specific tasks need a browser, add a browser tool/MCP or run those few via OpenHands as a fallback. (Comparability is preserved either way — same canonical tasks + `S_partial`; the scaffold is a documented choice, and an OpenHands *reference run* can be added later for leaderboard-methodology parity.)
 
-**MARBLE (E1):**
-- Add an `opentasks` coordination protocol alongside MARBLE's star/chain/tree/graph in its Coordination Engine. Agents claim/observe via the OpenTasks graph; **swarm-dispatch** provides the `claimNext`/lease dispatch (its adapter is already real-daemon tested, P5).
-- The OpenTasks edge layer *is* the coordination trace → compute `R`, conflict rate, `A_e` directly from the graph instead of reconstructing from logs.
-- Risk to verify: mapping MARBLE's task/milestone model onto OpenTasks nodes+edges; ensuring the comparison to MARBLE's built-in graph topology is apples-to-apples (same tasks, same KPI scorer).
+**CooperBench (E1):**
+- Use the no-fork `COOPERBENCH_EXTERNAL_AGENTS` injection to mount a per-run OpenTasks daemon sidecar and replace `coop-task-*` with the OpenTasks-backed Python client.
+- CooperBench's evaluator stays untouched; it reads patches/tests, not the coordination backend, so Redis/stock-team vs OpenTasks is a clean A/B.
+- Risk to verify: full matrix stability after the already-proven Bedrock smoke; add OpenTasks MCP/attempt tools for CLI agents only after the backend swap is stable.
 
 **Shared:** one JSONL trace schema (per-turn tokens, every tool call, inter-agent messages, per-checkpoint ground-truth evidence, config/seed/model-version) so all §3 metrics are script-derivable and runs are reproducible.
 
@@ -162,17 +188,17 @@ The agent scaffold is the integration surface; P5 already built the pieces. Acro
 
 **Settled (2026-06-14):**
 - **Standard benchmarks, no custom corpus** — clear comparison to published numbers; OpenTasks is a *harness ablation*, not a benchmark.
-- **E2′ (long-horizon/state) → TheAgentCompany**; **E1 (coordination) → MultiAgentBench/MARBLE.**
+- **E2′ (long-horizon/state) → TheAgentCompany via `swarmkit-eval`**; **E1 (coordination) → CooperBench.**
 - **Cross-session continuity tested *indirectly*** on TheAgentCompany's long tasks (no forced-reset protocol; revisit only if the indirect signal can't discriminate).
 - **Headline = E2′** (the typed-graph vs notes vs stock RCT, on a standard benchmark) as the publishable contribution.
-- **Runner = the skill-tree headless Claude-CLI/Bedrock harness pattern** (model-swappable, MCP-capable), not OpenHands. See §5b.
-- **Models = run on Bedrock, non-Claude-first:** primary **GLM-5 via bedrock-mantle** (the proven skill-tree setup); add a **contrast model** (e.g. Bedrock Sonnet 4.6, the skill-tree default) to draw the capability-saturation curve — cheap given `EVAL_MODEL` is swappable.
+- **Runner = `swarmkit-eval`** (matrix, store/resume, retries, traces, CIs, report) with TAC as a benchmark adapter and NativeCliAdapter/Claude-CLI-on-Bedrock as the execution adapter. See §5b.
+- **Models = run on Bedrock, non-Claude-first:** primary **GLM-5 via the Bedrock/LiteLLM proxy path**; add a **contrast model** (e.g. Bedrock Sonnet) to draw the capability-saturation curve — cheap given `EVAL_MODEL` is swappable.
 - **Budget = not conservative** (large Bedrock credit pool). Still run a small **plumbing pilot first** (correctness, not cost), then the full matrix.
 - **Task subset = SWE-heavy** (TheAgentCompany SDE tasks, ~69 of 175) — densest dependency tracking, best fit for the OpenTasks lever, and the subset most runnable by a headless coding agent.
 
 **Still open:**
-1. **Exact `bedrock-mantle` invocation for GLM-5** — confirm whether the Claude CLI reaches GLM-5 via an Anthropic-compatible proxy (`ANTHROPIC_BASE_URL`/model id) so the runner config can be copied from skill-tree verbatim.
-2. **MARBLE/E1 model** — same GLM-5/Bedrock, or run E1 later once E2′ validates the pipeline.
+1. **Exact GLM-5 invocation** — confirm the current Claude CLI path through the Anthropic-compatible proxy (`ANTHROPIC_BASE_URL`/model id), including token accounting and retry/backoff behavior under `swarmkit-eval`.
+2. **CooperBench/E1 model** — same GLM-5/Bedrock, or run E1 later once E2′ validates the pipeline.
 
 ## 7. Risks & kill criteria
 
@@ -183,11 +209,11 @@ The agent scaffold is the integration surface; P5 already built the pieces. Acro
 
 ## 8. Recommended next steps
 
-1. **Stand up TheAgentCompany's SDE-subset locally** (its Docker services + checkpoint evaluators) and confirm a single SDE task scores end-to-end on `S_partial` with the headless Claude-CLI/Bedrock runner (copy the skill-tree runner config; confirm the `bedrock-mantle`/GLM-5 invocation).
-2. **Define the 3 arms in the runner** (stock / +NOTES.md / +OpenTasks MCP): register cc-swarm's OpenTasks MCP + in-container daemon auto-start for the Graph arm; add the JSONL trace schema (§3), token accounting, and graph-read instrumentation.
+1. **Stand up TheAgentCompany's SDE-subset locally** (its Docker services + checkpoint evaluators) and confirm a single SDE task scores end-to-end on `S_partial` through a `swarmkit-eval` TAC adapter using NativeCliAdapter/Claude-CLI-on-Bedrock.
+2. **Define the 3 arms in `swarmkit-eval`** (stock / +NOTES.md / +OpenTasks MCP): register OpenTasks MCP + in-container daemon auto-start for the Graph arm; add TAC scoring parse, token accounting, and graph-read instrumentation.
 3. **Run the E2′ pilot** (~3 SDE tasks × 3 arms × 3 runs, token-matched) → confirm: the agent can actually drive the SDE tasks (API vs browser surface), MCP wiring holds, budget-match is honest, agents read the graph, the redundant-token metric discriminates.
 4. Read pilot → scale E2′ across the SDE subset (× ≥5 runs, GLM-5 + a contrast model) and publish on TheAgentCompany's scale.
-5. **Then E1 on MARBLE:** add the `opentasks` coordination protocol (swarm-dispatch `claimNext`), compare to MARBLE's graph/star/chain topologies + the token-matched single agent (E4). E5 verification-gap audit runs as a cheap static+trace pass alongside.
+5. **Then E1 on CooperBench:** run stock team backend vs OpenTasks backend vs token-matched single agent, with the evaluator unchanged. E5 verification-gap audit runs as a cheap static+trace pass alongside.
 
 ---
 
