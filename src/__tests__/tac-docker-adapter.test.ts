@@ -168,7 +168,7 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(setup).toContain('https://deb.nodesource.com/setup_22.x');
     expect(setup).toContain('then\napt-get update');
     expect(setup).not.toContain('then apt-get update');
-    expect(setup).toContain('npm install -g swarm-harness@${TAC_SWARM_HARNESS_VERSION:-0.3.4}');
+    expect(setup).toContain('npm install -g swarm-harness@${TAC_SWARM_HARNESS_VERSION:-0.3.5}');
     expect(command).toContain('mkdir -p .swarm-harness');
     expect(command).toContain("cp '/eval/.tac/cell/mcp.json' .swarm-harness/mcp.json");
     expect(command).toContain('swarm-harness --single --headless --output-format json');

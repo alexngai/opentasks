@@ -5,7 +5,7 @@ import {
 } from 'swarmkit-eval';
 
 export const TAC_BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'];
-export const DEFAULT_SWARM_HARNESS_VERSION = '0.3.4';
+export const DEFAULT_SWARM_HARNESS_VERSION = '0.3.5';
 
 export type TacAgentHarnessId = 'claude-code' | 'swarm-harness';
 

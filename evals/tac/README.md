@@ -90,7 +90,7 @@ Real-run configuration:
 | `TAC_DOCKER_COMMAND` | Docker command prefix, e.g. `sudo docker` on E2B |
 | `TAC_SERVER_HOSTNAME` | Service hostname passed to TAC init, default `the-agent-company.com` |
 | `TAC_AGENT_HARNESS` / `TAC_AGENT_RUNTIME` | Agent harness selected for TAC task containers. Supported runtimes: `claude-code` (default) and `swarm-harness` |
-| `TAC_SWARM_HARNESS_VERSION` | npm version used by the default `swarm-harness` setup command, default `0.3.4` |
+| `TAC_SWARM_HARNESS_VERSION` | npm version used by the default `swarm-harness` setup command, default `0.3.5` |
 | `TAC_AGENT_SETUP_CMD` | Optional command run inside each task container before the selected agent harness. Overrides the default Node/harness/user setup, useful for testing a local or unpublished harness build |
 | `TAC_AGENT_USER` | Optional non-root user for the agent phase |
 | `TAC_OPENTASKS_MOUNT` | Local/remote OpenTasks checkout mounted only for the `opentasks` arm |
