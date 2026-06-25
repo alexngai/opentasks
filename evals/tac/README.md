@@ -89,8 +89,8 @@ Real-run configuration:
 | `TAC_DOCKER_NETWORK` | Docker network for task containers, default `host` |
 | `TAC_DOCKER_COMMAND` | Docker command prefix, e.g. `sudo docker` on E2B |
 | `TAC_SERVER_HOSTNAME` | Service hostname passed to TAC init, default `the-agent-company.com` |
-| `TAC_AGENT_HARNESS` / `TAC_AGENT_RUNTIME` | Agent harness selected for TAC task containers. Default and currently supported runtime: `claude-code` |
-| `TAC_AGENT_SETUP_CMD` | Optional command run inside each task container before the selected agent harness. Overrides the harness default install command |
+| `TAC_AGENT_HARNESS` / `TAC_AGENT_RUNTIME` | Agent harness selected for TAC task containers. Supported runtimes: `claude-code` (default) and `swarm-harness` |
+| `TAC_AGENT_SETUP_CMD` | Optional command run inside each task container before the selected agent harness. Overrides the harness default install command, useful for testing a local or unpublished harness build |
 | `TAC_AGENT_USER` | Optional non-root user for the agent phase |
 | `TAC_OPENTASKS_MOUNT` | Local/remote OpenTasks checkout mounted only for the `opentasks` arm |
 | `TAC_OPENTASKS_CONTAINER_DIR` | Container path for that mount, default `/opentasks` |
@@ -258,6 +258,22 @@ evals/tac/scripts/run-ec2-pool.sh
 
 The runner syncs to `TAC_POOL_RESULTS_S3_URI/<run-id>` after completed cells
 and at the end of the run. Reuse the same `TAC_POOL_RUN_ID` to resume from S3.
+
+Summarize one or more completed pool runs:
+
+```bash
+npm run eval:tac:pool:summarize -- \
+  evals/.tac-pool-runs/tac-run-a \
+  evals/.tac-pool-runs/tac-run-b
+```
+
+The summary extractor accepts run directories, `summary.json` files, or a
+directory containing run subdirectories. It emits Markdown by default and supports
+`--format csv` or `--format jsonl` for cell-level analysis. The output includes
+task, arm, model, seed, status, partial score, tokens, env/budget flags,
+OpenTasks `get_task`, seeded full-content-before-Bash, and stricter seeded
+full-content-before-task-work metrics, graph update counts, GitLab helper usage,
+raw GitLab curl count, and HTTP 404/5xx counts.
 
 Manual pool operation:
 

@@ -21,7 +21,7 @@ import { scoreFromTacResult, type TacResultJson } from './score.js';
 
 const ZERO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 const OPENTASKS_PROJECT_DIR = '/workspace/.opentasks';
-const OPENTASKS_REQUIRED_MCP_TOOLS = ['create_task', 'list_tasks', 'record_attempt', 'query'];
+const OPENTASKS_REQUIRED_MCP_TOOLS = ['create_task', 'get_task', 'list_tasks', 'record_attempt', 'query', 'update_task'];
 const OPENTASKS_MCP_TOOL_PREFIX = 'mcp__opentasks__';
 type OpenTasksMcpCommandVariant = 'wrapper' | 'sh-lc' | 'direct';
 type OpenTasksPreludeFailureMode = 'fail-fast' | 'degrade';
@@ -109,9 +109,11 @@ export const DEFAULT_TAC_OPERATING_PROMPT = [
   '- RocketChat login is theagentcompany / theagentcompany.',
   '- Plane login is agent@company.com / theagentcompany; Plane API requests usually use the x-api-key from /utils/config.py.',
   '',
-  'For GitLab tasks, prefer the REST API or git over the web UI. Use the target URL to derive the project path, then resolve the project with /api/v4/projects/:urlencoded_path instead of guessing numeric project ids.',
-  'For GitLab writes, include PRIVATE-TOKEN: root-token. Unauthenticated GET requests can succeed; that does not mean POST/PUT/PATCH/DELETE will succeed.',
-  'Use the installed helper `tac-gitlab-api METHOD PATH [JSON_BODY]` for concise GitLab API calls when possible. It adds the token, accepts API shorthand paths like `projects/root%2Frepo`, and caps response output.',
+  'For GitLab tasks, prefer the REST API or git over the web UI. For GitLab REST API calls, prefer the installed helper `tac-gitlab-api METHOD PATH [JSON_BODY]` instead of raw curl. It adds the token, accepts API shorthand paths, normalizes common project path encodings, redacts credentials, and caps response output.',
+  'Use the target URL to derive the project path, then resolve the project with `tac-gitlab-api GET projects/root/repo` or `tac-gitlab-api GET projects/root%2Frepo` instead of guessing numeric project ids.',
+  'For GitLab writes through raw curl, include PRIVATE-TOKEN: root-token. Unauthenticated GET requests can succeed; that does not mean POST/PUT/PATCH/DELETE will succeed. Raw curl is mainly for cases the helper cannot express.',
+  'Helpful GitLab helper examples: `tac-gitlab-api GET projects/root/repo`, `tac-gitlab-api GET projects/root/repo/repository/branches/main`, `tac-gitlab-api DELETE projects/root/repo/repository/branches/feature/old`, `tac-gitlab-api POST projects/root/repo/issues \'{"title":"Done"}\'`.',
+  'For GitLab protected branch policy changes, prefer `tac-gitlab-protect-branch root/repo main PUSH_LEVEL MERGE_LEVEL`; access levels are 0 no one, 30 developers, 40 maintainers. It safely delete/recreates the branch protection and verifies the result.',
   'If you need git push access, use an authenticated HTTP remote such as http://root:root-token@the-agent-company.com:8929/group/project.git, but avoid printing credentials.',
   'Inspect the target project, modify the requested files or configuration, commit changes when requested, and verify the resulting state through GitLab, git, or HTTP/API calls.',
   'For documentation or wiki tasks, keep generated content tightly grounded in the requested source material. Do not add broad external background or speculative structure unless the task explicitly asks for it and you verified it from the repository.',
@@ -137,18 +139,21 @@ export const OPENTASKS_TAC_SKILL = [
   '---',
   '# OpenTasks',
   '',
-  'Use native MCP tools named `mcp__opentasks__...` for task graph state. Never run those tool names in Bash, curl, node, or python.',
-  'If an OpenTasks tool is hidden or still pending, use `ToolSearch` with a query such as `select:mcp__opentasks__list_tasks`, `select:mcp__opentasks__get_task`, or `select:mcp__opentasks__record_attempt`, then call the returned native tool.',
-  'Do not test OpenTasks by echoing tool names or simulating MCP calls in Bash.',
+  'Use native MCP tools named `mcp__opentasks__...` for task graph state. Never run those tool names in Bash, curl, node, python, or a shell command.',
+  'If an OpenTasks tool is hidden or still pending, call `ToolSearch` with one exact select query such as `select:mcp__opentasks__get_task`, then call the returned native tool directly.',
+  'After ToolSearch returns a tool reference, the next tool call should be the native `mcp__opentasks__...` tool, not Bash or Read.',
+  'Do not insert Bash status commands such as echo, printf, or logging between ToolSearch and the native OpenTasks tool call.',
+  'Do not combine multiple select queries with commas. Do not delegate OpenTasks reads to a subagent. Do not test OpenTasks by echoing tool names or simulating MCP calls in Bash.',
   '',
   'Minimal TAC graph protocol:',
   '',
-  '1. Inspect the graph once near the start with `mcp__opentasks__list_tasks`.',
-  '2. If a seeded TAC task exists, call `mcp__opentasks__get_task` on that task id and read the full `content` before acting; list output may be only a short title.',
-  '3. Use that seeded task id. Do not create a duplicate top-level task.',
-  '4. If no seeded task exists, create one top-level task with `mcp__opentasks__create_task` and `status: "open"`.',
-  '5. Use Bash, curl, git, python, and service APIs for the TAC work itself.',
-  '6. At the end, record the final outcome and concrete verification evidence with `mcp__opentasks__record_attempt` or `mcp__opentasks__update_task`.',
+  '1. If the prompt gives a seeded TAC task id, call `mcp__opentasks__get_task` on that exact id and read the full `content` before task-specific Bash, curl, git, python, or service API work.',
+  '2. Do not read `/instruction/task.md` before the seeded `get_task` call unless `get_task` is unavailable after one exact ToolSearch attempt.',
+  '3. If no seeded id is given, inspect the graph once near the start with `mcp__opentasks__list_tasks`, then call `mcp__opentasks__get_task` for the relevant task.',
+  '4. Use that seeded task id. Do not create a duplicate top-level task.',
+  '5. If no seeded task exists, create one top-level task with `mcp__opentasks__create_task` and `status: "open"`.',
+  '6. Use Bash, curl, git, python, and service APIs for the TAC work itself.',
+  '7. At the end, record the final outcome and concrete verification evidence with `mcp__opentasks__record_attempt` or `mcp__opentasks__update_task`.',
   '',
   'Efficiency rules:',
   '',
@@ -636,7 +641,9 @@ export class TacDockerAdapter implements ExecutionAdapter {
       const observedOpenTasksToolUse = hasOpenTasksMcpCall(parsed.trajectory) || hasOpenTasksMcpCall(opentasksPreludeTrajectory);
       const mcpServersConnected = Math.max(explicitOpenTasksServerConnections, observedOpenTasksToolUse ? 1 : 0);
       const mainReadGraph = mcpServersConnected > 0 || mainGraphInspected === 1;
-      const efficiencyMetrics = traceEfficiencyMetrics(parsed.trajectory);
+      const efficiencyMetrics = traceEfficiencyMetrics(parsed.trajectory, {
+        seededTaskId: opentasksGraphSeedReport?.taskId,
+      });
       const score = scoreFromTacResult(resultJson, {
         readGraph: mainReadGraph ? 1 : 0,
         seededGraphInitialized,
@@ -907,6 +914,9 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '                    else:',
       '                        usage = obj.get("usage") or {}',
       '                        final_total = num(usage.get("input_tokens")) + num(usage.get("output_tokens")) + num(usage.get("cache_read_input_tokens")) + num(usage.get("cache_creation_input_tokens"))',
+      '                elif obj.get("type") == "message_stop":',
+      '                    usage = obj.get("usage") or {}',
+      '                    final_total = num(usage.get("inputTokens", usage.get("input_tokens"))) + num(usage.get("outputTokens", usage.get("output_tokens"))) + num(usage.get("cacheReadInputTokens", usage.get("cache_read_input_tokens"))) + num(usage.get("cacheCreationInputTokens", usage.get("cache_creation_input_tokens")))',
       '    except FileNotFoundError:',
       '        return 0',
       '    return int(final_total if final_total is not None else total)',
@@ -957,11 +967,16 @@ export class TacDockerAdapter implements ExecutionAdapter {
       'OpenTasks graph has been deterministically seeded for this TAC run.',
       'Use the opentasks skill for the minimal TAC graph protocol.',
       'Required OpenTasks protocol before task-specific Bash exploration:',
-      '1. If OpenTasks tools are hidden or pending, use ToolSearch with select:mcp__opentasks__list_tasks and select:mcp__opentasks__record_attempt.',
-      '2. Call native mcp__opentasks__list_tasks once and find the seeded task.',
-      `3. Use seeded task id ${seedReport.taskId} for OpenTasks updates. Do not create a duplicate top-level task unless this seeded task is missing.`,
-      '4. Use Bash, curl, git, python, and service APIs for the TAC work itself.',
-      '5. After verified success or failure, record one final outcome and concrete verification evidence with mcp__opentasks__record_attempt or mcp__opentasks__update_task.',
+      `1. Call native mcp__opentasks__get_task with seeded task id ${seedReport.taskId} and read the full content before any task-specific Bash, curl, git, python, or service API work.`,
+      '2. If the native get_task tool is hidden or pending, call ToolSearch with query select:mcp__opentasks__get_task, then call the returned native tool directly.',
+      '3. After ToolSearch returns mcp__opentasks__get_task, the next tool call should be mcp__opentasks__get_task with the seeded id.',
+      '4. Do not insert Bash status commands such as echo, printf, or logging between ToolSearch and this get_task call.',
+      '5. Do not read /instruction/task.md before this get_task call unless get_task is unavailable after one exact ToolSearch attempt.',
+      '6. Do not run mcp__opentasks__get_task in Bash, Python, or node; do not fetch OpenTasks over curl; do not ask a subagent to do this read.',
+      '7. Use mcp__opentasks__list_tasks only as a fallback if the seeded id is missing or get_task reports not found.',
+      `8. Use seeded task id ${seedReport.taskId} for OpenTasks updates. Do not create a duplicate top-level task unless this seeded task is missing.`,
+      '9. Use Bash, curl, git, python, and service APIs for the TAC work itself.',
+      '10. After verified success or failure, record one final outcome and concrete verification evidence with mcp__opentasks__record_attempt or mcp__opentasks__update_task.',
       'Only add a mid-task OpenTasks update for a material blocker, changed target, or important verification result.',
       'Do not create subtasks for simple single-action TAC tasks. Stop updating the graph after verified success.',
       'Do not echo, shell out, or simulate mcp__opentasks__ tool names.',
@@ -1020,9 +1035,22 @@ export class TacDockerAdapter implements ExecutionAdapter {
       'import urllib.parse',
       'import urllib.request',
       '',
-      'USAGE = "usage: tac-gitlab-api METHOD PATH [JSON_BODY]"',
+      'USAGE = """usage: tac-gitlab-api METHOD PATH [JSON_BODY]',
+      '',
+      'Examples:',
+      '  tac-gitlab-api GET projects/root/repo',
+      '  tac-gitlab-api GET projects/root/repo/repository/branches/main',
+      '  tac-gitlab-api DELETE projects/root/repo/repository/branches/feature/old',
+      '  tac-gitlab-api POST projects/root/repo/issues \'{"title":"Done"}\'',
+      '',
+      'PATH may be a full URL, an /api/v4 path, or shorthand such as projects/root/repo.',
+      'The helper adds PRIVATE-TOKEN, redacts root-token, caps output, and encodes common GitLab project paths.',
+      '"""',
       '',
       'def main():',
+      '    if len(sys.argv) == 2 and sys.argv[1] in {"-h", "--help", "help"}:',
+      '        print(USAGE)',
+      '        return 0',
       '    if len(sys.argv) < 3:',
       '        print(USAGE, file=sys.stderr)',
       '        return 2',
@@ -1038,7 +1066,8 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '    else:',
       '        if not path.startswith("/"):',
       '            path = "/" + path',
-      '        path = normalize_api_path(path)',
+      '        path, sep, query = path.partition("?")',
+      '        path = normalize_api_path(path) + ((sep + query) if sep else "")',
       '        url = base_url + path',
       '',
       '    data = None',
@@ -1108,17 +1137,99 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '        "users",',
       '    }',
       '    if first in api_roots:',
+      '        if first == "projects":',
+      '            path = normalize_projects_path(path)',
       '        return "/api/v4" + path',
       '    return path',
       '',
+      'PROJECT_SUBRESOURCES = {',
+      '    "access_tokens", "approvals", "archive", "badges", "branches", "clusters", "commits",',
+      '    "deploy_keys", "deploy_tokens", "environments", "events", "export", "fork", "hooks",',
+      '    "issues", "jobs", "labels", "languages", "members", "merge_requests", "milestones",',
+      '    "packages", "pages", "pipeline", "pipelines", "protected_branches", "releases",',
+      '    "repository", "runners", "search", "services", "share", "snippets", "starrers",',
+      '    "statuses", "tags", "triggers", "uploads", "variables", "wikis",',
+      '}',
+      '',
+      'def normalize_projects_path(path):',
+      '    parts = path.strip("/").split("/")',
+      '    if len(parts) < 2 or parts[0] != "projects":',
+      '        return path',
+      '    project = parts[1]',
+      '    if project.isdigit() or "%" in project:',
+      '        suffix = normalize_project_suffix(parts[2:])',
+      '        return "/projects/" + project + ("/" + "/".join(suffix) if suffix else "")',
+      '    subresource_index = None',
+      '    for index in range(2, len(parts)):',
+      '        if parts[index] in PROJECT_SUBRESOURCES:',
+      '            subresource_index = index',
+      '            break',
+      '    project_parts = parts[1:subresource_index] if subresource_index is not None else parts[1:]',
+      '    suffix = parts[subresource_index:] if subresource_index is not None else []',
+      '    encoded_project = urllib.parse.quote("/".join(project_parts), safe="")',
+      '    suffix = normalize_project_suffix(suffix)',
+      '    return "/projects/" + encoded_project + ("/" + "/".join(suffix) if suffix else "")',
+      '',
+      'def normalize_project_suffix(suffix):',
+      '    if len(suffix) > 3 and suffix[0] == "repository" and suffix[1] == "files" and suffix[-1] == "raw":',
+      '        return suffix[:2] + [quote_path_tail(suffix[2:-1]), "raw"]',
+      '    if len(suffix) > 2 and suffix[0] == "repository" and suffix[1] in {"branches", "files", "tags"}:',
+      '        return suffix[:2] + [quote_path_tail(suffix[2:])]',
+      '    if len(suffix) > 1 and suffix[0] in {"protected_branches", "wikis"}:',
+      '        return suffix[:1] + [quote_path_tail(suffix[1:])]',
+      '    return suffix',
+      '',
+      'def quote_path_tail(parts):',
+      '    # Agents often retry with an already-encoded branch/wiki slug. Decode once',
+      '    # before quoting so feature%2Fssl stays feature%2Fssl, not feature%252Fssl.',
+      '    return urllib.parse.quote(urllib.parse.unquote("/".join(parts)), safe="")',
+      '',
       'if __name__ == "__main__":',
       '    raise SystemExit(main())',
+    ].join('\n');
+    const protectedBranchHelper = [
+      '#!/usr/bin/env bash',
+      'set -euo pipefail',
+      'usage() {',
+      '  cat >&2 <<\'EOF\'',
+      'usage: tac-gitlab-protect-branch PROJECT BRANCH PUSH_LEVEL MERGE_LEVEL',
+      '',
+      'Examples:',
+      '  tac-gitlab-protect-branch root/repo main 0 30',
+      '  tac-gitlab-protect-branch projects/root/repo main 0 40',
+      '',
+      'Access levels: 0 no one, 30 developers, 40 maintainers.',
+      'This helper delete/recreates a GitLab protected branch and verifies the final state.',
+      'EOF',
+      '}',
+      'if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] || [ "$#" -ne 4 ]; then',
+      '  usage',
+      '  [ "$#" -eq 4 ] || exit 2',
+      'fi',
+      'project="$1"',
+      'branch="$2"',
+      'push_level="$3"',
+      'merge_level="$4"',
+      'project="${project#/api/v4/projects/}"',
+      'project="${project#api/v4/projects/}"',
+      'project="${project#/projects/}"',
+      'project="${project#projects/}"',
+      'case "$push_level" in ""|*[!0-9]*) echo "push level must be numeric" >&2; exit 2 ;; esac',
+      'case "$merge_level" in ""|*[!0-9]*) echo "merge level must be numeric" >&2; exit 2 ;; esac',
+      'delete_log="$(mktemp)"',
+      'tac-gitlab-api DELETE "projects/${project}/protected_branches/${branch}" >"$delete_log" 2>&1 || true',
+      'body="$(printf \'{"name":"%s","push_access_level":%s,"merge_access_level":%s}\' "$branch" "$push_level" "$merge_level")"',
+      'tac-gitlab-api POST "projects/${project}/protected_branches" "$body"',
+      'tac-gitlab-api GET "projects/${project}/protected_branches/${branch}"',
     ].join('\n');
     return [
       'set -e',
       `cat > /usr/local/bin/tac-gitlab-api <<'PY'\n${helper}\nPY`,
       'chmod +x /usr/local/bin/tac-gitlab-api',
+      `cat > /usr/local/bin/tac-gitlab-protect-branch <<'SH'\n${protectedBranchHelper}\nSH`,
+      'chmod +x /usr/local/bin/tac-gitlab-protect-branch',
       'command -v tac-gitlab-api >/dev/null',
+      'command -v tac-gitlab-protect-branch >/dev/null',
     ].join('\n');
   }
 
@@ -2050,21 +2161,37 @@ function hasOpenTasksMcpCall(trajectory: TraceEvent[], names?: string[]): boolea
   );
 }
 
-export function traceEfficiencyMetrics(trajectory: TraceEvent[]): Record<string, number> {
+function isTaskWorkTool(event: TraceEvent): boolean {
+  return event.type === 'tool' && event.name !== 'ToolSearch' && event.name !== 'Skill' && !event.name.startsWith(OPENTASKS_MCP_TOOL_PREFIX);
+}
+
+export function traceEfficiencyMetrics(
+  trajectory: TraceEvent[],
+  opts: { seededTaskId?: string } = {},
+): Record<string, number> {
   const toolEvents = trajectory.filter((event) => event.type === 'tool');
   const firstBashIndex = toolEvents.findIndex((event) => event.name === 'Bash');
   const lastBashIndex = findLastIndex(toolEvents, (event) => event.name === 'Bash');
+  const firstTaskWorkIndex = toolEvents.findIndex(isTaskWorkTool);
   const openTasksToolCallCounts: Record<string, number> = {};
   let mainBashCallCount = 0;
   let mainReadCallCount = 0;
   let mainToolSearchCallCount = 0;
+  let mainToolSearchMultiSelectCallCount = 0;
   let mainOpenTasksCallCount = 0;
   let mainOpenTasksListCallCount = 0;
+  let mainOpenTasksGetTaskCallCount = 0;
   let mainOpenTasksUpdateCallCount = 0;
   let openTasksCallsBeforeFirstBash = 0;
   let openTasksCallsAfterLastBash = 0;
+  let openTasksGetTaskCallsBeforeFirstBash = 0;
+  let openTasksGetTaskCallsBeforeFirstTaskWork = 0;
+  let seededTaskGetTaskCallCount = 0;
+  let seededTaskGetTaskBeforeFirstBashCallCount = 0;
+  let seededTaskGetTaskBeforeFirstTaskWorkCallCount = 0;
   let gitlabHelperCallCount = 0;
   let gitlabHelperApiShorthandCallCount = 0;
+  let gitlabProtectedBranchHelperCallCount = 0;
   let rawGitlabApiCurlCallCount = 0;
 
   toolEvents.forEach((event, index) => {
@@ -2075,15 +2202,33 @@ export function traceEfficiencyMetrics(trajectory: TraceEvent[]): Record<string,
         gitlabHelperCallCount += 1;
         if (isGitlabApiShorthandCommand(command)) gitlabHelperApiShorthandCallCount += 1;
       }
+      if (/\btac-gitlab-protect-branch\b/.test(command)) {
+        gitlabHelperCallCount += 1;
+        gitlabProtectedBranchHelperCallCount += 1;
+      }
       if (/\bcurl\b/.test(command) && /\/api\/v4\//.test(command)) rawGitlabApiCurlCallCount += 1;
     }
     if (event.name === 'Read') mainReadCallCount += 1;
-    if (event.name === 'ToolSearch') mainToolSearchCallCount += 1;
+    if (event.name === 'ToolSearch') {
+      mainToolSearchCallCount += 1;
+      const query = String((event.input as { query?: unknown } | undefined)?.query ?? '');
+      if (countOpenTasksSelectTargets(query) > 1) mainToolSearchMultiSelectCallCount += 1;
+    }
     if (event.name.startsWith(OPENTASKS_MCP_TOOL_PREFIX)) {
       const toolName = event.name.slice(OPENTASKS_MCP_TOOL_PREFIX.length);
       openTasksToolCallCounts[toolName] = (openTasksToolCallCounts[toolName] ?? 0) + 1;
       mainOpenTasksCallCount += 1;
       if (event.name === 'mcp__opentasks__list_tasks') mainOpenTasksListCallCount += 1;
+      if (event.name === 'mcp__opentasks__get_task') {
+        mainOpenTasksGetTaskCallCount += 1;
+        if (firstBashIndex < 0 || index < firstBashIndex) openTasksGetTaskCallsBeforeFirstBash += 1;
+        if (firstTaskWorkIndex < 0 || index < firstTaskWorkIndex) openTasksGetTaskCallsBeforeFirstTaskWork += 1;
+        if (opts.seededTaskId && String((event.input as { id?: unknown } | undefined)?.id ?? '') === opts.seededTaskId) {
+          seededTaskGetTaskCallCount += 1;
+          if (firstBashIndex < 0 || index < firstBashIndex) seededTaskGetTaskBeforeFirstBashCallCount += 1;
+          if (firstTaskWorkIndex < 0 || index < firstTaskWorkIndex) seededTaskGetTaskBeforeFirstTaskWorkCallCount += 1;
+        }
+      }
       if (event.name === 'mcp__opentasks__record_attempt' || event.name === 'mcp__opentasks__update_task') {
         mainOpenTasksUpdateCallCount += 1;
       }
@@ -2098,23 +2243,44 @@ export function traceEfficiencyMetrics(trajectory: TraceEvent[]): Record<string,
       count,
     ]),
   );
+  const seededTaskMetrics = opts.seededTaskId
+    ? {
+        seededTaskGetTaskCallCount,
+        seededTaskGetTaskBeforeFirstBashCallCount,
+        seededTaskFullContentReadBeforeFirstBash: seededTaskGetTaskBeforeFirstBashCallCount > 0 ? 1 : 0,
+        seededTaskGetTaskBeforeFirstTaskWorkCallCount,
+        seededTaskFullContentReadBeforeFirstTaskWork: seededTaskGetTaskBeforeFirstTaskWorkCallCount > 0 ? 1 : 0,
+      }
+    : {};
 
   return {
     mainToolCallCount: toolEvents.length,
     mainBashCallCount,
     mainReadCallCount,
     mainToolSearchCallCount,
+    mainToolSearchMultiSelectCallCount,
     mainOpenTasksCallCount,
     mainOpenTasksListCallCount,
+    mainOpenTasksGetTaskCallCount,
     mainOpenTasksUpdateCallCount,
     openTasksCallsBeforeFirstBash,
     openTasksCallsAfterLastBash,
+    openTasksGetTaskCallsBeforeFirstBash,
+    mainFullTaskContentReadBeforeFirstBash: openTasksGetTaskCallsBeforeFirstBash > 0 ? 1 : 0,
+    openTasksGetTaskCallsBeforeFirstTaskWork,
+    mainFullTaskContentReadBeforeFirstTaskWork: openTasksGetTaskCallsBeforeFirstTaskWork > 0 ? 1 : 0,
+    ...seededTaskMetrics,
     mainOpenTasksDistinctToolCount: Object.keys(openTasksToolCallCounts).length,
     ...perOpenTasksToolMetrics,
     gitlabHelperCallCount,
     gitlabHelperApiShorthandCallCount,
+    gitlabProtectedBranchHelperCallCount,
     rawGitlabApiCurlCallCount,
   };
+}
+
+function countOpenTasksSelectTargets(query: string): number {
+  return query.match(/select:mcp__opentasks__[A-Za-z0-9_:-]*/g)?.length ?? 0;
 }
 
 function metricNamePart(name: string): string {

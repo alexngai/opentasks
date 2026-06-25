@@ -32,10 +32,13 @@ const OPENTASKS: EvalArm = {
   label: 'OpenTasks MCP',
   systemPromptAppendix:
     'You have an OpenTasks MCP server (native tools prefixed mcp__opentasks__) and a project skill named opentasks. ' +
-    'Use the opentasks skill for the minimal TAC graph protocol. Use native MCP tools only; do not invoke ' +
-    'mcp__opentasks__ tool names as shell commands. If tools are hidden or pending, use ToolSearch with ' +
-    'select:mcp__opentasks__list_tasks or select:mcp__opentasks__record_attempt, then call the returned native tool. ' +
-    'Inspect the seeded task once near the start, use Bash/curl/git/service APIs for the TAC work, and record one final ' +
+    'Use the opentasks skill for the minimal TAC graph protocol. If a seeded TAC task id is given, call native ' +
+    'mcp__opentasks__get_task on that id before task-specific Bash/curl/git/service API work. Use native MCP tools ' +
+    'only; do not invoke mcp__opentasks__ tool names as shell commands, Python subprocesses, or curl requests. If tools ' +
+    'are hidden or pending, use ToolSearch with exactly one query, select:mcp__opentasks__get_task, then call the returned native tool. ' +
+    'Do not combine multiple select queries with commas or search for update/record tools before the initial get_task call. ' +
+    'Do not insert Bash status commands such as echo, printf, or logging between ToolSearch and the native OpenTasks call. ' +
+    'Use Bash/curl/git/service APIs for the TAC work itself, and record one final ' +
     'outcome/evidence update after verification. Create no duplicate top-level task when a seeded TAC task already exists.',
   extraTools: [
     'Skill',

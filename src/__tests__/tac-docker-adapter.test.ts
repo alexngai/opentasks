@@ -41,6 +41,9 @@ describe('TAC Docker adapter prompt', () => {
     expect(prompt).toContain('Do not brute-force credentials');
     expect(prompt).toContain('PRIVATE-TOKEN: root-token');
     expect(prompt).toContain('tac-gitlab-api METHOD PATH [JSON_BODY]');
+    expect(prompt).toContain('prefer the installed helper `tac-gitlab-api METHOD PATH [JSON_BODY]` instead of raw curl');
+    expect(prompt).toContain('tac-gitlab-api DELETE projects/root/repo/repository/branches/feature/old');
+    expect(prompt).toContain('tac-gitlab-protect-branch root/repo main PUSH_LEVEL MERGE_LEVEL');
     expect(prompt).toContain('head -c 4000');
     expect(prompt).toContain('keep generated content tightly grounded in the requested source material');
     expect(prompt).toContain('stop. Do not continue with extra inspection');
@@ -145,6 +148,75 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(command).toContain("--mcp-config '/eval/.tac/cell/mcp.json'");
   });
 
+  it('builds TAC agent commands for swarm-harness with a staged MCP config', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+      agentHarnessId: 'swarm-harness',
+    }) as unknown as {
+      agentCommand: (cell: { arm: ReturnType<typeof tacArms>[number]; model: { name: string } }, runDir: string) => string;
+      agentSetup: () => string;
+    };
+
+    const command = adapter.agentCommand({ arm: tacArms(['stock'])[0], model: { name: 'haiku' } }, '.tac/cell');
+
+    expect(adapter.agentSetup()).toBe('npm install -g swarm-harness');
+    expect(command).toContain('mkdir -p .swarm-harness');
+    expect(command).toContain("cp '/eval/.tac/cell/mcp.json' .swarm-harness/mcp.json");
+    expect(command).toContain('swarm-harness --single --headless --output-format json');
+    expect(command).toContain("--model 'haiku'");
+    expect(command).toContain('--permission-mode danger-full-access');
+    expect(command).toContain('"$(cat \'/eval/.tac/cell/prompt.txt\')"');
+    expect(command).not.toContain('--mcp-config');
+  });
+
+  it('prepends TAC system prompt appendices for swarm-harness commands', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+      agentHarnessId: 'swarm-harness',
+    }) as unknown as {
+      agentCommand: (cell: { arm: ReturnType<typeof tacArms>[number]; model: { name: string } }, runDir: string) => string;
+    };
+
+    const [arm] = tacArms(['stock']);
+    arm.scaffold.systemPromptAppendix = 'system guidance';
+    const command = adapter.agentCommand({ arm, model: { name: 'haiku' } }, '.tac/cell');
+
+    expect(command).toContain(
+      "{ cat '/eval/.tac/cell/system.txt'; printf '\\n\\n'; cat '/eval/.tac/cell/prompt.txt'; } > '/eval/.tac/cell/swarm-harness-prompt.txt'",
+    );
+    expect(command).toContain('"$(cat \'/eval/.tac/cell/swarm-harness-prompt.txt\')"');
+  });
+
+  it('parses swarm-harness JSONL streams through the TAC harness seam', () => {
+    const parsed = tacAgentHarnessFromId('swarm').parse(
+      [
+        JSON.stringify({ type: 'text_delta', text: 'done' }),
+        JSON.stringify({ type: 'tool_use_start', name: 'Bash' }),
+        JSON.stringify({
+          type: 'message_stop',
+          usage: { inputTokens: 5, outputTokens: 3, cacheReadInputTokens: 2 },
+        }),
+      ].join('\n'),
+      'haiku',
+    );
+
+    expect(parsed.output).toBe('done');
+    expect(parsed.sawResult).toBe(true);
+    expect(parsed.isError).toBe(false);
+    expect(parsed.usage).toMatchObject({ inputTokens: 5, outputTokens: 3, cacheReadTokens: 2, totalTokens: 10 });
+    expect(parsed.trajectory).toEqual([expect.objectContaining({ type: 'tool', name: 'Bash' })]);
+  });
+
   it('allows TAC tests and future adapters to inject a different agent harness', () => {
     const fakeHarness: TacAgentHarness = {
       id: 'fake-agent',
@@ -216,11 +288,23 @@ describe('TAC OpenTasks MCP setup', () => {
     const command = adapter.tacAgentHelperInstallCommand();
 
     expect(command).toContain('/usr/local/bin/tac-gitlab-api');
+    expect(command).toContain('/usr/local/bin/tac-gitlab-protect-branch');
     expect(command).toContain('PRIVATE-TOKEN');
     expect(command).toContain('TAC_HELPER_MAX_OUTPUT_BYTES');
     expect(command).toContain('[truncated by tac-gitlab-api');
     expect(command).toContain('[REDACTED_TAC_GITLAB_TOKEN]');
     expect(command).toContain('def normalize_api_path');
+    expect(command).toContain('def normalize_projects_path');
+    expect(command).toContain('def normalize_project_suffix');
+    expect(command).toContain('def quote_path_tail');
+    expect(command).toContain('path, sep, query = path.partition("?")');
+    expect(command).toContain('suffix[-1] == "raw"');
+    expect(command).toContain('urllib.parse.quote("/".join(project_parts), safe="")');
+    expect(command).toContain('urllib.parse.quote(urllib.parse.unquote("/".join(parts)), safe="")');
+    expect(command).toContain('tac-gitlab-api DELETE projects/root/repo/repository/branches/feature/old');
+    expect(command).toContain('usage: tac-gitlab-protect-branch PROJECT BRANCH PUSH_LEVEL MERGE_LEVEL');
+    expect(command).toContain('tac-gitlab-api DELETE "projects/${project}/protected_branches/${branch}"');
+    expect(command).toContain('tac-gitlab-api POST "projects/${project}/protected_branches" "$body"');
     expect(command).toContain('"/api/v4" + path');
     expect(command).toContain('"projects"');
   });
@@ -398,10 +482,27 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(OPENTASKS_TAC_SKILL).toContain('mcp__opentasks__get_task');
     expect(OPENTASKS_TAC_SKILL).toContain('ToolSearch');
     expect(OPENTASKS_TAC_SKILL).toContain('Never run those tool names in Bash');
+    expect(OPENTASKS_TAC_SKILL).toContain('the next tool call should be the native');
+    expect(OPENTASKS_TAC_SKILL).toContain('Do not insert Bash status commands such as echo');
+    expect(OPENTASKS_TAC_SKILL).toContain('Do not delegate OpenTasks reads to a subagent');
     expect(OPENTASKS_TAC_SKILL).toContain('Minimal TAC graph protocol');
-    expect(OPENTASKS_TAC_SKILL).toContain('read the full `content` before acting');
+    expect(OPENTASKS_TAC_SKILL).toContain('read the full `content` before task-specific Bash');
+    expect(OPENTASKS_TAC_SKILL).toContain('Do not read `/instruction/task.md` before the seeded `get_task` call');
     expect(OPENTASKS_TAC_SKILL).toContain('Do not create a duplicate top-level task');
     expect(OPENTASKS_TAC_SKILL).toContain('Do not create subtasks for simple single-action TAC tasks');
+  });
+
+  it('keeps the OpenTasks arm appendix aligned with the seeded get_task-first protocol', () => {
+    const [arm] = tacArms(['opentasks']);
+    const appendix = arm.scaffold.systemPromptAppendix ?? '';
+
+    expect(appendix).toContain('mcp__opentasks__get_task');
+    expect(appendix).toContain('before task-specific Bash/curl/git/service API work');
+    expect(appendix).toContain('exactly one query, select:mcp__opentasks__get_task');
+    expect(appendix).toContain('Do not combine multiple select queries with commas');
+    expect(appendix).toContain('do not invoke mcp__opentasks__ tool names as shell commands');
+    expect(appendix).toContain('Do not insert Bash status commands such as echo');
+    expect(appendix).not.toContain('select:mcp__opentasks__list_tasks or select:mcp__opentasks__record_attempt');
   });
 
   it('builds a deterministic OpenTasks graph seed command from the TAC task file', () => {
@@ -461,7 +562,16 @@ describe('TAC OpenTasks MCP setup', () => {
 
     expect(prompt).toContain('deterministically seeded');
     expect(prompt).toContain('Use the opentasks skill');
-    expect(prompt).toContain('Call native mcp__opentasks__list_tasks once');
+    expect(prompt).toContain('select:mcp__opentasks__get_task');
+    expect(prompt).toContain('Call native mcp__opentasks__get_task with seeded task id t-seed1');
+    expect(prompt).toContain('read the full content before any task-specific Bash');
+    expect(prompt).toContain('the next tool call should be mcp__opentasks__get_task');
+    expect(prompt).toContain('Do not insert Bash status commands such as echo');
+    expect(prompt).toContain('Do not read /instruction/task.md before this get_task call');
+    expect(prompt).toContain('Do not run mcp__opentasks__get_task in Bash');
+    expect(prompt).toContain('do not fetch OpenTasks over curl');
+    expect(prompt).toContain('do not ask a subagent');
+    expect(prompt).toContain('Use mcp__opentasks__list_tasks only as a fallback');
     expect(prompt).toContain('Use seeded task id t-seed1');
     expect(prompt).toContain('Do not create a duplicate top-level task');
     expect(prompt).toContain('record one final outcome');
@@ -857,7 +967,12 @@ describe('TAC adapter guardrail diagnostics', () => {
   it('extracts trace efficiency metrics for graph and service-call overhead', () => {
     const metrics = traceEfficiencyMetrics([
       { type: 'tool', ts: 0, name: 'Read', input: {} },
-      { type: 'tool', ts: 1, name: 'ToolSearch', input: {} },
+      {
+        type: 'tool',
+        ts: 1,
+        name: 'ToolSearch',
+        input: { query: 'select:mcp__opentasks__get_task,select:mcp__opentasks__record_attempt' },
+      },
       { type: 'tool', ts: 2, name: 'mcp__opentasks__list_tasks', input: {} },
       { type: 'tool', ts: 2.5, name: 'mcp__opentasks__get_task', input: { id: 't-1' } },
       {
@@ -870,28 +985,99 @@ describe('TAC adapter guardrail diagnostics', () => {
         type: 'tool',
         ts: 4,
         name: 'Bash',
+        input: { command: 'tac-gitlab-protect-branch root/sotopia main 0 30' },
+      },
+      {
+        type: 'tool',
+        ts: 5,
+        name: 'Bash',
         input: { command: 'curl -s http://the-agent-company.com:8929/api/v4/projects/root%2FOpenSearch' },
       },
-      { type: 'tool', ts: 5, name: 'mcp__opentasks__record_attempt', input: {} },
-    ]);
+      { type: 'tool', ts: 6, name: 'mcp__opentasks__record_attempt', input: {} },
+    ], { seededTaskId: 't-1' });
 
     expect(metrics).toMatchObject({
-      mainToolCallCount: 7,
-      mainBashCallCount: 2,
+      mainToolCallCount: 8,
+      mainBashCallCount: 3,
       mainReadCallCount: 1,
       mainToolSearchCallCount: 1,
+      mainToolSearchMultiSelectCallCount: 1,
       mainOpenTasksCallCount: 3,
       mainOpenTasksListCallCount: 1,
+      mainOpenTasksGetTaskCallCount: 1,
       mainOpenTasksUpdateCallCount: 1,
       openTasksCallsBeforeFirstBash: 2,
       openTasksCallsAfterLastBash: 1,
+      openTasksGetTaskCallsBeforeFirstBash: 1,
+      mainFullTaskContentReadBeforeFirstBash: 1,
+      openTasksGetTaskCallsBeforeFirstTaskWork: 0,
+      mainFullTaskContentReadBeforeFirstTaskWork: 0,
+      seededTaskGetTaskCallCount: 1,
+      seededTaskGetTaskBeforeFirstBashCallCount: 1,
+      seededTaskFullContentReadBeforeFirstBash: 1,
+      seededTaskGetTaskBeforeFirstTaskWorkCallCount: 0,
+      seededTaskFullContentReadBeforeFirstTaskWork: 0,
       mainOpenTasksDistinctToolCount: 3,
       mainOpenTasksListTasksCallCount: 1,
-      mainOpenTasksGetTaskCallCount: 1,
       mainOpenTasksRecordAttemptCallCount: 1,
-      gitlabHelperCallCount: 1,
+      gitlabHelperCallCount: 2,
       gitlabHelperApiShorthandCallCount: 1,
+      gitlabProtectedBranchHelperCallCount: 1,
       rawGitlabApiCurlCallCount: 1,
+    });
+  });
+
+  it('does not count full task content as pre-action when get_task happens after Bash', () => {
+    const metrics = traceEfficiencyMetrics(
+      [
+        { type: 'tool', ts: 0, name: 'mcp__opentasks__list_tasks', input: {} },
+        { type: 'tool', ts: 1, name: 'Bash', input: { command: 'echo acting' } },
+        { type: 'tool', ts: 2, name: 'mcp__opentasks__get_task', input: { id: 't-1' } },
+      ],
+      { seededTaskId: 't-1' },
+    );
+
+    expect(metrics).toMatchObject({
+      mainOpenTasksGetTaskCallCount: 1,
+      openTasksGetTaskCallsBeforeFirstBash: 0,
+      mainFullTaskContentReadBeforeFirstBash: 0,
+      openTasksGetTaskCallsBeforeFirstTaskWork: 0,
+      mainFullTaskContentReadBeforeFirstTaskWork: 0,
+      seededTaskGetTaskCallCount: 1,
+      seededTaskGetTaskBeforeFirstBashCallCount: 0,
+      seededTaskFullContentReadBeforeFirstBash: 0,
+      seededTaskGetTaskBeforeFirstTaskWorkCallCount: 0,
+      seededTaskFullContentReadBeforeFirstTaskWork: 0,
+    });
+  });
+
+  it('counts full task content before task work only when get_task precedes Read Bash and delegation', () => {
+    const compliant = traceEfficiencyMetrics(
+      [
+        { type: 'tool', ts: 0, name: 'ToolSearch', input: {} },
+        { type: 'tool', ts: 1, name: 'mcp__opentasks__get_task', input: { id: 't-1' } },
+        { type: 'tool', ts: 2, name: 'Read', input: { file_path: '/instruction/task.md' } },
+        { type: 'tool', ts: 3, name: 'Bash', input: { command: 'echo acting' } },
+      ],
+      { seededTaskId: 't-1' },
+    );
+    const delegatedFirst = traceEfficiencyMetrics(
+      [
+        { type: 'tool', ts: 0, name: 'ToolSearch', input: {} },
+        { type: 'tool', ts: 1, name: 'Agent', input: { prompt: 'inspect task' } },
+        { type: 'tool', ts: 2, name: 'mcp__opentasks__get_task', input: { id: 't-1' } },
+        { type: 'tool', ts: 3, name: 'Bash', input: { command: 'echo acting' } },
+      ],
+      { seededTaskId: 't-1' },
+    );
+
+    expect(compliant).toMatchObject({
+      seededTaskFullContentReadBeforeFirstBash: 1,
+      seededTaskFullContentReadBeforeFirstTaskWork: 1,
+    });
+    expect(delegatedFirst).toMatchObject({
+      seededTaskFullContentReadBeforeFirstBash: 1,
+      seededTaskFullContentReadBeforeFirstTaskWork: 0,
     });
   });
 

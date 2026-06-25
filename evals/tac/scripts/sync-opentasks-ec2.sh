@@ -32,6 +32,14 @@ rsync -az -e "$rsync_ssh" \
   evals/tac/scripts/check-opentasks-mcp.mjs \
   evals/tac/scripts/start-litellm-bedrock-proxy.sh \
   "ubuntu@$host:$remote_dir/evals/tac/scripts/"
+if [[ -n "${TAC_SWARM_HARNESS_TARBALL:-}" ]]; then
+  if [[ ! -f "$TAC_SWARM_HARNESS_TARBALL" ]]; then
+    echo "TAC_SWARM_HARNESS_TARBALL does not exist: $TAC_SWARM_HARNESS_TARBALL" >&2
+    exit 2
+  fi
+  "${ssh_base[@]}" "mkdir -p '$remote_dir/evals/tac/artifacts'"
+  rsync -az -e "$rsync_ssh" "$TAC_SWARM_HARNESS_TARBALL" "ubuntu@$host:$remote_dir/evals/tac/artifacts/swarm-harness.tgz"
+fi
 rsync -az -e "$rsync_ssh" "$runtime_pkg" "ubuntu@$host:$remote_dir/package.json"
 rm -f "$runtime_pkg"
 
