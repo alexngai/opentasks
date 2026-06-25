@@ -242,6 +242,7 @@ describe('TAC OpenTasks MCP setup', () => {
         JSON.stringify({ type: 'tool_use_input', id: 't1', jsonDelta: '{"command":' }),
         JSON.stringify({ type: 'tool_use_input', id: 't1', jsonDelta: '"tac-gitlab-api GET /projects"}' }),
         JSON.stringify({ type: 'tool_use_end', id: 't1' }),
+        JSON.stringify({ type: 'tool_result', toolUseId: 't1', content: 'command failed once', isError: true }),
         JSON.stringify({ type: 'tool_use_start', id: 't2', name: 'read_file' }),
         JSON.stringify({ type: 'tool_use_end', id: 't2', input: { path: '/instruction/task.md' } }),
         JSON.stringify({

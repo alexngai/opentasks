@@ -173,10 +173,7 @@ export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
       }
       continue;
     }
-    if (obj.type === 'tool_result') {
-      if (obj.isError === true) isError = true;
-      continue;
-    }
+    if (obj.type === 'tool_result') continue;
     if (obj.type === 'error') {
       isError = true;
       continue;
