@@ -90,13 +90,14 @@ Real-run configuration:
 | `TAC_DOCKER_COMMAND` | Docker command prefix, e.g. `sudo docker` on E2B |
 | `TAC_SERVER_HOSTNAME` | Service hostname passed to TAC init, default `the-agent-company.com` |
 | `TAC_AGENT_HARNESS` / `TAC_AGENT_RUNTIME` | Agent harness selected for TAC task containers. Supported runtimes: `claude-code` (default) and `swarm-harness` |
-| `TAC_AGENT_SETUP_CMD` | Optional command run inside each task container before the selected agent harness. Overrides the harness default install command, useful for testing a local or unpublished harness build |
+| `TAC_SWARM_HARNESS_VERSION` | npm version used by the default `swarm-harness` setup command, default `0.3.4` |
+| `TAC_AGENT_SETUP_CMD` | Optional command run inside each task container before the selected agent harness. Overrides the default Node/harness/user setup, useful for testing a local or unpublished harness build |
 | `TAC_AGENT_USER` | Optional non-root user for the agent phase |
 | `TAC_OPENTASKS_MOUNT` | Local/remote OpenTasks checkout mounted only for the `opentasks` arm |
 | `TAC_OPENTASKS_CONTAINER_DIR` | Container path for that mount, default `/opentasks` |
-| `TAC_OPENTASKS_MCP_PREFLIGHT` | Set `0` to skip the OpenTasks MCP list/call preflight before Claude |
-| `TAC_OPENTASKS_CLAUDE_MCP_SMOKE` | Set `0` to skip the tiny Claude-specific OpenTasks MCP registration smoke |
-| `TAC_OPENTASKS_CLAUDE_MCP_SMOKE_FAIL_FAST` | Set `0` to continue the TAC task even when the Claude MCP smoke fails |
+| `TAC_OPENTASKS_MCP_PREFLIGHT` | Set `0` to skip the OpenTasks MCP list/call preflight before the agent |
+| `TAC_OPENTASKS_CLAUDE_MCP_SMOKE` | Set `0` to skip the tiny harness-level OpenTasks MCP smoke. Name retained for compatibility |
+| `TAC_OPENTASKS_CLAUDE_MCP_SMOKE_FAIL_FAST` | Set `0` to continue the TAC task even when the harness-level MCP smoke fails. Name retained for compatibility |
 | `TAC_OPENTASKS_GRAPH_SEED` | Set `0` to skip deterministic OpenTasks graph seeding from `/instruction/task.md`; default enabled for the OpenTasks arm when the LLM prelude is disabled |
 | `TAC_OPENTASKS_TASK_PRELUDE` | Set `1` to enable the optional LLM OpenTasks task-graph prelude before the main TAC agent. Default disabled for benchmark fairness |
 | `TAC_OPENTASKS_TASK_PRELUDE_FAIL_FAST` | Set `0` to continue the TAC task even when the optional task-graph prelude fails |
@@ -140,8 +141,11 @@ current `claude -p --output-format stream-json` behavior. The TAC adapter now ha
 an explicit harness seam (`evals/tac/agent-harness.ts`) so future runtimes can add
 their own install command, CLI invocation, output parser, and usage extraction
 without changing TAC task setup or grading. If the image does not include the
-selected harness, set `TAC_AGENT_SETUP_CMD` and `TAC_AGENT_USER`, or bake an
-image/template that installs the agent CLI and creates that user.
+selected harness, the default setup installs Node 22 when needed, installs the
+selected harness, creates `TAC_AGENT_USER` when set, and fixes `/workspace` and
+`/eval` ownership. Set `TAC_AGENT_SETUP_CMD` to override this path for local or
+unpublished harness builds, or bake an image/template that already provides the
+agent CLI and user.
 The `opentasks` arm also requires a built OpenTasks
 checkout (`dist/cli.js`) at `TAC_OPENTASKS_MOUNT`; for E2B this must be an
 absolute path inside the remote sandbox, which means baking or uploading the

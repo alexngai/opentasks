@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { tacSelectorFromEnv } from './bench.js';
 import { loadTacTasks, parseTaskList, selectTacTasks } from './tasks.js';
 import { defaultTacRoot } from './tasks.js';
-import { tacAgentHarnessInstallCommand } from './agent-harness.js';
+import { tacDefaultAgentSetupCommand } from './agent-harness.js';
 
 interface PoolWorker {
   id?: string;
@@ -706,16 +706,7 @@ async function runCommand(command: string, args: string[], opts: { required: boo
 
 function defaultAgentSetupCommand(): string {
   const harness = process.env.TAC_AGENT_HARNESS ?? process.env.TAC_AGENT_RUNTIME;
-  return [
-    'set -e',
-    'apt-get update',
-    'apt-get install -y curl ca-certificates gnupg git',
-    'curl -fsSL https://deb.nodesource.com/setup_22.x | bash -',
-    'apt-get install -y nodejs',
-    tacAgentHarnessInstallCommand(harness),
-    'id -u agent >/dev/null 2>&1 || useradd -m -s /bin/sh agent',
-    'chown -R agent:agent /workspace /eval',
-  ].join('; ');
+  return tacDefaultAgentSetupCommand(harness, process.env.TAC_AGENT_USER ?? 'agent');
 }
 
 function plannedShards(cells: PoolCell[], workers: PoolWorker[]): string[][] {

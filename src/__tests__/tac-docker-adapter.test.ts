@@ -164,7 +164,8 @@ describe('TAC OpenTasks MCP setup', () => {
 
     const command = adapter.agentCommand({ arm: tacArms(['stock'])[0], model: { name: 'haiku' } }, '.tac/cell');
 
-    expect(adapter.agentSetup()).toBe('npm install -g swarm-harness');
+    expect(adapter.agentSetup()).toContain('https://deb.nodesource.com/setup_22.x');
+    expect(adapter.agentSetup()).toContain('npm install -g swarm-harness@${TAC_SWARM_HARNESS_VERSION:-0.3.4}');
     expect(command).toContain('mkdir -p .swarm-harness');
     expect(command).toContain("cp '/eval/.tac/cell/mcp.json' .swarm-harness/mcp.json");
     expect(command).toContain('swarm-harness --single --headless --output-format json');
@@ -172,6 +173,24 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(command).toContain('--permission-mode danger-full-access');
     expect(command).toContain('"$(cat \'/eval/.tac/cell/prompt.txt\')"');
     expect(command).not.toContain('--mcp-config');
+  });
+
+  it('creates the configured agent user in the default setup command', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+      agentHarnessId: 'swarm-harness',
+      agentUser: 'agent',
+    }) as unknown as {
+      agentSetup: () => string;
+    };
+
+    expect(adapter.agentSetup()).toContain("id -u 'agent'");
+    expect(adapter.agentSetup()).toContain("chown -R 'agent':'agent' /workspace /eval");
   });
 
   it('prepends TAC system prompt appendices for swarm-harness commands', () => {
@@ -244,7 +263,8 @@ describe('TAC OpenTasks MCP setup', () => {
       agentSetup: () => string;
     };
 
-    expect(adapter.agentSetup()).toBe('install-fake-agent');
+    expect(adapter.agentSetup()).toContain('https://deb.nodesource.com/setup_22.x');
+    expect(adapter.agentSetup()).toContain('install-fake-agent');
     expect(adapter.agentCommand({ arm: tacArms(['stock'])[0], model: { name: 'gpt-test' } }, '.tac/cell')).toBe(
       'fake-agent --model gpt-test --prompt "$(cat /eval/.tac/cell/prompt.txt)" --dir .tac/cell',
     );
@@ -357,7 +377,7 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(config.mcpServers.opentasks.args.join(' ')).toContain('/workspace/.opentasks');
   });
 
-  it('reports a failed Claude MCP smoke when Claude leaves opentasks pending', () => {
+  it('reports a failed OpenTasks MCP smoke when Claude leaves opentasks pending', () => {
     const adapter = new TacDockerAdapter({
       timeoutMs: 1,
       initTimeoutMs: 1,
@@ -366,7 +386,7 @@ describe('TAC OpenTasks MCP setup', () => {
       network: 'host',
       decryptionKey: 'test',
     }) as unknown as {
-      claudeMcpSmokeReport: (
+      opentasksMcpSmokeReport: (
         cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; model: { name: string } } : never,
         agent: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean },
       ) => { ok: boolean; failureReason?: string; opentasksToolCount: number; skillNames: string[] };
@@ -382,7 +402,7 @@ describe('TAC OpenTasks MCP setup', () => {
       JSON.stringify({ type: 'result', is_error: false, result: 'done', usage: { input_tokens: 1, output_tokens: 1 } }),
     ].join('\n');
 
-    const report = adapter.claudeMcpSmokeReport(
+    const report = adapter.opentasksMcpSmokeReport(
       { arm: tacArms(['opentasks'])[0], model: { name: 'haiku' } },
       { exitCode: 0, stdout, stderr: '' },
     );
@@ -393,7 +413,7 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(report.skillNames).toContain('opentasks');
   });
 
-  it('reports a passed Claude MCP smoke when Claude exposes opentasks tools', () => {
+  it('reports a passed OpenTasks MCP smoke when Claude exposes opentasks tools', () => {
     const adapter = new TacDockerAdapter({
       timeoutMs: 1,
       initTimeoutMs: 1,
@@ -402,7 +422,7 @@ describe('TAC OpenTasks MCP setup', () => {
       network: 'host',
       decryptionKey: 'test',
     }) as unknown as {
-      claudeMcpSmokeReport: (
+      opentasksMcpSmokeReport: (
         cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; model: { name: string } } : never,
         agent: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean },
       ) => { ok: boolean; opentasksToolCount: number; usedNativeOpentasksTool: boolean };
@@ -424,7 +444,7 @@ describe('TAC OpenTasks MCP setup', () => {
       JSON.stringify({ type: 'result', is_error: false, result: 'done', usage: { input_tokens: 1, output_tokens: 1 } }),
     ].join('\n');
 
-    const report = adapter.claudeMcpSmokeReport(
+    const report = adapter.opentasksMcpSmokeReport(
       { arm: tacArms(['opentasks'])[0], model: { name: 'haiku' } },
       { exitCode: 0, stdout, stderr: '' },
     );
@@ -443,7 +463,7 @@ describe('TAC OpenTasks MCP setup', () => {
       network: 'host',
       decryptionKey: 'test',
     }) as unknown as {
-      claudeMcpSmokeReport: (
+      opentasksMcpSmokeReport: (
         cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; model: { name: string } } : never,
         agent: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean },
       ) => { ok: boolean; failureReason?: string; opentasksToolCount: number; usedNativeOpentasksTool: boolean };
@@ -465,7 +485,7 @@ describe('TAC OpenTasks MCP setup', () => {
       JSON.stringify({ type: 'result', is_error: false, result: 'done', usage: { input_tokens: 1, output_tokens: 1 } }),
     ].join('\n');
 
-    const report = adapter.claudeMcpSmokeReport(
+    const report = adapter.opentasksMcpSmokeReport(
       { arm: tacArms(['opentasks'])[0], model: { name: 'haiku' } },
       { exitCode: 0, stdout, stderr: '' },
     );
@@ -473,6 +493,42 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(report.ok).toBe(true);
     expect(report.failureReason).toBeUndefined();
     expect(report.opentasksToolCount).toBe(0);
+    expect(report.usedNativeOpentasksTool).toBe(true);
+  });
+
+  it('treats swarm-harness OpenTasks tool execution as a successful MCP smoke without Claude init metadata', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+      agentHarnessId: 'swarm-harness',
+    }) as unknown as {
+      opentasksMcpSmokeReport: (
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; model: { name: string } } : never,
+        agent: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean },
+      ) => { ok: boolean; harnessId: string; nativeCalls: string[]; opentasksToolCount: number; usedNativeOpentasksTool: boolean };
+    };
+    const stdout = [
+      JSON.stringify({ type: 'text_delta', text: 'Calling OpenTasks.' }),
+      JSON.stringify({ type: 'tool_use_start', id: 'toolu_1', name: 'mcp__opentasks__list_tasks' }),
+      JSON.stringify({ type: 'tool_use_input', id: 'toolu_1', jsonDelta: '{}' }),
+      JSON.stringify({ type: 'tool_use_end', id: 'toolu_1' }),
+      JSON.stringify({ type: 'tool_result', toolUseId: 'toolu_1', content: '{"items":[]}', isError: false }),
+      JSON.stringify({ type: 'message_stop', stopReason: 'end_turn', usage: { inputTokens: 2, outputTokens: 3 } }),
+    ].join('\n');
+
+    const report = adapter.opentasksMcpSmokeReport(
+      { arm: tacArms(['opentasks'])[0], model: { name: 'haiku' } },
+      { exitCode: 0, stdout, stderr: '' },
+    );
+
+    expect(report.ok).toBe(true);
+    expect(report.harnessId).toBe('swarm-harness');
+    expect(report.opentasksToolCount).toBe(0);
+    expect(report.nativeCalls).toEqual(['mcp__opentasks__list_tasks']);
     expect(report.usedNativeOpentasksTool).toBe(true);
   });
 

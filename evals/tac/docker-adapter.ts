@@ -15,6 +15,7 @@ import {
 import {
   TAC_BASE_TOOLS,
   tacAgentHarnessFromId,
+  tacDefaultAgentSetupCommand,
   type TacAgentHarness,
 } from './agent-harness.js';
 import { scoreFromTacResult, type TacResultJson } from './score.js';
@@ -35,12 +36,12 @@ export interface TacDockerAdapterOptions {
   network: string;
   dockerCommand?: string;
   env?: Record<string, string>;
-  /** Optional command run inside the TAC task container before invoking claude. */
+  /** Optional command run inside the TAC task container before invoking the selected agent harness. */
   agentSetupCommand?: string;
   /** Swappable agent runtime used inside the TAC task container. Defaults to claude-code. */
   agentHarness?: TacAgentHarness;
   agentHarnessId?: string;
-  /** Optional non-root user for the Claude CLI phase. Init/eval still run as root. */
+  /** Optional non-root user for the agent phase. Init/eval still run as root. */
   agentUser?: string;
   /** Mount local OpenTasks checkout for the opentasks arm. Local/EC2 path only. */
   opentasksMount?: string;
@@ -50,11 +51,11 @@ export interface TacDockerAdapterOptions {
   operatingPrompt?: string | false;
   /** Optional experiment-specific prompt text applied equally to all arms. */
   agentPromptAppendix?: string;
-  /** Verify the OpenTasks MCP server inside the TAC task container before invoking Claude. */
+  /** Verify the OpenTasks MCP server inside the TAC task container before invoking the agent. */
   opentasksMcpPreflight?: boolean;
-  /** Run a tiny Claude Code invocation to verify it registers the OpenTasks MCP tools. */
+  /** Run a tiny agent invocation to verify it can call native OpenTasks MCP tools. */
   opentasksClaudeMcpSmoke?: boolean;
-  /** Stop before the expensive TAC task if the Claude-specific MCP smoke fails. */
+  /** Stop before the expensive TAC task if the harness-level MCP smoke fails. */
   opentasksClaudeMcpSmokeFailFast?: boolean;
   /** Test Claude Code with/without --strict-mcp-config. Defaults to strict. */
   strictMcpConfig?: boolean;
@@ -394,7 +395,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
         }
 
         if (this.opts.opentasksClaudeMcpSmoke !== false) {
-          const smoke = await this.runInContainer(ws, container, this.claudeMcpSmokeCommand(cell, runDir), {
+          const smoke = await this.runInContainer(ws, container, this.opentasksMcpSmokeCommand(cell, runDir), {
             timeoutMs: Math.min(this.opts.initTimeoutMs, 180_000),
             cwd: '/workspace',
             env: this.agentEnv(cell),
@@ -405,19 +406,21 @@ export class TacDockerAdapter implements ExecutionAdapter {
             stdout: redactSensitiveText(smoke.stdout),
             stderr: redactSensitiveText(smoke.stderr),
           };
-          const smokeReport = this.claudeMcpSmokeReport(cell, sanitizedSmoke);
+          const smokeReport = this.opentasksMcpSmokeReport(cell, sanitizedSmoke);
           await ws.writeFiles([
+            { path: `${runDir}/opentasks-mcp-smoke.jsonl`, content: sanitizedSmoke.stdout },
+            { path: `${runDir}/opentasks-mcp-smoke-report.json`, content: `${JSON.stringify(smokeReport, null, 2)}\n` },
             { path: `${runDir}/claude-mcp-smoke.jsonl`, content: sanitizedSmoke.stdout },
             { path: `${runDir}/claude-mcp-smoke-report.json`, content: `${JSON.stringify(smokeReport, null, 2)}\n` },
           ]);
-          await writeLocalArtifact('claude-mcp-smoke.jsonl', sanitizedSmoke.stdout);
-          await writeLocalArtifact('claude-mcp-smoke-stderr.log', sanitizedSmoke.stderr);
-          await writeLocalArtifact('claude-mcp-smoke-report.json', `${JSON.stringify(smokeReport, null, 2)}\n`);
+          await writeLocalArtifact('opentasks-mcp-smoke.jsonl', sanitizedSmoke.stdout);
+          await writeLocalArtifact('opentasks-mcp-smoke-stderr.log', sanitizedSmoke.stderr);
+          await writeLocalArtifact('opentasks-mcp-smoke-report.json', `${JSON.stringify(smokeReport, null, 2)}\n`);
           await this.copyOpenTasksMcpWrapperLog(ws, runDir);
           if (smokeReport.ok !== true && this.opts.opentasksClaudeMcpSmokeFailFast !== false) {
             return envRaw(
               'crash',
-              `Claude OpenTasks MCP smoke failed: ${smokeReport.failureReason ?? 'unknown failure'}`,
+              `OpenTasks MCP smoke failed: ${smokeReport.failureReason ?? 'unknown failure'}`,
               start,
               smokeReport.usage ?? ZERO_USAGE,
               smokeReport.trajectory ?? [],
@@ -722,7 +725,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
     return this.withLiveTokenMonitor(command, runDir, remainingLiveTokenLimit(this.opts.liveTokenLimit, priorUsage));
   }
 
-  private claudeMcpSmokeCommand(cell: PublicCell, runDir: string): string {
+  private opentasksMcpSmokeCommand(cell: PublicCell, runDir: string): string {
     return this.agentCliCommand({
       cell,
       prompt: shq(
@@ -731,7 +734,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
           'Use the opentasks skill if available.',
           'If the OpenTasks tool is still pending or not visible, use ToolSearch with query select:mcp__opentasks__list_tasks.',
           'Call the native MCP tool mcp__opentasks__list_tasks once; do not echo or simulate the tool name in Bash.',
-          'Then answer exactly: claude opentasks mcp smoke complete',
+          'Then answer exactly: opentasks mcp smoke complete',
           'Do not solve the TAC task.',
         ].join(' '),
       ),
@@ -1022,7 +1025,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
   }
 
   private agentSetup(): string {
-    return this.opts.agentSetupCommand ?? this.agentHarness.setupCommand();
+    return this.opts.agentSetupCommand ?? tacDefaultAgentSetupCommand(this.agentHarness, this.opts.agentUser);
   }
 
   private tacAgentHelperInstallCommand(): string {
@@ -1860,13 +1863,17 @@ export class TacDockerAdapter implements ExecutionAdapter {
     };
   }
 
-  private claudeMcpSmokeReport(
+  private opentasksMcpSmokeReport(
     cell: PublicCell,
     agent: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean },
-  ): ClaudeMcpSmokeReport {
+  ): OpenTasksMcpSmokeReport {
     const parsed = this.agentHarness.parse(agent.stdout, cell.model.name);
     const init = parseClaudeInit(agent.stdout);
+    const streamStats = claudeStreamStats(agent.stdout);
     const opentasksToolNames = init.toolNames.filter((name) => name.startsWith(OPENTASKS_MCP_TOOL_PREFIX)).sort();
+    const nativeCalls = parsed.trajectory
+      .filter((event) => event.type === 'tool' && event.name.startsWith(OPENTASKS_MCP_TOOL_PREFIX))
+      .map((event) => event.name);
     const usedNativeOpentasksTool = parsed.trajectory.some(
       (event) => event.type === 'tool' && event.name.startsWith(OPENTASKS_MCP_TOOL_PREFIX),
     );
@@ -1886,10 +1893,12 @@ export class TacDockerAdapter implements ExecutionAdapter {
             exposed,
             mcpServers: parsed.mcpServers,
             stderr: agent.stderr,
+            harnessId: this.agentHarness.id,
           });
     return {
       ok,
       failureReason,
+      harnessId: this.agentHarness.id,
       exitCode: agent.exitCode,
       timedOut: agent.timedOut === true,
       sawResult: parsed.sawResult,
@@ -1901,8 +1910,10 @@ export class TacDockerAdapter implements ExecutionAdapter {
       opentasksToolNames,
       skillNames: init.skillNames,
       usedNativeOpentasksTool,
+      nativeCalls,
       stdoutHead: agent.stdout.slice(0, 1000),
       stderrHead: agent.stderr.slice(0, 1000),
+      streamStats,
       trajectory: parsed.trajectory,
     };
   }
@@ -2571,9 +2582,10 @@ function matchCount(text: string, pattern: RegExp): number {
   return text.match(pattern)?.length ?? 0;
 }
 
-interface ClaudeMcpSmokeReport {
+interface OpenTasksMcpSmokeReport {
   ok: boolean;
   failureReason?: string;
+  harnessId: string;
   exitCode: number;
   timedOut: boolean;
   sawResult: boolean;
@@ -2585,8 +2597,10 @@ interface ClaudeMcpSmokeReport {
   opentasksToolNames: string[];
   skillNames: string[];
   usedNativeOpentasksTool: boolean;
+  nativeCalls: string[];
   stdoutHead: string;
   stderrHead: string;
+  streamStats: ClaudeStreamStats;
   trajectory: TraceEvent[];
 }
 
@@ -2758,17 +2772,20 @@ function smokeFailureReason(opts: {
   exposed: boolean;
   mcpServers: { name: string; status: string }[];
   stderr: string;
+  harnessId: string;
 }): string {
-  if (opts.timedOut) return 'claude smoke timed out';
-  if (!opts.sawResult) return 'claude smoke did not emit a result event';
-  if (opts.isError) return `claude smoke result was marked is_error=true: ${(opts.output || opts.stderr).slice(0, 200)}`;
-  if (opts.exitCode !== 0) return `claude smoke exited ${opts.exitCode}: ${opts.stderr.slice(0, 200)}`;
-  if (opts.exposed) return 'Claude exposed OpenTasks tools but did not execute a native mcp__opentasks__ tool';
+  if (opts.timedOut) return `${opts.harnessId} OpenTasks MCP smoke timed out`;
+  if (!opts.sawResult) return `${opts.harnessId} OpenTasks MCP smoke did not emit a completed assistant result`;
+  if (opts.isError) return `${opts.harnessId} OpenTasks MCP smoke result was marked as an error: ${(opts.output || opts.stderr).slice(0, 200)}`;
+  if (opts.exitCode !== 0) return `${opts.harnessId} OpenTasks MCP smoke exited ${opts.exitCode}: ${opts.stderr.slice(0, 200)}`;
+  if (opts.exposed) return `${opts.harnessId} exposed OpenTasks tools but did not execute a native mcp__opentasks__ tool`;
   if (!opts.connected) {
     const status = opts.mcpServers.find((server) => server.name === 'opentasks')?.status ?? 'missing';
-    return `opentasks MCP server was not connected in Claude init; status=${status}`;
+    return opts.harnessId === 'claude-code'
+      ? `opentasks MCP server was not connected in Claude init; status=${status}`
+      : `${opts.harnessId} did not report or execute OpenTasks MCP tools; opentasks status=${status}`;
   }
-  if (!opts.exposed) return 'Claude did not expose or execute native mcp__opentasks__ tools';
+  if (!opts.exposed) return `${opts.harnessId} did not expose or execute native mcp__opentasks__ tools`;
   return 'unknown smoke failure';
 }
 
