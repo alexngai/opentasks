@@ -163,16 +163,34 @@ describe('TAC OpenTasks MCP setup', () => {
     };
 
     const command = adapter.agentCommand({ arm: tacArms(['stock'])[0], model: { name: 'haiku' } }, '.tac/cell');
+    const setup = adapter.agentSetup();
 
-    expect(adapter.agentSetup()).toContain('https://deb.nodesource.com/setup_22.x');
-    expect(adapter.agentSetup()).toContain('npm install -g swarm-harness@${TAC_SWARM_HARNESS_VERSION:-0.3.4}');
+    expect(setup).toContain('https://deb.nodesource.com/setup_22.x');
+    expect(setup).toContain('then\napt-get update');
+    expect(setup).not.toContain('then apt-get update');
+    expect(setup).toContain('npm install -g swarm-harness@${TAC_SWARM_HARNESS_VERSION:-0.3.4}');
     expect(command).toContain('mkdir -p .swarm-harness');
     expect(command).toContain("cp '/eval/.tac/cell/mcp.json' .swarm-harness/mcp.json");
     expect(command).toContain('swarm-harness --single --headless --output-format json');
     expect(command).toContain("--model 'haiku'");
     expect(command).toContain('--permission-mode danger-full-access');
-    expect(command).toContain('"$(cat \'/eval/.tac/cell/prompt.txt\')"');
+    expect(command).toContain('"$(cat /eval/.tac/cell/prompt.txt)"');
     expect(command).not.toContain('--mcp-config');
+  });
+
+  it('passes custom prompts through to swarm-harness smoke/prelude commands', () => {
+    const command = tacAgentHarnessFromId('swarm-harness').buildCommand({
+      prompt: "'custom smoke prompt'",
+      model: 'haiku',
+      runDir: '.tac/cell',
+      tools: [],
+      allowedTools: true,
+      strictMcpConfig: true,
+    });
+
+    expect(command).toContain("swarm-harness --single --headless --output-format json --model 'haiku'");
+    expect(command).toContain("'custom smoke prompt'");
+    expect(command).not.toContain('"$(cat \'/eval/.tac/cell/prompt.txt\')"');
   });
 
   it('creates the configured agent user in the default setup command', () => {

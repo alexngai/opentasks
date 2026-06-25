@@ -94,14 +94,19 @@ export function swarmHarnessTacHarness(): TacAgentHarness {
       const promptPath = `/eval/${spec.runDir}/prompt.txt`;
       const mcpConfigPath = `/eval/${spec.runDir}/mcp.json`;
       const effectivePromptPath = spec.includeSystemPrompt ? `/eval/${spec.runDir}/swarm-harness-prompt.txt` : promptPath;
+      let promptArg = spec.prompt;
       const prelude = [
         'mkdir -p .swarm-harness',
         `cp ${shq(mcpConfigPath)} .swarm-harness/mcp.json`,
       ];
       if (spec.includeSystemPrompt) {
+        const defaultPromptArg = `"$(cat /eval/${spec.runDir}/prompt.txt)"`;
+        const promptSource =
+          spec.prompt === defaultPromptArg ? `cat ${shq(promptPath)}` : `printf '%s' ${spec.prompt}`;
         prelude.push(
-          `{ cat ${shq(spec.includeSystemPrompt)}; printf '\\n\\n'; cat ${shq(promptPath)}; } > ${shq(effectivePromptPath)}`,
+          `{ cat ${shq(spec.includeSystemPrompt)}; printf '\\n\\n'; ${promptSource}; } > ${shq(effectivePromptPath)}`,
         );
+        promptArg = `"$(cat ${shq(effectivePromptPath)})"`;
       }
       const command = [
         'swarm-harness',
@@ -113,7 +118,7 @@ export function swarmHarnessTacHarness(): TacAgentHarness {
         shq(spec.model),
         '--permission-mode',
         'danger-full-access',
-        `"$(cat ${shq(effectivePromptPath)})"`,
+        promptArg,
       ];
       return `${prelude.join(' && ')} && ${command.join(' ')}`;
     },
@@ -152,7 +157,7 @@ function node22SetupCommand(): string {
     'else',
     'command -v git >/dev/null 2>&1 || (apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y git)',
     'fi',
-  ].join(' ');
+  ].join('\n');
 }
 
 function agentUserSetupCommand(agentUser: string | undefined): string {
