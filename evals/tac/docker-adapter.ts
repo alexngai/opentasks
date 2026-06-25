@@ -228,15 +228,20 @@ export class TacDockerAdapter implements ExecutionAdapter {
       });
       if (setup.exitCode !== 0) return envRaw('crash', `agent setup failed: ${setup.stderr || setup.stdout}`, start);
 
-      const init = await this.runInContainer(ws, container, 'bash /utils/init.sh', {
-        timeoutMs: this.opts.initTimeoutMs,
-        cwd: '/workspace',
-        env: this.initEnv(),
-      });
+      const gitlabRequired = await this.taskRequiresGitlab(ws, container);
+      let gitlabRootTokenRefreshed = false;
+      const init = gitlabRequired
+        ? await this.runGitlabAwareTacInit(ws, container, runDir, start)
+        : await this.runInContainer(ws, container, 'bash /utils/init.sh', {
+            timeoutMs: this.opts.initTimeoutMs,
+            cwd: '/workspace',
+            env: this.initEnv(),
+          });
+      if ('raw' in init) return init.raw;
+      gitlabRootTokenRefreshed = init.gitlabRootTokenRefreshed;
       await this.writeCommandArtifacts(ws, runDir, 'tac-init', init);
       if (init.exitCode !== 0) return envRaw('sandbox', `TAC init failed: ${init.stderr || init.stdout}`, start);
 
-      const gitlabRequired = await this.taskRequiresGitlab(ws, container);
       const helperInstall = await this.runInContainer(ws, container, this.tacAgentHelperInstallCommand(), {
         timeoutMs: Math.min(this.opts.initTimeoutMs, 60_000),
         cwd: '/workspace',
@@ -244,7 +249,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
       await this.writeCommandArtifacts(ws, runDir, 'tac-agent-helpers', helperInstall);
       if (helperInstall.exitCode !== 0) return envRaw('crash', `TAC agent helper install failed: ${helperInstall.stderr || helperInstall.stdout}`, start);
 
-      if (gitlabRequired && this.opts.tacGitlabTokenRefresh !== false) {
+      if (gitlabRequired && this.opts.tacGitlabTokenRefresh !== false && !gitlabRootTokenRefreshed) {
         const tokenRefresh = await this.refreshTacGitlabRootToken(ws);
         await this.writeCommandArtifacts(ws, runDir, 'tac-gitlab-token-refresh', tokenRefresh);
         if (!this.tacGitlabRootTokenRefreshOk(tokenRefresh)) {
@@ -1303,6 +1308,178 @@ export class TacDockerAdapter implements ExecutionAdapter {
     return "test -f /utils/dependencies.yml && grep -Eq '(^|[^A-Za-z0-9_])gitlab([^A-Za-z0-9_]|$)' /utils/dependencies.yml";
   }
 
+  private async runGitlabAwareTacInit(
+    ws: Workspace,
+    container: string,
+    runDir: string,
+    start: number,
+  ): Promise<(CommandResult & { gitlabRootTokenRefreshed: boolean }) | { raw: RawRun }> {
+    if (this.opts.tacGitlabTokenRefresh === false) {
+      const init = await this.runInContainer(ws, container, 'bash /utils/init.sh', {
+        timeoutMs: this.opts.initTimeoutMs,
+        cwd: '/workspace',
+        env: this.initEnv(),
+      });
+      return { ...init, gitlabRootTokenRefreshed: false };
+    }
+
+    const reset = await this.runInContainer(ws, container, this.tacResetWithHostAliasCommand(), {
+      timeoutMs: this.opts.initTimeoutMs,
+      cwd: '/workspace',
+      env: this.initEnv(),
+    });
+    await this.writeCommandArtifacts(ws, runDir, 'tac-reset', reset);
+    if (reset.exitCode !== 0) return { ...reset, gitlabRootTokenRefreshed: false };
+
+    const tokenRefresh = await this.refreshTacGitlabRootToken(ws);
+    await this.writeCommandArtifacts(ws, runDir, 'tac-gitlab-token-refresh', tokenRefresh);
+    if (!this.tacGitlabRootTokenRefreshOk(tokenRefresh)) {
+      return { raw: envRaw('sandbox', `TAC GitLab token refresh failed: ${tokenRefresh.stderr || tokenRefresh.stdout}`, start) };
+    }
+
+    const readiness = await this.runInContainer(ws, container, this.tacGitlabApiReadinessCommand(runDir), {
+      timeoutMs: Math.min(this.opts.initTimeoutMs, 240_000),
+      cwd: '/workspace',
+      env: this.initEnv(),
+    });
+    await this.writeCommandArtifacts(ws, runDir, 'tac-gitlab-api-readiness', readiness);
+    const readinessReport = await ws.readFile(`${runDir}/tac-gitlab-api-readiness.json`);
+    if (readinessReport) await writeLocalArtifact('tac-gitlab-api-readiness.json', redactSensitiveText(readinessReport));
+    if (readiness.exitCode !== 0) {
+      return { raw: envRaw('sandbox', `TAC GitLab API readiness failed: ${readiness.stderr || readiness.stdout}`, start) };
+    }
+
+    const init = await this.runInContainer(ws, container, this.tacInitWithoutResetCommand(), {
+      timeoutMs: this.opts.initTimeoutMs,
+      cwd: '/workspace',
+      env: this.initEnv(),
+    });
+    return { ...init, gitlabRootTokenRefreshed: true };
+  }
+
+  private tacInitWithoutResetCommand(): string {
+    return [
+      "python_default - <<'PY'",
+      'from pathlib import Path',
+      '',
+      'source = Path("/utils/init.sh").read_text()',
+      'lines = source.splitlines()',
+      'out = []',
+      'skip_reset_echo = False',
+      'removed_reset = False',
+      'for line in lines:',
+      '    stripped = line.strip()',
+      '    if not removed_reset and stripped == \'echo "Resetting services..."\':',
+      '        skip_reset_echo = True',
+      '        continue',
+      '    if skip_reset_echo and stripped == "bash /utils/reset.sh":',
+      '        removed_reset = True',
+      '        skip_reset_echo = False',
+      '        continue',
+      '    if skip_reset_echo:',
+      '        out.append(\'echo "Resetting services..."\')',
+      '        skip_reset_echo = False',
+      '    out.append(line)',
+      'if not removed_reset:',
+      '    raise SystemExit("could not remove reset step from /utils/init.sh")',
+      'Path("/tmp/tac-init-without-reset.sh").write_text("\\n".join(out) + "\\n")',
+      'PY',
+      'bash /tmp/tac-init-without-reset.sh',
+    ].join('\n');
+  }
+
+  private tacResetWithHostAliasCommand(): string {
+    return [
+      'SERVICE_IP=$(ping -c 1 ${SERVER_HOSTNAME:-localhost} | grep PING | awk -F"[()]" \'{print $2}\')',
+      'echo "$SERVICE_IP the-agent-company.com" >> /etc/hosts',
+      'bash /utils/reset.sh',
+    ].join('\n');
+  }
+
+  private tacGitlabApiReadinessCommand(runDir: string): string {
+    const outPath = `/eval/${runDir}/tac-gitlab-api-readiness.json`;
+    return [
+      `cat > /tmp/tac-gitlab-api-readiness.py <<'PY'`,
+      'import datetime',
+      'import json',
+      'import os',
+      'import re',
+      'import sys',
+      'import time',
+      'import urllib.error',
+      'import urllib.parse',
+      'import urllib.request',
+      '',
+      'OUT_PATH = sys.argv[1]',
+      'HOST = os.environ.get("SERVER_HOSTNAME") or "the-agent-company.com"',
+      'BASE = f"http://{HOST}:8929/api/v4"',
+      'TOKEN = os.environ.get("GITLAB_ACCESS_TOKEN") or "root-token"',
+      'HEADERS = {"PRIVATE-TOKEN": TOKEN}',
+      'PROJECT_RE = re.compile(r\'(?:GITLAB_PROJECT_PATH|PROJECT_PATH)\\s*=\\s*f?[\\\'"]\\{GITLAB_USER\\}/([^\\\'"]+)[\\\'"]\')',
+      '',
+      'def read_text(path):',
+      '    try:',
+      '        with open(path, "r") as f:',
+      '            return f.read()',
+      '    except Exception:',
+      '        return ""',
+      '',
+      'def project_candidates():',
+      '    candidates = []',
+      '    for path in ("/utils/populate_data.py", "/utils/evaluator.py"):',
+      '        for match in PROJECT_RE.finditer(read_text(path)):',
+      '            project = match.group(1).strip("/")',
+      '            if project and "{" not in project and "}" not in project:',
+      '                candidates.append(f"root/{project}")',
+      '    return sorted(set(candidates))',
+      '',
+      'def get_json(path):',
+      '    req = urllib.request.Request(f"{BASE}{path}", headers=HEADERS)',
+      '    with urllib.request.urlopen(req, timeout=20) as resp:',
+      '        body = resp.read().decode("utf-8", "replace")',
+      '        return resp.status, json.loads(body), body[:1000]',
+      '',
+      'def validate_once():',
+      '    checks = []',
+      '    status, user, body = get_json("/user")',
+      '    checks.append({"name": "user", "status": status, "ok": isinstance(user, dict) and user.get("username") == "root", "body": body[:300]})',
+      '    status, projects, body = get_json("/projects?per_page=1")',
+      '    checks.append({"name": "projects-list", "status": status, "ok": isinstance(projects, list), "body": body[:300]})',
+      '    for project in project_candidates():',
+      '        encoded = urllib.parse.quote(project, safe="")',
+      '        status, project_body, body = get_json(f"/projects/{encoded}")',
+      '        checks.append({"name": f"project:{project}", "status": status, "ok": isinstance(project_body, dict) and project_body.get("path_with_namespace") == project, "body": body[:300]})',
+      '        status, issues, body = get_json(f"/projects/{encoded}/issues?per_page=1")',
+      '        checks.append({"name": f"issues:{project}", "status": status, "ok": isinstance(issues, list), "body": body[:300]})',
+      '    return checks',
+      '',
+      'last = []',
+      'for attempt in range(1, 121):',
+      '    try:',
+      '        last = validate_once()',
+      '        if all(check.get("ok") for check in last):',
+      '            report = {"ok": True, "attempt": attempt, "checkedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(), "checks": last}',
+      '            with open(OUT_PATH, "w") as f:',
+      '                json.dump(report, f, indent=2, sort_keys=True)',
+      '                f.write("\\n")',
+      '            print(json.dumps(report, sort_keys=True))',
+      '            raise SystemExit(0)',
+      '    except Exception as exc:',
+      '        last = [{"name": "exception", "ok": False, "error": str(exc)}]',
+      '    print(f"waiting for GitLab API readiness attempt {attempt}/120: {last}", file=sys.stderr)',
+      '    time.sleep(2)',
+      '',
+      'report = {"ok": False, "checkedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(), "checks": last}',
+      'with open(OUT_PATH, "w") as f:',
+      '    json.dump(report, f, indent=2, sort_keys=True)',
+      '    f.write("\\n")',
+      'print(json.dumps(report, sort_keys=True))',
+      'raise SystemExit(2)',
+      'PY',
+      `python_default /tmp/tac-gitlab-api-readiness.py ${shq(outPath)}`,
+    ].join('\n');
+  }
+
   private tacEvalLlmPreflightCommand(runDir: string): string {
     return [
       "cat > /tmp/tac-eval-llm-preflight.py <<'PY'",
@@ -1399,7 +1576,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '',
       'report = {',
       '    "ok": False,',
-      '    "checkedAt": datetime.datetime.now(datetime.UTC).isoformat(),',
+      '    "checkedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),',
       '    "checks": [],',
       '}',
       '',
@@ -1514,7 +1691,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '    "apiOk": False,',
       '    "gitOk": False,',
       '    "requireGit": REQUIRE_GIT,',
-      '    "checkedAt": datetime.datetime.now(datetime.UTC).isoformat(),',
+      '    "checkedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),',
       '    "scratchProjectPath": PROJECT_PATH,',
       '    "checks": [],',
       '}',
@@ -1655,7 +1832,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '    "gitOk": False,',
       '    "cleanupOk": False,',
       '    "requireGit": REQUIRE_GIT,',
-      '    "checkedAt": datetime.datetime.now(datetime.UTC).isoformat(),',
+      '    "checkedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),',
       '    "targetProjectPath": PROJECT_PATH,',
       '    "checks": [],',
       '}',

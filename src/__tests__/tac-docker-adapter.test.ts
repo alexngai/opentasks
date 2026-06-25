@@ -882,6 +882,37 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(command).not.toContain('A-Za-z0-9_-');
   });
 
+  it('runs GitLab API readiness checks against task projects before TAC populate scripts', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+    }) as unknown as {
+      tacGitlabApiReadinessCommand: (runDir: string) => string;
+      tacInitWithoutResetCommand: () => string;
+      tacResetWithHostAliasCommand: () => string;
+    };
+
+    const readiness = adapter.tacGitlabApiReadinessCommand('.tac/test-cell');
+    const init = adapter.tacInitWithoutResetCommand();
+    const reset = adapter.tacResetWithHostAliasCommand();
+
+    expect(readiness).toContain('/eval/.tac/test-cell/tac-gitlab-api-readiness.json');
+    expect(readiness).toContain('/api/v4');
+    expect(readiness).toContain('/user');
+    expect(readiness).toContain('/projects?per_page=1');
+    expect(readiness).toContain('GITLAB_PROJECT_PATH|PROJECT_PATH');
+    expect(readiness).toContain('/projects/{encoded}/issues?per_page=1');
+    expect(readiness).toContain('isinstance(issues, list)');
+    expect(init).toContain('could not remove reset step from /utils/init.sh');
+    expect(init).toContain('bash /tmp/tac-init-without-reset.sh');
+    expect(reset).toContain('the-agent-company.com');
+    expect(reset).toContain('bash /utils/reset.sh');
+  });
+
   it('diagnoses an init-only prelude timeout as retryable', () => {
     const adapter = new TacDockerAdapter({
       timeoutMs: 1,
