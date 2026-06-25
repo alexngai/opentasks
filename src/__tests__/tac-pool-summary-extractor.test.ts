@@ -221,9 +221,9 @@ describe('TAC pool summary extractor', () => {
       }),
     );
     await writeSeedAndStream(goodCellDir, 't-good', [
-      toolUse('ToolSearch', { query: 'select:mcp__opentasks__get_task' }),
-      toolUse('mcp__opentasks__get_task', { id: 't-good' }),
-      toolUse('Read', { file_path: '/instruction/task.md' }),
+      ...swarmToolUse('tool-1', 'tool_search', { query: 'select:mcp__opentasks__get_task' }),
+      ...swarmToolUse('tool-2', 'mcp__opentasks__get_task', { id: 't-good' }),
+      ...swarmToolUse('tool-3', 'read_file', { path: '/instruction/task.md' }, true),
     ]);
     await writeSeedAndStream(delegatedCellDir, 't-late', [
       toolUse('ToolSearch', { query: 'select:mcp__opentasks__get_task' }),
@@ -270,4 +270,17 @@ function toolUse(name: string, input: unknown): unknown {
       ],
     },
   };
+}
+
+function swarmToolUse(id: string, name: string, input: unknown, endWithInput = false): unknown[] {
+  return [
+    { type: 'tool_use_start', id, name },
+    ...(endWithInput
+      ? [{ type: 'tool_use_end', id, input }]
+      : [
+          { type: 'tool_use_input', id, jsonDelta: JSON.stringify(input).slice(0, 4) },
+          { type: 'tool_use_input', id, jsonDelta: JSON.stringify(input).slice(4) },
+          { type: 'tool_use_end', id },
+        ]),
+  ];
 }

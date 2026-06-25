@@ -2,6 +2,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { parseSwarmHarnessJsonl } from '../agent-harness';
 
 interface CellSummary {
   taskId: string;
@@ -301,7 +302,13 @@ interface ToolEvent {
 
 async function readToolEvents(file: string): Promise<ToolEvent[]> {
   const events: ToolEvent[] = [];
-  for (const line of (await fs.readFile(file, 'utf8')).split(/\n/)) {
+  const stdout = await fs.readFile(file, 'utf8');
+  for (const event of parseSwarmHarnessJsonl(stdout).trajectory) {
+    if (event.type === 'tool') events.push({ name: event.name, input: event.input });
+  }
+  if (events.length > 0) return events;
+
+  for (const line of stdout.split(/\n/)) {
     if (!line.trim()) continue;
     let parsed: unknown;
     try {

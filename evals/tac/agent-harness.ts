@@ -1,6 +1,5 @@
 import {
   parseClaudeStream,
-  swarmHarnessParse,
   type TokenUsage,
   type TraceEvent,
 } from 'swarmkit-eval';
@@ -123,9 +122,110 @@ export function swarmHarnessTacHarness(): TacAgentHarness {
       return `${prelude.join(' && ')} && ${command.join(' ')}`;
     },
     parse(stdout) {
-      return swarmHarnessParse(stdout);
+      return parseSwarmHarnessJsonl(stdout);
     },
   };
+}
+
+export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
+  let output = '';
+  let isError = false;
+  let sawResult = false;
+  const usage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0 };
+  const trajectory: TraceEvent[] = [];
+  const openTools = new Map<string, { event: TraceEvent; json: string }>();
+
+  for (const line of stdout.split('\n')) {
+    const t = line.trim();
+    if (!t.startsWith('{')) continue;
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(t) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    if (obj.type === 'text_delta' && typeof obj.text === 'string') {
+      output += obj.text;
+      continue;
+    }
+    if (obj.type === 'tool_use_start') {
+      const id = typeof obj.id === 'string' ? obj.id : `tool-${trajectory.length}`;
+      const name = canonicalSwarmToolName(typeof obj.name === 'string' ? obj.name : 'tool');
+      const event: TraceEvent = { type: 'tool', ts: trajectory.length, name };
+      trajectory.push(event);
+      openTools.set(id, { event, json: '' });
+      continue;
+    }
+    if (obj.type === 'tool_use_input') {
+      const id = typeof obj.id === 'string' ? obj.id : '';
+      const open = openTools.get(id);
+      if (open && typeof obj.jsonDelta === 'string') open.json += obj.jsonDelta;
+      continue;
+    }
+    if (obj.type === 'tool_use_end') {
+      const id = typeof obj.id === 'string' ? obj.id : '';
+      const open = openTools.get(id);
+      if (open) {
+        const input = isRecord(obj.input) ? obj.input : parseJsonObject(open.json);
+        if (input) open.event.input = input;
+        openTools.delete(id);
+      }
+      continue;
+    }
+    if (obj.type === 'tool_result') {
+      if (obj.isError === true) isError = true;
+      continue;
+    }
+    if (obj.type === 'error') {
+      isError = true;
+      continue;
+    }
+    if (obj.type === 'message_stop') {
+      sawResult = true;
+      const u = isRecord(obj.usage) ? obj.usage : {};
+      usage.inputTokens = (usage.inputTokens ?? 0) + numberValue(u.inputTokens);
+      usage.outputTokens = (usage.outputTokens ?? 0) + numberValue(u.outputTokens);
+      usage.cacheReadTokens = (usage.cacheReadTokens ?? 0) + numberValue(u.cacheReadInputTokens);
+      usage.cacheCreationTokens = (usage.cacheCreationTokens ?? 0) + numberValue(u.cacheWriteInputTokens);
+    }
+  }
+
+  usage.totalTokens = (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) + (usage.cacheReadTokens ?? 0) + (usage.cacheCreationTokens ?? 0);
+  return { output: output.slice(0, 4000), usage, trajectory, isError, mcpServers: [], sawResult };
+}
+
+function canonicalSwarmToolName(name: string): string {
+  const map: Record<string, string> = {
+    bash: 'Bash',
+    read_file: 'Read',
+    write_file: 'Write',
+    edit_file: 'Edit',
+    multi_edit: 'Edit',
+    glob: 'Glob',
+    grep: 'Grep',
+    tool_search: 'ToolSearch',
+    skill: 'Skill',
+  };
+  return map[name] ?? name;
+}
+
+function parseJsonObject(json: string): Record<string, unknown> | undefined {
+  if (!json) return undefined;
+  try {
+    const parsed = JSON.parse(json);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 export function tacAgentHarnessInstallCommand(id: string | undefined): string {

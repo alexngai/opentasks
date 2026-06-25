@@ -238,7 +238,12 @@ describe('TAC OpenTasks MCP setup', () => {
     const parsed = tacAgentHarnessFromId('swarm').parse(
       [
         JSON.stringify({ type: 'text_delta', text: 'done' }),
-        JSON.stringify({ type: 'tool_use_start', name: 'Bash' }),
+        JSON.stringify({ type: 'tool_use_start', id: 't1', name: 'bash' }),
+        JSON.stringify({ type: 'tool_use_input', id: 't1', jsonDelta: '{"command":' }),
+        JSON.stringify({ type: 'tool_use_input', id: 't1', jsonDelta: '"tac-gitlab-api GET /projects"}' }),
+        JSON.stringify({ type: 'tool_use_end', id: 't1' }),
+        JSON.stringify({ type: 'tool_use_start', id: 't2', name: 'read_file' }),
+        JSON.stringify({ type: 'tool_use_end', id: 't2', input: { path: '/instruction/task.md' } }),
         JSON.stringify({
           type: 'message_stop',
           usage: { inputTokens: 5, outputTokens: 3, cacheReadInputTokens: 2 },
@@ -251,7 +256,10 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(parsed.sawResult).toBe(true);
     expect(parsed.isError).toBe(false);
     expect(parsed.usage).toMatchObject({ inputTokens: 5, outputTokens: 3, cacheReadTokens: 2, totalTokens: 10 });
-    expect(parsed.trajectory).toEqual([expect.objectContaining({ type: 'tool', name: 'Bash' })]);
+    expect(parsed.trajectory).toEqual([
+      expect.objectContaining({ type: 'tool', name: 'Bash', input: { command: 'tac-gitlab-api GET /projects' } }),
+      expect.objectContaining({ type: 'tool', name: 'Read', input: { path: '/instruction/task.md' } }),
+    ]);
   });
 
   it('allows TAC tests and future adapters to inject a different agent harness', () => {
