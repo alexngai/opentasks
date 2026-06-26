@@ -172,6 +172,16 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(command).toContain('mkdir -p .swarm-harness');
     expect(command).toContain("cp '/eval/.tac/cell/mcp.json' .swarm-harness/mcp.json");
     expect(command).toContain('swarm-harness --single --headless --output-format json');
+    expect(command).toContain('TAC_SWARM_HARNESS_MODE:-single');
+    expect(command).toContain('swarm-harness swarm run');
+    expect(command).toContain('swarm-harness-tasks.jsonl');
+    expect(command).toContain('swarm-harness-results.jsonl');
+    expect(command).toContain('swarm-harness-trace.jsonl');
+    expect(command).toContain('const [promptPath, tasksPath, model] = process.argv.slice(1);');
+    expect(command).toContain('  model,');
+    expect(command).toContain("--opentasks --opentasks-socket ${OPENTASKS_PROJECT_DIR:-/workspace/.opentasks}/daemon.sock");
+    expect(command).toContain("export SWARM_HARNESS_MODEL='haiku'");
+    expect(command).not.toContain('then;');
     expect(command).toContain("--model 'haiku'");
     expect(command).toContain('--permission-mode danger-full-access');
     expect(command).toContain('"$(cat /eval/.tac/cell/prompt.txt)"');
@@ -260,6 +270,46 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(parsed.trajectory).toEqual([
       expect.objectContaining({ type: 'tool', name: 'Bash', input: { command: 'tac-gitlab-api GET /projects' } }),
       expect.objectContaining({ type: 'tool', name: 'Read', input: { path: '/instruction/task.md' } }),
+    ]);
+  });
+
+  it('parses swarm-harness swarm-run lane traces and result records', () => {
+    const parsed = tacAgentHarnessFromId('swarm').parse(
+      [
+        JSON.stringify({
+          ts: 1,
+          agentId: 'agent-1',
+          type: 'tool_use_start',
+          payload: { type: 'tool_use_start', id: 't1', name: 'bash' },
+        }),
+        JSON.stringify({
+          ts: 2,
+          agentId: 'agent-1',
+          type: 'tool_use_input',
+          payload: { type: 'tool_use_input', id: 't1', jsonDelta: '{"command":"echo ok"}' },
+        }),
+        JSON.stringify({
+          ts: 3,
+          agentId: 'agent-1',
+          type: 'tool_use_end',
+          payload: { type: 'tool_use_end', id: 't1' },
+        }),
+        JSON.stringify({
+          id: 'tac-root',
+          status: 'succeeded',
+          output: 'done',
+          usage: { inputTokens: 11, outputTokens: 7 },
+          wallClockMs: 123,
+        }),
+      ].join('\n'),
+      'haiku',
+    );
+
+    expect(parsed.output).toContain('done');
+    expect(parsed.sawResult).toBe(true);
+    expect(parsed.usage.totalTokens).toBe(18);
+    expect(parsed.trajectory).toEqual([
+      { type: 'tool', ts: 0, name: 'Bash', input: { command: 'echo ok' } },
     ]);
   });
 
@@ -557,6 +607,54 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(report.opentasksToolCount).toBe(0);
     expect(report.nativeCalls).toEqual(['mcp__opentasks__list_tasks']);
     expect(report.usedNativeOpentasksTool).toBe(true);
+  });
+
+  it('treats swarm-harness swarm-run task tool execution as a successful coordination smoke', () => {
+    const previousMode = process.env.TAC_SWARM_HARNESS_MODE;
+    process.env.TAC_SWARM_HARNESS_MODE = 'swarm-run';
+    try {
+      const adapter = new TacDockerAdapter({
+        timeoutMs: 1,
+        initTimeoutMs: 1,
+        evalTimeoutMs: 1,
+        serverHostname: 'the-agent-company.com',
+        network: 'host',
+        decryptionKey: 'test',
+        agentHarnessId: 'swarm-harness',
+      }) as unknown as {
+        opentasksMcpSmokeReport: (
+          cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; model: { name: string } } : never,
+          agent: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean },
+        ) => {
+          ok: boolean;
+          usedSwarmTaskTool: boolean;
+          swarmTaskToolCount: number;
+          swarmTaskCalls: string[];
+          usedNativeOpentasksTool: boolean;
+        };
+      };
+      const stdout = [
+        JSON.stringify({ type: 'tool_use_start', id: 'toolu_1', name: 'task_list' }),
+        JSON.stringify({ type: 'tool_use_input', id: 'toolu_1', jsonDelta: '{}' }),
+        JSON.stringify({ type: 'tool_use_end', id: 'toolu_1' }),
+        JSON.stringify({ type: 'tool_result', toolUseId: 'toolu_1', content: '{"tasks":[]}', isError: false }),
+        JSON.stringify({ type: 'message_stop', stopReason: 'end_turn', usage: { inputTokens: 2, outputTokens: 3 } }),
+      ].join('\n');
+
+      const report = adapter.opentasksMcpSmokeReport(
+        { arm: tacArms(['opentasks'])[0], model: { name: 'haiku' } },
+        { exitCode: 0, stdout, stderr: '' },
+      );
+
+      expect(report.ok).toBe(true);
+      expect(report.usedSwarmTaskTool).toBe(true);
+      expect(report.swarmTaskToolCount).toBe(1);
+      expect(report.swarmTaskCalls).toEqual(['task_list']);
+      expect(report.usedNativeOpentasksTool).toBe(false);
+    } finally {
+      if (previousMode === undefined) delete process.env.TAC_SWARM_HARNESS_MODE;
+      else process.env.TAC_SWARM_HARNESS_MODE = previousMode;
+    }
   });
 
   it('ships a Claude-discoverable OpenTasks skill that says to use native tools', () => {

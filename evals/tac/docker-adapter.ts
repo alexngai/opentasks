@@ -731,21 +731,33 @@ export class TacDockerAdapter implements ExecutionAdapter {
   }
 
   private opentasksMcpSmokeCommand(cell: PublicCell, runDir: string): string {
-    return this.agentCliCommand({
-      cell,
-      prompt: shq(
-        [
+    const prompt = this.usesSwarmHarnessSwarmMode()
+      ? [
+          'This is a TAC swarm-harness OpenTasks coordination smoke test.',
+          'Call the native swarm task tool task_list once; do not echo or simulate the tool name in Bash.',
+          'Then answer exactly: opentasks swarm smoke complete',
+          'Do not solve the TAC task.',
+        ]
+      : [
           'This is a TAC OpenTasks MCP smoke test.',
           'Use the opentasks skill if available.',
           'If the OpenTasks tool is still pending or not visible, use ToolSearch with query select:mcp__opentasks__list_tasks.',
           'Call the native MCP tool mcp__opentasks__list_tasks once; do not echo or simulate the tool name in Bash.',
           'Then answer exactly: opentasks mcp smoke complete',
           'Do not solve the TAC task.',
-        ].join(' '),
-      ),
+        ];
+    return this.agentCliCommand({
+      cell,
+      prompt: shq(prompt.join(' ')),
       runDir,
       includeSystemPrompt: cell.arm.scaffold.systemPromptAppendix ? `/eval/${runDir}/system.txt` : undefined,
     });
+  }
+
+  private usesSwarmHarnessSwarmMode(): boolean {
+    if (this.agentHarness.id !== 'swarm-harness') return false;
+    const mode = (this.opts.env?.TAC_SWARM_HARNESS_MODE ?? process.env.TAC_SWARM_HARNESS_MODE ?? 'single').trim();
+    return ['swarm', 'swarm-run', 'multi', 'multi-agent'].includes(mode);
   }
 
   private opentasksGraphSeedCommand(cell: PublicCell, runDir: string): string {
@@ -1262,6 +1274,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
       TAC_HELPER_MAX_OUTPUT_BYTES: this.opts.env?.TAC_HELPER_MAX_OUTPUT_BYTES ?? '6000',
       ...(this.opts.agentUser ? { HOME: `/home/${this.opts.agentUser}` } : {}),
       ...(usesOpenTasks(cell) ? { OPENTASKS_PROJECT_DIR } : {}),
+      ...(usesOpenTasks(cell) && this.usesSwarmHarnessSwarmMode() ? { TAC_SWARM_HARNESS_OPENTASKS: '1' } : {}),
       ...this.opts.env,
       ...(cell.arm.scaffold.env ?? {}),
     };
@@ -2054,9 +2067,13 @@ export class TacDockerAdapter implements ExecutionAdapter {
     const usedNativeOpentasksTool = parsed.trajectory.some(
       (event) => event.type === 'tool' && event.name.startsWith(OPENTASKS_MCP_TOOL_PREFIX),
     );
+    const swarmTaskCalls = parsed.trajectory
+      .filter((event) => event.type === 'tool' && event.name.startsWith('task_'))
+      .map((event) => event.name);
+    const usedSwarmTaskTool = this.usesSwarmHarnessSwarmMode() && swarmTaskCalls.length > 0;
     const connected = parsed.mcpServers.some((server) => server.name === 'opentasks' && server.status === 'connected');
-    const exposed = opentasksToolNames.length > 0 || usedNativeOpentasksTool;
-    const ok = agent.exitCode === 0 && parsed.sawResult && !parsed.isError && usedNativeOpentasksTool;
+    const exposed = opentasksToolNames.length > 0 || usedNativeOpentasksTool || usedSwarmTaskTool;
+    const ok = agent.exitCode === 0 && parsed.sawResult && !parsed.isError && (usedNativeOpentasksTool || usedSwarmTaskTool);
     const failureReason =
       ok === true
         ? undefined
@@ -2088,6 +2105,9 @@ export class TacDockerAdapter implements ExecutionAdapter {
       skillNames: init.skillNames,
       usedNativeOpentasksTool,
       nativeCalls,
+      usedSwarmTaskTool,
+      swarmTaskToolCount: swarmTaskCalls.length,
+      swarmTaskCalls,
       stdoutHead: agent.stdout.slice(0, 1000),
       stderrHead: agent.stderr.slice(0, 1000),
       streamStats,
@@ -2285,6 +2305,9 @@ function passEnv(): Record<string, string> {
     'LITELLM_API_KEY',
     'LITELLM_BASE_URL',
     'LITELLM_MODEL',
+    'TAC_SWARM_HARNESS_MODE',
+    'TAC_SWARM_HARNESS_CONCURRENCY',
+    'TAC_SWARM_HARNESS_MULTIAGENT_PROMPT',
   ];
   const out: Record<string, string> = {};
   for (const key of keys) if (process.env[key]) out[key] = process.env[key]!;
@@ -2775,6 +2798,9 @@ interface OpenTasksMcpSmokeReport {
   skillNames: string[];
   usedNativeOpentasksTool: boolean;
   nativeCalls: string[];
+  usedSwarmTaskTool: boolean;
+  swarmTaskToolCount: number;
+  swarmTaskCalls: string[];
   stdoutHead: string;
   stderrHead: string;
   streamStats: ClaudeStreamStats;

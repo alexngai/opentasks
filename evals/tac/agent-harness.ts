@@ -93,6 +93,10 @@ export function swarmHarnessTacHarness(): TacAgentHarness {
       const promptPath = `/eval/${spec.runDir}/prompt.txt`;
       const mcpConfigPath = `/eval/${spec.runDir}/mcp.json`;
       const effectivePromptPath = spec.includeSystemPrompt ? `/eval/${spec.runDir}/swarm-harness-prompt.txt` : promptPath;
+      const tasksPath = `/eval/${spec.runDir}/swarm-harness-tasks.jsonl`;
+      const resultsPath = `/eval/${spec.runDir}/swarm-harness-results.jsonl`;
+      const tracePath = `/eval/${spec.runDir}/swarm-harness-trace.jsonl`;
+      const deadLetterPath = `/eval/${spec.runDir}/swarm-harness-dead-letter.jsonl`;
       let promptArg = spec.prompt;
       const prelude = [
         'mkdir -p .swarm-harness',
@@ -107,7 +111,7 @@ export function swarmHarnessTacHarness(): TacAgentHarness {
         );
         promptArg = `"$(cat ${shq(effectivePromptPath)})"`;
       }
-      const command = [
+      const singleCommand = [
         'swarm-harness',
         '--single',
         '--headless',
@@ -119,7 +123,69 @@ export function swarmHarnessTacHarness(): TacAgentHarness {
         'danger-full-access',
         promptArg,
       ];
-      return `${prelude.join(' && ')} && ${command.join(' ')}`;
+      const swarmTaskPrelude = [
+        `rm -f ${shq(resultsPath)} ${shq(tracePath)} ${shq(deadLetterPath)} ${shq(tasksPath)}`,
+        `node -e ${shq([
+          'const fs = require("fs");',
+          'const [promptPath, tasksPath, model] = process.argv.slice(1);',
+          'let prompt = fs.readFileSync(promptPath, "utf8");',
+          'const prefix = process.env.TAC_SWARM_HARNESS_MULTIAGENT_PROMPT || "";',
+          'if (prefix) prompt = `${prefix.trimEnd()}\\n\\n${prompt}`;',
+          'const task = {',
+          '  id: "tac-root",',
+          '  model,',
+          '  prompt,',
+          '  branchPolicy: { kind: "none" },',
+          '  commitPolicy: { kind: "none" },',
+          '  escalationPolicy: { kind: "none" },',
+          '};',
+          'fs.writeFileSync(tasksPath, `${JSON.stringify(task)}\\n`);',
+        ].join(' '))} ${shq(effectivePromptPath)} ${shq(tasksPath)} ${shq(spec.model)}`,
+      ];
+      const swarmCommand = [
+        'swarm-harness',
+        'swarm',
+        'run',
+        shq(tasksPath),
+        '--concurrency',
+        '"${TAC_SWARM_HARNESS_CONCURRENCY:-3}"',
+        '--output',
+        shq(resultsPath),
+        '--trace-output',
+        shq(tracePath),
+        '--dead-letter',
+        shq(deadLetterPath),
+        '--allow-dead-letter',
+        '--agent-inbox',
+        '--model',
+        shq(spec.model),
+        '--permission-mode',
+        'danger-full-access',
+      ];
+      const swarmCommandWithOptionalOpenTasks = [
+        `swarm_cmd=${shq(swarmCommand.join(' '))}`,
+        'if [ "${TAC_SWARM_HARNESS_OPENTASKS:-0}" = "1" ]; then',
+        '  swarm_cmd="$swarm_cmd --opentasks --opentasks-socket ${OPENTASKS_PROJECT_DIR:-/workspace/.opentasks}/daemon.sock"',
+        'fi',
+        'eval "$swarm_cmd"',
+      ].join('\n');
+      const swarmModeCommand = [
+        'set +e',
+        `export SWARM_HARNESS_MODEL=${shq(spec.model)}`,
+        swarmCommandWithOptionalOpenTasks,
+        'swarm_status=$?',
+        `cat ${shq(tracePath)} 2>/dev/null || true`,
+        `cat ${shq(resultsPath)} 2>/dev/null || true`,
+        'exit "$swarm_status"',
+      ].join('; ');
+      const modeSwitch = [
+        'case "${TAC_SWARM_HARNESS_MODE:-single}" in',
+        `  swarm|swarm-run|multi|multi-agent) ${swarmTaskPrelude.join(' && ')} && ${swarmModeCommand} ;;`,
+        `  single|"") ${singleCommand.join(' ')} ;;`,
+        '  *) echo "Unsupported TAC_SWARM_HARNESS_MODE=${TAC_SWARM_HARNESS_MODE}" >&2; exit 2 ;;',
+        'esac',
+      ].join('\n');
+      return `${prelude.join(' && ')} && ${modeSwitch}`;
     },
     parse(stdout) {
       return parseSwarmHarnessJsonl(stdout);
@@ -145,51 +211,72 @@ export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
       continue;
     }
 
-    if (obj.type === 'text_delta' && typeof obj.text === 'string') {
-      output += obj.text;
+    const event = swarmTraceEventPayload(obj);
+
+    if (event.type === 'text_delta' && typeof event.text === 'string') {
+      output += event.text;
       continue;
     }
-    if (obj.type === 'tool_use_start') {
-      const id = typeof obj.id === 'string' ? obj.id : `tool-${trajectory.length}`;
-      const name = canonicalSwarmToolName(typeof obj.name === 'string' ? obj.name : 'tool');
-      const event: TraceEvent = { type: 'tool', ts: trajectory.length, name };
-      trajectory.push(event);
-      openTools.set(id, { event, json: '' });
+    if (event.type === 'tool_use_start') {
+      const id = typeof event.id === 'string' ? event.id : `tool-${trajectory.length}`;
+      const rawName =
+        typeof event.name === 'string'
+          ? event.name
+          : typeof event.toolName === 'string'
+            ? event.toolName
+            : 'tool';
+      const traceEvent: TraceEvent = { type: 'tool', ts: trajectory.length, name: canonicalSwarmToolName(rawName) };
+      trajectory.push(traceEvent);
+      openTools.set(id, { event: traceEvent, json: '' });
       continue;
     }
-    if (obj.type === 'tool_use_input') {
-      const id = typeof obj.id === 'string' ? obj.id : '';
+    if (event.type === 'tool_use_input') {
+      const id = typeof event.id === 'string' ? event.id : typeof event.toolUseId === 'string' ? event.toolUseId : '';
       const open = openTools.get(id);
-      if (open && typeof obj.jsonDelta === 'string') open.json += obj.jsonDelta;
+      if (open && typeof event.jsonDelta === 'string') open.json += event.jsonDelta;
       continue;
     }
-    if (obj.type === 'tool_use_end') {
-      const id = typeof obj.id === 'string' ? obj.id : '';
+    if (event.type === 'tool_use_end') {
+      const id = typeof event.id === 'string' ? event.id : typeof event.toolUseId === 'string' ? event.toolUseId : '';
       const open = openTools.get(id);
       if (open) {
-        const input = isRecord(obj.input) ? obj.input : parseJsonObject(open.json);
+        const input = isRecord(event.input) ? event.input : parseJsonObject(open.json);
         if (input) open.event.input = input;
         openTools.delete(id);
       }
       continue;
     }
-    if (obj.type === 'tool_result') continue;
-    if (obj.type === 'error') {
+    if (event.type === 'tool_result') continue;
+    if (event.type === 'error' || obj.status === 'failed' || obj.status === 'timeout' || obj.status === 'cancelled') {
       isError = true;
       continue;
     }
-    if (obj.type === 'message_stop') {
+    if (event.type === 'message_stop') {
       sawResult = true;
-      const u = isRecord(obj.usage) ? obj.usage : {};
+      const u = isRecord(event.usage) ? event.usage : {};
       usage.inputTokens = (usage.inputTokens ?? 0) + numberValue(u.inputTokens);
       usage.outputTokens = (usage.outputTokens ?? 0) + numberValue(u.outputTokens);
       usage.cacheReadTokens = (usage.cacheReadTokens ?? 0) + numberValue(u.cacheReadInputTokens);
       usage.cacheCreationTokens = (usage.cacheCreationTokens ?? 0) + numberValue(u.cacheWriteInputTokens);
+      continue;
+    }
+    if (obj.status === 'succeeded') {
+      sawResult = true;
+      if (typeof obj.output === 'string') output += obj.output;
+      const u = isRecord(obj.usage) ? obj.usage : {};
+      usage.inputTokens = (usage.inputTokens ?? 0) + numberValue(u.inputTokens);
+      usage.outputTokens = (usage.outputTokens ?? 0) + numberValue(u.outputTokens);
+      usage.cacheReadTokens = (usage.cacheReadTokens ?? 0) + numberValue(u.cacheReadTokens);
+      usage.cacheCreationTokens = (usage.cacheCreationTokens ?? 0) + numberValue(u.cacheCreationTokens);
     }
   }
 
   usage.totalTokens = (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) + (usage.cacheReadTokens ?? 0) + (usage.cacheCreationTokens ?? 0);
   return { output: output.slice(0, 4000), usage, trajectory, isError, mcpServers: [], sawResult };
+}
+
+function swarmTraceEventPayload(obj: Record<string, unknown>): Record<string, unknown> {
+  return isRecord(obj.payload) && typeof obj.payload.type === 'string' ? obj.payload : obj;
 }
 
 function canonicalSwarmToolName(name: string): string {
