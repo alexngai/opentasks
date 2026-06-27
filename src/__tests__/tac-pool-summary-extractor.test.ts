@@ -183,8 +183,8 @@ describe('TAC pool summary extractor', () => {
   it('backfills strict task-work timing metrics from older trace files', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'opentasks-tac-summary-backfill-'));
     const runDir = path.join(root, 'run-backfill');
-    const goodCellDir = path.join(runDir, 'cells', 'sde-close-an-issue__opentasks__haiku__seed7');
-    const delegatedCellDir = path.join(runDir, 'cells', 'sde-delete-stale-branch__opentasks__haiku__seed7');
+    const goodCellDir = path.join(runDir, 'cells', 'sde-close-an-issue__opentasks__azureoai-gpt-5.5__seed7');
+    const delegatedCellDir = path.join(runDir, 'cells', 'sde-delete-stale-branch__opentasks__azureoai-gpt-5.5__seed7');
     await fs.mkdir(goodCellDir, { recursive: true });
     await fs.mkdir(delegatedCellDir, { recursive: true });
     await fs.writeFile(
@@ -195,7 +195,7 @@ describe('TAC pool summary extractor', () => {
           {
             taskId: 'sde-close-an-issue',
             arm: 'opentasks',
-            model: 'haiku',
+            model: 'azureoai/gpt-5.5',
             seed: 7,
             status: 'success',
             partial: 1,
@@ -210,7 +210,7 @@ describe('TAC pool summary extractor', () => {
           {
             taskId: 'sde-delete-stale-branch',
             arm: 'opentasks',
-            model: 'haiku',
+            model: 'azureoai/gpt-5.5',
             seed: 7,
             status: 'success',
             partial: 1,
@@ -229,6 +229,7 @@ describe('TAC pool summary extractor', () => {
       ...swarmToolUse('tool-1', 'tool_search', { query: 'select:mcp__opentasks__get_task' }),
       ...swarmToolUse('tool-2', 'mcp__opentasks__get_task', { id: 't-good' }),
       ...swarmToolUse('tool-3', 'read_file', { path: '/instruction/task.md' }, true),
+      ...swarmToolUse('tool-4', 'bash', { command: 'find / -name "*plane*"' }, true),
     ]);
     await writeSeedAndStream(delegatedCellDir, 't-late', [
       toolUse('ToolSearch', { query: 'select:mcp__opentasks__get_task' }),
@@ -242,16 +243,19 @@ describe('TAC pool summary extractor', () => {
       expect.objectContaining({
         taskId: 'sde-close-an-issue',
         seededFullBeforeTaskWork: 1,
+        broadFsSearch: 1,
       }),
       expect.objectContaining({
         taskId: 'sde-delete-stale-branch',
         seededFullBeforeTaskWork: 0,
+        broadFsSearch: 0,
       }),
     ]);
     expect(buildAggregateRows(summaries)).toEqual([
       expect.objectContaining({
         runId: 'run-backfill',
         seededFullBeforeTaskWorkMean: 0.5,
+        broadFsSearchMean: 0.5,
       }),
     ]);
   });

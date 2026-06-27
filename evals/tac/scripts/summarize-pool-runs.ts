@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseSwarmHarnessJsonl } from '../agent-harness';
+import { traceDiagnosticsFromClaudeStream } from '../docker-adapter';
 
 interface CellSummary {
   taskId: string;
@@ -252,21 +253,30 @@ async function backfillMissingTraceMetrics(runDir: string, summary: PoolSummary)
 
 async function backfillCellTraceMetrics(runDir: string, cell: CellSummary): Promise<void> {
   const metrics = (cell.metrics ??= {});
-  if (
+  const needsTaskTimingBackfill = !(
     metrics.openTasksGetTaskCallsBeforeFirstTaskWork !== undefined &&
     metrics.mainFullTaskContentReadBeforeFirstTaskWork !== undefined &&
     metrics.seededTaskGetTaskBeforeFirstTaskWorkCallCount !== undefined &&
     metrics.seededTaskFullContentReadBeforeFirstTaskWork !== undefined
-  ) {
+  );
+  const needsBroadFsBackfill = metrics.broadFilesystemSearchCount === undefined;
+  if (!needsTaskTimingBackfill && !needsBroadFsBackfill) {
     return;
   }
 
-  const cellDir = path.join(runDir, 'cells', `${cell.taskId}__${cell.arm}__${cell.model}__seed${cell.seed}`);
+  const cellDir = path.join(runDir, 'cells', slug(`${cell.taskId}__${cell.arm}__${cell.model}__seed${cell.seed}`));
   const streamFile = path.join(cellDir, 'agent-stream.jsonl');
   if (!(await exists(streamFile))) return;
 
+  const stdout = await fs.readFile(streamFile, 'utf8');
+  if (needsBroadFsBackfill) {
+    const stderr = await fs.readFile(path.join(cellDir, 'agent-stderr.log'), 'utf8').catch(() => '');
+    metrics.broadFilesystemSearchCount = traceDiagnosticsFromClaudeStream(stdout, stderr).broadFilesystemSearchCount;
+  }
+  if (!needsTaskTimingBackfill) return;
+
   const seededTaskId = await readSeededTaskId(cellDir);
-  const toolEvents = await readToolEvents(streamFile);
+  const toolEvents = readToolEvents(stdout);
   const firstTaskWorkIndex = toolEvents.findIndex(isTaskWorkTool);
   let openTasksGetTaskCallsBeforeFirstTaskWork = 0;
   let seededTaskGetTaskBeforeFirstTaskWorkCallCount = 0;
@@ -305,9 +315,8 @@ interface ToolEvent {
   input?: unknown;
 }
 
-async function readToolEvents(file: string): Promise<ToolEvent[]> {
+function readToolEvents(stdout: string): ToolEvent[] {
   const events: ToolEvent[] = [];
-  const stdout = await fs.readFile(file, 'utf8');
   for (const event of parseSwarmHarnessJsonl(stdout).trajectory) {
     if (event.type === 'tool') events.push({ name: event.name, input: event.input });
   }
@@ -426,6 +435,10 @@ function percentile(values: number[], p: number): number {
 
 function round(value: number): number {
   return Number.isFinite(value) ? Number(value.toFixed(3)) : 0;
+}
+
+function slug(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, '-');
 }
 
 function markdownValue(value: unknown): string {
