@@ -280,6 +280,32 @@ Decision rule:
 - OpenTasks wins this axis only if its duplicate/redundant work rate stays lower
   and `E_c` remains competitive after charging graph overhead.
 
+### E2.5 — Full-Ecosystem Team Contract Variant
+
+Purpose: test whether OpenTasks becomes more load-bearing when it is used as the
+durable evidence/verification graph behind a structured team runtime, rather
+than only as an optional MCP graph exposed to one agent.
+
+Design: [2026-06-26 TAC OpenTeams team contract design](./2026-06-26-tac-openteams-team-contract-design.md).
+
+Protocol:
+
+- Use OpenTeams to declare TAC roles, topology, communication channels, and
+  capability loadouts.
+- Use swarm-harness to run the coordinator and workers.
+- Use OpenTasks for root task content, subtasks, evidence, decisions, and
+  verification records.
+- Use swarm-dispatch for claim/retry/continuation only after the static team
+  contract smoke proves productive coordination.
+- Keep TAC evaluator scoring unchanged; graph state is diagnostic only.
+
+Decision rule:
+
+- Scale only if at least two agents use OpenTasks graph state, a child produces
+  useful evidence, the coordinator consumes that evidence before mutation, and
+  an independent verifier records final evidence.
+- Treat mere worker spawning as insufficient evidence of coordination.
+
 ## 6. Pre-Registered Null Branches
 
 - If `opentasks` is not read, the experiment is an adoption failure, not a
