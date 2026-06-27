@@ -63,6 +63,7 @@ export interface CellRow {
   openTasksCalls: number;
   gitlabHelper: number;
   rawGitlabCurl: number;
+  broadFsSearch: number;
   http404: number;
   http5xx: number;
 }
@@ -85,6 +86,7 @@ export interface AggregateRow {
   openTasksUpdatesMean: number;
   gitlabHelperMean: number;
   rawGitlabCurlMean: number;
+  broadFsSearchMean: number;
   http404Mean: number;
   http5xxMean: number;
 }
@@ -109,6 +111,7 @@ const CELL_COLUMNS: Array<keyof CellRow> = [
   'openTasksCalls',
   'gitlabHelper',
   'rawGitlabCurl',
+  'broadFsSearch',
   'http404',
   'http5xx',
 ];
@@ -130,6 +133,7 @@ const AGGREGATE_COLUMNS: Array<keyof AggregateRow> = [
   'openTasksUpdatesMean',
   'gitlabHelperMean',
   'rawGitlabCurlMean',
+  'broadFsSearchMean',
   'http404Mean',
   'http5xxMean',
 ];
@@ -236,6 +240,7 @@ function cellRow(runId: string, runDir: string, cell: CellSummary): CellRow {
     openTasksCalls: metric(metrics, 'mainOpenTasksCallCount'),
     gitlabHelper: metric(metrics, 'gitlabHelperCallCount'),
     rawGitlabCurl: metric(metrics, 'rawGitlabApiCurlCallCount'),
+    broadFsSearch: metric(metrics, 'broadFilesystemSearchCount'),
     http404: metric(metrics, 'http404Count'),
     http5xx: metric(metrics, 'http5xxCount'),
   };
@@ -352,6 +357,7 @@ function aggregateRow(runId: string, runDir: string, aggregate: AggregateSummary
     openTasksUpdatesMean: metric(metrics, 'mainOpenTasksUpdateCallCount'),
     gitlabHelperMean: metric(metrics, 'gitlabHelperCallCount'),
     rawGitlabCurlMean: metric(metrics, 'rawGitlabApiCurlCallCount'),
+    broadFsSearchMean: metric(metrics, 'broadFilesystemSearchCount'),
     http404Mean: metric(metrics, 'http404Count'),
     http5xxMean: metric(metrics, 'http5xxCount'),
   };

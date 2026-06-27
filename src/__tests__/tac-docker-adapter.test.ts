@@ -1724,6 +1724,50 @@ describe('TAC adapter guardrail diagnostics', () => {
     expect(diagnostics.http404Count).toBeGreaterThan(0);
   });
 
+  it('counts broad root filesystem searches from Bash commands only', () => {
+    const stdout = [
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              name: 'Bash',
+              input: {
+                command: [
+                  'find / -name "*plane*"',
+                  'grep -R "needle" /',
+                  "python3 - <<'PY'",
+                  'import glob',
+                  "glob.glob('/**/*plane*', recursive=True)",
+                  'PY',
+                  'find /workspace -name package.json',
+                ].join('\n'),
+              },
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: 'user',
+        message: {
+          content: [
+            {
+              type: 'tool_result',
+              content: 'Prompt reminder: do not run find / or glob("/**/*", recursive=True).',
+            },
+          ],
+        },
+      }),
+    ].join('\n');
+
+    const diagnostics = traceDiagnosticsFromClaudeStream(stdout, '');
+    const taxonomy = failureTaxonomy(diagnostics);
+
+    expect(diagnostics.broadFilesystemSearchCount).toBe(3);
+    expect(taxonomy.labels).toContain('broad_filesystem_search');
+  });
+
   it('suppresses failure taxonomy metrics on full TAC success', () => {
     const diagnostics = traceDiagnosticsFromClaudeStream(
       JSON.stringify({

@@ -2612,6 +2612,7 @@ function findLastIndex<T>(items: T[], predicate: (item: T) => boolean): number {
 export interface TraceDiagnostics {
   repeatedToolCallCount: number;
   repeatedBashCommandCount: number;
+  broadFilesystemSearchCount: number;
   toolErrorCount: number;
   http401Count: number;
   http403Count: number;
@@ -2638,6 +2639,7 @@ export function traceDiagnosticsFromClaudeStream(stdout: string, stderr: string)
   const diagnostics: TraceDiagnostics = {
     repeatedToolCallCount: 0,
     repeatedBashCommandCount: 0,
+    broadFilesystemSearchCount: 0,
     toolErrorCount: 0,
     http401Count: 0,
     http403Count: 0,
@@ -2656,6 +2658,7 @@ export function traceDiagnosticsFromClaudeStream(stdout: string, stderr: string)
   const toolCounts = new Map<string, number>();
   const bashCounts = new Map<string, number>();
   const scannedText: string[] = [stderr];
+  const commandText: string[] = [];
   const openSwarmTools = new Map<string, { name: string; json: string; input?: unknown }>();
 
   const recordToolUse = (name: string, input: unknown) => {
@@ -2665,6 +2668,7 @@ export function traceDiagnosticsFromClaudeStream(stdout: string, stderr: string)
       const command = normalizeCommand((input as { command?: unknown } | undefined)?.command);
       if (command) {
         bashCounts.set(command, (bashCounts.get(command) ?? 0) + 1);
+        commandText.push(command);
         scannedText.push(command);
       }
     }
@@ -2744,6 +2748,7 @@ export function traceDiagnosticsFromClaudeStream(stdout: string, stderr: string)
 
   diagnostics.repeatedToolCallCount = repeatedCount(toolCounts);
   diagnostics.repeatedBashCommandCount = repeatedCount(bashCounts);
+  diagnostics.broadFilesystemSearchCount = broadFilesystemSearchCount(commandText.join('\n'));
   const statusCounts = statusSignalCounts(scannedText.join('\n'));
   diagnostics.http401Count = statusCounts.http401Count;
   diagnostics.http403Count = statusCounts.http403Count;
@@ -2765,6 +2770,7 @@ export function failureTaxonomy(signals: TraceDiagnostics): FailureTaxonomyRepor
   const labels: string[] = [];
   if (signals.liveTokenBudgetExceeded === 1) labels.push('budget_live_tokens');
   if (signals.authFailureSignalCount > 0 || signals.http401Count > 0 || signals.http403Count > 0) labels.push('auth_or_permission');
+  if (signals.broadFilesystemSearchCount > 0) labels.push('broad_filesystem_search');
   if (signals.repeatedBashCommandCount >= 2 || signals.repeatedToolCallCount >= 3) labels.push('repetition_loop');
   if (signals.http404Count > 0) labels.push('not_found_or_wrong_target');
   if (signals.http5xxCount > 0) labels.push('service_unavailable');
@@ -2781,6 +2787,7 @@ export function taxonomyMetrics(report: FailureTaxonomyReport): Record<string, n
   return {
     taxonomyBudgetLiveTokens: labels.has('budget_live_tokens') ? 1 : 0,
     taxonomyAuthOrPermission: labels.has('auth_or_permission') ? 1 : 0,
+    taxonomyBroadFilesystemSearch: labels.has('broad_filesystem_search') ? 1 : 0,
     taxonomyRepetitionLoop: labels.has('repetition_loop') ? 1 : 0,
     taxonomyNotFoundOrWrongTarget: labels.has('not_found_or_wrong_target') ? 1 : 0,
     taxonomyServiceUnavailable: labels.has('service_unavailable') ? 1 : 0,
@@ -2886,6 +2893,17 @@ function repeatedCount(counts: Map<string, number>): number {
   let total = 0;
   for (const count of counts.values()) total += Math.max(0, count - 1);
   return total;
+}
+
+function broadFilesystemSearchCount(text: string): number {
+  const pythonGlobModuleCount = matchCount(text, /\bglob\.glob\s*\(\s*['"]\/\*\*\/\*/gi);
+  const textWithoutGlobModuleCalls = text.replace(/\bglob\.glob\s*\(\s*['"]\/\*\*\/\*/gi, '');
+  return [
+    /\bfind\s+\/(?:\s|$|[;&|])/gi,
+    /\bgrep\b[^\n;&|]*\s-(?:[A-Za-z]*R[A-Za-z]*|[A-Za-z]*r[A-Za-z]*)\b[^\n;&|]*\s\/(?:\s|$|[;&|])/gi,
+    /\brg\b[^\n;&|]*\s\/(?:\s|$|[;&|])/gi,
+  ].reduce((sum, pattern) => sum + matchCount(text, pattern), pythonGlobModuleCount)
+    + matchCount(textWithoutGlobModuleCalls, /\bglob\s*\(\s*['"]\/\*\*\/\*/gi);
 }
 
 function statusSignalCounts(text: string): Pick<
