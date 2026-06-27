@@ -10,6 +10,7 @@ import {
   TacDockerAdapter,
   tacDockerAdapterFromEnv,
   TAC_TASK_PROMPT,
+  taxonomyMetricsForTacResult,
   traceDiagnosticsFromClaudeStream,
   traceEfficiencyMetrics,
 } from '../../evals/tac/docker-adapter.js';
@@ -311,6 +312,25 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(parsed.trajectory).toEqual([
       { type: 'tool', ts: 0, name: 'Bash', input: { command: 'echo ok' } },
     ]);
+  });
+
+  it('does not double-count swarm-harness final usage when message_stop already reported it', () => {
+    const parsed = tacAgentHarnessFromId('swarm').parse(
+      [
+        JSON.stringify({ type: 'message_stop', usage: { inputTokens: 5, outputTokens: 3, cacheReadInputTokens: 2 } }),
+        JSON.stringify({
+          id: 'tac-root',
+          status: 'succeeded',
+          output: 'done',
+          usage: { inputTokens: 5, outputTokens: 3, cacheReadTokens: 2 },
+        }),
+      ].join('\n'),
+      'haiku',
+    );
+
+    expect(parsed.output).toBe('done');
+    expect(parsed.sawResult).toBe(true);
+    expect(parsed.usage).toMatchObject({ inputTokens: 5, outputTokens: 3, cacheReadTokens: 2, totalTokens: 10 });
   });
 
   it('allows TAC tests and future adapters to inject a different agent harness', () => {
@@ -1328,6 +1348,55 @@ describe('TAC adapter guardrail diagnostics', () => {
     expect(diagnostics.liveTokenBudgetExceeded).toBe(1);
     expect(taxonomy.labels).toContain('budget_live_tokens');
     expect(taxonomy.labels).toContain('auth_or_permission');
+  });
+
+  it('extracts repeated tool/API failure signals from swarm-harness lane events', () => {
+    const stdout = [
+      JSON.stringify({
+        ts: 1,
+        agentId: 'agent-1',
+        type: 'tool_use_start',
+        payload: { type: 'tool_use_start', id: 't1', name: 'bash' },
+      }),
+      JSON.stringify({
+        ts: 2,
+        agentId: 'agent-1',
+        type: 'tool_use_input',
+        payload: { type: 'tool_use_input', id: 't1', jsonDelta: '{"command":"curl -i http://example.test/missing"}' },
+      }),
+      JSON.stringify({
+        ts: 3,
+        agentId: 'agent-1',
+        type: 'tool_use_end',
+        payload: { type: 'tool_use_end', id: 't1' },
+      }),
+      JSON.stringify({
+        ts: 4,
+        agentId: 'agent-1',
+        type: 'tool_result',
+        payload: { type: 'tool_result', toolUseId: 't1', content: 'HTTP/1.1 404 Not Found', isError: true },
+      }),
+    ].join('\n');
+
+    const diagnostics = traceDiagnosticsFromClaudeStream(stdout, '');
+
+    expect(diagnostics.toolErrorCount).toBe(1);
+    expect(diagnostics.http404Count).toBeGreaterThan(0);
+  });
+
+  it('suppresses failure taxonomy metrics on full TAC success', () => {
+    const diagnostics = traceDiagnosticsFromClaudeStream(
+      JSON.stringify({
+        type: 'user',
+        message: { content: [{ type: 'tool_result', is_error: true, content: 'HTTP/1.1 404 Not Found' }] },
+      }),
+      '',
+    );
+
+    const metrics = taxonomyMetricsForTacResult({ final_score: { total: 1, result: 1 } }, diagnostics);
+
+    expect(metrics.taxonomyNotFoundOrWrongTarget).toBe(0);
+    expect(metrics.taxonomyUndifferentiatedTaskFailure).toBe(0);
   });
 
   it('extracts GitLab wiki write signals from commands and tool results', () => {

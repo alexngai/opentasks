@@ -661,7 +661,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
         mcpServersConnected,
         ...efficiencyMetrics,
         ...diagnostics,
-        ...taxonomyMetrics(failureTaxonomy(diagnostics)),
+        ...taxonomyMetricsForTacResult(resultJson, diagnostics),
       });
       await writeLocalArtifact('failure-taxonomy.json', `${JSON.stringify(failureTaxonomy(diagnostics), null, 2)}\n`);
       return {
@@ -2580,6 +2580,19 @@ export function traceDiagnosticsFromClaudeStream(stdout: string, stderr: string)
   const toolCounts = new Map<string, number>();
   const bashCounts = new Map<string, number>();
   const scannedText: string[] = [stderr];
+  const openSwarmTools = new Map<string, { name: string; json: string; input?: unknown }>();
+
+  const recordToolUse = (name: string, input: unknown) => {
+    const key = `${name}:${stableJson(input ?? {})}`;
+    toolCounts.set(key, (toolCounts.get(key) ?? 0) + 1);
+    if (canonicalDiagnosticToolName(name) === 'Bash') {
+      const command = normalizeCommand((input as { command?: unknown } | undefined)?.command);
+      if (command) {
+        bashCounts.set(command, (bashCounts.get(command) ?? 0) + 1);
+        scannedText.push(command);
+      }
+    }
+  };
 
   for (const line of stdout.split('\n')) {
     if (!line.trim().startsWith('{')) continue;
@@ -2589,6 +2602,40 @@ export function traceDiagnosticsFromClaudeStream(stdout: string, stderr: string)
     } catch {
       continue;
     }
+    const event = swarmDiagnosticPayload(obj);
+
+    if (event.type === 'tool_use_start') {
+      const id = typeof event.id === 'string' ? event.id : typeof event.toolUseId === 'string' ? event.toolUseId : '';
+      const name = typeof event.name === 'string' ? event.name : typeof event.toolName === 'string' ? event.toolName : 'tool';
+      if (id) openSwarmTools.set(id, { name, json: '' });
+    }
+
+    if (event.type === 'tool_use_input') {
+      const id = typeof event.id === 'string' ? event.id : typeof event.toolUseId === 'string' ? event.toolUseId : '';
+      const open = openSwarmTools.get(id);
+      if (open && typeof event.jsonDelta === 'string') open.json += event.jsonDelta;
+    }
+
+    if (event.type === 'tool_use_end') {
+      const id = typeof event.id === 'string' ? event.id : typeof event.toolUseId === 'string' ? event.toolUseId : '';
+      const open = openSwarmTools.get(id);
+      if (open) {
+        const input = isRecord(event.input) ? event.input : parseJsonRecord(open.json);
+        recordToolUse(canonicalDiagnosticToolName(open.name), input ?? {});
+        openSwarmTools.delete(id);
+      }
+    }
+
+    if (event.type === 'tool_result') {
+      if (event.isError === true || event.is_error === true) diagnostics.toolErrorCount += 1;
+      const text = textFromContent(event.content);
+      if (text) scannedText.push(text);
+    }
+
+    if (event.type === 'error' || obj.status === 'failed' || obj.status === 'timeout' || obj.status === 'cancelled') {
+      diagnostics.toolErrorCount += 1;
+      scannedText.push(textFromContent(obj.error));
+    }
 
     if (obj.type === 'assistant') {
       const content = (obj.message as { content?: unknown } | undefined)?.content;
@@ -2597,15 +2644,7 @@ export function traceDiagnosticsFromClaudeStream(stdout: string, stderr: string)
         if (!block || typeof block !== 'object' || (block as { type?: unknown }).type !== 'tool_use') continue;
         const tool = block as { name?: unknown; input?: unknown };
         if (typeof tool.name !== 'string') continue;
-        const key = `${tool.name}:${stableJson(tool.input ?? {})}`;
-        toolCounts.set(key, (toolCounts.get(key) ?? 0) + 1);
-        if (tool.name === 'Bash') {
-          const command = normalizeCommand((tool.input as { command?: unknown } | undefined)?.command);
-          if (command) {
-            bashCounts.set(command, (bashCounts.get(command) ?? 0) + 1);
-            scannedText.push(command);
-          }
-        }
+        recordToolUse(tool.name, tool.input ?? {});
       }
     }
 
@@ -2673,6 +2712,28 @@ export function taxonomyMetrics(report: FailureTaxonomyReport): Record<string, n
   };
 }
 
+export function taxonomyMetricsForTacResult(result: TacResultJson, diagnostics: TraceDiagnostics): Record<string, number> {
+  return tacResultIsFullSuccess(result) ? taxonomyMetrics({ ...failureTaxonomy(diagnostics), labels: [] }) : taxonomyMetrics(failureTaxonomy(diagnostics));
+}
+
+function tacResultIsFullSuccess(result: TacResultJson): boolean {
+  const final = result.final_score ?? {};
+  if (finiteNonnegative(final.total) && Number(final.total) > 0 && finiteNonnegative(final.result)) {
+    return Number(final.result) >= Number(final.total);
+  }
+  const checkpoints = result.checkpoints ?? [];
+  if (!checkpoints.length) return false;
+  return checkpoints.every((cp) => {
+    const total = finiteNonnegative(cp.total) ? Number(cp.total) : 1;
+    const earned = finiteNonnegative(cp.result) ? Number(cp.result) : 0;
+    return total > 0 && earned >= total;
+  });
+}
+
+function finiteNonnegative(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
 function liveTokenLimitFromEnv(): number | undefined {
   if (process.env.TAC_CELL_LIVE_TOKEN_KILL === '0') return undefined;
   const raw = process.env.TAC_AGENT_LIVE_MAX_TOKENS ?? process.env.TAC_CELL_MAX_TOKENS;
@@ -2688,6 +2749,39 @@ function remainingLiveTokenLimit(limit: number | undefined, priorUsage: TokenUsa
 
 function stableJson(value: unknown): string {
   return JSON.stringify(sortJson(value));
+}
+
+function swarmDiagnosticPayload(obj: Record<string, unknown>): Record<string, unknown> {
+  return isRecord(obj.payload) && typeof obj.payload.type === 'string' ? obj.payload : obj;
+}
+
+function parseJsonRecord(json: string): Record<string, unknown> | undefined {
+  if (!json) return undefined;
+  try {
+    const parsed = JSON.parse(json);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function canonicalDiagnosticToolName(name: string): string {
+  const map: Record<string, string> = {
+    bash: 'Bash',
+    read_file: 'Read',
+    write_file: 'Write',
+    edit_file: 'Edit',
+    multi_edit: 'Edit',
+    glob: 'Glob',
+    grep: 'Grep',
+    tool_search: 'ToolSearch',
+    skill: 'Skill',
+  };
+  return map[name] ?? name;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function sortJson(value: unknown): unknown {

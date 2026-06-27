@@ -200,6 +200,7 @@ export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
   const usage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0 };
   const trajectory: TraceEvent[] = [];
   const openTools = new Map<string, { event: TraceEvent; json: string }>();
+  let sawMessageStopUsage = false;
 
   for (const line of stdout.split('\n')) {
     const t = line.trim();
@@ -253,6 +254,7 @@ export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
     }
     if (event.type === 'message_stop') {
       sawResult = true;
+      sawMessageStopUsage = true;
       const u = isRecord(event.usage) ? event.usage : {};
       usage.inputTokens = (usage.inputTokens ?? 0) + numberValue(u.inputTokens);
       usage.outputTokens = (usage.outputTokens ?? 0) + numberValue(u.outputTokens);
@@ -263,6 +265,7 @@ export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
     if (obj.status === 'succeeded') {
       sawResult = true;
       if (typeof obj.output === 'string') output += obj.output;
+      if (sawMessageStopUsage) continue;
       const u = isRecord(obj.usage) ? obj.usage : {};
       usage.inputTokens = (usage.inputTokens ?? 0) + numberValue(u.inputTokens);
       usage.outputTokens = (usage.outputTokens ?? 0) + numberValue(u.outputTokens);
