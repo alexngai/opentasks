@@ -63,12 +63,13 @@ export function buildTacTeamContractPacket(opts: TacTeamContractPacketOptions): 
     '',
     'Coordinator contract:',
     '- Read the seeded OpenTasks root task before task-specific service work when direct mcp__opentasks__ tools are available.',
-    '- In swarm-harness team mode, use task_get/task_list/task_update; task_update writes are mirrored into OpenTasks when --opentasks is enabled.',
+    '- In swarm-harness team mode, first call task_list({}) and use the returned running task id for task_get/task_update; task_update writes are mirrored into OpenTasks when --opentasks is enabled.',
+    '- Do not assume tac-root or the seeded OpenTasks id is the swarm task registry id unless task_list returns that exact id. If task_list returns no usable task, call task_create to create a coordination log and update that returned id.',
     '- Delegate service-state discovery to a service_inspector when the task requires external service inspection.',
     '- If the service_inspector needs shell/API reads, spawn it with permissionMode:"danger-full-access" and instruct it not to mutate service state.',
     '- Do not perform service mutation until useful child evidence exists or the evidence task is explicitly blocked.',
-    '- Before first service mutation, record EVIDENCE_FOUND or BLOCKED with task_update(id:"tac-root", output:"...") or direct mcp__opentasks__record_attempt/update_task.',
-    '- After final verification, record VERIFIED with task_update(id:"tac-root", output:"...") or direct mcp__opentasks__record_attempt/update_task.',
+    '- Before first service mutation, record EVIDENCE_FOUND or BLOCKED with task_update(id:"<task_list id>", output:"...") or direct mcp__opentasks__record_attempt/update_task.',
+    '- After final verification, record VERIFIED with task_update(id:"<task_list id>", output:"...") or direct mcp__opentasks__record_attempt/update_task.',
     '',
     'service_inspector contract:',
     '- Read this full TAC task text from the packet or mirrored file.',
@@ -100,6 +101,7 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
   let openTasksGraphCallCount = 0;
   let openTasksEvidenceWriteCount = 0;
   let openTasksVerificationWriteCount = 0;
+  let failedOpenTasksGraphWriteCount = 0;
   let firstEvidenceIndex = -1;
   let firstVerificationIndex = -1;
   let firstMutationIndex = -1;
@@ -113,6 +115,10 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
       openTasksGraphCallCount += 1;
       const text = JSON.stringify(input).toLowerCase();
       const isWrite = isOpenTasksGraphWriteTool(event.name);
+      if (isWrite && isFailedToolEvent(event)) {
+        failedOpenTasksGraphWriteCount += 1;
+        return;
+      }
       const isVerificationWrite = isWrite && /verification|verified|verifies/.test(text);
       if (isVerificationWrite) {
         openTasksVerificationWriteCount += 1;
@@ -145,6 +151,7 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
     teamContractWorkerSpawned: workerSpawned,
     teamContractOpenTasksGraphCallCount: openTasksGraphCallCount,
     teamContractEvidenceWriteCount: openTasksEvidenceWriteCount,
+    teamContractFailedGraphWriteCount: failedOpenTasksGraphWriteCount,
     teamContractChildEvidenceWritten: childEvidenceWritten,
     teamContractCoordinatorConsumedEvidenceBeforeMutation: evidenceBeforeMutation,
     teamContractVerificationWriteCount: openTasksVerificationWriteCount,
@@ -170,6 +177,13 @@ function isOpenTasksGraphTool(name: string): boolean {
 
 function isOpenTasksGraphWriteTool(name: string): boolean {
   return name === 'mcp__opentasks__record_attempt' || name === 'mcp__opentasks__update_task' || name === 'task_update';
+}
+
+function isFailedToolEvent(event: TraceEvent): boolean {
+  const record = event as TraceEvent & { isError?: unknown; is_error?: unknown; success?: unknown };
+  if (record.isError === true || record.is_error === true) return true;
+  if (record.success === false) return true;
+  return false;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -201,6 +201,7 @@ export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
   const usage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0 };
   const trajectory: TraceEvent[] = [];
   const openTools = new Map<string, { event: TraceEvent; json: string; meta: Record<string, unknown> }>();
+  const toolEventsById = new Map<string, TraceEvent>();
   let sawMessageStopUsage = false;
 
   for (const line of stdout.split('\n')) {
@@ -232,6 +233,7 @@ export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
       if (Object.keys(meta).length) traceEvent.input = meta;
       trajectory.push(traceEvent);
       openTools.set(id, { event: traceEvent, json: '', meta });
+      toolEventsById.set(id, traceEvent);
       continue;
     }
     if (event.type === 'tool_use_input') {
@@ -250,7 +252,17 @@ export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
       }
       continue;
     }
-    if (event.type === 'tool_result') continue;
+    if (event.type === 'tool_result') {
+      const id = typeof event.toolUseId === 'string' ? event.toolUseId : typeof event.tool_use_id === 'string' ? event.tool_use_id : '';
+      const toolEvent = toolEventsById.get(id) as (TraceEvent & { output?: string; isError?: boolean; success?: boolean }) | undefined;
+      if (toolEvent) {
+        if (typeof event.content === 'string') toolEvent.output = event.content;
+        const isError = event.isError === true || event.is_error === true;
+        toolEvent.isError = isError;
+        toolEvent.success = !isError;
+      }
+      continue;
+    }
     if (event.type === 'error' || obj.status === 'failed' || obj.status === 'timeout' || obj.status === 'cancelled') {
       isError = true;
       continue;

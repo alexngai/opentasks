@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { TraceEvent } from 'swarmkit-eval';
 
 import { tacArms } from '../../evals/tac/bench.js';
 import {
@@ -774,7 +775,9 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(arm.scaffold.extraTools).toContain('mcp__opentasks__record_attempt');
     expect(appendix).toContain('team-contract TAC arm');
     expect(appendix).toContain('structured evidence before mutation');
-    expect(appendix).toContain('task_update(id:"tac-root"');
+    expect(appendix).toContain('task_list({})');
+    expect(appendix).toContain('task_update(id:"<task_list id>"');
+    expect(appendix).toContain('Do not assume tac-root');
     expect(appendix).toContain('Do not search for mcp__opentasks__ tools in swarm-harness');
     expect(appendix).toContain('permissionMode:"danger-full-access"');
   });
@@ -790,7 +793,8 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(packet).toContain('Template: tac-service-sync@1');
     expect(packet).toContain('Seeded OpenTasks root task id: t-root');
     expect(packet).toContain('service_inspector contract');
-    expect(packet).toContain('task_update(id:"tac-root"');
+    expect(packet).toContain('task_list({})');
+    expect(packet).toContain('task_update(id:"<task_list id>"');
     expect(packet).toContain('"commands_or_endpoints"');
     expect(packet).toContain('Update the Plane issue based on GitLab issue status.');
   });
@@ -996,10 +1000,34 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(metrics).toMatchObject({
       teamContractOpenTasksGraphCallCount: 3,
       teamContractEvidenceWriteCount: 1,
+      teamContractFailedGraphWriteCount: 0,
       teamContractVerificationWriteCount: 1,
       teamContractCoordinatorConsumedEvidenceBeforeMutation: 1,
       teamContractVerificationAfterMutation: 1,
       teamContractStopGatePassed: 1,
+    });
+  });
+
+  it('does not count failed swarm task updates as durable TAC team-contract evidence', () => {
+    const metrics = tacTeamContractMetrics([
+      { type: 'tool', ts: 0, name: 'task_list', input: { agentId: 'root' } },
+      {
+        type: 'tool',
+        ts: 1,
+        name: 'task_update',
+        input: { agentId: 'root', id: 't-missing', output: 'EVIDENCE_FOUND service_inspection evidence' },
+        isError: true,
+      } as TraceEvent & { isError: true },
+      { type: 'tool', ts: 2, name: 'Bash', input: { agentId: 'root', command: 'curl -X PATCH http://plane/api/issues/1' } },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamContractOpenTasksGraphCallCount: 2,
+      teamContractEvidenceWriteCount: 0,
+      teamContractFailedGraphWriteCount: 1,
+      teamContractChildEvidenceWritten: 0,
+      teamContractCoordinatorConsumedEvidenceBeforeMutation: 0,
+      teamContractStopGatePassed: 0,
     });
   });
 
