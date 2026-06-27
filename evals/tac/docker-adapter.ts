@@ -132,6 +132,7 @@ export const DEFAULT_TAC_OPERATING_PROMPT = [
   '- For unknown URLs, first request status and headers or cap content with `head -c 4000`.',
   '- Prefer jq-selected JSON fields, grep -n with a narrow pattern, and small file previews.',
   '- If a response is HTML from a web UI or a Not Found page, do not keep reading it; switch to the API or git route.',
+  '- Do not run recursive filesystem searches from `/` such as `find /`, `grep -R /`, or Python `glob("/**/*", recursive=True)`. Search only bounded paths such as `/workspace`, `/utils`, the current repo, or a known service/config directory.',
   '',
   'Avoid unbounded retry loops. If the same command, API request, write attempt, or login/permission approach fails repeatedly with the same evidence, stop repeating it, try at most one materially different strategy, then proceed with the best verified state and report the blocker.',
   'Do not brute-force credentials, tokens, URLs, or forms. If GitLab returns 401/403 on a write, use the documented root-token header rather than trying passwords, CSRF/session flows, SSH key generation, or token guessing.',

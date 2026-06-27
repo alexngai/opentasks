@@ -144,7 +144,7 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
   const verificationAfterMutation =
     firstVerificationIndex >= 0 && firstMutationIndex >= 0 && firstVerificationIndex > firstMutationIndex ? 1 : 0;
   const productiveCoordination =
-    workerSpawned && childEvidenceWritten && evidenceBeforeMutation && verificationWritten ? 1 : 0;
+    workerSpawned && childEvidenceWritten && evidenceBeforeMutation && verificationWritten && verificationAfterMutation ? 1 : 0;
 
   return {
     teamContractDistinctAgentCount: distinctAgentCount,
@@ -166,6 +166,10 @@ function isServiceMutationCommand(command: string): boolean {
   if (!command.trim()) return false;
   if (/\btac-gitlab-api\s+(POST|PUT|PATCH|DELETE)\b/i.test(command)) return true;
   if (/\bcurl\b/i.test(command) && /(?:^|\s)(?:-X|--request)\s*(POST|PUT|PATCH|DELETE)\b/i.test(command)) return true;
+  if (/\brequests\.(post|put|patch|delete)\s*\(/i.test(command)) return true;
+  if (/\brequests\.request\s*\([^,\n]+,\s*['"](POST|PUT|PATCH|DELETE)['"]/i.test(command)) return true;
+  if (/\burllib\.request\.Request\s*\([^)]*\bmethod\s*=\s*['"](POST|PUT|PATCH|DELETE)['"]/is.test(command)) return true;
+  if (/\b(req|request)\s*\(\s*['"](POST|PUT|PATCH|DELETE)['"]/i.test(command)) return true;
   if (/\btac-gitlab-protect-branch\b/.test(command)) return true;
   if (/\bgit\s+push\b/.test(command)) return true;
   return false;

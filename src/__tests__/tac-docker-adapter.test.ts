@@ -48,6 +48,7 @@ describe('TAC Docker adapter prompt', () => {
     expect(prompt).toContain('tac-gitlab-api DELETE projects/root/repo/repository/branches/feature/old');
     expect(prompt).toContain('tac-gitlab-protect-branch root/repo main PUSH_LEVEL MERGE_LEVEL');
     expect(prompt).toContain('head -c 4000');
+    expect(prompt).toContain('Do not run recursive filesystem searches from `/`');
     expect(prompt).toContain('keep generated content tightly grounded in the requested source material');
     expect(prompt).toContain('stop. Do not continue with extra inspection');
     expect(prompt).not.toContain('sotopia');
@@ -1028,6 +1029,50 @@ describe('TAC OpenTasks MCP setup', () => {
       teamContractChildEvidenceWritten: 0,
       teamContractCoordinatorConsumedEvidenceBeforeMutation: 0,
       teamContractStopGatePassed: 0,
+    });
+  });
+
+  it('classifies Python service writes before final TAC team-contract verification', () => {
+    const metrics = tacTeamContractMetrics([
+      { type: 'tool', ts: 0, name: 'task_list', input: { agentId: 'root' } },
+      { type: 'tool', ts: 1, name: 'agent', input: { agentId: 'root', prompt: 'inspect service state' } },
+      { type: 'tool', ts: 2, name: 'Read', input: { agentId: 'child' } },
+      {
+        type: 'tool',
+        ts: 3,
+        name: 'task_update',
+        input: {
+          agentId: 'root',
+          id: 'task-uuid',
+          output: 'EVIDENCE_FOUND service_inspection evidence=[{"kind":"api"}]',
+        },
+      },
+      {
+        type: 'tool',
+        ts: 4,
+        name: 'Bash',
+        input: {
+          agentId: 'root',
+          command: [
+            'python - <<\'PY\'',
+            'import requests',
+            'requests.request("PATCH", "http://plane/api/issues/1", json={"state":"done"})',
+            'PY',
+          ].join('\n'),
+        },
+      },
+      {
+        type: 'tool',
+        ts: 5,
+        name: 'task_update',
+        input: { agentId: 'root', id: 'task-uuid', output: 'VERIFIED final verification evidence' },
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamContractVerificationAfterMutation: 1,
+      teamContractProductiveCoordination: 1,
+      teamContractStopGatePassed: 1,
     });
   });
 
