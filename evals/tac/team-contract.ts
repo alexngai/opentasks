@@ -62,10 +62,13 @@ export function buildTacTeamContractPacket(opts: TacTeamContractPacketOptions): 
     rootTaskLine,
     '',
     'Coordinator contract:',
-    '- Read the seeded OpenTasks root task before task-specific service work.',
+    '- Read the seeded OpenTasks root task before task-specific service work when direct mcp__opentasks__ tools are available.',
+    '- In swarm-harness team mode, use task_get/task_list/task_update; task_update writes are mirrored into OpenTasks when --opentasks is enabled.',
     '- Delegate service-state discovery to a service_inspector when the task requires external service inspection.',
+    '- If the service_inspector needs shell/API reads, spawn it with permissionMode:"danger-full-access" and instruct it not to mutate service state.',
     '- Do not perform service mutation until useful child evidence exists or the evidence task is explicitly blocked.',
-    '- Record the accepted decision and final verification evidence in OpenTasks.',
+    '- Before first service mutation, record EVIDENCE_FOUND or BLOCKED with task_update(id:"tac-root", output:"...") or direct mcp__opentasks__record_attempt/update_task.',
+    '- After final verification, record VERIFIED with task_update(id:"tac-root", output:"...") or direct mcp__opentasks__record_attempt/update_task.',
     '',
     'service_inspector contract:',
     '- Read this full TAC task text from the packet or mirrored file.',
@@ -80,9 +83,9 @@ export function buildTacTeamContractPacket(opts: TacTeamContractPacketOptions): 
     '',
     'Stop-gate signals for the post-run TAC metric pass:',
     '- at least one child worker is spawned;',
-    '- child evidence is written or a blocker is recorded;',
-    '- coordinator consumes child evidence before first service mutation;',
-    '- final verification evidence is written.',
+    '- child evidence is written or a blocker is recorded with task_update or OpenTasks MCP;',
+    '- coordinator records/consumes child evidence before first service mutation;',
+    '- final verification evidence is written with task_update or OpenTasks MCP.',
     '',
     'Full TAC task text mirrored for every worker:',
     '```text',
@@ -106,21 +109,22 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
     const agentId = typeof input.agentId === 'string' ? input.agentId : undefined;
     if (agentId) agentIds.add(agentId);
 
-    if (event.name.startsWith('mcp__opentasks__')) {
+    if (isOpenTasksGraphTool(event.name)) {
       openTasksGraphCallCount += 1;
       const text = JSON.stringify(input).toLowerCase();
-      const isWrite = event.name === 'mcp__opentasks__record_attempt' || event.name === 'mcp__opentasks__update_task';
-      if (isWrite && /evidence|service_inspection|commands_or_endpoints/.test(text)) {
-        openTasksEvidenceWriteCount += 1;
-        if (firstEvidenceIndex < 0) firstEvidenceIndex = index;
-      }
-      if (isWrite && /verification|verified|verifies/.test(text)) {
+      const isWrite = isOpenTasksGraphWriteTool(event.name);
+      const isVerificationWrite = isWrite && /verification|verified|verifies/.test(text);
+      if (isVerificationWrite) {
         openTasksVerificationWriteCount += 1;
         if (firstVerificationIndex < 0) firstVerificationIndex = index;
       }
+      if (isWrite && !isVerificationWrite && /evidence|service_inspection|commands_or_endpoints/.test(text)) {
+        openTasksEvidenceWriteCount += 1;
+        if (firstEvidenceIndex < 0) firstEvidenceIndex = index;
+      }
     }
 
-    if (firstMutationIndex < 0 && event.name === 'Bash' && isServiceMutationCommand(String(input.command ?? ''))) {
+    if (firstMutationIndex < 0 && event.name.toLowerCase() === 'bash' && isServiceMutationCommand(String(input.command ?? ''))) {
       firstMutationIndex = index;
     }
   });
@@ -154,10 +158,18 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
 function isServiceMutationCommand(command: string): boolean {
   if (!command.trim()) return false;
   if (/\btac-gitlab-api\s+(POST|PUT|PATCH|DELETE)\b/i.test(command)) return true;
-  if (/\bcurl\b/i.test(command) && /\b-X\s*(POST|PUT|PATCH|DELETE)\b/i.test(command)) return true;
+  if (/\bcurl\b/i.test(command) && /(?:^|\s)(?:-X|--request)\s*(POST|PUT|PATCH|DELETE)\b/i.test(command)) return true;
   if (/\btac-gitlab-protect-branch\b/.test(command)) return true;
   if (/\bgit\s+push\b/.test(command)) return true;
   return false;
+}
+
+function isOpenTasksGraphTool(name: string): boolean {
+  return name.startsWith('mcp__opentasks__') || ['task_create', 'task_update', 'task_get', 'task_list'].includes(name);
+}
+
+function isOpenTasksGraphWriteTool(name: string): boolean {
+  return name === 'mcp__opentasks__record_attempt' || name === 'mcp__opentasks__update_task' || name === 'task_update';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

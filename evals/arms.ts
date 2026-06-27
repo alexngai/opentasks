@@ -67,10 +67,11 @@ const OPENTASKS_TEAM_CONTRACT: EvalArm = {
   id: 'opentasks-team-contract',
   label: 'OpenTasks Team Contract',
   systemPromptAppendix:
-    'You are running the OpenTasks team-contract TAC arm. Treat OpenTasks as the durable task, evidence, decision, and verification graph. ' +
-    'Before task-specific service work, read the seeded root TAC task with native mcp__opentasks__get_task. Use the team contract packet if provided: ' +
-    'spawn or delegate to a service_inspector when useful, require structured evidence before mutation, and record final verification evidence in OpenTasks. ' +
-    'Swarm task tools may coordinate runtime work, but native mcp__opentasks__* calls are required for graph adoption. Do not invoke MCP tool names through Bash.',
+    'You are running the OpenTasks team-contract TAC arm. Treat the task graph as the durable evidence, decision, and verification record. ' +
+    'In swarm-harness team mode, use native swarm task tools: task_list/task_get to inspect task state and task_update(id:"tac-root", output:"...") to record evidence; these updates are mirrored into OpenTasks. ' +
+    'Do not search for mcp__opentasks__ tools in swarm-harness. If direct mcp__opentasks__ tools are visible in another harness, use them instead of the swarm task aliases. ' +
+    'Use the team contract packet if provided: spawn or delegate to a service_inspector when useful, require structured evidence before mutation, and record final verification evidence in the task graph. ' +
+    'When spawning a service inspector that needs shell/API reads, pass permissionMode:"danger-full-access" and instruct it not to mutate service state; do not use read-only permission mode for API inspection.',
   extraTools: OPENTASKS_TOOLS,
   mcp: OPENTASKS_MCP,
 };

@@ -774,7 +774,9 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(arm.scaffold.extraTools).toContain('mcp__opentasks__record_attempt');
     expect(appendix).toContain('team-contract TAC arm');
     expect(appendix).toContain('structured evidence before mutation');
-    expect(appendix).toContain('native mcp__opentasks__* calls are required');
+    expect(appendix).toContain('task_update(id:"tac-root"');
+    expect(appendix).toContain('Do not search for mcp__opentasks__ tools in swarm-harness');
+    expect(appendix).toContain('permissionMode:"danger-full-access"');
   });
 
   it('builds a static TAC team-contract packet with full task text and evidence schema', () => {
@@ -788,6 +790,7 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(packet).toContain('Template: tac-service-sync@1');
     expect(packet).toContain('Seeded OpenTasks root task id: t-root');
     expect(packet).toContain('service_inspector contract');
+    expect(packet).toContain('task_update(id:"tac-root"');
     expect(packet).toContain('"commands_or_endpoints"');
     expect(packet).toContain('Update the Plane issue based on GitLab issue status.');
   });
@@ -960,6 +963,42 @@ describe('TAC OpenTasks MCP setup', () => {
       teamContractVerificationWritten: 1,
       teamContractVerificationAfterMutation: 1,
       teamContractProductiveCoordination: 1,
+      teamContractStopGatePassed: 1,
+    });
+  });
+
+  it('classifies mirrored swarm task updates as TAC team-contract evidence writes', () => {
+    const trajectory = [
+      { type: 'tool', ts: 0, name: 'task_get', input: { agentId: 'root', id: 'tac-root' } },
+      { type: 'tool', ts: 1, name: 'agent', input: { agentId: 'root', prompt: 'inspect service state' } },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'task_update',
+        input: {
+          agentId: 'root',
+          id: 'tac-root',
+          output: 'EVIDENCE_FOUND service_inspection commands_or_endpoints=["GET /api"] evidence=[{"kind":"api"}]',
+        },
+      },
+      { type: 'tool', ts: 3, name: 'Bash', input: { agentId: 'root', command: 'curl -X PATCH http://plane/api/issues/1' } },
+      {
+        type: 'tool',
+        ts: 4,
+        name: 'task_update',
+        input: { agentId: 'root', id: 'tac-root', output: 'VERIFIED final verification evidence' },
+      },
+      { type: 'tool', ts: 5, name: 'Read', input: { agentId: 'child' } },
+    ];
+
+    const metrics = tacTeamContractMetrics(trajectory);
+
+    expect(metrics).toMatchObject({
+      teamContractOpenTasksGraphCallCount: 3,
+      teamContractEvidenceWriteCount: 1,
+      teamContractVerificationWriteCount: 1,
+      teamContractCoordinatorConsumedEvidenceBeforeMutation: 1,
+      teamContractVerificationAfterMutation: 1,
       teamContractStopGatePassed: 1,
     });
   });
