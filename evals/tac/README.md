@@ -280,6 +280,12 @@ OpenTasks `get_task`, seeded full-content-before-Bash, and stricter seeded
 full-content-before-task-work metrics, graph update counts, GitLab helper usage,
 raw GitLab curl count, and HTTP 404/5xx counts.
 
+TAC task containers install small bounded service helpers for agent use:
+`tac-gitlab-api METHOD PATH [JSON_BODY]` for authenticated GitLab REST calls,
+`tac-gitlab-protect-branch PROJECT BRANCH PUSH_LEVEL MERGE_LEVEL` for branch
+policy changes, and `tac-plane-api METHOD PATH [JSON_BODY]` for authenticated
+Plane REST calls using `/utils/config.py`.
+
 Manual pool operation:
 
 ```bash

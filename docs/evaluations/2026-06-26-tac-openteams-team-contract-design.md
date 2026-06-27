@@ -158,7 +158,7 @@ Minimum capability sets:
 | Capability set | Tools | Mutation policy |
 |---|---|---|
 | `task-read` | read `/instruction/task.md` or receive mirrored task text in prompt. | none |
-| `service-read` | bounded Bash, `curl`, `tac-gitlab-api`, Python `requests`, service env reads. | no non-GET writes unless explicitly allowed |
+| `service-read` | bounded Bash, `curl`, `tac-gitlab-api`, `tac-plane-api`, Python `requests`, service env reads. | no non-GET writes unless explicitly allowed |
 | `api-probe` | `OPTIONS`, `GET`, schema/list endpoints, bounded output. | no mutation |
 | `service-write` | mutation endpoints required by TAC task. | coordinator only |
 | `verify` | independent read-only service inspection after write. | no mutation |
@@ -224,7 +224,8 @@ Minimum evidence record schema:
     }
   ],
   "commands_or_endpoints": [
-    "tac-gitlab-api GET projects/root/janusgraph/issues?state=all"
+    "tac-gitlab-api GET projects/root/janusgraph/issues?state=all",
+    "tac-plane-api GET workspaces/tac/projects/<project-id>/issues/?expand=state"
   ],
   "confidence": "high",
   "blockers": []
