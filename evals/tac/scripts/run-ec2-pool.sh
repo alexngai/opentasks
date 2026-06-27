@@ -107,8 +107,8 @@ if [[ "$skip_llm_auth_check" != "1" && "$skip_llm_auth_check" != "true" ]]; then
       model_has_remote_auth=1
     fi
   elif [[ "$eval_model" =~ ^(azureoai/) ]]; then
-    if [[ -z "${AZURE_OPENAI_API_KEY:-${AZURE_OPENAI_KEY:-}}" ]]; then
-      model_auth_error="Azure OpenAI TAC runs require AZURE_OPENAI_API_KEY or AZURE_OPENAI_KEY."
+    if [[ -z "${AZURE_OPENAI_API_KEY:-${AZURE_OPENAI_KEY:-${AZURE_API_KEY:-}}}" ]]; then
+      model_auth_error="Azure OpenAI TAC runs require AZURE_OPENAI_API_KEY, AZURE_OPENAI_KEY, or AZURE_API_KEY."
     elif [[ -z "${AZURE_OPENAI_ENDPOINT:-${AZURE_OPENAI_BASE_URL:-${AZURE_API_BASE:-}}}" ]]; then
       model_auth_error="Azure OpenAI TAC runs require AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_BASE_URL, or AZURE_API_BASE."
     else

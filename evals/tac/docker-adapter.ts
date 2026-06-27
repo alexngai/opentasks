@@ -18,6 +18,7 @@ import {
   tacDefaultAgentSetupCommand,
   type TacAgentHarness,
 } from './agent-harness.js';
+import { tacForwardedEnv } from './env.js';
 import { scoreFromTacResult, type TacResultJson } from './score.js';
 import {
   buildTacTeamContractPacket,
@@ -2385,49 +2386,7 @@ export function tacDockerAdapterFromEnv(): TacDockerAdapter {
 }
 
 function passEnv(): Record<string, string> {
-  const keys = [
-    'CLAUDE_CODE_USE_BEDROCK',
-    'AWS_BEARER_TOKEN_BEDROCK',
-    'AWS_REGION',
-    'AWS_PROFILE',
-    'AWS_ACCESS_KEY_ID',
-    'AWS_SECRET_ACCESS_KEY',
-    'AWS_SESSION_TOKEN',
-    'ANTHROPIC_BASE_URL',
-    'ANTHROPIC_API_KEY',
-    'ANTHROPIC_AUTH_TOKEN',
-    'ANTHROPIC_MODEL',
-    'OPENAI_API_KEY',
-    'OPENAI_BASE_URL',
-    'OPENAI_ORG_ID',
-    'OPENAI_PROJECT_ID',
-    'AZURE_OPENAI_API_KEY',
-    'AZURE_OPENAI_KEY',
-    'AZURE_OPENAI_ENDPOINT',
-    'AZURE_OPENAI_BASE_URL',
-    'AZURE_OPENAI_DEPLOYMENT',
-    'AZURE_OPENAI_API_VERSION',
-    'AZURE_OPENAI_AUTH_MODE',
-    'AZURE_OPENAI_RESPONSES_PATH',
-    'TAC_GRADER_PROXY',
-    'TAC_GRADER_PROXY_HOST',
-    'TAC_GRADER_PROXY_PORT',
-    'TAC_GRADER_PROXY_MODEL',
-    'TAC_GRADER_PROXY_KEY',
-    'TAC_GRADER_BEDROCK_MODEL',
-    'TAC_GRADER_BEDROCK_REGION',
-    'TAC_GRADER_PROXY_STATE_DIR',
-    'TAC_GRADER_PROXY_START_TIMEOUT_SEC',
-    'LITELLM_API_KEY',
-    'LITELLM_BASE_URL',
-    'LITELLM_MODEL',
-    'TAC_SWARM_HARNESS_MODE',
-    'TAC_SWARM_HARNESS_CONCURRENCY',
-    'TAC_SWARM_HARNESS_MULTIAGENT_PROMPT',
-  ];
-  const out: Record<string, string> = {};
-  for (const key of keys) if (process.env[key]) out[key] = process.env[key]!;
-  return out;
+  return tacForwardedEnv();
 }
 
 function openAiCompatibleLitellmModel(model: string): string {

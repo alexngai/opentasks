@@ -16,6 +16,7 @@ import {
 import type { ArmId } from '../types.js';
 import { tacArms, tacBenchmark, tacSelectorFromEnv } from './bench.js';
 import { tacDockerAdapterFromEnv } from './docker-adapter.js';
+import { tacForwardedEnv } from './env.js';
 import { TacFakeAdapter } from './fake-adapter.js';
 import { defaultTacRoot } from './tasks.js';
 
@@ -190,32 +191,5 @@ function jsonEnv<T>(value: string | undefined): T | undefined {
 }
 
 function passEc2Env(): Record<string, string> {
-  const keys = [
-    'CLAUDE_CODE_USE_BEDROCK',
-    'AWS_BEARER_TOKEN_BEDROCK',
-    'AWS_REGION',
-    'AWS_PROFILE',
-    'AWS_ACCESS_KEY_ID',
-    'AWS_SECRET_ACCESS_KEY',
-    'AWS_SESSION_TOKEN',
-    'TAC_GRADER_PROXY',
-    'TAC_GRADER_PROXY_HOST',
-    'TAC_GRADER_PROXY_PORT',
-    'TAC_GRADER_PROXY_MODEL',
-    'TAC_GRADER_PROXY_KEY',
-    'TAC_GRADER_BEDROCK_MODEL',
-    'TAC_GRADER_BEDROCK_REGION',
-    'TAC_GRADER_PROXY_STATE_DIR',
-    'TAC_GRADER_PROXY_START_TIMEOUT_SEC',
-    'ANTHROPIC_BASE_URL',
-    'ANTHROPIC_API_KEY',
-    'ANTHROPIC_AUTH_TOKEN',
-    'ANTHROPIC_MODEL',
-    'LITELLM_API_KEY',
-    'LITELLM_BASE_URL',
-    'LITELLM_MODEL',
-  ];
-  const out: Record<string, string> = {};
-  for (const key of keys) if (process.env[key]) out[key] = process.env[key]!;
-  return out;
+  return tacForwardedEnv();
 }
