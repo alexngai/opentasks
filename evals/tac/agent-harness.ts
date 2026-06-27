@@ -200,7 +200,7 @@ export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
   let sawResult = false;
   const usage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0 };
   const trajectory: TraceEvent[] = [];
-  const openTools = new Map<string, { event: TraceEvent; json: string }>();
+  const openTools = new Map<string, { event: TraceEvent; json: string; meta: Record<string, unknown> }>();
   let sawMessageStopUsage = false;
 
   for (const line of stdout.split('\n')) {
@@ -227,9 +227,11 @@ export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
           : typeof event.toolName === 'string'
             ? event.toolName
             : 'tool';
+      const meta = swarmTraceMeta(obj);
       const traceEvent: TraceEvent = { type: 'tool', ts: trajectory.length, name: canonicalSwarmToolName(rawName) };
+      if (Object.keys(meta).length) traceEvent.input = meta;
       trajectory.push(traceEvent);
-      openTools.set(id, { event: traceEvent, json: '' });
+      openTools.set(id, { event: traceEvent, json: '', meta });
       continue;
     }
     if (event.type === 'tool_use_input') {
@@ -243,7 +245,7 @@ export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
       const open = openTools.get(id);
       if (open) {
         const input = isRecord(event.input) ? event.input : parseJsonObject(open.json);
-        if (input) open.event.input = input;
+        open.event.input = input ? { ...open.meta, ...input } : open.meta;
         openTools.delete(id);
       }
       continue;
@@ -281,6 +283,14 @@ export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
 
 function swarmTraceEventPayload(obj: Record<string, unknown>): Record<string, unknown> {
   return isRecord(obj.payload) && typeof obj.payload.type === 'string' ? obj.payload : obj;
+}
+
+function swarmTraceMeta(obj: Record<string, unknown>): Record<string, unknown> {
+  const meta: Record<string, unknown> = {};
+  for (const key of ['agentId', 'taskId', 'lane', 'role']) {
+    if (typeof obj[key] === 'string') meta[key] = obj[key];
+  }
+  return meta;
 }
 
 function canonicalSwarmToolName(name: string): string {

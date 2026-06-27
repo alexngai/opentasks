@@ -23,6 +23,7 @@ import {
   buildTacTeamContractPacket,
   isTacTeamContractArm,
   TAC_SERVICE_SYNC_TEAM,
+  tacTeamContractMetrics,
 } from './team-contract.js';
 
 const ZERO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
@@ -655,6 +656,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
       const efficiencyMetrics = traceEfficiencyMetrics(parsed.trajectory, {
         seededTaskId: opentasksGraphSeedReport?.taskId,
       });
+      const teamContractMetrics = isTacTeamContractArm(cell.arm.id) ? tacTeamContractMetrics(parsed.trajectory) : {};
       const score = scoreFromTacResult(resultJson, {
         readGraph: mainReadGraph ? 1 : 0,
         seededGraphInitialized,
@@ -663,6 +665,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
         mainGraphUpdated,
         mcpServersConnected,
         ...efficiencyMetrics,
+        ...teamContractMetrics,
         ...diagnostics,
         ...taxonomyMetricsForTacResult(resultJson, diagnostics),
       });

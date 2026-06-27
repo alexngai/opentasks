@@ -15,7 +15,7 @@ import {
   traceEfficiencyMetrics,
 } from '../../evals/tac/docker-adapter.js';
 import { tacAgentHarnessFromId, type TacAgentHarness } from '../../evals/tac/agent-harness.js';
-import { buildTacTeamContractPacket, TAC_SERVICE_SYNC_TEAM } from '../../evals/tac/team-contract.js';
+import { buildTacTeamContractPacket, TAC_SERVICE_SYNC_TEAM, tacTeamContractMetrics } from '../../evals/tac/team-contract.js';
 
 describe('TAC Docker adapter prompt', () => {
   it('adds shared TAC operating guidance to the task prompt', () => {
@@ -312,7 +312,7 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(parsed.sawResult).toBe(true);
     expect(parsed.usage.totalTokens).toBe(18);
     expect(parsed.trajectory).toEqual([
-      { type: 'tool', ts: 0, name: 'Bash', input: { command: 'echo ok' } },
+      { type: 'tool', ts: 0, name: 'Bash', input: { agentId: 'agent-1', command: 'echo ok' } },
     ]);
   });
 
@@ -923,6 +923,45 @@ describe('TAC OpenTasks MCP setup', () => {
 
     expect(summary).toContain('teamContract: on');
     expect(summary).toContain('teamNodes: service_inspection,verification');
+  });
+
+  it('classifies TAC team-contract productive coordination from parsed trace order', () => {
+    const metrics = tacTeamContractMetrics([
+      { type: 'tool', ts: 0, name: 'mcp__opentasks__get_task', input: { agentId: 'root', id: 't-root' } },
+      {
+        type: 'tool',
+        ts: 1,
+        name: 'mcp__opentasks__update_task',
+        input: {
+          agentId: 'child-1',
+          id: 'service_inspection',
+          metadata: { evidence: [{ kind: 'api', summary: 'Issue is closed' }], commands_or_endpoints: ['tac-gitlab-api GET projects/root/repo/issues'] },
+        },
+      },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'Bash',
+        input: { agentId: 'root', command: 'tac-gitlab-api PATCH projects/root/repo/issues/1 {"state_event":"close"}' },
+      },
+      {
+        type: 'tool',
+        ts: 3,
+        name: 'mcp__opentasks__record_attempt',
+        input: { agentId: 'root', taskId: 'verification', evidence: 'verified final service state' },
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamContractDistinctAgentCount: 2,
+      teamContractWorkerSpawned: 1,
+      teamContractChildEvidenceWritten: 1,
+      teamContractCoordinatorConsumedEvidenceBeforeMutation: 1,
+      teamContractVerificationWritten: 1,
+      teamContractVerificationAfterMutation: 1,
+      teamContractProductiveCoordination: 1,
+      teamContractStopGatePassed: 1,
+    });
   });
 
   it('uses seeded graph prompt language for the main OpenTasks agent', () => {
