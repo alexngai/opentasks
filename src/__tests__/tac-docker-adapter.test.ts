@@ -176,6 +176,7 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(command).toContain('swarm-harness --single --headless --output-format json');
     expect(command).toContain('TAC_SWARM_HARNESS_MODE:-single');
     expect(command).toContain('swarm-harness swarm run');
+    expect(command).toContain('team|team-contract|opentasks-team-contract)');
     expect(command).toContain('swarm-harness-tasks.jsonl');
     expect(command).toContain('swarm-harness-results.jsonl');
     expect(command).toContain('swarm-harness-trace.jsonl');
@@ -389,6 +390,29 @@ describe('TAC OpenTasks MCP setup', () => {
       GITLAB_PASSWORD: 'theagentcompany',
       TAC_HELPER_MAX_OUTPUT_BYTES: '6000',
     });
+  });
+
+  it('defaults the team-contract arm to swarm-harness team mode with OpenTasks enabled', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+      agentHarnessId: 'swarm-harness',
+    }) as unknown as {
+      agentEnv: (cell: { task: { id: string }; arm: ReturnType<typeof tacArms>[number] }) => Record<string, string>;
+      usesSwarmHarnessSwarmMode: (cell: { arm: ReturnType<typeof tacArms>[number] }) => boolean;
+    };
+
+    const cell = { task: { id: 'pm-test' }, arm: tacArms(['opentasks-team-contract'])[0] };
+    const env = adapter.agentEnv(cell);
+
+    expect(adapter.usesSwarmHarnessSwarmMode(cell)).toBe(true);
+    expect(env.TAC_SWARM_HARNESS_MODE).toBe('team-contract');
+    expect(env.TAC_SWARM_HARNESS_OPENTASKS).toBe('1');
+    expect(env.OPENTASKS_PROJECT_DIR).toBe('/workspace/.opentasks');
   });
 
   it('installs a bounded TAC GitLab API helper into the task container', () => {
@@ -676,6 +700,39 @@ describe('TAC OpenTasks MCP setup', () => {
       if (previousMode === undefined) delete process.env.TAC_SWARM_HARNESS_MODE;
       else process.env.TAC_SWARM_HARNESS_MODE = previousMode;
     }
+  });
+
+  it('treats team-contract arm swarm task execution as a successful coordination smoke', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+      agentHarnessId: 'swarm-harness',
+    }) as unknown as {
+      opentasksMcpSmokeReport: (
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; model: { name: string } } : never,
+        agent: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean },
+      ) => { ok: boolean; usedSwarmTaskTool: boolean; swarmTaskCalls: string[] };
+    };
+    const stdout = [
+      JSON.stringify({ type: 'tool_use_start', id: 'toolu_1', name: 'task_list' }),
+      JSON.stringify({ type: 'tool_use_input', id: 'toolu_1', jsonDelta: '{}' }),
+      JSON.stringify({ type: 'tool_use_end', id: 'toolu_1' }),
+      JSON.stringify({ type: 'tool_result', toolUseId: 'toolu_1', content: '{"tasks":[]}', isError: false }),
+      JSON.stringify({ type: 'message_stop', stopReason: 'end_turn', usage: { inputTokens: 2, outputTokens: 3 } }),
+    ].join('\n');
+
+    const report = adapter.opentasksMcpSmokeReport(
+      { arm: tacArms(['opentasks-team-contract'])[0], model: { name: 'haiku' } },
+      { exitCode: 0, stdout, stderr: '' },
+    );
+
+    expect(report.ok).toBe(true);
+    expect(report.usedSwarmTaskTool).toBe(true);
+    expect(report.swarmTaskCalls).toEqual(['task_list']);
   });
 
   it('ships a Claude-discoverable OpenTasks skill that says to use native tools', () => {

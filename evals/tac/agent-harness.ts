@@ -181,6 +181,7 @@ export function swarmHarnessTacHarness(): TacAgentHarness {
       const modeSwitch = [
         'case "${TAC_SWARM_HARNESS_MODE:-single}" in',
         `  swarm|swarm-run|multi|multi-agent) ${swarmTaskPrelude.join(' && ')} && ${swarmModeCommand} ;;`,
+        `  team|team-contract|opentasks-team-contract) ${swarmTaskPrelude.join(' && ')} && ${swarmModeCommand} ;;`,
         `  single|"") ${singleCommand.join(' ')} ;;`,
         '  *) echo "Unsupported TAC_SWARM_HARNESS_MODE=${TAC_SWARM_HARNESS_MODE}" >&2; exit 2 ;;',
         'esac',

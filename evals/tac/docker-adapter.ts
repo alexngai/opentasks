@@ -772,7 +772,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
   }
 
   private opentasksMcpSmokeCommand(cell: PublicCell, runDir: string): string {
-    const prompt = this.usesSwarmHarnessSwarmMode()
+    const prompt = this.usesSwarmHarnessSwarmMode(cell)
       ? [
           'This is a TAC swarm-harness OpenTasks coordination smoke test.',
           'Call the native swarm task tool task_list once; do not echo or simulate the tool name in Bash.',
@@ -795,10 +795,11 @@ export class TacDockerAdapter implements ExecutionAdapter {
     });
   }
 
-  private usesSwarmHarnessSwarmMode(): boolean {
+  private usesSwarmHarnessSwarmMode(cell?: PublicCell): boolean {
     if (this.agentHarness.id !== 'swarm-harness') return false;
+    if (isTacTeamContractArm(cell?.arm.id)) return true;
     const mode = (this.opts.env?.TAC_SWARM_HARNESS_MODE ?? process.env.TAC_SWARM_HARNESS_MODE ?? 'single').trim();
-    return ['swarm', 'swarm-run', 'multi', 'multi-agent'].includes(mode);
+    return ['swarm', 'swarm-run', 'multi', 'multi-agent', 'team', 'team-contract', 'opentasks-team-contract'].includes(mode);
   }
 
   private opentasksGraphSeedCommand(cell: PublicCell, runDir: string): string {
@@ -1380,7 +1381,8 @@ export class TacDockerAdapter implements ExecutionAdapter {
       TAC_HELPER_MAX_OUTPUT_BYTES: this.opts.env?.TAC_HELPER_MAX_OUTPUT_BYTES ?? '6000',
       ...(this.opts.agentUser ? { HOME: `/home/${this.opts.agentUser}` } : {}),
       ...(usesOpenTasks(cell) ? { OPENTASKS_PROJECT_DIR } : {}),
-      ...(usesOpenTasks(cell) && this.usesSwarmHarnessSwarmMode() ? { TAC_SWARM_HARNESS_OPENTASKS: '1' } : {}),
+      ...(usesOpenTasks(cell) && this.usesSwarmHarnessSwarmMode(cell) ? { TAC_SWARM_HARNESS_OPENTASKS: '1' } : {}),
+      ...(isTacTeamContractArm(cell.arm.id) && this.agentHarness.id === 'swarm-harness' ? { TAC_SWARM_HARNESS_MODE: 'team-contract' } : {}),
       ...this.opts.env,
       ...(cell.arm.scaffold.env ?? {}),
     };
@@ -2176,7 +2178,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
     const swarmTaskCalls = parsed.trajectory
       .filter((event) => event.type === 'tool' && event.name.startsWith('task_'))
       .map((event) => event.name);
-    const usedSwarmTaskTool = this.usesSwarmHarnessSwarmMode() && swarmTaskCalls.length > 0;
+    const usedSwarmTaskTool = this.usesSwarmHarnessSwarmMode(cell) && swarmTaskCalls.length > 0;
     const connected = parsed.mcpServers.some((server) => server.name === 'opentasks' && server.status === 'connected');
     const exposed = opentasksToolNames.length > 0 || usedNativeOpentasksTool || usedSwarmTaskTool;
     const ok = agent.exitCode === 0 && parsed.sawResult && !parsed.isError && (usedNativeOpentasksTool || usedSwarmTaskTool);
