@@ -19,6 +19,11 @@ import {
   type TacAgentHarness,
 } from './agent-harness.js';
 import { scoreFromTacResult, type TacResultJson } from './score.js';
+import {
+  buildTacTeamContractPacket,
+  isTacTeamContractArm,
+  TAC_SERVICE_SYNC_TEAM,
+} from './team-contract.js';
 
 const ZERO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 const OPENTASKS_PROJECT_DIR = '/workspace/.opentasks';
@@ -200,12 +205,10 @@ export class TacDockerAdapter implements ExecutionAdapter {
       await ws.writeFiles([
         {
           path: `${runDir}/prompt.txt`,
-          content: buildTacAgentPrompt({
-            operatingPrompt: this.opts.operatingPrompt,
-            appendix: this.opts.agentPromptAppendix,
-          }),
+          content: this.mainPrompt(cell),
         },
         { path: `${runDir}/mcp.json`, content: JSON.stringify(this.mcpConfig(cell, runDir), null, 2) },
+        ...this.teamContractFiles(cell, runDir),
         ...(usesOpenTasks(cell)
           ? [
               { path: `${runDir}/opentasks-skill.md`, content: OPENTASKS_TAC_SKILL } satisfies FileSeed,
@@ -460,7 +463,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
               start,
             );
           }
-          await ws.writeFiles([{ path: `${runDir}/prompt.txt`, content: this.mainPromptWithGraphSeed(opentasksGraphSeedReport) }]);
+          await ws.writeFiles([{ path: `${runDir}/prompt.txt`, content: this.mainPromptWithGraphSeed(opentasksGraphSeedReport, cell) }]);
         }
 
         if (this.opts.opentasksTaskPrelude === true) {
@@ -696,6 +699,44 @@ export class TacDockerAdapter implements ExecutionAdapter {
     }
     args.push('--entrypoint', 'tail', shq(image), '-f', '/dev/null');
     return args.join(' ');
+  }
+
+  private mainPrompt(cell: PublicCell): string {
+    return buildTacAgentPrompt({
+      operatingPrompt: this.opts.operatingPrompt,
+      appendix: this.mainPromptAppendix(cell),
+    });
+  }
+
+  private mainPromptAppendix(cell: PublicCell, seedReport?: OpenTasksGraphSeedReport): string | undefined {
+    const chunks = [this.opts.agentPromptAppendix?.trim()].filter((chunk): chunk is string => Boolean(chunk));
+    if (isTacTeamContractArm(cell.arm.id)) {
+      chunks.push(
+        buildTacTeamContractPacket({
+          sourceTaskId: cell.task.id,
+          taskText: cell.task.prompt,
+          seededRootTaskId: seedReport?.taskId,
+        }),
+      );
+    }
+    return chunks.length ? chunks.join('\n\n') : undefined;
+  }
+
+  private teamContractFiles(cell: PublicCell, runDir: string): FileSeed[] {
+    if (!isTacTeamContractArm(cell.arm.id)) return [];
+    return [
+      {
+        path: `${runDir}/team-contract-packet.md`,
+        content: buildTacTeamContractPacket({
+          sourceTaskId: cell.task.id,
+          taskText: cell.task.prompt,
+        }),
+      },
+      {
+        path: `${runDir}/team-contract-template.json`,
+        content: `${JSON.stringify(TAC_SERVICE_SYNC_TEAM, null, 2)}\n`,
+      },
+    ];
   }
 
   private async runInContainer(
@@ -977,11 +1018,11 @@ export class TacDockerAdapter implements ExecutionAdapter {
     ].join('\n');
   }
 
-  private mainPromptWithGraphSeed(seedReport: OpenTasksGraphSeedReport): string {
+  private mainPromptWithGraphSeed(seedReport: OpenTasksGraphSeedReport, cell?: PublicCell): string {
     return [
       buildTacAgentPrompt({
         operatingPrompt: this.opts.operatingPrompt,
-        appendix: this.opts.agentPromptAppendix,
+        appendix: cell ? this.mainPromptAppendix(cell, seedReport) : this.opts.agentPromptAppendix,
       }).trimEnd(),
       '',
       'OpenTasks graph has been deterministically seeded for this TAC run.',

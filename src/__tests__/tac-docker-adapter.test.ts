@@ -15,6 +15,7 @@ import {
   traceEfficiencyMetrics,
 } from '../../evals/tac/docker-adapter.js';
 import { tacAgentHarnessFromId, type TacAgentHarness } from '../../evals/tac/agent-harness.js';
+import { buildTacTeamContractPacket, TAC_SERVICE_SYNC_TEAM } from '../../evals/tac/team-contract.js';
 
 describe('TAC Docker adapter prompt', () => {
   it('adds shared TAC operating guidance to the task prompt', () => {
@@ -717,6 +718,77 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(appendix).toContain('team-contract TAC arm');
     expect(appendix).toContain('structured evidence before mutation');
     expect(appendix).toContain('native mcp__opentasks__* calls are required');
+  });
+
+  it('builds a static TAC team-contract packet with full task text and evidence schema', () => {
+    const packet = buildTacTeamContractPacket({
+      sourceTaskId: 'pm-update-plane-issue-from-gitlab-status',
+      seededRootTaskId: 't-root',
+      taskText: 'Update the Plane issue based on GitLab issue status.',
+    });
+
+    expect(TAC_SERVICE_SYNC_TEAM.name).toBe('tac-service-sync');
+    expect(packet).toContain('Template: tac-service-sync@1');
+    expect(packet).toContain('Seeded OpenTasks root task id: t-root');
+    expect(packet).toContain('service_inspector contract');
+    expect(packet).toContain('"commands_or_endpoints"');
+    expect(packet).toContain('Update the Plane issue based on GitLab issue status.');
+  });
+
+  it('adds static team-contract files and prompt text only for the team-contract arm', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+    }) as unknown as {
+      teamContractFiles: (
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; task: { id: string; prompt: string } } : never,
+        runDir: string,
+      ) => Array<{ path: string; content: string }>;
+      mainPrompt: (
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; task: { id: string; prompt: string } } : never,
+      ) => string;
+      mainPromptWithGraphSeed: (
+        report: unknown,
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; task: { id: string; prompt: string } } : never,
+      ) => string;
+    };
+    const [teamArm] = tacArms(['opentasks-team-contract']);
+    const [plainArm] = tacArms(['opentasks']);
+    const cell = {
+      arm: teamArm,
+      task: { id: 'pm-update-plane-issue-from-gitlab-status', prompt: 'Full TAC task text.' },
+    };
+
+    const files = adapter.teamContractFiles(cell, '.tac/cell');
+    const prompt = adapter.mainPrompt(cell);
+    const seededPrompt = adapter.mainPromptWithGraphSeed(
+      {
+        ok: true,
+        taskId: 't-seed1',
+        taskTitle: 'Seeded TAC task',
+        sourceTaskId: 'pm-update-plane-issue-from-gitlab-status',
+        cellKey: 'cell/example',
+        contentBytes: 123,
+        tags: ['tac', 'seeded'],
+        exitCode: 0,
+        stdoutHead: '',
+        stderrHead: '',
+      },
+      cell,
+    );
+
+    expect(files.map((file) => file.path)).toEqual([
+      '.tac/cell/team-contract-packet.md',
+      '.tac/cell/team-contract-template.json',
+    ]);
+    expect(files[0]?.content).toContain('Full TAC task text.');
+    expect(prompt).toContain('TAC Team Contract Packet');
+    expect(seededPrompt).toContain('Seeded OpenTasks root task id: t-seed1');
+    expect(adapter.teamContractFiles({ arm: plainArm, task: cell.task }, '.tac/cell')).toEqual([]);
   });
 
   it('builds a deterministic OpenTasks graph seed command from the TAC task file', () => {
