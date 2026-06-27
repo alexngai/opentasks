@@ -105,6 +105,7 @@ Real-run configuration:
 | `TAC_OPENTASKS_TASK_PRELUDE_RETRIES` | Optional prelude retries after the first attempt for init-only timeouts; default `1` when prelude is enabled |
 | `TAC_OPENTASKS_TASK_PRELUDE_TIMEOUT_MS` | Optional prelude per-attempt timeout; default `min(TAC_INIT_TIMEOUT, 240000)` when prelude is enabled |
 | `TAC_OPENTASKS_MCP_COMMAND` | OpenTasks MCP command shape: `wrapper` (default), `sh-lc`, or `direct` |
+| `EVAL_ARMS=opentasks-team-contract` | Experimental full-ecosystem TAC arm. It currently reuses the OpenTasks MCP setup and adds team-contract instructions; static team packets, richer seeding, and stop-gate metrics are layered on top in the team-contract implementation path |
 | `TAC_GITLAB_TOKEN_REFRESH` | Set `0` to skip refreshing TAC's documented GitLab `root-token` after GitLab task resets |
 | `TAC_ENV_PREFLIGHT` | Set `0` to skip the TAC GitLab health/token preflight before Claude |
 | `TAC_GITLAB_WIKI_SMOKE` | Set `0` to skip the scratch-project GitLab wiki API smoke before agent spend |

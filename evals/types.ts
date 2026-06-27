@@ -10,7 +10,7 @@
  * Bedrock, model-swappable, JSON token accounting, hidden post-hoc verifier).
  */
 
-export type ArmId = 'stock' | 'notes' | 'opentasks';
+export type ArmId = 'stock' | 'notes' | 'opentasks' | 'opentasks-team-contract';
 
 export interface McpConfig {
   name: string;

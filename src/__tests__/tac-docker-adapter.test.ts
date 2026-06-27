@@ -706,6 +706,19 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(appendix).not.toContain('select:mcp__opentasks__list_tasks or select:mcp__opentasks__record_attempt');
   });
 
+  it('exposes the dormant OpenTasks team-contract TAC arm', () => {
+    const [arm] = tacArms(['opentasks-team-contract']);
+    const appendix = arm.scaffold.systemPromptAppendix ?? '';
+
+    expect(arm.id).toBe('opentasks-team-contract');
+    expect(arm.scaffold.mcpServers?.[0]?.name).toBe('opentasks');
+    expect(arm.scaffold.extraTools).toContain('mcp__opentasks__get_task');
+    expect(arm.scaffold.extraTools).toContain('mcp__opentasks__record_attempt');
+    expect(appendix).toContain('team-contract TAC arm');
+    expect(appendix).toContain('structured evidence before mutation');
+    expect(appendix).toContain('native mcp__opentasks__* calls are required');
+  });
+
   it('builds a deterministic OpenTasks graph seed command from the TAC task file', () => {
     const adapter = new TacDockerAdapter({
       timeoutMs: 1,

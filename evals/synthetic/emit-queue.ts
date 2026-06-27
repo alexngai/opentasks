@@ -62,10 +62,17 @@ const OPENTASKS: SynthArm = {
   itemsViaGraph: true,
 };
 
+const OPENTASKS_TEAM_CONTRACT: SynthArm = {
+  ...OPENTASKS,
+  id: 'opentasks-team-contract',
+  label: 'OpenTasks team contract',
+};
+
 export const SYNTH_ARMS: Record<ArmId, SynthArm> = {
   stock: STOCK,
   notes: NOTES,
   opentasks: OPENTASKS,
+  'opentasks-team-contract': OPENTASKS_TEAM_CONTRACT,
 };
 
 /**

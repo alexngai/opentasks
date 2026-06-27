@@ -27,6 +27,25 @@ const NOTES: EvalArm = {
   extraTools: [],
 };
 
+const OPENTASKS_TOOLS = [
+  'Skill',
+  'ToolSearch',
+  'mcp__opentasks__create_task',
+  'mcp__opentasks__get_task',
+  'mcp__opentasks__update_task',
+  'mcp__opentasks__list_tasks',
+  'mcp__opentasks__query',
+  'mcp__opentasks__link',
+  'mcp__opentasks__create_context',
+  'mcp__opentasks__get_context',
+  'mcp__opentasks__list_contexts',
+  'mcp__opentasks__context_summary',
+  'mcp__opentasks__record_attempt',
+  'mcp__opentasks__list_attempts',
+];
+
+const OPENTASKS_MCP = { name: 'opentasks', command: 'node', args: [OPENTASKS_CLI, 'mcp', '--scope', 'all'] };
+
 const OPENTASKS: EvalArm = {
   id: 'opentasks',
   label: 'OpenTasks MCP',
@@ -40,27 +59,25 @@ const OPENTASKS: EvalArm = {
     'Do not insert Bash status commands such as echo, printf, or logging between ToolSearch and the native OpenTasks call. ' +
     'Use Bash/curl/git/service APIs for the TAC work itself, and record one final ' +
     'outcome/evidence update after verification. Create no duplicate top-level task when a seeded TAC task already exists.',
-  extraTools: [
-    'Skill',
-    'ToolSearch',
-    'mcp__opentasks__create_task',
-    'mcp__opentasks__get_task',
-    'mcp__opentasks__update_task',
-    'mcp__opentasks__list_tasks',
-    'mcp__opentasks__query',
-    'mcp__opentasks__link',
-    'mcp__opentasks__create_context',
-    'mcp__opentasks__get_context',
-    'mcp__opentasks__list_contexts',
-    'mcp__opentasks__context_summary',
-    'mcp__opentasks__record_attempt',
-    'mcp__opentasks__list_attempts',
-  ],
-  mcp: { name: 'opentasks', command: 'node', args: [OPENTASKS_CLI, 'mcp', '--scope', 'all'] },
+  extraTools: OPENTASKS_TOOLS,
+  mcp: OPENTASKS_MCP,
+};
+
+const OPENTASKS_TEAM_CONTRACT: EvalArm = {
+  id: 'opentasks-team-contract',
+  label: 'OpenTasks Team Contract',
+  systemPromptAppendix:
+    'You are running the OpenTasks team-contract TAC arm. Treat OpenTasks as the durable task, evidence, decision, and verification graph. ' +
+    'Before task-specific service work, read the seeded root TAC task with native mcp__opentasks__get_task. Use the team contract packet if provided: ' +
+    'spawn or delegate to a service_inspector when useful, require structured evidence before mutation, and record final verification evidence in OpenTasks. ' +
+    'Swarm task tools may coordinate runtime work, but native mcp__opentasks__* calls are required for graph adoption. Do not invoke MCP tool names through Bash.',
+  extraTools: OPENTASKS_TOOLS,
+  mcp: OPENTASKS_MCP,
 };
 
 export const ARMS: Record<ArmId, EvalArm> = {
   stock: STOCK,
   notes: NOTES,
   opentasks: OPENTASKS,
+  'opentasks-team-contract': OPENTASKS_TEAM_CONTRACT,
 };
