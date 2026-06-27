@@ -35,7 +35,7 @@ export const TAC_TEAM_CONTRACT_EVIDENCE_SCHEMA = {
       summary: 'Concise factual service-state finding.',
     },
   ],
-  commands_or_endpoints: ['tac-gitlab-api GET projects/root/example/issues?state=all'],
+  commands_or_endpoints: ['tac-gitlab-api GET projects/root/example/issues?state=all', 'tac-plane-api GET workspaces/tac/projects/example/issues/?expand=state'],
   confidence: 'high',
   blockers: [],
 } as const;
@@ -73,7 +73,8 @@ export function buildTacTeamContractPacket(opts: TacTeamContractPacketOptions): 
     '',
     'service_inspector contract:',
     '- Read this full TAC task text from the packet or mirrored file.',
-    '- Use bounded shell/API reads such as tac-gitlab-api, curl GET, or Python requests.',
+    '- Use bounded shell/API reads such as tac-gitlab-api, tac-plane-api, curl GET, or Python requests.',
+    '- Prefer tac-plane-api for Plane reads/writes; it loads /utils/config.py credentials and avoids unauthenticated Plane endpoint probes.',
     '- Do not mutate service state.',
     '- Return one structured evidence JSON object matching the schema below.',
     '',

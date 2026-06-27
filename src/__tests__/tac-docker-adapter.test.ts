@@ -43,6 +43,9 @@ describe('TAC Docker adapter prompt', () => {
     expect(prompt).toContain('Avoid unbounded retry loops');
     expect(prompt).toContain('Do not brute-force credentials');
     expect(prompt).toContain('PRIVATE-TOKEN: root-token');
+    expect(prompt).toContain('tac-plane-api METHOD PATH [JSON_BODY]');
+    expect(prompt).toContain('prefer the installed helper `tac-plane-api METHOD PATH [JSON_BODY]` instead of raw curl');
+    expect(prompt).toContain('tac-plane-api GET workspaces/tac/projects/PROJECT_ID/issues/?expand=state');
     expect(prompt).toContain('tac-gitlab-api METHOD PATH [JSON_BODY]');
     expect(prompt).toContain('prefer the installed helper `tac-gitlab-api METHOD PATH [JSON_BODY]` instead of raw curl');
     expect(prompt).toContain('tac-gitlab-api DELETE projects/root/repo/repository/branches/feature/old');
@@ -438,7 +441,7 @@ describe('TAC OpenTasks MCP setup', () => {
     }
   });
 
-  it('installs a bounded TAC GitLab API helper into the task container', () => {
+  it('installs bounded TAC service API helpers into the task container', () => {
     const adapter = new TacDockerAdapter({
       timeoutMs: 1,
       initTimeoutMs: 1,
@@ -453,12 +456,18 @@ describe('TAC OpenTasks MCP setup', () => {
     const command = adapter.tacAgentHelperInstallCommand();
 
     expect(command).toContain('/usr/local/bin/tac-gitlab-api');
+    expect(command).toContain('/usr/local/bin/tac-plane-api');
     expect(command).toContain('/usr/local/bin/tac-gitlab-protect-branch');
     expect(command).toContain('PRIVATE-TOKEN');
+    expect(command).toContain('x-api-key');
+    expect(command).toContain('PLANE_API_KEY');
     expect(command).toContain('TAC_HELPER_MAX_OUTPUT_BYTES');
     expect(command).toContain('[truncated by tac-gitlab-api');
+    expect(command).toContain('[truncated by tac-plane-api');
     expect(command).toContain('[REDACTED_TAC_GITLAB_TOKEN]');
+    expect(command).toContain('[REDACTED_TAC_PLANE_API_KEY]');
     expect(command).toContain('def normalize_api_path');
+    expect(command).toContain('def normalize_url');
     expect(command).toContain('def normalize_projects_path');
     expect(command).toContain('def normalize_project_suffix');
     expect(command).toContain('def quote_path_tail');
@@ -467,11 +476,14 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(command).toContain('urllib.parse.quote("/".join(project_parts), safe="")');
     expect(command).toContain('urllib.parse.quote(urllib.parse.unquote("/".join(parts)), safe="")');
     expect(command).toContain('tac-gitlab-api DELETE projects/root/repo/repository/branches/feature/old');
+    expect(command).toContain('tac-plane-api GET workspaces/tac/projects/PROJECT_ID/issues/?expand=state');
+    expect(command).toContain('return base_url + "/api/v1" + path');
     expect(command).toContain('usage: tac-gitlab-protect-branch PROJECT BRANCH PUSH_LEVEL MERGE_LEVEL');
     expect(command).toContain('tac-gitlab-api DELETE "projects/${project}/protected_branches/${branch}"');
     expect(command).toContain('tac-gitlab-api POST "projects/${project}/protected_branches" "$body"');
     expect(command).toContain('"/api/v4" + path');
     expect(command).toContain('"projects"');
+    expect(command).toContain('command -v tac-plane-api >/dev/null');
   });
 
   it('rejects unknown TAC agent harness ids explicitly', () => {
@@ -818,6 +830,7 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(packet).toContain('task_list({})');
     expect(packet).toContain('task_update(id:"<task_list id>"');
     expect(packet).toContain('"commands_or_endpoints"');
+    expect(packet).toContain('tac-plane-api');
     expect(packet).toContain('Update the Plane issue based on GitLab issue status.');
   });
 
