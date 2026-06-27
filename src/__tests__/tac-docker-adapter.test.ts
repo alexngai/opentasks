@@ -817,8 +817,55 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(command).toContain('tail = first[-50:]');
     expect(command).toContain('opentasks-graph-seed-report.json');
     expect(command).toContain('"--status", "open"');
-    expect(command).toContain('"--tags", "tac,seeded"');
+    expect(command).toContain('"--tags", "tac,seeded,team-contract" if team_contract else "tac,seeded"');
     expect(command).toContain('"deterministicGraphSeed"');
+  });
+
+  it('adds richer OpenTasks graph seeding for the team-contract arm', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+    }) as unknown as {
+      opentasksGraphSeedCommand: (
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; model: { name: string }; task: { id: string }; cellKey: string; seed: number } : never,
+        runDir: string,
+      ) => string;
+      opentasksGraphSeedSummary: (report: unknown) => string;
+    };
+    const command = adapter.opentasksGraphSeedCommand(
+      { arm: tacArms(['opentasks-team-contract'])[0], model: { name: 'haiku' }, task: { id: 'pm-test' }, cellKey: 'cell/team', seed: 3 },
+      '.tac/cell-team',
+    );
+
+    expect(command).toContain('team_contract = arm_id == "opentasks-team-contract"');
+    expect(command).toContain('"service_inspection"');
+    expect(command).toContain('"mutation_plan"');
+    expect(command).toContain('"verification"');
+    expect(command).toContain('"role": role');
+    expect(command).toContain('"capabilities": capabilities');
+    expect(command).toContain('"--type", edge_type');
+    expect(command).toContain('"relation": relation');
+
+    const summary = adapter.opentasksGraphSeedSummary({
+      ok: true,
+      taskId: 't-root',
+      taskTitle: 'Seeded TAC task',
+      sourceTaskId: 'pm-test',
+      cellKey: 'cell/team',
+      contentBytes: 123,
+      tags: ['tac', 'seeded'],
+      teamContract: { enabled: true, nodes: [{ slug: 'service_inspection' }, { slug: 'verification' }] },
+      exitCode: 0,
+      stdoutHead: '',
+      stderrHead: '',
+    });
+
+    expect(summary).toContain('teamContract: on');
+    expect(summary).toContain('teamNodes: service_inspection,verification');
   });
 
   it('uses seeded graph prompt language for the main OpenTasks agent', () => {
