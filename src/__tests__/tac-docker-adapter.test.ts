@@ -417,6 +417,27 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(env.OPENTASKS_PROJECT_DIR).toBe('/workspace/.opentasks');
   });
 
+  it('defaults env-driven team-contract runs to the swarm-harness runtime', () => {
+    const previousArms = process.env.EVAL_ARMS;
+    const previousHarness = process.env.TAC_AGENT_HARNESS;
+    const previousRuntime = process.env.TAC_AGENT_RUNTIME;
+    process.env.EVAL_ARMS = 'opentasks-team-contract';
+    delete process.env.TAC_AGENT_HARNESS;
+    delete process.env.TAC_AGENT_RUNTIME;
+    try {
+      const adapter = tacDockerAdapterFromEnv() as unknown as { agentSetup: () => string };
+
+      expect(adapter.agentSetup()).toContain('swarm-harness');
+    } finally {
+      if (previousArms === undefined) delete process.env.EVAL_ARMS;
+      else process.env.EVAL_ARMS = previousArms;
+      if (previousHarness === undefined) delete process.env.TAC_AGENT_HARNESS;
+      else process.env.TAC_AGENT_HARNESS = previousHarness;
+      if (previousRuntime === undefined) delete process.env.TAC_AGENT_RUNTIME;
+      else process.env.TAC_AGENT_RUNTIME = previousRuntime;
+    }
+  });
+
   it('installs a bounded TAC GitLab API helper into the task container', () => {
     const adapter = new TacDockerAdapter({
       timeoutMs: 1,

@@ -24,6 +24,7 @@ import {
   buildTacTeamContractPacket,
   isTacTeamContractArm,
   TAC_SERVICE_SYNC_TEAM,
+  TAC_TEAM_CONTRACT_ARM_ID,
   tacTeamContractMetrics,
 } from './team-contract.js';
 
@@ -2353,7 +2354,7 @@ export function tacDockerAdapterFromEnv(): TacDockerAdapter {
     dockerCommand: process.env.TAC_DOCKER_COMMAND,
     env: passEnv(),
     agentSetupCommand: process.env.TAC_AGENT_SETUP_CMD,
-    agentHarnessId: process.env.TAC_AGENT_HARNESS ?? process.env.TAC_AGENT_RUNTIME,
+    agentHarnessId: tacAgentHarnessIdFromEnv(),
     agentUser: process.env.TAC_AGENT_USER,
     opentasksMount: process.env.TAC_OPENTASKS_MOUNT ?? process.cwd(),
     opentasksContainerDir: process.env.TAC_OPENTASKS_CONTAINER_DIR ?? '/opentasks',
@@ -2384,6 +2385,16 @@ export function tacDockerAdapterFromEnv(): TacDockerAdapter {
     preflightOnly: process.env.TAC_PREFLIGHT_ONLY === '1',
     liveTokenLimit: liveTokenLimitFromEnv(),
   });
+}
+
+function tacAgentHarnessIdFromEnv(): string | undefined {
+  const explicit = process.env.TAC_AGENT_HARNESS ?? process.env.TAC_AGENT_RUNTIME;
+  if (explicit?.trim()) return explicit;
+  const arms = (process.env.EVAL_ARMS ?? '')
+    .split(',')
+    .map((arm) => arm.trim())
+    .filter(Boolean);
+  return arms.includes(TAC_TEAM_CONTRACT_ARM_ID) ? 'swarm-harness' : undefined;
 }
 
 function passEnv(): Record<string, string> {
