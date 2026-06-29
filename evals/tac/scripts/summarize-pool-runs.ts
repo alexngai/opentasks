@@ -62,6 +62,14 @@ export interface CellRow {
   seededFullBeforeTaskWork: number;
   openTasksUpdates: number;
   openTasksCalls: number;
+  teamInboxAssignment: number;
+  teamInboxEvidence: number;
+  teamInboxVerifierRequest: number;
+  teamInboxVerifierReply: number;
+  teamInboxEvidenceBeforeMutation: number;
+  teamOpenTasksEvidenceAfterInbox: number;
+  teamOpenTasksVerificationAfterVerifier: number;
+  teamProtocolPassed: number;
   gitlabHelper: number;
   rawGitlabCurl: number;
   broadFsSearch: number;
@@ -85,6 +93,14 @@ export interface AggregateRow {
   seededFullBeforeBashMean: number;
   seededFullBeforeTaskWorkMean: number;
   openTasksUpdatesMean: number;
+  teamInboxAssignmentMean: number;
+  teamInboxEvidenceMean: number;
+  teamInboxVerifierRequestMean: number;
+  teamInboxVerifierReplyMean: number;
+  teamInboxEvidenceBeforeMutationMean: number;
+  teamOpenTasksEvidenceAfterInboxMean: number;
+  teamOpenTasksVerificationAfterVerifierMean: number;
+  teamProtocolPassedMean: number;
   gitlabHelperMean: number;
   rawGitlabCurlMean: number;
   broadFsSearchMean: number;
@@ -110,6 +126,14 @@ const CELL_COLUMNS: Array<keyof CellRow> = [
   'seededFullBeforeTaskWork',
   'openTasksUpdates',
   'openTasksCalls',
+  'teamInboxAssignment',
+  'teamInboxEvidence',
+  'teamInboxVerifierRequest',
+  'teamInboxVerifierReply',
+  'teamInboxEvidenceBeforeMutation',
+  'teamOpenTasksEvidenceAfterInbox',
+  'teamOpenTasksVerificationAfterVerifier',
+  'teamProtocolPassed',
   'gitlabHelper',
   'rawGitlabCurl',
   'broadFsSearch',
@@ -132,6 +156,14 @@ const AGGREGATE_COLUMNS: Array<keyof AggregateRow> = [
   'seededFullBeforeBashMean',
   'seededFullBeforeTaskWorkMean',
   'openTasksUpdatesMean',
+  'teamInboxAssignmentMean',
+  'teamInboxEvidenceMean',
+  'teamInboxVerifierRequestMean',
+  'teamInboxVerifierReplyMean',
+  'teamInboxEvidenceBeforeMutationMean',
+  'teamOpenTasksEvidenceAfterInboxMean',
+  'teamOpenTasksVerificationAfterVerifierMean',
+  'teamProtocolPassedMean',
   'gitlabHelperMean',
   'rawGitlabCurlMean',
   'broadFsSearchMean',
@@ -239,6 +271,14 @@ function cellRow(runId: string, runDir: string, cell: CellSummary): CellRow {
     seededFullBeforeTaskWork: metric(metrics, 'seededTaskFullContentReadBeforeFirstTaskWork'),
     openTasksUpdates: metric(metrics, 'mainOpenTasksUpdateCallCount'),
     openTasksCalls: metric(metrics, 'mainOpenTasksCallCount'),
+    teamInboxAssignment: metric(metrics, 'teamInboxAssignmentCount'),
+    teamInboxEvidence: metric(metrics, 'teamInboxEvidenceReplyCount'),
+    teamInboxVerifierRequest: metric(metrics, 'teamInboxVerifierRequestCount'),
+    teamInboxVerifierReply: metric(metrics, 'teamInboxVerifierReplyCount'),
+    teamInboxEvidenceBeforeMutation: metric(metrics, 'teamInboxEvidenceBeforeMutation'),
+    teamOpenTasksEvidenceAfterInbox: metric(metrics, 'teamOpenTasksEvidenceAfterInbox'),
+    teamOpenTasksVerificationAfterVerifier: metric(metrics, 'teamOpenTasksVerificationAfterVerifier'),
+    teamProtocolPassed: metric(metrics, 'teamProtocolPassed'),
     gitlabHelper: metric(metrics, 'gitlabHelperCallCount'),
     rawGitlabCurl: metric(metrics, 'rawGitlabApiCurlCallCount'),
     broadFsSearch: metric(metrics, 'broadFilesystemSearchCount'),
@@ -364,6 +404,14 @@ function aggregateRow(runId: string, runDir: string, aggregate: AggregateSummary
     seededFullBeforeBashMean: metric(metrics, 'seededTaskFullContentReadBeforeFirstBash'),
     seededFullBeforeTaskWorkMean: metric(metrics, 'seededTaskFullContentReadBeforeFirstTaskWork'),
     openTasksUpdatesMean: metric(metrics, 'mainOpenTasksUpdateCallCount'),
+    teamInboxAssignmentMean: metric(metrics, 'teamInboxAssignmentCount'),
+    teamInboxEvidenceMean: metric(metrics, 'teamInboxEvidenceReplyCount'),
+    teamInboxVerifierRequestMean: metric(metrics, 'teamInboxVerifierRequestCount'),
+    teamInboxVerifierReplyMean: metric(metrics, 'teamInboxVerifierReplyCount'),
+    teamInboxEvidenceBeforeMutationMean: metric(metrics, 'teamInboxEvidenceBeforeMutation'),
+    teamOpenTasksEvidenceAfterInboxMean: metric(metrics, 'teamOpenTasksEvidenceAfterInbox'),
+    teamOpenTasksVerificationAfterVerifierMean: metric(metrics, 'teamOpenTasksVerificationAfterVerifier'),
+    teamProtocolPassedMean: metric(metrics, 'teamProtocolPassed'),
     gitlabHelperMean: metric(metrics, 'gitlabHelperCallCount'),
     rawGitlabCurlMean: metric(metrics, 'rawGitlabApiCurlCallCount'),
     broadFsSearchMean: metric(metrics, 'broadFilesystemSearchCount'),

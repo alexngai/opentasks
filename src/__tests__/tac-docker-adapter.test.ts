@@ -303,6 +303,17 @@ describe('TAC OpenTasks MCP setup', () => {
           payload: { type: 'tool_use_end', id: 't1' },
         }),
         JSON.stringify({
+          ts: 4,
+          agentId: 'coordinator',
+          type: 'message_sent',
+          payload: {
+            type: 'message_sent',
+            from: 'coordinator',
+            to: 'service_inspector',
+            message: { content: 'TEAM_ASSIGNMENT tac-service-sync:cell:inspection' },
+          },
+        }),
+        JSON.stringify({
           id: 'tac-root',
           status: 'succeeded',
           output: 'done',
@@ -318,6 +329,7 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(parsed.usage.totalTokens).toBe(18);
     expect(parsed.trajectory).toEqual([
       { type: 'tool', ts: 0, name: 'Bash', input: { agentId: 'agent-1', command: 'echo ok' } },
+      { type: 'message', ts: 1, from: 'coordinator', to: 'service_inspector', content: 'TEAM_ASSIGNMENT tac-service-sync:cell:inspection' },
     ]);
   });
 
@@ -1124,6 +1136,156 @@ describe('TAC OpenTasks MCP setup', () => {
       teamContractFailedGraphWriteCount: 1,
       teamContractChildEvidenceWritten: 0,
       teamContractStopGatePassed: 0,
+    });
+  });
+
+  it('classifies ordered agent-inbox protocol markers with durable OpenTasks graph evidence', () => {
+    const metrics = tacTeamContractMetrics([
+      {
+        type: 'message',
+        ts: 0,
+        from: 'coordinator',
+        to: 'service_inspector',
+        content: 'TEAM_ASSIGNMENT correlation_id=tac-service-sync:cell:inspection',
+      },
+      {
+        type: 'tool',
+        ts: 1,
+        name: 'check_inbox',
+        input: { agentId: 'coordinator' },
+        output:
+          '{"messages":[{"from":"service_inspector","content":"TEAM_EVIDENCE correlation_id=tac-service-sync:cell:inspection commands_or_endpoints=[\\"tac-gitlab-api GET projects/root/repo/issues\\"]"}]}',
+      },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'Bash',
+        input: {
+          agentId: 'service_inspector',
+          command:
+            'tac-opentasks-record-evidence service_inspector tac-service-sync:cell:inspection \'{"marker":"TEAM_EVIDENCE","evidence":[{"kind":"api"}]}\' t-root',
+        },
+        output:
+          '{"ok":true,"protocol":"agent-inbox-v1","marker":"TEAM_EVIDENCE","opentasks_record_id":"f-aaaa","correlation_id":"tac-service-sync:cell:inspection"}',
+      },
+      {
+        type: 'tool',
+        ts: 3,
+        name: 'Bash',
+        input: { agentId: 'coordinator', command: 'tac-gitlab-api PATCH projects/root/repo/issues/1 {"state_event":"close"}' },
+      },
+      {
+        type: 'tool',
+        ts: 4,
+        name: 'send_message',
+        input: {
+          agentId: 'coordinator',
+          to: 'verifier',
+          content: 'TEAM_VERIFICATION_REQUEST correlation_id=tac-service-sync:cell:verification',
+        },
+      },
+      {
+        type: 'message',
+        ts: 5,
+        from: 'verifier',
+        to: 'coordinator',
+        content: 'TEAM_VERIFICATION correlation_id=tac-service-sync:cell:verification verified final service state',
+      },
+      {
+        type: 'tool',
+        ts: 6,
+        name: 'mcp__opentasks__record_attempt',
+        input: {
+          agentId: 'coordinator',
+          taskId: 'verification',
+          summary: 'TEAM_VERIFICATION verified final service state',
+          evidence: { kind: 'command', ref: 'tac-gitlab-api GET projects/root/repo/issues/1' },
+        },
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamInboxAssignmentCount: 1,
+      teamInboxEvidenceReplyCount: 1,
+      teamInboxVerifierRequestCount: 1,
+      teamInboxVerifierReplyCount: 1,
+      teamInboxEvidenceBeforeMutation: 1,
+      teamOpenTasksEvidenceAfterInbox: 1,
+      teamOpenTasksVerificationAfterVerifier: 1,
+      teamProtocolPassed: 1,
+    });
+  });
+
+  it('rejects agent-inbox protocol evidence that arrives after service mutation', () => {
+    const metrics = tacTeamContractMetrics([
+      { type: 'message', ts: 0, from: 'coordinator', to: 'service_inspector', content: 'TEAM_ASSIGNMENT' },
+      {
+        type: 'tool',
+        ts: 1,
+        name: 'Bash',
+        input: { agentId: 'coordinator', command: 'curl -X PATCH http://plane/api/issues/1' },
+      },
+      {
+        type: 'message',
+        ts: 2,
+        from: 'service_inspector',
+        to: 'coordinator',
+        content: 'TEAM_EVIDENCE late evidence',
+      },
+      {
+        type: 'tool',
+        ts: 3,
+        name: 'mcp__opentasks__update_task',
+        input: { agentId: 'coordinator', id: 'service_inspection', metadata: { evidence: [{ kind: 'api' }] } },
+      },
+      {
+        type: 'message',
+        ts: 4,
+        from: 'coordinator',
+        to: 'verifier',
+        content: 'TEAM_VERIFICATION_REQUEST',
+      },
+      { type: 'message', ts: 5, from: 'verifier', to: 'coordinator', content: 'TEAM_VERIFICATION verified' },
+      {
+        type: 'tool',
+        ts: 6,
+        name: 'mcp__opentasks__record_attempt',
+        input: { agentId: 'coordinator', taskId: 'verification', summary: 'TEAM_VERIFICATION verified' },
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamInboxEvidenceReplyCount: 1,
+      teamInboxEvidenceBeforeMutation: 0,
+      teamOpenTasksEvidenceAfterInbox: 1,
+      teamProtocolPassed: 0,
+    });
+  });
+
+  it('rejects inbox evidence followed only by local swarm task_update output', () => {
+    const metrics = tacTeamContractMetrics([
+      { type: 'message', ts: 0, from: 'coordinator', to: 'service_inspector', content: 'TEAM_ASSIGNMENT' },
+      { type: 'message', ts: 1, from: 'service_inspector', to: 'coordinator', content: 'TEAM_EVIDENCE service state' },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'task_update',
+        input: {
+          agentId: 'coordinator',
+          id: 'tac-root',
+          output: 'TEAM_EVIDENCE persisted only in local swarm registry',
+        },
+      },
+      { type: 'tool', ts: 3, name: 'Bash', input: { agentId: 'coordinator', command: 'curl -X PATCH http://plane/api/issues/1' } },
+      { type: 'message', ts: 4, from: 'coordinator', to: 'verifier', content: 'TEAM_VERIFICATION_REQUEST' },
+      { type: 'message', ts: 5, from: 'verifier', to: 'coordinator', content: 'TEAM_VERIFICATION verified' },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamInboxEvidenceBeforeMutation: 1,
+      teamOpenTasksEvidenceAfterInbox: 0,
+      teamOpenTasksVerificationAfterVerifier: 0,
+      teamProtocolPassed: 0,
     });
   });
 

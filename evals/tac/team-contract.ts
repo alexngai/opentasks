@@ -111,21 +111,38 @@ export function buildTacTeamContractPacket(opts: TacTeamContractPacketOptions): 
 }
 
 export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string, number> {
-  const toolEvents = trajectory.filter((event) => event.type === 'tool');
   const agentIds = new Set<string>();
   let openTasksGraphCallCount = 0;
   let openTasksEvidenceWriteCount = 0;
   let openTasksVerificationWriteCount = 0;
   let failedOpenTasksGraphWriteCount = 0;
+  let inboxAssignmentCount = 0;
+  let inboxEvidenceReplyCount = 0;
+  let inboxVerifierRequestCount = 0;
+  let inboxVerifierReplyCount = 0;
+  let firstInboxAssignmentIndex = -1;
+  let firstInboxEvidenceIndex = -1;
+  let firstInboxVerifierRequestIndex = -1;
+  let firstInboxVerifierReplyIndex = -1;
   let firstEvidenceIndex = -1;
   let firstVerificationIndex = -1;
   let firstMutationIndex = -1;
 
-  toolEvents.forEach((event, index) => {
+  trajectory.forEach((event, index) => {
+    if (event.type === 'message') {
+      if (event.from) agentIds.add(event.from);
+      if (event.to) agentIds.add(event.to);
+      recordInboxProtocolSignals(event.content ?? '', index);
+      return;
+    }
+    if (event.type !== 'tool') return;
+
     const input = isRecord(event.input) ? event.input : {};
     const agentId = typeof input.agentId === 'string' ? input.agentId : typeof event.agentId === 'string' ? event.agentId : undefined;
     if (agentId) agentIds.add(agentId);
     const command = String(input.command ?? '');
+
+    recordInboxProtocolSignals(inboxProtocolToolText(event, input), index);
 
     if (isOpenTasksGraphTool(event.name)) {
       openTasksGraphCallCount += 1;
@@ -179,6 +196,22 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
     firstVerificationIndex >= 0 && firstMutationIndex >= 0 && firstVerificationIndex > firstMutationIndex ? 1 : 0;
   const productiveCoordination =
     workerSpawned && childEvidenceWritten && evidenceBeforeMutation && verificationWritten && verificationAfterMutation ? 1 : 0;
+  const inboxEvidenceBeforeMutation =
+    firstInboxEvidenceIndex >= 0 && firstMutationIndex >= 0 && firstInboxEvidenceIndex < firstMutationIndex ? 1 : 0;
+  const openTasksEvidenceAfterInbox =
+    firstInboxEvidenceIndex >= 0 && firstEvidenceIndex >= 0 && firstEvidenceIndex > firstInboxEvidenceIndex ? 1 : 0;
+  const openTasksVerificationAfterVerifier =
+    firstInboxVerifierReplyIndex >= 0 && firstVerificationIndex >= 0 && firstVerificationIndex > firstInboxVerifierReplyIndex ? 1 : 0;
+  const protocolPassed =
+    workerSpawned &&
+    firstInboxAssignmentIndex >= 0 &&
+    inboxEvidenceBeforeMutation &&
+    openTasksEvidenceAfterInbox &&
+    firstInboxVerifierRequestIndex >= 0 &&
+    firstInboxVerifierReplyIndex > firstMutationIndex &&
+    openTasksVerificationAfterVerifier
+      ? 1
+      : 0;
 
   return {
     teamContractDistinctAgentCount: distinctAgentCount,
@@ -193,7 +226,35 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
     teamContractVerificationAfterMutation: verificationAfterMutation,
     teamContractProductiveCoordination: productiveCoordination,
     teamContractStopGatePassed: productiveCoordination,
+    teamInboxAssignmentCount: inboxAssignmentCount,
+    teamInboxEvidenceReplyCount: inboxEvidenceReplyCount,
+    teamInboxVerifierRequestCount: inboxVerifierRequestCount,
+    teamInboxVerifierReplyCount: inboxVerifierReplyCount,
+    teamInboxEvidenceBeforeMutation: inboxEvidenceBeforeMutation,
+    teamOpenTasksEvidenceAfterInbox: openTasksEvidenceAfterInbox,
+    teamOpenTasksVerificationAfterVerifier: openTasksVerificationAfterVerifier,
+    teamProtocolPassed: protocolPassed,
   };
+
+  function recordInboxProtocolSignals(text: string, index: number): void {
+    if (!text.trim()) return;
+    if (hasProtocolMarker(text, TAC_TEAM_PROTOCOL_MARKERS.assignment)) {
+      inboxAssignmentCount += 1;
+      if (firstInboxAssignmentIndex < 0) firstInboxAssignmentIndex = index;
+    }
+    if (hasProtocolMarker(text, TAC_TEAM_PROTOCOL_MARKERS.evidence)) {
+      inboxEvidenceReplyCount += 1;
+      if (firstInboxEvidenceIndex < 0) firstInboxEvidenceIndex = index;
+    }
+    if (hasProtocolMarker(text, TAC_TEAM_PROTOCOL_MARKERS.verificationRequest)) {
+      inboxVerifierRequestCount += 1;
+      if (firstInboxVerifierRequestIndex < 0) firstInboxVerifierRequestIndex = index;
+    }
+    if (hasProtocolMarker(text, TAC_TEAM_PROTOCOL_MARKERS.verification)) {
+      inboxVerifierReplyCount += 1;
+      if (firstInboxVerifierReplyIndex < 0) firstInboxVerifierReplyIndex = index;
+    }
+  }
 }
 
 function isServiceMutationCommand(command: string): boolean {
@@ -219,6 +280,20 @@ function isOpenTasksGraphWriteTool(name: string): boolean {
 
 function isOpenTasksEvidenceHelperCommand(name: string, command: string): boolean {
   return name.toLowerCase() === 'bash' && /\btac-opentasks-record-evidence\b/.test(command);
+}
+
+function inboxProtocolToolText(event: TraceEvent, input: Record<string, unknown>): string {
+  const name = event.type === 'tool' ? event.name.toLowerCase() : '';
+  if (name !== 'send_message' && name !== 'check_inbox') return '';
+  return `${JSON.stringify(input)}\n${toolOutputText(event)}`;
+}
+
+function hasProtocolMarker(text: string, marker: string): boolean {
+  return new RegExp(`\\b${escapeRegExp(marker)}\\b`, 'i').test(text);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function hasDurableOpenTasksHelperRecord(event: TraceEvent): boolean {

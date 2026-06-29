@@ -220,6 +220,11 @@ export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
       output += event.text;
       continue;
     }
+    if (event.type === 'message_sent') {
+      const messageEvent = swarmMessageTraceEvent(obj, event, trajectory.length);
+      if (messageEvent) trajectory.push(messageEvent);
+      continue;
+    }
     if (event.type === 'tool_use_start') {
       const id = typeof event.id === 'string' ? event.id : `tool-${trajectory.length}`;
       const rawName =
@@ -305,6 +310,24 @@ function swarmTraceMeta(obj: Record<string, unknown>): Record<string, unknown> {
   return meta;
 }
 
+function swarmMessageTraceEvent(
+  obj: Record<string, unknown>,
+  event: Record<string, unknown>,
+  ts: number,
+): TraceEvent | undefined {
+  const content = messageContent(event.content ?? event.text ?? event.message ?? obj.content ?? obj.message);
+  const from = firstString(event.from, event.sender, event.source, obj.from, obj.sender, obj.agentId);
+  const to = firstString(event.to, event.recipient, event.target, obj.to, obj.recipient);
+  if (!content && !from && !to) return undefined;
+  return {
+    type: 'message',
+    ts,
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+    ...(content ? { content } : {}),
+  };
+}
+
 function canonicalSwarmToolName(name: string): string {
   const map: Record<string, string> = {
     bash: 'Bash',
@@ -332,6 +355,40 @@ function parseJsonObject(json: string): Record<string, unknown> | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return undefined;
+}
+
+function messageContent(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (isRecord(item)) {
+          if (typeof item.content === 'string') return item.content;
+          if (typeof item.text === 'string') return item.text;
+        }
+        return '';
+      })
+      .filter(Boolean);
+    if (parts.length) return parts.join('\n');
+  }
+  if (isRecord(value)) {
+    if (typeof value.content === 'string') return value.content;
+    if (typeof value.text === 'string') return value.text;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return undefined;
 }
 
 function numberValue(value: unknown): number {
