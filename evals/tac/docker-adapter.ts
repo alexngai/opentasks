@@ -3614,15 +3614,34 @@ async function writeLocalArtifact(name: string, content: string): Promise<void> 
 }
 
 export function redactSensitiveText(text: string): string {
-  return text
-    .replace(/\bAWS_BEARER_TOKEN_BEDROCK\s*[=:]\s*\\?"?[^\\\n\r"']+/g, 'AWS_BEARER_TOKEN_BEDROCK=[REDACTED]')
-    .replace(/\bANTHROPIC_API_KEY\s*[=:]\s*\\?"?[^\\\n\r"']+/g, 'ANTHROPIC_API_KEY=[REDACTED]')
-    .replace(/\bLITELLM_API_KEY\s*[=:]\s*\\?"?[^\\\n\r"']+/g, 'LITELLM_API_KEY=[REDACTED]')
-    .replace(/\bAWS_SECRET_ACCESS_KEY\s*[=:]\s*\\?"?[^\\\n\r"']+/g, 'AWS_SECRET_ACCESS_KEY=[REDACTED]')
-    .replace(/\bAWS_SESSION_TOKEN\s*[=:]\s*\\?"?[^\\\n\r"']+/g, 'AWS_SESSION_TOKEN=[REDACTED]')
+  const secretEnvKeys = [
+    'AWS_BEARER_TOKEN_BEDROCK',
+    'AWS_SECRET_ACCESS_KEY',
+    'AWS_SESSION_TOKEN',
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_AUTH_TOKEN',
+    'OPENAI_API_KEY',
+    'AZURE_API_KEY',
+    'AZURE_OPENAI_API_KEY',
+    'AZURE_OPENAI_KEY',
+    'TAC_GRADER_PROXY_KEY',
+    'LITELLM_API_KEY',
+  ];
+  let redacted = text;
+  for (const key of secretEnvKeys) {
+    const escaped = escapeRegExp(key);
+    redacted = redacted
+      .replace(new RegExp(`(\\\\?["']${escaped}\\\\?["']\\s*:\\s*\\\\?["'])[^\\\\"']+`, 'g'), `$1[REDACTED]`)
+      .replace(new RegExp(`\\b${escaped}\\b\\s*[=:]\\s*\\\\?"?[^\\\\\\n\\r"',}\\s]+`, 'g'), `${key}=[REDACTED]`);
+  }
+  return redacted
     .replace(/\bABSK[A-Za-z0-9+/=._-]+/g, '[REDACTED]')
-    .replace(/\bsk-ant-[A-Za-z0-9._-]+/g, '[REDACTED]')
+    .replace(/\bsk-(?:ant-)?[A-Za-z0-9._-]+/g, '[REDACTED]')
     .replace(/\broot-token\b/g, '[REDACTED_TAC_GITLAB_TOKEN]');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function envRaw(kind: EnvError['kind'], message: string, start: number, usage: TokenUsage = ZERO_USAGE, trajectory: TraceEvent[] = []): RawRun {

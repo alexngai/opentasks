@@ -217,6 +217,12 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
   let firstEvidenceIndex = -1;
   let firstVerificationIndex = -1;
   let firstMutationIndex = -1;
+  const inboxAssignmentByCorrelation = new Map<string, number>();
+  const inboxEvidenceByCorrelation = new Map<string, number>();
+  const inboxVerifierRequestByCorrelation = new Map<string, number>();
+  const inboxVerifierReplyByCorrelation = new Map<string, number>();
+  const evidenceWriteByCorrelation = new Map<string, number>();
+  const verificationWriteByCorrelation = new Map<string, number>();
 
   trajectory.forEach((event, index) => {
     if (event.type === 'message') {
@@ -242,14 +248,20 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
         failedOpenTasksGraphWriteCount += 1;
         return;
       }
+      if (isWrite && !hasConfirmedOpenTasksGraphWrite(event)) {
+        failedOpenTasksGraphWriteCount += 1;
+        return;
+      }
       const isVerificationWrite = isWrite && /verification|verified|verifies/.test(text);
       if (isVerificationWrite) {
         openTasksVerificationWriteCount += 1;
         if (firstVerificationIndex < 0) firstVerificationIndex = index;
+        recordFirstIndex(verificationWriteByCorrelation, extractCorrelationId(`${JSON.stringify(input)}\n${toolOutputText(event)}`), index);
       }
       if (isWrite && !isVerificationWrite && /evidence|service_inspection|commands_or_endpoints/.test(text)) {
         openTasksEvidenceWriteCount += 1;
         if (firstEvidenceIndex < 0) firstEvidenceIndex = index;
+        recordFirstIndex(evidenceWriteByCorrelation, extractCorrelationId(`${JSON.stringify(input)}\n${toolOutputText(event)}`), index);
       }
     }
 
@@ -264,10 +276,12 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
       if (isVerificationWrite) {
         openTasksVerificationWriteCount += 1;
         if (firstVerificationIndex < 0) firstVerificationIndex = index;
+        recordFirstIndex(verificationWriteByCorrelation, extractCorrelationId(text), index);
       }
       if (!isVerificationWrite && /team_evidence|evidence|service_inspection|commands_or_endpoints|service_inspector/.test(text)) {
         openTasksEvidenceWriteCount += 1;
         if (firstEvidenceIndex < 0) firstEvidenceIndex = index;
+        recordFirstIndex(evidenceWriteByCorrelation, extractCorrelationId(text), index);
       }
     }
 
@@ -292,14 +306,13 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
     firstInboxEvidenceIndex >= 0 && firstEvidenceIndex >= 0 && firstEvidenceIndex > firstInboxEvidenceIndex ? 1 : 0;
   const openTasksVerificationAfterVerifier =
     firstInboxVerifierReplyIndex >= 0 && firstVerificationIndex >= 0 && firstVerificationIndex > firstInboxVerifierReplyIndex ? 1 : 0;
+  const correlatedEvidenceBeforeMutation = hasCorrelatedEvidenceBeforeMutation();
+  const correlatedVerificationAfterMutation = hasCorrelatedVerificationAfterMutation();
   const protocolPassed =
     workerSpawned &&
-    firstInboxAssignmentIndex >= 0 &&
-    inboxEvidenceBeforeMutation &&
-    openTasksEvidenceAfterInbox &&
-    firstInboxVerifierRequestIndex >= 0 &&
-    firstInboxVerifierReplyIndex > firstMutationIndex &&
-    openTasksVerificationAfterVerifier
+    firstMutationIndex >= 0 &&
+    correlatedEvidenceBeforeMutation &&
+    correlatedVerificationAfterMutation
       ? 1
       : 0;
 
@@ -328,28 +341,63 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
 
   function recordInboxProtocolSignals(text: string, index: number): void {
     if (!text.trim()) return;
+    const correlationId = extractCorrelationId(text);
     if (hasProtocolMarker(text, TAC_TEAM_PROTOCOL_MARKERS.assignment)) {
       inboxAssignmentCount += 1;
       if (firstInboxAssignmentIndex < 0) firstInboxAssignmentIndex = index;
+      recordFirstIndex(inboxAssignmentByCorrelation, correlationId, index);
     }
     if (hasProtocolMarker(text, TAC_TEAM_PROTOCOL_MARKERS.evidence)) {
       inboxEvidenceReplyCount += 1;
       if (firstInboxEvidenceIndex < 0) firstInboxEvidenceIndex = index;
+      recordFirstIndex(inboxEvidenceByCorrelation, correlationId, index);
     }
     if (hasProtocolMarker(text, TAC_TEAM_PROTOCOL_MARKERS.verificationRequest)) {
       inboxVerifierRequestCount += 1;
       if (firstInboxVerifierRequestIndex < 0) firstInboxVerifierRequestIndex = index;
+      recordFirstIndex(inboxVerifierRequestByCorrelation, correlationId, index);
     }
     if (hasProtocolMarker(text, TAC_TEAM_PROTOCOL_MARKERS.verification)) {
       inboxVerifierReplyCount += 1;
       if (firstInboxVerifierReplyIndex < 0) firstInboxVerifierReplyIndex = index;
+      recordFirstIndex(inboxVerifierReplyByCorrelation, correlationId, index);
     }
+  }
+
+  function hasCorrelatedEvidenceBeforeMutation(): boolean {
+    for (const [correlationId, evidenceReplyIndex] of inboxEvidenceByCorrelation) {
+      const assignmentIndex = inboxAssignmentByCorrelation.get(correlationId);
+      const evidenceWriteIndex = evidenceWriteByCorrelation.get(correlationId);
+      if (assignmentIndex === undefined || evidenceWriteIndex === undefined) continue;
+      if (
+        assignmentIndex < evidenceReplyIndex &&
+        evidenceReplyIndex < firstMutationIndex &&
+        evidenceWriteIndex > evidenceReplyIndex &&
+        evidenceWriteIndex < firstMutationIndex
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function hasCorrelatedVerificationAfterMutation(): boolean {
+    for (const [correlationId, verifierReplyIndex] of inboxVerifierReplyByCorrelation) {
+      const requestIndex = inboxVerifierRequestByCorrelation.get(correlationId);
+      const verificationWriteIndex = verificationWriteByCorrelation.get(correlationId);
+      if (requestIndex === undefined || verificationWriteIndex === undefined) continue;
+      if (firstMutationIndex < requestIndex && requestIndex < verifierReplyIndex && verifierReplyIndex < verificationWriteIndex) {
+        return true;
+      }
+    }
+    return false;
   }
 }
 
 function isServiceMutationCommand(command: string): boolean {
   if (!command.trim()) return false;
   if (/\btac-gitlab-api\s+(POST|PUT|PATCH|DELETE)\b/i.test(command)) return true;
+  if (/\btac-plane-api\s+(POST|PUT|PATCH|DELETE)\b/i.test(command)) return true;
   if (/\bcurl\b/i.test(command) && /(?:^|\s)(?:-X|--request)\s*(POST|PUT|PATCH|DELETE)\b/i.test(command)) return true;
   if (/\brequests\.(post|put|patch|delete)\s*\(/i.test(command)) return true;
   if (/\brequests\.request\s*\([^,\n]+,\s*['"](POST|PUT|PATCH|DELETE)['"]/i.test(command)) return true;
@@ -390,6 +438,26 @@ function hasDurableOpenTasksHelperRecord(event: TraceEvent): boolean {
   const output = toolOutputText(event);
   if (!output.trim()) return false;
   return /"ok"\s*:\s*true/.test(output) && /"opentasks_record_id"\s*:\s*"[a-z]-[a-z0-9-]+"/i.test(output);
+}
+
+function hasConfirmedOpenTasksGraphWrite(event: TraceEvent): boolean {
+  if (isFailedToolEvent(event)) return false;
+  const record = event as TraceEvent & { success?: unknown };
+  if (record.success === true) return true;
+  const output = toolOutputText(event);
+  if (!output.trim()) return false;
+  if (/"(?:ok|success)"\s*:\s*true/i.test(output)) return true;
+  return /"(?:id|taskId|task_id|attemptId|attempt_id|record_id|opentasks_record_id)"\s*:\s*"[^"]+"/i.test(output);
+}
+
+function extractCorrelationId(text: string): string | undefined {
+  const match = text.match(/\bcorrelation[_-]?id\b\s*["']?\s*[:=]\s*["']?([a-z0-9._:-]+)/i);
+  return match?.[1];
+}
+
+function recordFirstIndex(target: Map<string, number>, correlationId: string | undefined, index: number): void {
+  if (!correlationId) return;
+  if (!target.has(correlationId)) target.set(correlationId, index);
 }
 
 function toolOutputText(event: TraceEvent): string {

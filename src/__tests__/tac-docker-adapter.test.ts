@@ -71,6 +71,12 @@ describe('TAC Docker adapter prompt', () => {
       '{"content":"AWS_BEARER_TOKEN_BEDROCK=ABSKbase64+/=\\nAWS_REGION=us-west-2"}',
       'standalone ABSKbase64+/=',
       'ANTHROPIC_API_KEY: sk-ant-secret',
+      'ANTHROPIC_AUTH_TOKEN=anthropic-auth-secret',
+      'OPENAI_API_KEY=sk-openai-secret',
+      '{"AZURE_OPENAI_API_KEY":"azure-secret","AZURE_OPENAI_KEY":"azure-key-secret","AZURE_API_KEY":"azure-api-secret"}',
+      '\\"AZURE_API_KEY\\":\\"azure-escaped-secret\\"',
+      'TAC_GRADER_PROXY_KEY=grader-secret',
+      'LITELLM_API_KEY=litellm-secret',
       'AWS_SECRET_ACCESS_KEY="secret"',
       'http://root:root-token@the-agent-company.com:8929/root/project.wiki.git',
     ].join('\n');
@@ -80,10 +86,25 @@ describe('TAC Docker adapter prompt', () => {
     expect(redacted).not.toContain('ABSKsecret');
     expect(redacted).not.toContain('ABSKbase64');
     expect(redacted).not.toContain('sk-ant-secret');
+    expect(redacted).not.toContain('anthropic-auth-secret');
+    expect(redacted).not.toContain('sk-openai-secret');
+    expect(redacted).not.toContain('azure-secret');
+    expect(redacted).not.toContain('azure-key-secret');
+    expect(redacted).not.toContain('azure-api-secret');
+    expect(redacted).not.toContain('azure-escaped-secret');
+    expect(redacted).not.toContain('grader-secret');
+    expect(redacted).not.toContain('litellm-secret');
     expect(redacted).not.toContain('"secret"');
     expect(redacted).not.toContain('root-token');
     expect(redacted).toContain('AWS_BEARER_TOKEN_BEDROCK=[REDACTED]');
     expect(redacted).toContain('ANTHROPIC_API_KEY=[REDACTED]');
+    expect(redacted).toContain('ANTHROPIC_AUTH_TOKEN=[REDACTED]');
+    expect(redacted).toContain('OPENAI_API_KEY=[REDACTED]');
+    expect(redacted).toContain('"AZURE_OPENAI_API_KEY":"[REDACTED]"');
+    expect(redacted).toContain('"AZURE_OPENAI_KEY":"[REDACTED]"');
+    expect(redacted).toContain('"AZURE_API_KEY":"[REDACTED]"');
+    expect(redacted).toContain('TAC_GRADER_PROXY_KEY=[REDACTED]');
+    expect(redacted).toContain('LITELLM_API_KEY=[REDACTED]');
     expect(redacted).toContain('AWS_SECRET_ACCESS_KEY=[REDACTED]');
     expect(redacted).toContain('[REDACTED_TAC_GITLAB_TOKEN]');
   });
@@ -1122,8 +1143,12 @@ describe('TAC OpenTasks MCP setup', () => {
         input: {
           agentId: 'child-1',
           id: 'service_inspection',
-          metadata: { evidence: [{ kind: 'api', summary: 'Issue is closed' }], commands_or_endpoints: ['tac-gitlab-api GET projects/root/repo/issues'] },
+          metadata: {
+            evidence: [{ kind: 'api', summary: 'Issue is closed' }],
+            commands_or_endpoints: ['tac-gitlab-api GET projects/root/repo/issues'],
+          },
         },
+        success: true,
       },
       {
         type: 'tool',
@@ -1136,6 +1161,7 @@ describe('TAC OpenTasks MCP setup', () => {
         ts: 3,
         name: 'mcp__opentasks__record_attempt',
         input: { agentId: 'root', taskId: 'verification', evidence: 'verified final service state' },
+        success: true,
       },
     ]);
 
@@ -1321,8 +1347,10 @@ describe('TAC OpenTasks MCP setup', () => {
           agentId: 'coordinator',
           taskId: 'verification',
           summary: 'TEAM_VERIFICATION verified final service state',
+          metadata: { correlation_id: 'tac-service-sync:cell:verification' },
           evidence: { kind: 'command', ref: 'tac-gitlab-api GET projects/root/repo/issues/1' },
         },
+        success: true,
       },
     ]);
 
@@ -1359,6 +1387,7 @@ describe('TAC OpenTasks MCP setup', () => {
         ts: 3,
         name: 'mcp__opentasks__update_task',
         input: { agentId: 'coordinator', id: 'service_inspection', metadata: { evidence: [{ kind: 'api' }] } },
+        success: true,
       },
       {
         type: 'message',
@@ -1373,6 +1402,7 @@ describe('TAC OpenTasks MCP setup', () => {
         ts: 6,
         name: 'mcp__opentasks__record_attempt',
         input: { agentId: 'coordinator', taskId: 'verification', summary: 'TEAM_VERIFICATION verified' },
+        success: true,
       },
     ]);
 
@@ -1466,6 +1496,89 @@ describe('TAC OpenTasks MCP setup', () => {
     }
   });
 
+  it('requires confirmed success before counting direct OpenTasks graph writes', () => {
+    const metrics = tacTeamContractMetrics([
+      {
+        type: 'message',
+        ts: 0,
+        from: 'coordinator',
+        to: 'service_inspector',
+        content: 'TEAM_ASSIGNMENT correlation_id=tac-service-sync:cell:inspection',
+      },
+      {
+        type: 'message',
+        ts: 1,
+        from: 'service_inspector',
+        to: 'coordinator',
+        content: 'TEAM_EVIDENCE correlation_id=tac-service-sync:cell:inspection service state',
+      },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'mcp__opentasks__update_task',
+        input: {
+          agentId: 'coordinator',
+          id: 'service_inspection',
+          metadata: { correlation_id: 'tac-service-sync:cell:inspection', evidence: [{ kind: 'api' }] },
+        },
+      },
+      {
+        type: 'tool',
+        ts: 3,
+        name: 'Bash',
+        input: { agentId: 'coordinator', command: 'tac-gitlab-api PATCH projects/root/repo/issues/1 {"state_event":"close"}' },
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamContractOpenTasksGraphCallCount: 1,
+      teamContractEvidenceWriteCount: 0,
+      teamContractFailedGraphWriteCount: 1,
+      teamOpenTasksEvidenceAfterInbox: 0,
+      teamProtocolPassed: 0,
+    });
+  });
+
+  it('uses correlation ordering for the agent-inbox protocol gate', () => {
+    const metrics = tacTeamContractMetrics([
+      { type: 'message', ts: 0, from: 'coordinator', to: 'service_inspector', content: 'TEAM_ASSIGNMENT correlation_id=tac-service-sync:cell:a' },
+      { type: 'message', ts: 1, from: 'service_inspector', to: 'coordinator', content: 'TEAM_EVIDENCE correlation_id=tac-service-sync:cell:b' },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'Bash',
+        input: {
+          agentId: 'service_inspector',
+          command:
+            'tac-opentasks-record-evidence service_inspector tac-service-sync:cell:b \'{"marker":"TEAM_EVIDENCE","evidence":[{"kind":"api"}]}\' t-root',
+        },
+        output:
+          '{"ok":true,"protocol":"agent-inbox-v1","marker":"TEAM_EVIDENCE","opentasks_record_id":"f-corr","correlation_id":"tac-service-sync:cell:b"}',
+      },
+      { type: 'tool', ts: 3, name: 'Bash', input: { agentId: 'coordinator', command: 'tac-plane-api PATCH workspaces/tac/projects/p/issues/i/ {"state":"done"}' } },
+      { type: 'message', ts: 4, from: 'coordinator', to: 'verifier', content: 'TEAM_VERIFICATION_REQUEST correlation_id=tac-service-sync:cell:v' },
+      { type: 'message', ts: 5, from: 'verifier', to: 'coordinator', content: 'TEAM_VERIFICATION correlation_id=tac-service-sync:cell:v verified' },
+      {
+        type: 'tool',
+        ts: 6,
+        name: 'Bash',
+        input: {
+          agentId: 'coordinator',
+          command: 'tac-opentasks-record-evidence verifier tac-service-sync:cell:v \'{"marker":"TEAM_VERIFICATION","summary":"verified"}\' t-root',
+        },
+        output:
+          '{"ok":true,"protocol":"agent-inbox-v1","marker":"TEAM_VERIFICATION","opentasks_record_id":"f-ver","correlation_id":"tac-service-sync:cell:v"}',
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamInboxEvidenceBeforeMutation: 1,
+      teamOpenTasksEvidenceAfterInbox: 1,
+      teamOpenTasksVerificationAfterVerifier: 1,
+      teamProtocolPassed: 0,
+    });
+  });
+
   it('does not count failed swarm task updates as durable TAC team-contract evidence', () => {
     const metrics = tacTeamContractMetrics([
       { type: 'tool', ts: 0, name: 'task_list', input: { agentId: 'root' } },
@@ -1502,10 +1615,12 @@ describe('TAC OpenTasks MCP setup', () => {
           agentId: 'root',
           id: 'service_inspection',
           metadata: {
+            correlation_id: 'tac-service-sync:cell:inspection',
             evidence: [{ kind: 'api' }],
             commands_or_endpoints: ['tac-plane-api GET workspaces/tac/projects/p/issues/?expand=state'],
           },
         },
+        success: true,
       },
       {
         type: 'tool',
@@ -1525,7 +1640,13 @@ describe('TAC OpenTasks MCP setup', () => {
         type: 'tool',
         ts: 5,
         name: 'mcp__opentasks__record_attempt',
-        input: { agentId: 'root', taskId: 'verification', summary: 'VERIFIED final verification evidence' },
+        input: {
+          agentId: 'root',
+          taskId: 'verification',
+          summary: 'TEAM_VERIFICATION verified final service state',
+          metadata: { correlation_id: 'tac-service-sync:cell:verification' },
+        },
+        success: true,
       },
     ]);
 

@@ -13,4 +13,5 @@
 {"type":"tool_result","toolUseId":"tool-4","content":"{\"ok\":true}","isError":false}
 {"type":"message_sent","from":"verifier","to":"coordinator","message":{"content":"TEAM_VERIFICATION correlation_id=tac-service-sync:cell:verification verified final service state"}}
 {"type":"tool_use_start","id":"tool-5","name":"mcp__opentasks__record_attempt","agentId":"coordinator"}
-{"type":"tool_use_end","id":"tool-5","input":{"taskId":"verification","summary":"TEAM_VERIFICATION verified final service state","evidence":{"kind":"command","ref":"tac-gitlab-api GET projects/root/repo/issues/1"}},"agentId":"coordinator"}
+{"type":"tool_use_end","id":"tool-5","input":{"taskId":"verification","summary":"TEAM_VERIFICATION verified final service state","metadata":{"correlation_id":"tac-service-sync:cell:verification"},"evidence":{"kind":"command","ref":"tac-gitlab-api GET projects/root/repo/issues/1"}},"agentId":"coordinator"}
+{"type":"tool_result","toolUseId":"tool-5","content":"{\"ok\":true,\"id\":\"a-verification\",\"correlation_id\":\"tac-service-sync:cell:verification\"}","isError":false}
