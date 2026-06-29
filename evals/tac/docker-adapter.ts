@@ -22,9 +22,11 @@ import { tacForwardedEnv } from './env.js';
 import { scoreFromTacResult, type TacResultJson } from './score.js';
 import {
   buildTacTeamContractPacket,
+  compileTacServiceSyncRolePackets,
   isTacTeamContractArm,
   TAC_SERVICE_SYNC_TEAM,
   TAC_TEAM_CONTRACT_ARM_ID,
+  TAC_TEAM_PROTOCOL_ID,
   tacTeamContractMetrics,
 } from './team-contract.js';
 
@@ -213,7 +215,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
       await ws.writeFiles([
         {
           path: `${runDir}/prompt.txt`,
-          content: this.mainPrompt(cell),
+          content: this.mainPrompt(cell, runDir),
         },
         { path: `${runDir}/mcp.json`, content: JSON.stringify(this.mcpConfig(cell, runDir), null, 2) },
         ...this.teamContractFiles(cell, runDir),
@@ -471,7 +473,10 @@ export class TacDockerAdapter implements ExecutionAdapter {
               start,
             );
           }
-          await ws.writeFiles([{ path: `${runDir}/prompt.txt`, content: this.mainPromptWithGraphSeed(opentasksGraphSeedReport, cell) }]);
+          await ws.writeFiles([
+            ...this.teamContractFiles(cell, runDir, opentasksGraphSeedReport),
+            { path: `${runDir}/prompt.txt`, content: this.mainPromptWithGraphSeed(opentasksGraphSeedReport, cell, runDir) },
+          ]);
         }
 
         if (this.opts.opentasksTaskPrelude === true) {
@@ -663,7 +668,13 @@ export class TacDockerAdapter implements ExecutionAdapter {
       const efficiencyMetrics = traceEfficiencyMetrics(parsed.trajectory, {
         seededTaskId: opentasksGraphSeedReport?.taskId,
       });
-      const teamContractMetrics = isTacTeamContractArm(cell.arm.id) ? tacTeamContractMetrics(parsed.trajectory) : {};
+      const teamContractMetrics = isTacTeamContractArm(cell.arm.id)
+        ? {
+            ...tacTeamContractMetrics(parsed.trajectory),
+            teamProtocolAgentInboxEnabled: this.teamProtocolEnabled(cell) ? 1 : 0,
+            teamProtocolNativeRoleEnforcement: this.teamProtocolEnabled(cell) ? 0 : 0,
+          }
+        : {};
       const score = scoreFromTacResult(resultJson, {
         readGraph: mainReadGraph ? 1 : 0,
         seededGraphInitialized,
@@ -711,14 +722,14 @@ export class TacDockerAdapter implements ExecutionAdapter {
     return args.join(' ');
   }
 
-  private mainPrompt(cell: PublicCell): string {
+  private mainPrompt(cell: PublicCell, runDir?: string): string {
     return buildTacAgentPrompt({
       operatingPrompt: this.opts.operatingPrompt,
-      appendix: this.mainPromptAppendix(cell),
+      appendix: this.mainPromptAppendix(cell, undefined, runDir),
     });
   }
 
-  private mainPromptAppendix(cell: PublicCell, seedReport?: OpenTasksGraphSeedReport): string | undefined {
+  private mainPromptAppendix(cell: PublicCell, seedReport?: OpenTasksGraphSeedReport, runDir?: string): string | undefined {
     const chunks = [this.opts.agentPromptAppendix?.trim()].filter((chunk): chunk is string => Boolean(chunk));
     if (isTacTeamContractArm(cell.arm.id)) {
       chunks.push(
@@ -728,18 +739,22 @@ export class TacDockerAdapter implements ExecutionAdapter {
           seededRootTaskId: seedReport?.taskId,
         }),
       );
+      if (this.teamProtocolEnabled(cell) && runDir) {
+        chunks.push(this.teamProtocolPromptAppendix(cell, runDir, seedReport));
+      }
     }
     return chunks.length ? chunks.join('\n\n') : undefined;
   }
 
-  private teamContractFiles(cell: PublicCell, runDir: string): FileSeed[] {
+  private teamContractFiles(cell: PublicCell, runDir: string, seedReport?: OpenTasksGraphSeedReport): FileSeed[] {
     if (!isTacTeamContractArm(cell.arm.id)) return [];
-    return [
+    const files: FileSeed[] = [
       {
         path: `${runDir}/team-contract-packet.md`,
         content: buildTacTeamContractPacket({
           sourceTaskId: cell.task.id,
           taskText: cell.task.prompt,
+          seededRootTaskId: seedReport?.taskId,
         }),
       },
       {
@@ -747,6 +762,59 @@ export class TacDockerAdapter implements ExecutionAdapter {
         content: `${JSON.stringify(TAC_SERVICE_SYNC_TEAM, null, 2)}\n`,
       },
     ];
+    if (!this.teamProtocolEnabled(cell)) return files;
+
+    const rolePackets = compileTacServiceSyncRolePackets({
+      sourceTaskId: cell.task.id,
+      taskText: cell.task.prompt,
+      seededRootTaskId: seedReport?.taskId,
+      basePath: `${runDir}/team-roles`,
+    });
+    files.push(
+      ...rolePackets.map((packet) => ({ path: packet.path, content: packet.content })),
+      {
+        path: `${runDir}/team-contract-protocol.json`,
+        content: `${JSON.stringify(
+          {
+            protocol: TAC_TEAM_PROTOCOL_ID,
+            template: TAC_SERVICE_SYNC_TEAM.name,
+            rolePacketPaths: rolePackets.map((packet) => packet.path),
+            nativeRoleEnforcement: 0,
+            nativeRoleEnforcementReason: 'swarm-harness native role task fields are not wired in this TAC adapter slice',
+          },
+          null,
+          2,
+        )}\n`,
+      },
+    );
+    return files;
+  }
+
+  private teamProtocolPromptAppendix(cell: PublicCell, runDir: string, seedReport?: OpenTasksGraphSeedReport): string {
+    const rolePackets = compileTacServiceSyncRolePackets({
+      sourceTaskId: cell.task.id,
+      taskText: cell.task.prompt,
+      seededRootTaskId: seedReport?.taskId,
+      basePath: `/eval/${runDir}/team-roles`,
+    });
+    return [
+      '# TAC Agent-Inbox Team Protocol',
+      '',
+      `Protocol: ${TAC_TEAM_PROTOCOL_ID}`,
+      'Native swarm-harness role enforcement: 0 (audit/prompt packets only in this adapter slice).',
+      'Role packet files:',
+      ...rolePackets.map((packet) => `- ${packet.role}: ${packet.path}`),
+      '',
+      'Coordinator must assign service_inspector with TEAM_ASSIGNMENT, wait for TEAM_EVIDENCE and durable OpenTasks evidence before mutation, then request verifier with TEAM_VERIFICATION_REQUEST.',
+      'Verifier must reply with TEAM_VERIFICATION and durable OpenTasks verification evidence before finalization.',
+      'Use tac-opentasks-record-evidence when native mcp__opentasks__record_attempt/update_task is unavailable.',
+    ].join('\n');
+  }
+
+  private teamProtocolEnabled(cell: PublicCell): boolean {
+    if (!isTacTeamContractArm(cell.arm.id)) return false;
+    const value = this.opts.env?.TAC_TEAM_PROTOCOL ?? process.env.TAC_TEAM_PROTOCOL;
+    return value === TAC_TEAM_PROTOCOL_ID;
   }
 
   private async runInContainer(
@@ -1094,11 +1162,11 @@ export class TacDockerAdapter implements ExecutionAdapter {
     ].join('\n');
   }
 
-  private mainPromptWithGraphSeed(seedReport: OpenTasksGraphSeedReport, cell?: PublicCell): string {
+  private mainPromptWithGraphSeed(seedReport: OpenTasksGraphSeedReport, cell?: PublicCell, runDir?: string): string {
     return [
       buildTacAgentPrompt({
         operatingPrompt: this.opts.operatingPrompt,
-        appendix: cell ? this.mainPromptAppendix(cell, seedReport) : this.opts.agentPromptAppendix,
+        appendix: cell ? this.mainPromptAppendix(cell, seedReport, runDir) : this.opts.agentPromptAppendix,
       }).trimEnd(),
       '',
       'OpenTasks graph has been deterministically seeded for this TAC run.',
@@ -1641,6 +1709,9 @@ export class TacDockerAdapter implements ExecutionAdapter {
       ...(usesOpenTasks(cell) ? { OPENTASKS_PROJECT_DIR } : {}),
       ...(usesOpenTasks(cell) && this.usesSwarmHarnessSwarmMode(cell) ? { TAC_SWARM_HARNESS_OPENTASKS: '1' } : {}),
       ...(isTacTeamContractArm(cell.arm.id) && this.agentHarness.id === 'swarm-harness' ? { TAC_SWARM_HARNESS_MODE: 'team-contract' } : {}),
+      ...(this.teamProtocolEnabled(cell)
+        ? { TAC_TEAM_PROTOCOL: TAC_TEAM_PROTOCOL_ID, TAC_TEAM_NATIVE_ROLE_ENFORCEMENT: '0' }
+        : {}),
       ...this.opts.env,
       ...(cell.arm.scaffold.env ?? {}),
     };

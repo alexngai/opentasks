@@ -40,6 +40,7 @@ const FORWARDED_ENV_KEYS = [
   'TAC_SWARM_HARNESS_MODE',
   'TAC_SWARM_HARNESS_CONCURRENCY',
   'TAC_SWARM_HARNESS_MULTIAGENT_PROMPT',
+  'TAC_TEAM_PROTOCOL',
 ] as const;
 
 export function tacForwardedEnv(source: NodeJS.ProcessEnv = process.env): Record<string, string> {

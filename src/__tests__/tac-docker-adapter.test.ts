@@ -915,6 +915,7 @@ describe('TAC OpenTasks MCP setup', () => {
       teamContractFiles: (
         cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; task: { id: string; prompt: string } } : never,
         runDir: string,
+        seedReport?: unknown,
       ) => Array<{ path: string; content: string }>;
       mainPrompt: (
         cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; task: { id: string; prompt: string } } : never,
@@ -957,6 +958,81 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(prompt).toContain('TAC Team Contract Packet');
     expect(seededPrompt).toContain('Seeded OpenTasks root task id: t-seed1');
     expect(adapter.teamContractFiles({ arm: plainArm, task: cell.task }, '.tac/cell')).toEqual([]);
+  });
+
+  it('writes agent-inbox role packet artifacts when TAC_TEAM_PROTOCOL is enabled', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+      agentHarnessId: 'swarm-harness',
+      env: { TAC_TEAM_PROTOCOL: 'agent-inbox-v1' },
+    }) as unknown as {
+      agentEnv: (
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; task: { id: string; prompt: string } } : never,
+      ) => Record<string, string>;
+      teamContractFiles: (
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; task: { id: string; prompt: string } } : never,
+        runDir: string,
+        seedReport?: unknown,
+      ) => Array<{ path: string; content: string }>;
+      mainPromptWithGraphSeed: (
+        report: unknown,
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; task: { id: string; prompt: string } } : never,
+        runDir?: string,
+      ) => string;
+    };
+    const [teamArm] = tacArms(['opentasks-team-contract']);
+    const cell = {
+      arm: teamArm,
+      task: { id: 'pm-update-plane-issue-from-gitlab-status', prompt: 'Full TAC task text.' },
+    };
+    const seedReport = {
+      ok: true,
+      taskId: 't-seed1',
+      taskTitle: 'Seeded TAC task',
+      sourceTaskId: 'pm-update-plane-issue-from-gitlab-status',
+      cellKey: 'cell/example',
+      contentBytes: 123,
+      tags: ['tac', 'seeded'],
+      exitCode: 0,
+      stdoutHead: '',
+      stderrHead: '',
+    };
+
+    const files = adapter.teamContractFiles(cell, '.tac/cell', seedReport);
+    const protocol = JSON.parse(files.find((file) => file.path === '.tac/cell/team-contract-protocol.json')?.content ?? '{}');
+    const prompt = adapter.mainPromptWithGraphSeed(seedReport, cell, '.tac/cell');
+    const env = adapter.agentEnv(cell);
+
+    expect(files.map((file) => file.path)).toEqual([
+      '.tac/cell/team-contract-packet.md',
+      '.tac/cell/team-contract-template.json',
+      '.tac/cell/team-roles/coordinator.md',
+      '.tac/cell/team-roles/service_inspector.md',
+      '.tac/cell/team-roles/verifier.md',
+      '.tac/cell/team-contract-protocol.json',
+    ]);
+    expect(files.find((file) => file.path.endsWith('/coordinator.md'))?.content).toContain('Seeded OpenTasks root task id: t-seed1');
+    expect(protocol).toMatchObject({
+      protocol: 'agent-inbox-v1',
+      template: 'tac-service-sync',
+      nativeRoleEnforcement: 0,
+    });
+    expect(protocol.rolePacketPaths).toEqual([
+      '.tac/cell/team-roles/coordinator.md',
+      '.tac/cell/team-roles/service_inspector.md',
+      '.tac/cell/team-roles/verifier.md',
+    ]);
+    expect(prompt).toContain('/eval/.tac/cell/team-roles/coordinator.md');
+    expect(prompt).toContain('Native swarm-harness role enforcement: 0');
+    expect(prompt).toContain('TEAM_ASSIGNMENT');
+    expect(prompt).toContain('TEAM_VERIFICATION_REQUEST');
+    expect(env.TAC_TEAM_PROTOCOL).toBe('agent-inbox-v1');
+    expect(env.TAC_TEAM_NATIVE_ROLE_ENFORCEMENT).toBe('0');
   });
 
   it('builds a deterministic OpenTasks graph seed command from the TAC task file', () => {

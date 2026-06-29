@@ -70,6 +70,7 @@ export interface CellRow {
   teamOpenTasksEvidenceAfterInbox: number;
   teamOpenTasksVerificationAfterVerifier: number;
   teamProtocolPassed: number;
+  teamNativeRoleEnforcement: number;
   gitlabHelper: number;
   rawGitlabCurl: number;
   broadFsSearch: number;
@@ -101,6 +102,7 @@ export interface AggregateRow {
   teamOpenTasksEvidenceAfterInboxMean: number;
   teamOpenTasksVerificationAfterVerifierMean: number;
   teamProtocolPassedMean: number;
+  teamNativeRoleEnforcementMean: number;
   gitlabHelperMean: number;
   rawGitlabCurlMean: number;
   broadFsSearchMean: number;
@@ -134,6 +136,7 @@ const CELL_COLUMNS: Array<keyof CellRow> = [
   'teamOpenTasksEvidenceAfterInbox',
   'teamOpenTasksVerificationAfterVerifier',
   'teamProtocolPassed',
+  'teamNativeRoleEnforcement',
   'gitlabHelper',
   'rawGitlabCurl',
   'broadFsSearch',
@@ -164,6 +167,7 @@ const AGGREGATE_COLUMNS: Array<keyof AggregateRow> = [
   'teamOpenTasksEvidenceAfterInboxMean',
   'teamOpenTasksVerificationAfterVerifierMean',
   'teamProtocolPassedMean',
+  'teamNativeRoleEnforcementMean',
   'gitlabHelperMean',
   'rawGitlabCurlMean',
   'broadFsSearchMean',
@@ -279,6 +283,7 @@ function cellRow(runId: string, runDir: string, cell: CellSummary): CellRow {
     teamOpenTasksEvidenceAfterInbox: metric(metrics, 'teamOpenTasksEvidenceAfterInbox'),
     teamOpenTasksVerificationAfterVerifier: metric(metrics, 'teamOpenTasksVerificationAfterVerifier'),
     teamProtocolPassed: metric(metrics, 'teamProtocolPassed'),
+    teamNativeRoleEnforcement: metric(metrics, 'teamProtocolNativeRoleEnforcement'),
     gitlabHelper: metric(metrics, 'gitlabHelperCallCount'),
     rawGitlabCurl: metric(metrics, 'rawGitlabApiCurlCallCount'),
     broadFsSearch: metric(metrics, 'broadFilesystemSearchCount'),
@@ -412,6 +417,7 @@ function aggregateRow(runId: string, runDir: string, aggregate: AggregateSummary
     teamOpenTasksEvidenceAfterInboxMean: metric(metrics, 'teamOpenTasksEvidenceAfterInbox'),
     teamOpenTasksVerificationAfterVerifierMean: metric(metrics, 'teamOpenTasksVerificationAfterVerifier'),
     teamProtocolPassedMean: metric(metrics, 'teamProtocolPassed'),
+    teamNativeRoleEnforcementMean: metric(metrics, 'teamProtocolNativeRoleEnforcement'),
     gitlabHelperMean: metric(metrics, 'gitlabHelperCallCount'),
     rawGitlabCurlMean: metric(metrics, 'rawGitlabApiCurlCallCount'),
     broadFsSearchMean: metric(metrics, 'broadFilesystemSearchCount'),
