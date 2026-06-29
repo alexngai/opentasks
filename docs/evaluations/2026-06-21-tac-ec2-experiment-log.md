@@ -2748,3 +2748,53 @@ Outstanding work before a full benchmark claim:
   budgets, and a PR/report artifact for every round.
 - Audit E2B cleanup paths before any future E2B usage so TAC eval cleanup cannot
   terminate unrelated developer sandboxes.
+
+### 2026-06-29 Team Protocol Smoke And Dispatch Gate
+
+Goal:
+
+- validate the `opentasks-team-contract` arm with `swarm-harness@0.3.5`,
+  `TAC_TEAM_PROTOCOL=agent-inbox-v1`, and `azureoai/gpt-5.5`;
+- measure protocol behavior separately from TAC score;
+- decide whether dispatch is ready to become the carrier.
+
+Runs:
+
+| Run | Task | TAC result | Tokens | Env error | Protocol result |
+|---|---|---:|---:|---:|---|
+| `tac-team-protocol-smoke-2026-06-29T13-20Z` | `pm-update-plane-issue-from-gitlab-status` | `7/7`, full success | `92,986` | `0` | `teamProtocolPassed=0` |
+| `tac-team-protocol-hard-2026-06-29T13-45Z` | `pm-update-gitlab-issue-from-plane-status` | `2/3`, failure | `67,276` | `0` | `teamProtocolPassed=0` |
+
+What worked:
+
+- EC2 pool provisioning and default cleanup completed; post-destroy
+  verification passed and Terraform state was empty after both runs.
+- `swarm-harness` spawned teams in both cells.
+- Static role packets and team artifacts were produced.
+- The durable OpenTasks helper path worked: both runs wrote durable evidence
+  and verification records with graph record ids.
+- Failure taxonomy stayed specific on the known-hard retry:
+  `not_found_or_wrong_target`, not an undifferentiated failure.
+
+What did not work:
+
+- No live run exercised the explicit `agent-inbox-v1` assignment/reply flow.
+  `teamInboxAssignmentCount`, `teamInboxEvidenceReplyCount`,
+  `teamInboxVerifierRequestCount`, and `teamInboxVerifierReplyCount` were all
+  zero in both cells.
+- `teamProtocolNativeRoleEnforcement=0`, so roles were prompt-packet enforced
+  only.
+- The known-hard retry exposed a TAC helper/page-inspection gap: the team read
+  Plane through `tac-plane-api`, interpreted both target issues as open, and
+  made no GitLab write, while TAC's checkpoint expects `Model: security problem`
+  to be closed.
+
+Decision:
+
+- Do not wire `swarm-dispatch` into live TAC yet. Dispatch should carry a
+  working protocol, not hide the fact that static `swarm-harness` traces still
+  lack explicit inbox assignment/reply events.
+- Add dispatch only behind a fixture or a static-harness run that proves
+  ordered assignment, evidence reply, durable OpenTasks evidence, verifier
+  reply, and durable verification. The detailed carrier plan is in
+  `docs/evaluations/2026-06-29-tac-dispatch-carrier-follow-up.md`.

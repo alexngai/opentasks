@@ -106,6 +106,7 @@ Real-run configuration:
 | `TAC_OPENTASKS_TASK_PRELUDE_TIMEOUT_MS` | Optional prelude per-attempt timeout; default `min(TAC_INIT_TIMEOUT, 240000)` when prelude is enabled |
 | `TAC_OPENTASKS_MCP_COMMAND` | OpenTasks MCP command shape: `wrapper` (default), `sh-lc`, or `direct` |
 | `EVAL_ARMS=opentasks-team-contract` | Experimental full-ecosystem TAC arm. It currently reuses the OpenTasks MCP setup and adds team-contract instructions; static team packets, richer seeding, and stop-gate metrics are layered on top in the team-contract implementation path |
+| `TAC_TEAM_PROTOCOL` | Set `agent-inbox-v1` with `EVAL_ARMS=opentasks-team-contract` to write OpenTeams-style role packets, enable durable evidence helper guidance, and report inbox/protocol metrics |
 | `TAC_GITLAB_TOKEN_REFRESH` | Set `0` to skip refreshing TAC's documented GitLab `root-token` after GitLab task resets |
 | `TAC_ENV_PREFLIGHT` | Set `0` to skip the TAC GitLab health/token preflight before Claude |
 | `TAC_GITLAB_WIKI_SMOKE` | Set `0` to skip the scratch-project GitLab wiki API smoke before agent spend |
@@ -151,6 +152,58 @@ The `opentasks` arm also requires a built OpenTasks
 checkout (`dist/cli.js`) at `TAC_OPENTASKS_MOUNT`; for E2B this must be an
 absolute path inside the remote sandbox, which means baking or uploading the
 repo before the Docker task container starts.
+
+Team-protocol runbook:
+
+```bash
+TAC_AGENT_HARNESS=swarm-harness \
+TAC_SWARM_HARNESS_VERSION=0.3.5 \
+TAC_TEAM_PROTOCOL=agent-inbox-v1 \
+EVAL_MODEL=azureoai/gpt-5.5 \
+EVAL_ARMS=opentasks-team-contract \
+EVAL_TASKS=pm-update-plane-issue-from-gitlab-status \
+EVAL_SEEDS=1 \
+TAC_POOL_WORKER_COUNT=1 \
+TAC_POOL_MAX_WORKERS=1 \
+TAC_POOL_INSTANCE_TYPE=m7i.2xlarge \
+TAC_CELL_TIMEOUT_SEC=2400 \
+evals/tac/scripts/run-ec2-pool.sh
+```
+
+The team-protocol arm is experimental. TAC score and protocol score are
+separate: a TAC success with `teamProtocolPassed=0` means the task was solved
+without proving the assignment/evidence/verification contract. Inspect these
+fields before scaling:
+
+- `teamProtocolAgentInboxEnabled`: protocol packets and metrics were enabled.
+- `teamProtocolNativeRoleEnforcement`: `1` only when role enforcement is native
+  to the harness; `0` means prompt-packet role guidance only.
+- `teamInboxAssignmentCount`, `teamInboxEvidenceReplyCount`,
+  `teamInboxVerifierRequestCount`, `teamInboxVerifierReplyCount`: explicit
+  inbox protocol activity.
+- `teamOpenTasksEvidenceAfterInbox` and
+  `teamOpenTasksVerificationAfterVerifier`: durable graph writes after inbox
+  handoff.
+- `teamProtocolPassed`: post-run gate for ordered inbox handoff plus durable
+  OpenTasks evidence and verification.
+
+Artifacts to inspect live cells:
+
+- `summary.json` / `summary.md`
+- per-cell `report.json` / `report.md`
+- per-cell `agent-stream.jsonl`
+- per-cell `opentasks-graph-seed-report.json`
+- per-cell `team-contract-packet.md`
+- per-cell `team-roles/*.md`
+- per-cell `failure-taxonomy.json` on failed cells
+
+As of the 2026-06-29 live smoke, `agent-inbox-v1` packet generation, durable
+helper evidence, and cleanup all work, but observed live runs still reported
+zero inbox assignment/reply counters. Do not add `swarm-dispatch` or larger
+multi-seed protocol runs until either `teamProtocolPassed=1` is observed or a
+local dispatch fixture proves explicit assignment/reply events with durable
+OpenTasks record ids. See
+`docs/evaluations/2026-06-29-tac-dispatch-carrier-follow-up.md`.
 
 For GitLab-dependent TAC tasks, the adapter now runs pre-agent environment
 checks after TAC init/reset and token refresh. `TAC_ENV_PREFLIGHT` verifies
