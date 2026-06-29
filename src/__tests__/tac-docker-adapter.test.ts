@@ -457,6 +457,7 @@ describe('TAC OpenTasks MCP setup', () => {
 
     expect(command).toContain('/usr/local/bin/tac-gitlab-api');
     expect(command).toContain('/usr/local/bin/tac-plane-api');
+    expect(command).toContain('/usr/local/bin/tac-opentasks-record-evidence');
     expect(command).toContain('/usr/local/bin/tac-gitlab-protect-branch');
     expect(command).toContain('PRIVATE-TOKEN');
     expect(command).toContain('x-api-key');
@@ -477,6 +478,11 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(command).toContain('urllib.parse.quote(urllib.parse.unquote("/".join(parts)), safe="")');
     expect(command).toContain('tac-gitlab-api DELETE projects/root/repo/repository/branches/feature/old');
     expect(command).toContain('tac-plane-api GET workspaces/tac/projects/PROJECT_ID/issues/?expand=state');
+    expect(command).toContain('usage: tac-opentasks-record-evidence ROLE CORRELATION_ID JSON_PAYLOAD [OPENTASKS_TASK_ID]');
+    expect(command).toContain('agent-inbox-v1');
+    expect(command).toContain('opentasks_record_id');
+    expect(command).toContain('TEAM_EVIDENCE');
+    expect(command).toContain('TEAM_VERIFICATION');
     expect(command).toContain('return base_url + "/api/v1" + path');
     expect(command).toContain('usage: tac-gitlab-protect-branch PROJECT BRANCH PUSH_LEVEL MERGE_LEVEL');
     expect(command).toContain('tac-gitlab-api DELETE "projects/${project}/protected_branches/${branch}"');
@@ -1044,6 +1050,79 @@ describe('TAC OpenTasks MCP setup', () => {
       teamContractVerificationWriteCount: 0,
       teamContractCoordinatorConsumedEvidenceBeforeMutation: 0,
       teamContractVerificationAfterMutation: 0,
+      teamContractStopGatePassed: 0,
+    });
+  });
+
+  it('classifies TAC OpenTasks helper output with durable record ids as team-contract evidence', () => {
+    const metrics = tacTeamContractMetrics([
+      { type: 'tool', ts: 0, name: 'task_list', input: { agentId: 'root' } },
+      { type: 'tool', ts: 1, name: 'agent', input: { agentId: 'root', prompt: 'inspect service state' } },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'Bash',
+        input: {
+          agentId: 'child-1',
+          command:
+            'tac-opentasks-record-evidence service_inspector tac-service-sync:cell:inspection \'{"marker":"TEAM_EVIDENCE","commands_or_endpoints":["tac-gitlab-api GET projects/root/repo/issues"]}\' t-root',
+        },
+        output:
+          '{"ok":true,"protocol":"agent-inbox-v1","marker":"TEAM_EVIDENCE","opentasks_record_id":"f-abcd","correlation_id":"tac-service-sync:cell:inspection"}',
+      },
+      {
+        type: 'tool',
+        ts: 3,
+        name: 'Bash',
+        input: { agentId: 'root', command: 'tac-gitlab-api PATCH projects/root/repo/issues/1 {"state_event":"close"}' },
+      },
+      {
+        type: 'tool',
+        ts: 4,
+        name: 'Bash',
+        input: {
+          agentId: 'root',
+          command:
+            'tac-opentasks-record-evidence verifier tac-service-sync:cell:verification \'{"marker":"TEAM_VERIFICATION","summary":"verified"}\' t-root',
+        },
+        output:
+          '{"ok":true,"protocol":"agent-inbox-v1","marker":"TEAM_VERIFICATION","opentasks_record_id":"f-efgh","correlation_id":"tac-service-sync:cell:verification"}',
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamContractDistinctAgentCount: 2,
+      teamContractWorkerSpawned: 1,
+      teamContractOpenTasksGraphCallCount: 2,
+      teamContractEvidenceWriteCount: 1,
+      teamContractChildEvidenceWritten: 1,
+      teamContractCoordinatorConsumedEvidenceBeforeMutation: 1,
+      teamContractVerificationWriteCount: 1,
+      teamContractVerificationAfterMutation: 1,
+      teamContractStopGatePassed: 1,
+    });
+  });
+
+  it('does not count TAC OpenTasks helper output without a durable record id', () => {
+    const metrics = tacTeamContractMetrics([
+      {
+        type: 'tool',
+        ts: 0,
+        name: 'Bash',
+        input: {
+          agentId: 'child-1',
+          command:
+            'tac-opentasks-record-evidence service_inspector tac-service-sync:cell:inspection \'{"marker":"TEAM_EVIDENCE","evidence":[{"kind":"api"}]}\' t-root',
+        },
+        output: '{"ok":true,"protocol":"agent-inbox-v1","marker":"TEAM_EVIDENCE"}',
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamContractOpenTasksGraphCallCount: 1,
+      teamContractEvidenceWriteCount: 0,
+      teamContractFailedGraphWriteCount: 1,
+      teamContractChildEvidenceWritten: 0,
       teamContractStopGatePassed: 0,
     });
   });

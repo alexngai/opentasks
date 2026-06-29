@@ -77,6 +77,7 @@ export function buildTacTeamContractPacket(opts: TacTeamContractPacketOptions): 
     '- Read the seeded OpenTasks root task before task-specific service work when direct mcp__opentasks__ tools are available.',
     '- In swarm-harness team mode, first call task_list({}) and use the returned running task id for task_get/task_update as the local swarm coordination log.',
     '- Durable OpenTasks evidence requires a successful direct mcp__opentasks__record_attempt/update_task call, or a verified OpenTasks helper/graph artifact with a durable record id. Local swarm task_update(output:"...") alone is not durable OpenTasks evidence.',
+    '- If native OpenTasks MCP writes are unavailable but Bash is available, persist the same evidence with tac-opentasks-record-evidence ROLE CORRELATION_ID JSON_PAYLOAD [SEEDED_ROOT_TASK_ID] and keep its JSON output containing opentasks_record_id.',
     '- Do not assume tac-root or the seeded OpenTasks id is the swarm task registry id unless task_list returns that exact id. If task_list returns no usable task, call task_create to create a coordination log and update that returned id.',
     '- Delegate service-state discovery to a service_inspector when the task requires external service inspection.',
     '- If the service_inspector needs shell/API reads, spawn it with permissionMode:"danger-full-access" and instruct it not to mutate service state.',
@@ -122,8 +123,9 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
 
   toolEvents.forEach((event, index) => {
     const input = isRecord(event.input) ? event.input : {};
-    const agentId = typeof input.agentId === 'string' ? input.agentId : undefined;
+    const agentId = typeof input.agentId === 'string' ? input.agentId : typeof event.agentId === 'string' ? event.agentId : undefined;
     if (agentId) agentIds.add(agentId);
+    const command = String(input.command ?? '');
 
     if (isOpenTasksGraphTool(event.name)) {
       openTasksGraphCallCount += 1;
@@ -144,7 +146,25 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
       }
     }
 
-    if (firstMutationIndex < 0 && event.name.toLowerCase() === 'bash' && isServiceMutationCommand(String(input.command ?? ''))) {
+    if (isOpenTasksEvidenceHelperCommand(event.name, command)) {
+      openTasksGraphCallCount += 1;
+      if (isFailedToolEvent(event) || !hasDurableOpenTasksHelperRecord(event)) {
+        failedOpenTasksGraphWriteCount += 1;
+        return;
+      }
+      const text = `${command}\n${toolOutputText(event)}`.toLowerCase();
+      const isVerificationWrite = /team_verification|verification|verified|verifier/.test(text);
+      if (isVerificationWrite) {
+        openTasksVerificationWriteCount += 1;
+        if (firstVerificationIndex < 0) firstVerificationIndex = index;
+      }
+      if (!isVerificationWrite && /team_evidence|evidence|service_inspection|commands_or_endpoints|service_inspector/.test(text)) {
+        openTasksEvidenceWriteCount += 1;
+        if (firstEvidenceIndex < 0) firstEvidenceIndex = index;
+      }
+    }
+
+    if (firstMutationIndex < 0 && event.name.toLowerCase() === 'bash' && isServiceMutationCommand(command)) {
       firstMutationIndex = index;
     }
   });
@@ -195,6 +215,27 @@ function isOpenTasksGraphTool(name: string): boolean {
 
 function isOpenTasksGraphWriteTool(name: string): boolean {
   return name === 'mcp__opentasks__record_attempt' || name === 'mcp__opentasks__update_task';
+}
+
+function isOpenTasksEvidenceHelperCommand(name: string, command: string): boolean {
+  return name.toLowerCase() === 'bash' && /\btac-opentasks-record-evidence\b/.test(command);
+}
+
+function hasDurableOpenTasksHelperRecord(event: TraceEvent): boolean {
+  const output = toolOutputText(event);
+  if (!output.trim()) return false;
+  return /"ok"\s*:\s*true/.test(output) && /"opentasks_record_id"\s*:\s*"[a-z]-[a-z0-9-]+"/i.test(output);
+}
+
+function toolOutputText(event: TraceEvent): string {
+  const output = (event as TraceEvent & { output?: unknown }).output;
+  if (typeof output === 'string') return output;
+  if (output === undefined) return '';
+  try {
+    return JSON.stringify(output);
+  } catch {
+    return String(output);
+  }
 }
 
 function isFailedToolEvent(event: TraceEvent): boolean {
