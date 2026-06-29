@@ -442,12 +442,10 @@ function hasDurableOpenTasksHelperRecord(event: TraceEvent): boolean {
 
 function hasConfirmedOpenTasksGraphWrite(event: TraceEvent): boolean {
   if (isFailedToolEvent(event)) return false;
-  const record = event as TraceEvent & { success?: unknown };
-  if (record.success === true) return true;
   const output = toolOutputText(event);
   if (!output.trim()) return false;
-  if (/"(?:ok|success)"\s*:\s*true/i.test(output)) return true;
-  return /"(?:id|taskId|task_id|attemptId|attempt_id|record_id|opentasks_record_id)"\s*:\s*"[^"]+"/i.test(output);
+  if (/"(?:ok|success)"\s*:\s*false/i.test(output)) return false;
+  return /"(?:id|taskId|task_id|attemptId|attempt_id|feedbackId|feedback_id|record_id|opentasks_record_id)"\s*:\s*"[^"]+"/i.test(output);
 }
 
 function extractCorrelationId(text: string): string | undefined {

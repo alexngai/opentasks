@@ -1149,6 +1149,7 @@ describe('TAC OpenTasks MCP setup', () => {
           },
         },
         success: true,
+        output: '{"id":"t-service-inspection"}',
       },
       {
         type: 'tool',
@@ -1162,6 +1163,7 @@ describe('TAC OpenTasks MCP setup', () => {
         name: 'mcp__opentasks__record_attempt',
         input: { agentId: 'root', taskId: 'verification', evidence: 'verified final service state' },
         success: true,
+        output: '{"attemptId":"a-verification"}',
       },
     ]);
 
@@ -1351,6 +1353,7 @@ describe('TAC OpenTasks MCP setup', () => {
           evidence: { kind: 'command', ref: 'tac-gitlab-api GET projects/root/repo/issues/1' },
         },
         success: true,
+        output: '{"attemptId":"a-team-verification"}',
       },
     ]);
 
@@ -1388,6 +1391,7 @@ describe('TAC OpenTasks MCP setup', () => {
         name: 'mcp__opentasks__update_task',
         input: { agentId: 'coordinator', id: 'service_inspection', metadata: { evidence: [{ kind: 'api' }] } },
         success: true,
+        output: '{"id":"t-service-inspection"}',
       },
       {
         type: 'message',
@@ -1403,6 +1407,7 @@ describe('TAC OpenTasks MCP setup', () => {
         name: 'mcp__opentasks__record_attempt',
         input: { agentId: 'coordinator', taskId: 'verification', summary: 'TEAM_VERIFICATION verified' },
         success: true,
+        output: '{"attemptId":"a-verification"}',
       },
     ]);
 
@@ -1496,7 +1501,7 @@ describe('TAC OpenTasks MCP setup', () => {
     }
   });
 
-  it('requires confirmed success before counting direct OpenTasks graph writes', () => {
+  it('requires a durable record id before counting direct OpenTasks graph writes', () => {
     const metrics = tacTeamContractMetrics([
       {
         type: 'message',
@@ -1521,6 +1526,7 @@ describe('TAC OpenTasks MCP setup', () => {
           id: 'service_inspection',
           metadata: { correlation_id: 'tac-service-sync:cell:inspection', evidence: [{ kind: 'api' }] },
         },
+        success: true,
       },
       {
         type: 'tool',
@@ -1621,6 +1627,7 @@ describe('TAC OpenTasks MCP setup', () => {
           },
         },
         success: true,
+        output: '{"id":"t-service-inspection"}',
       },
       {
         type: 'tool',
@@ -1647,6 +1654,7 @@ describe('TAC OpenTasks MCP setup', () => {
           metadata: { correlation_id: 'tac-service-sync:cell:verification' },
         },
         success: true,
+        output: '{"attemptId":"a-verification"}',
       },
     ]);
 
