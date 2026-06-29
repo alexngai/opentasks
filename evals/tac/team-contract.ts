@@ -1,6 +1,15 @@
 import type { TraceEvent } from 'swarmkit-eval';
 
 export const TAC_TEAM_CONTRACT_ARM_ID = 'opentasks-team-contract';
+export const TAC_TEAM_PROTOCOL_ID = 'agent-inbox-v1';
+
+export const TAC_TEAM_PROTOCOL_MARKERS = {
+  assignment: 'TEAM_ASSIGNMENT',
+  evidence: 'TEAM_EVIDENCE',
+  decision: 'TEAM_DECISION',
+  verificationRequest: 'TEAM_VERIFICATION_REQUEST',
+  verification: 'TEAM_VERIFICATION',
+} as const;
 
 export const TAC_SERVICE_SYNC_TEAM = {
   name: 'tac-service-sync',
@@ -25,6 +34,8 @@ export const TAC_SERVICE_SYNC_TEAM = {
 } as const;
 
 export const TAC_TEAM_CONTRACT_EVIDENCE_SCHEMA = {
+  protocol: TAC_TEAM_PROTOCOL_ID,
+  correlation_id: 'tac-service-sync:<cell>:<step>',
   role: 'service_inspector',
   task_id: 'service_inspection',
   status: 'pass',
@@ -38,6 +49,7 @@ export const TAC_TEAM_CONTRACT_EVIDENCE_SCHEMA = {
   commands_or_endpoints: ['tac-gitlab-api GET projects/root/example/issues?state=all', 'tac-plane-api GET workspaces/tac/projects/example/issues/?expand=state'],
   confidence: 'high',
   blockers: [],
+  opentasks_record_id: 'optional durable graph record id',
 } as const;
 
 export interface TacTeamContractPacketOptions {
@@ -63,13 +75,14 @@ export function buildTacTeamContractPacket(opts: TacTeamContractPacketOptions): 
     '',
     'Coordinator contract:',
     '- Read the seeded OpenTasks root task before task-specific service work when direct mcp__opentasks__ tools are available.',
-    '- In swarm-harness team mode, first call task_list({}) and use the returned running task id for task_get/task_update; task_update writes are mirrored into OpenTasks when --opentasks is enabled.',
+    '- In swarm-harness team mode, first call task_list({}) and use the returned running task id for task_get/task_update as the local swarm coordination log.',
+    '- Durable OpenTasks evidence requires a successful direct mcp__opentasks__record_attempt/update_task call, or a verified OpenTasks helper/graph artifact with a durable record id. Local swarm task_update(output:"...") alone is not durable OpenTasks evidence.',
     '- Do not assume tac-root or the seeded OpenTasks id is the swarm task registry id unless task_list returns that exact id. If task_list returns no usable task, call task_create to create a coordination log and update that returned id.',
     '- Delegate service-state discovery to a service_inspector when the task requires external service inspection.',
     '- If the service_inspector needs shell/API reads, spawn it with permissionMode:"danger-full-access" and instruct it not to mutate service state.',
     '- Do not perform service mutation until useful child evidence exists or the evidence task is explicitly blocked.',
-    '- Before first service mutation, record EVIDENCE_FOUND or BLOCKED with task_update(id:"<task_list id>", output:"...") or direct mcp__opentasks__record_attempt/update_task.',
-    '- After final verification, record VERIFIED with task_update(id:"<task_list id>", output:"...") or direct mcp__opentasks__record_attempt/update_task.',
+    `- Before first service mutation, send/record ${TAC_TEAM_PROTOCOL_MARKERS.evidence} or BLOCKED with the protocol correlation_id, then persist durable evidence through direct OpenTasks MCP or a verified helper/graph artifact.`,
+    `- After final verification, send/record ${TAC_TEAM_PROTOCOL_MARKERS.verification} with the protocol correlation_id, then persist durable verification through direct OpenTasks MCP or a verified helper/graph artifact.`,
     '',
     'service_inspector contract:',
     '- Read this full TAC task text from the packet or mirrored file.',
@@ -85,9 +98,9 @@ export function buildTacTeamContractPacket(opts: TacTeamContractPacketOptions): 
     '',
     'Stop-gate signals for the post-run TAC metric pass:',
     '- at least one child worker is spawned;',
-    '- child evidence is written or a blocker is recorded with task_update or OpenTasks MCP;',
+    '- child evidence is written through direct OpenTasks MCP or a verified OpenTasks helper/graph artifact;',
     '- coordinator records/consumes child evidence before first service mutation;',
-    '- final verification evidence is written with task_update or OpenTasks MCP.',
+    '- final verification evidence is written through direct OpenTasks MCP or a verified OpenTasks helper/graph artifact.',
     '',
     'Full TAC task text mirrored for every worker:',
     '```text',
@@ -177,11 +190,11 @@ function isServiceMutationCommand(command: string): boolean {
 }
 
 function isOpenTasksGraphTool(name: string): boolean {
-  return name.startsWith('mcp__opentasks__') || ['task_create', 'task_update', 'task_get', 'task_list'].includes(name);
+  return name.startsWith('mcp__opentasks__');
 }
 
 function isOpenTasksGraphWriteTool(name: string): boolean {
-  return name === 'mcp__opentasks__record_attempt' || name === 'mcp__opentasks__update_task' || name === 'task_update';
+  return name === 'mcp__opentasks__record_attempt' || name === 'mcp__opentasks__update_task';
 }
 
 function isFailedToolEvent(event: TraceEvent): boolean {

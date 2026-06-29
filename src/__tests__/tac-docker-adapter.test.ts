@@ -810,7 +810,8 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(appendix).toContain('team-contract TAC arm');
     expect(appendix).toContain('structured evidence before mutation');
     expect(appendix).toContain('task_list({})');
-    expect(appendix).toContain('task_update(id:"<task_list id>"');
+    expect(appendix).toContain('local swarm coordination log');
+    expect(appendix).toContain('not durable OpenTasks evidence by itself');
     expect(appendix).toContain('Do not assume tac-root');
     expect(appendix).toContain('Do not search for mcp__opentasks__ tools in swarm-harness');
     expect(appendix).toContain('permissionMode:"danger-full-access"');
@@ -828,7 +829,11 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(packet).toContain('Seeded OpenTasks root task id: t-root');
     expect(packet).toContain('service_inspector contract');
     expect(packet).toContain('task_list({})');
-    expect(packet).toContain('task_update(id:"<task_list id>"');
+    expect(packet).toContain('Local swarm task_update(output:"...") alone is not durable OpenTasks evidence');
+    expect(packet).toContain('TEAM_EVIDENCE');
+    expect(packet).toContain('"protocol": "agent-inbox-v1"');
+    expect(packet).toContain('"correlation_id"');
+    expect(packet).toContain('"opentasks_record_id"');
     expect(packet).toContain('"commands_or_endpoints"');
     expect(packet).toContain('tac-plane-api');
     expect(packet).toContain('Update the Plane issue based on GitLab issue status.');
@@ -1006,7 +1011,7 @@ describe('TAC OpenTasks MCP setup', () => {
     });
   });
 
-  it('classifies mirrored swarm task updates as TAC team-contract evidence writes', () => {
+  it('does not classify local swarm task updates as durable TAC team-contract evidence writes', () => {
     const trajectory = [
       { type: 'tool', ts: 0, name: 'task_get', input: { agentId: 'root', id: 'tac-root' } },
       { type: 'tool', ts: 1, name: 'agent', input: { agentId: 'root', prompt: 'inspect service state' } },
@@ -1033,13 +1038,13 @@ describe('TAC OpenTasks MCP setup', () => {
     const metrics = tacTeamContractMetrics(trajectory);
 
     expect(metrics).toMatchObject({
-      teamContractOpenTasksGraphCallCount: 3,
-      teamContractEvidenceWriteCount: 1,
+      teamContractOpenTasksGraphCallCount: 0,
+      teamContractEvidenceWriteCount: 0,
       teamContractFailedGraphWriteCount: 0,
-      teamContractVerificationWriteCount: 1,
-      teamContractCoordinatorConsumedEvidenceBeforeMutation: 1,
-      teamContractVerificationAfterMutation: 1,
-      teamContractStopGatePassed: 1,
+      teamContractVerificationWriteCount: 0,
+      teamContractCoordinatorConsumedEvidenceBeforeMutation: 0,
+      teamContractVerificationAfterMutation: 0,
+      teamContractStopGatePassed: 0,
     });
   });
 
@@ -1057,9 +1062,9 @@ describe('TAC OpenTasks MCP setup', () => {
     ]);
 
     expect(metrics).toMatchObject({
-      teamContractOpenTasksGraphCallCount: 2,
+      teamContractOpenTasksGraphCallCount: 0,
       teamContractEvidenceWriteCount: 0,
-      teamContractFailedGraphWriteCount: 1,
+      teamContractFailedGraphWriteCount: 0,
       teamContractChildEvidenceWritten: 0,
       teamContractCoordinatorConsumedEvidenceBeforeMutation: 0,
       teamContractStopGatePassed: 0,
@@ -1074,11 +1079,14 @@ describe('TAC OpenTasks MCP setup', () => {
       {
         type: 'tool',
         ts: 3,
-        name: 'task_update',
+        name: 'mcp__opentasks__update_task',
         input: {
           agentId: 'root',
-          id: 'task-uuid',
-          output: 'EVIDENCE_FOUND service_inspection evidence=[{"kind":"api"}]',
+          id: 'service_inspection',
+          metadata: {
+            evidence: [{ kind: 'api' }],
+            commands_or_endpoints: ['tac-plane-api GET workspaces/tac/projects/p/issues/?expand=state'],
+          },
         },
       },
       {
@@ -1098,8 +1106,8 @@ describe('TAC OpenTasks MCP setup', () => {
       {
         type: 'tool',
         ts: 5,
-        name: 'task_update',
-        input: { agentId: 'root', id: 'task-uuid', output: 'VERIFIED final verification evidence' },
+        name: 'mcp__opentasks__record_attempt',
+        input: { agentId: 'root', taskId: 'verification', summary: 'VERIFIED final verification evidence' },
       },
     ]);
 
