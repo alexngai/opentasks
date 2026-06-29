@@ -3626,6 +3626,7 @@ export function redactSensitiveText(text: string): string {
     'AZURE_OPENAI_KEY',
     'TAC_GRADER_PROXY_KEY',
     'LITELLM_API_KEY',
+    'PLANE_API_KEY',
   ];
   let redacted = text;
   for (const key of secretEnvKeys) {
@@ -3635,6 +3636,8 @@ export function redactSensitiveText(text: string): string {
       .replace(new RegExp(`\\b${escaped}\\b\\s*[=:]\\s*\\\\?"?[^\\\\\\n\\r"',}\\s]+`, 'g'), `${key}=[REDACTED]`);
   }
   return redacted
+    .replace(/(\\?["']x-api-key\\?["']\s*:\s*\\?["'])[^\\\n\r"']+/gi, '$1[REDACTED]')
+    .replace(/\bx-api-key\b\s*:\s*\\?"?[^\\\n\r"',}\s]+/gi, 'x-api-key: [REDACTED]')
     .replace(/\bABSK[A-Za-z0-9+/=._-]+/g, '[REDACTED]')
     .replace(/\bsk-(?:ant-)?[A-Za-z0-9._-]+/g, '[REDACTED]')
     .replace(/\broot-token\b/g, '[REDACTED_TAC_GITLAB_TOKEN]');

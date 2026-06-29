@@ -77,6 +77,9 @@ describe('TAC Docker adapter prompt', () => {
       '\\"AZURE_API_KEY\\":\\"azure-escaped-secret\\"',
       'TAC_GRADER_PROXY_KEY=grader-secret',
       'LITELLM_API_KEY=litellm-secret',
+      'PLANE_API_KEY=plane-secret',
+      '{"headers":{"x-api-key":"plane-header-secret","X-API-Key":"plane-header-secret-2"}}',
+      '-H "x-api-key: plane-curl-secret"',
       'AWS_SECRET_ACCESS_KEY="secret"',
       'http://root:root-token@the-agent-company.com:8929/root/project.wiki.git',
     ].join('\n');
@@ -94,6 +97,10 @@ describe('TAC Docker adapter prompt', () => {
     expect(redacted).not.toContain('azure-escaped-secret');
     expect(redacted).not.toContain('grader-secret');
     expect(redacted).not.toContain('litellm-secret');
+    expect(redacted).not.toContain('plane-secret');
+    expect(redacted).not.toContain('plane-header-secret');
+    expect(redacted).not.toContain('plane-header-secret-2');
+    expect(redacted).not.toContain('plane-curl-secret');
     expect(redacted).not.toContain('"secret"');
     expect(redacted).not.toContain('root-token');
     expect(redacted).toContain('AWS_BEARER_TOKEN_BEDROCK=[REDACTED]');
@@ -105,6 +112,10 @@ describe('TAC Docker adapter prompt', () => {
     expect(redacted).toContain('"AZURE_API_KEY":"[REDACTED]"');
     expect(redacted).toContain('TAC_GRADER_PROXY_KEY=[REDACTED]');
     expect(redacted).toContain('LITELLM_API_KEY=[REDACTED]');
+    expect(redacted).toContain('PLANE_API_KEY=[REDACTED]');
+    expect(redacted).toContain('"x-api-key":"[REDACTED]"');
+    expect(redacted).toContain('"X-API-Key":"[REDACTED]"');
+    expect(redacted).toContain('x-api-key: [REDACTED]');
     expect(redacted).toContain('AWS_SECRET_ACCESS_KEY=[REDACTED]');
     expect(redacted).toContain('[REDACTED_TAC_GITLAB_TOKEN]');
   });
