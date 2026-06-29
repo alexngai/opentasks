@@ -1411,6 +1411,61 @@ describe('TAC OpenTasks MCP setup', () => {
     });
   });
 
+  it('classifies synthetic swarm-harness team protocol fixture files', () => {
+    const cases: Array<[string, Record<string, number>]> = [
+      [
+        'positive',
+        {
+          teamInboxAssignmentCount: 1,
+          teamInboxEvidenceReplyCount: 1,
+          teamInboxVerifierRequestCount: 1,
+          teamInboxVerifierReplyCount: 1,
+          teamOpenTasksEvidenceAfterInbox: 1,
+          teamOpenTasksVerificationAfterVerifier: 1,
+          teamProtocolPassed: 1,
+        },
+      ],
+      [
+        'no-child-reply',
+        {
+          teamInboxEvidenceReplyCount: 0,
+          teamOpenTasksEvidenceAfterInbox: 0,
+          teamProtocolPassed: 0,
+        },
+      ],
+      [
+        'evidence-after-mutation',
+        {
+          teamInboxEvidenceReplyCount: 1,
+          teamInboxEvidenceBeforeMutation: 0,
+          teamProtocolPassed: 0,
+        },
+      ],
+      [
+        'no-verification-write',
+        {
+          teamInboxVerifierReplyCount: 1,
+          teamOpenTasksVerificationAfterVerifier: 0,
+          teamProtocolPassed: 0,
+        },
+      ],
+      [
+        'local-task-update-only',
+        {
+          teamInboxEvidenceBeforeMutation: 1,
+          teamOpenTasksEvidenceAfterInbox: 0,
+          teamProtocolPassed: 0,
+        },
+      ],
+    ];
+
+    for (const [fixture, expected] of cases) {
+      const stdout = readFileSync(`evals/tac/fixtures/team-protocol/${fixture}.jsonl`, 'utf8');
+      const trajectory = tacAgentHarnessFromId('swarm').parse(stdout, 'haiku').trajectory;
+      expect(tacTeamContractMetrics(trajectory), fixture).toMatchObject(expected);
+    }
+  });
+
   it('does not count failed swarm task updates as durable TAC team-contract evidence', () => {
     const metrics = tacTeamContractMetrics([
       { type: 'tool', ts: 0, name: 'task_list', input: { agentId: 'root' } },

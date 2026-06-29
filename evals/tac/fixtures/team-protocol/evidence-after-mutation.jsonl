@@ -1,0 +1,10 @@
+{"type":"message_sent","from":"coordinator","to":"service_inspector","message":{"content":"TEAM_ASSIGNMENT correlation_id=tac-service-sync:cell:inspection"}}
+{"type":"tool_use_start","id":"tool-1","name":"bash","agentId":"coordinator"}
+{"type":"tool_use_end","id":"tool-1","input":{"command":"curl -X PATCH http://plane/api/issues/1"},"agentId":"coordinator"}
+{"type":"message_sent","from":"service_inspector","to":"coordinator","message":{"content":"TEAM_EVIDENCE correlation_id=tac-service-sync:cell:inspection late service state"}}
+{"type":"tool_use_start","id":"tool-2","name":"mcp__opentasks__update_task","agentId":"coordinator"}
+{"type":"tool_use_end","id":"tool-2","input":{"id":"service_inspection","metadata":{"evidence":[{"kind":"api"}]}},"agentId":"coordinator"}
+{"type":"message_sent","from":"coordinator","to":"verifier","message":{"content":"TEAM_VERIFICATION_REQUEST correlation_id=tac-service-sync:cell:verification"}}
+{"type":"message_sent","from":"verifier","to":"coordinator","message":{"content":"TEAM_VERIFICATION correlation_id=tac-service-sync:cell:verification verified"}}
+{"type":"tool_use_start","id":"tool-3","name":"mcp__opentasks__record_attempt","agentId":"coordinator"}
+{"type":"tool_use_end","id":"tool-3","input":{"taskId":"verification","summary":"TEAM_VERIFICATION verified"},"agentId":"coordinator"}
