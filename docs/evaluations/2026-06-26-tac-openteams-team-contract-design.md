@@ -6,6 +6,11 @@
 swarm-harness, and OpenTasks to emulate the "team-first orchestration" pattern
 seen in OMC/OMX-style workflows.
 
+**2026-06-29 live update:** the static `swarm-harness` V1 path produced useful
+TAC artifacts and durable OpenTasks evidence, but did not exercise the
+`agent-inbox-v1` assignment/reply protocol. Dispatch remains gated; see
+[TAC Dispatch Carrier Follow-Up](./2026-06-29-tac-dispatch-carrier-follow-up.md).
+
 ## 0. Objective
 
 Evaluate whether OpenTasks becomes more load-bearing when it is paired with a
