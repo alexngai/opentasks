@@ -14,13 +14,18 @@ export const TAC_TEAM_PROTOCOL_MARKERS = {
 export const TAC_SERVICE_SYNC_TEAM = {
   name: 'tac-service-sync',
   version: 1,
-  roles: ['coordinator', 'service_inspector', 'api_mapper', 'verifier'],
+  roles: ['coordinator', 'service_inspector', 'verifier'],
+  protocol: TAC_TEAM_PROTOCOL_ID,
+  roleCapabilities: {
+    coordinator: ['task-read', 'service-write', 'graph-write', 'inbox-send', 'inbox-read'],
+    service_inspector: ['task-read', 'service-read', 'inbox-reply', 'graph-evidence'],
+    verifier: ['service-read', 'inbox-reply', 'graph-verification'],
+  },
   topology: {
     root: { role: 'coordinator' },
     spawnRules: {
-      coordinator: ['service_inspector', 'api_mapper', 'verifier'],
+      coordinator: ['service_inspector', 'verifier'],
       service_inspector: [],
-      api_mapper: [],
       verifier: [],
     },
   },
@@ -32,6 +37,14 @@ export const TAC_SERVICE_SYNC_TEAM = {
     },
   },
 } as const;
+
+export type TacServiceSyncRole = (typeof TAC_SERVICE_SYNC_TEAM.roles)[number];
+
+export interface TacOpenTeamsRolePacket {
+  role: TacServiceSyncRole;
+  path: string;
+  content: string;
+}
 
 export const TAC_TEAM_CONTRACT_EVIDENCE_SCHEMA = {
   protocol: TAC_TEAM_PROTOCOL_ID,
@@ -108,6 +121,83 @@ export function buildTacTeamContractPacket(opts: TacTeamContractPacketOptions): 
     opts.taskText.trim(),
     '```',
   ].join('\n');
+}
+
+export function compileTacServiceSyncRolePackets(
+  opts: TacTeamContractPacketOptions & { basePath?: string },
+): TacOpenTeamsRolePacket[] {
+  const basePath = opts.basePath ?? 'team-contract-roles';
+  return TAC_SERVICE_SYNC_TEAM.roles.map((role) => ({
+    role,
+    path: `${basePath}/${role}.md`,
+    content: buildTacServiceSyncRolePacket(role, opts),
+  }));
+}
+
+function buildTacServiceSyncRolePacket(role: TacServiceSyncRole, opts: TacTeamContractPacketOptions): string {
+  const capabilities = TAC_SERVICE_SYNC_TEAM.roleCapabilities[role].join(', ');
+  const roleContract = roleContractLines(role);
+  const rootTaskLine = opts.seededRootTaskId
+    ? `Seeded OpenTasks root task id: ${opts.seededRootTaskId}`
+    : 'Seeded OpenTasks root task id: pending graph seed';
+  return [
+    '# TAC Service Sync Role Packet',
+    '',
+    `Template: ${TAC_SERVICE_SYNC_TEAM.name}@${TAC_SERVICE_SYNC_TEAM.version}`,
+    `Protocol: ${TAC_TEAM_PROTOCOL_ID}`,
+    `Role: ${role}`,
+    `Capabilities: ${capabilities}`,
+    `Source TAC task id: ${opts.sourceTaskId}`,
+    rootTaskLine,
+    '',
+    'Inbox channel conventions:',
+    `- Assignment marker: ${TAC_TEAM_PROTOCOL_MARKERS.assignment}`,
+    `- Evidence marker: ${TAC_TEAM_PROTOCOL_MARKERS.evidence}`,
+    `- Decision marker: ${TAC_TEAM_PROTOCOL_MARKERS.decision}`,
+    `- Verification request marker: ${TAC_TEAM_PROTOCOL_MARKERS.verificationRequest}`,
+    `- Verification marker: ${TAC_TEAM_PROTOCOL_MARKERS.verification}`,
+    '- Include the protocol correlation_id in every inbox message and durable OpenTasks evidence record.',
+    '- Use direct mcp__opentasks__record_attempt/update_task when visible; otherwise use tac-opentasks-record-evidence and preserve its opentasks_record_id output.',
+    '',
+    `${role} contract:`,
+    ...roleContract,
+    '',
+    'Evidence JSON schema:',
+    '```json',
+    JSON.stringify(TAC_TEAM_CONTRACT_EVIDENCE_SCHEMA, null, 2),
+    '```',
+    '',
+    'Full TAC task text:',
+    '```text',
+    opts.taskText.trim(),
+    '```',
+  ].join('\n');
+}
+
+function roleContractLines(role: TacServiceSyncRole): string[] {
+  if (role === 'coordinator') {
+    return [
+      `- Send ${TAC_TEAM_PROTOCOL_MARKERS.assignment} to service_inspector before service-specific work is delegated.`,
+      `- Stop gate: do not mutate GitLab, Plane, git remotes, or files until ${TAC_TEAM_PROTOCOL_MARKERS.evidence} has arrived and durable OpenTasks evidence has been recorded.`,
+      '- Perform the minimal required service mutation only after the stop gate is satisfied.',
+      `- After mutation, send ${TAC_TEAM_PROTOCOL_MARKERS.verificationRequest} to verifier and require ${TAC_TEAM_PROTOCOL_MARKERS.verification} plus durable OpenTasks verification evidence before finalizing.`,
+    ];
+  }
+  if (role === 'service_inspector') {
+    return [
+      '- Read the full TAC task text in this packet.',
+      '- Use bounded read-only service inspection with tac-gitlab-api, tac-plane-api, curl GET, Python requests GET, or local config reads.',
+      '- Do not mutate GitLab, Plane, git remotes, files, branches, issues, wiki pages, or policies.',
+      `- Reply with ${TAC_TEAM_PROTOCOL_MARKERS.evidence} and a JSON object matching the evidence schema.`,
+      '- Record the same evidence through direct OpenTasks MCP or tac-opentasks-record-evidence.',
+    ];
+  }
+  return [
+    `- Wait for ${TAC_TEAM_PROTOCOL_MARKERS.verificationRequest} before final verification.`,
+    '- Inspect final service state with bounded read-only service/API calls.',
+    '- Do not mutate GitLab, Plane, git remotes, files, branches, issues, wiki pages, or policies.',
+    `- Reply with ${TAC_TEAM_PROTOCOL_MARKERS.verification} and record durable OpenTasks verification evidence.`,
+  ];
 }
 
 export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string, number> {

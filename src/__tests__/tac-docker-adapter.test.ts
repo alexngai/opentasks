@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
 import type { TraceEvent } from 'swarmkit-eval';
 
@@ -16,7 +18,12 @@ import {
   traceEfficiencyMetrics,
 } from '../../evals/tac/docker-adapter.js';
 import { tacAgentHarnessFromId, type TacAgentHarness } from '../../evals/tac/agent-harness.js';
-import { buildTacTeamContractPacket, TAC_SERVICE_SYNC_TEAM, tacTeamContractMetrics } from '../../evals/tac/team-contract.js';
+import {
+  buildTacTeamContractPacket,
+  compileTacServiceSyncRolePackets,
+  TAC_SERVICE_SYNC_TEAM,
+  tacTeamContractMetrics,
+} from '../../evals/tac/team-contract.js';
 
 describe('TAC Docker adapter prompt', () => {
   it('adds shared TAC operating guidance to the task prompt', () => {
@@ -855,6 +862,45 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(packet).toContain('"commands_or_endpoints"');
     expect(packet).toContain('tac-plane-api');
     expect(packet).toContain('Update the Plane issue based on GitLab issue status.');
+  });
+
+  it('compiles the static OpenTeams TAC service-sync fixture into role packets', () => {
+    const fixture = readFileSync('evals/tac/openteams/tac-service-sync.yml', 'utf8');
+    const packets = compileTacServiceSyncRolePackets({
+      sourceTaskId: 'pm-update-plane-issue-from-gitlab-status',
+      seededRootTaskId: 't-root',
+      taskText: 'Full TAC task text with GitLab and Plane state sync requirements.',
+      basePath: '.tac/cell/team-roles',
+    });
+
+    expect(fixture).toContain('name: tac-service-sync');
+    expect(fixture).toContain('protocol: agent-inbox-v1');
+    expect(fixture).toContain('coordinator:');
+    expect(fixture).toContain('service_inspector:');
+    expect(fixture).toContain('verifier:');
+    expect(fixture).not.toContain('api_mapper');
+    expect(TAC_SERVICE_SYNC_TEAM.roles).toEqual(['coordinator', 'service_inspector', 'verifier']);
+    expect(packets.map((packet) => packet.role)).toEqual(['coordinator', 'service_inspector', 'verifier']);
+    expect(packets.map((packet) => packet.path)).toEqual([
+      '.tac/cell/team-roles/coordinator.md',
+      '.tac/cell/team-roles/service_inspector.md',
+      '.tac/cell/team-roles/verifier.md',
+    ]);
+
+    const coordinator = packets.find((packet) => packet.role === 'coordinator')?.content ?? '';
+    const inspector = packets.find((packet) => packet.role === 'service_inspector')?.content ?? '';
+    const verifier = packets.find((packet) => packet.role === 'verifier')?.content ?? '';
+
+    expect(coordinator).toContain('Stop gate: do not mutate GitLab, Plane, git remotes, or files until TEAM_EVIDENCE');
+    expect(coordinator).toContain('TEAM_ASSIGNMENT');
+    expect(coordinator).toContain('TEAM_VERIFICATION_REQUEST');
+    expect(inspector).toContain('Full TAC task text with GitLab and Plane state sync requirements.');
+    expect(inspector).toContain('Do not mutate GitLab, Plane, git remotes, files, branches, issues, wiki pages, or policies.');
+    expect(inspector).toContain('tac-gitlab-api');
+    expect(inspector).toContain('tac-plane-api');
+    expect(verifier).toContain('Wait for TEAM_VERIFICATION_REQUEST before final verification.');
+    expect(verifier).toContain('TEAM_VERIFICATION');
+    expect(verifier).toContain('bounded read-only service/API calls');
   });
 
   it('adds static team-contract files and prompt text only for the team-contract arm', () => {

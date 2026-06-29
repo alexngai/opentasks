@@ -108,15 +108,14 @@ Initial OpenTeams template: `tac-service-sync`.
 ```yaml
 name: tac-service-sync
 version: 1
-roles: [coordinator, service_inspector, api_mapper, verifier]
+roles: [coordinator, service_inspector, verifier]
 
 topology:
   root:
     role: coordinator
   spawn_rules:
-    coordinator: [service_inspector, api_mapper, verifier]
+    coordinator: [service_inspector, verifier]
     service_inspector: []
-    api_mapper: []
     verifier: []
 
 communication:
@@ -135,7 +134,6 @@ communication:
   emissions:
     coordinator: [DECISION_PROPOSED, DECISION_ACCEPTED, DECISION_REJECTED]
     service_inspector: [EVIDENCE_FOUND, BLOCKED]
-    api_mapper: [EVIDENCE_FOUND, BLOCKED]
     verifier: [VERIFIED, BLOCKED]
 ```
 
@@ -145,8 +143,11 @@ Role contracts:
 |---|---|---|
 | `coordinator` | Read root task, decompose, assign, mutate services after evidence, write decisions and final answer. | accepted decision, write plan, final verification pointer. |
 | `service_inspector` | Read TAC instruction, inspect service state and source systems, no mutation. | issue IDs/statuses, endpoints used, confidence, blockers. |
-| `api_mapper` | Probe API shape with bounded read and safe OPTIONS/GET-style calls; no mutation. | endpoint map, payload schema candidates, known unsafe calls. |
 | `verifier` | Inspect final service state after coordinator writes; no mutation. | pass/fail verification evidence. |
+
+The v1 fixture keeps `api_mapper` deferred so the first protocol experiment
+measures a tighter coordinator -> inspector -> verifier handoff. API mapping can
+be reintroduced after the inbox and durable-evidence gates are validated.
 
 ## 5. Capability-Aware Delegation
 
