@@ -42,3 +42,10 @@ durable_evidence:
     - mcp__opentasks__record_attempt
     - mcp__opentasks__update_task
     - tac-opentasks-record-evidence
+    - tac-team-protocol record-evidence
+
+helpers:
+  envelope: tac-team-protocol assignment
+  evidence: tac-team-protocol record-evidence
+  verification_request: tac-team-protocol verification-request
+  mutation_gate: tac-team-protocol mutate

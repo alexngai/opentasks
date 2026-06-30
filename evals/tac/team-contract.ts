@@ -2,6 +2,7 @@ import type { TraceEvent } from 'swarmkit-eval';
 
 export const TAC_TEAM_CONTRACT_ARM_ID = 'opentasks-team-contract';
 export const TAC_TEAM_PROTOCOL_ID = 'agent-inbox-v1';
+export const TAC_TEAM_PROTOCOL_HELPER = 'tac-team-protocol';
 
 export const TAC_TEAM_PROTOCOL_MARKERS = {
   assignment: 'TEAM_ASSIGNMENT',
@@ -91,6 +92,7 @@ export function buildTacTeamContractPacket(opts: TacTeamContractPacketOptions): 
     '- In swarm-harness team mode, first call task_list({}) and use the returned running task id for task_get/task_update as the local swarm coordination log.',
     '- Durable OpenTasks evidence requires a successful direct mcp__opentasks__record_attempt/update_task call, or a verified OpenTasks helper/graph artifact with a durable record id. Local swarm task_update(output:"...") alone is not durable OpenTasks evidence.',
     '- If native OpenTasks MCP writes are unavailable but Bash is available, persist the same evidence with tac-opentasks-record-evidence ROLE CORRELATION_ID JSON_PAYLOAD [SEEDED_ROOT_TASK_ID] and keep its JSON output containing opentasks_record_id.',
+    `- Prefer ${TAC_TEAM_PROTOCOL_HELPER} assignment, ${TAC_TEAM_PROTOCOL_HELPER} evidence-message, ${TAC_TEAM_PROTOCOL_HELPER} record-evidence, ${TAC_TEAM_PROTOCOL_HELPER} verification-request, and ${TAC_TEAM_PROTOCOL_HELPER} mutate to generate exact inbox envelopes and gate service mutations.`,
     '- Do not assume tac-root or the seeded OpenTasks id is the swarm task registry id unless task_list returns that exact id. If task_list returns no usable task, call task_create to create a coordination log and update that returned id.',
     '- Delegate service-state discovery to a service_inspector when the task requires external service inspection.',
     '- If the service_inspector needs shell/API reads, spawn it with permissionMode:"danger-full-access" and instruct it not to mutate service state.',
@@ -158,6 +160,7 @@ function buildTacServiceSyncRolePacket(role: TacServiceSyncRole, opts: TacTeamCo
     `- Verification marker: ${TAC_TEAM_PROTOCOL_MARKERS.verification}`,
     '- Include the protocol correlation_id in every inbox message and durable OpenTasks evidence record.',
     '- Use direct mcp__opentasks__record_attempt/update_task when visible; otherwise use tac-opentasks-record-evidence and preserve its opentasks_record_id output.',
+    `- Use ${TAC_TEAM_PROTOCOL_HELPER} helpers to generate exact send_message payloads and to run gated mutations. Helper output alone is not an inbox handoff; call send_message with the generated content. For evidence/verification, send the evidence-message first, then record-evidence so the trace proves reply-before-durable-write ordering.`,
     '',
     `${role} contract:`,
     ...roleContract,
@@ -178,8 +181,9 @@ function roleContractLines(role: TacServiceSyncRole): string[] {
   if (role === 'coordinator') {
     return [
       `- Send ${TAC_TEAM_PROTOCOL_MARKERS.assignment} to service_inspector before service-specific work is delegated.`,
+      `- Recommended path: run ${TAC_TEAM_PROTOCOL_HELPER} assignment CORRELATION_ID "inspection request", then call send_message with the helper's next_tool input.`,
       `- Stop gate: do not mutate GitLab, Plane, git remotes, or files until ${TAC_TEAM_PROTOCOL_MARKERS.evidence} has arrived and durable OpenTasks evidence has been recorded.`,
-      '- Perform the minimal required service mutation only after the stop gate is satisfied.',
+      `- Perform the minimal required service mutation only after the stop gate is satisfied; prefer ${TAC_TEAM_PROTOCOL_HELPER} mutate CORRELATION_ID -- <mutation command>.`,
       `- After mutation, send ${TAC_TEAM_PROTOCOL_MARKERS.verificationRequest} to verifier and require ${TAC_TEAM_PROTOCOL_MARKERS.verification} plus durable OpenTasks verification evidence before finalizing.`,
     ];
   }
@@ -189,14 +193,14 @@ function roleContractLines(role: TacServiceSyncRole): string[] {
       '- Use bounded read-only service inspection with tac-gitlab-api, tac-plane-api, curl GET, Python requests GET, or local config reads.',
       '- Do not mutate GitLab, Plane, git remotes, files, branches, issues, wiki pages, or policies.',
       `- Reply with ${TAC_TEAM_PROTOCOL_MARKERS.evidence} and a JSON object matching the evidence schema.`,
-      '- Record the same evidence through direct OpenTasks MCP or tac-opentasks-record-evidence.',
+      `- Use ${TAC_TEAM_PROTOCOL_HELPER} evidence-message to generate the TEAM_EVIDENCE reply, call send_message with it, then record the same evidence through direct OpenTasks MCP, tac-opentasks-record-evidence, or ${TAC_TEAM_PROTOCOL_HELPER} record-evidence.`,
     ];
   }
   return [
     `- Wait for ${TAC_TEAM_PROTOCOL_MARKERS.verificationRequest} before final verification.`,
     '- Inspect final service state with bounded read-only service/API calls.',
     '- Do not mutate GitLab, Plane, git remotes, files, branches, issues, wiki pages, or policies.',
-    `- Reply with ${TAC_TEAM_PROTOCOL_MARKERS.verification} and record durable OpenTasks verification evidence.`,
+    `- Use ${TAC_TEAM_PROTOCOL_HELPER} evidence-message verifier CORRELATION_ID JSON_PAYLOAD to generate the TEAM_VERIFICATION reply, call send_message with it, then record durable OpenTasks verification evidence with ${TAC_TEAM_PROTOCOL_HELPER} record-evidence verifier CORRELATION_ID JSON_PAYLOAD.`,
   ];
 }
 
@@ -210,6 +214,14 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
   let inboxEvidenceReplyCount = 0;
   let inboxVerifierRequestCount = 0;
   let inboxVerifierReplyCount = 0;
+  let helperAssignmentCount = 0;
+  let helperEvidenceRecordCount = 0;
+  let helperEvidenceMessageCount = 0;
+  let helperVerificationRequestCount = 0;
+  let helperMutationGateCount = 0;
+  let helperMutationGatePassedCount = 0;
+  let helperMutationGateRejectedCount = 0;
+  let mutationBypassCount = 0;
   let firstInboxAssignmentIndex = -1;
   let firstInboxEvidenceIndex = -1;
   let firstInboxVerifierRequestIndex = -1;
@@ -237,6 +249,16 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
     const agentId = typeof input.agentId === 'string' ? input.agentId : typeof event.agentId === 'string' ? event.agentId : undefined;
     if (agentId) agentIds.add(agentId);
     const command = String(input.command ?? '');
+    const helperAction = teamProtocolHelperAction(event.name, command);
+    if (helperAction === 'assignment') helperAssignmentCount += 1;
+    if (helperAction === 'record-evidence') helperEvidenceRecordCount += 1;
+    if (helperAction === 'evidence-message') helperEvidenceMessageCount += 1;
+    if (helperAction === 'verification-request') helperVerificationRequestCount += 1;
+    if (helperAction === 'mutate') {
+      helperMutationGateCount += 1;
+      if (isFailedToolEvent(event) || /"ok"\s*:\s*false/i.test(toolOutputText(event))) helperMutationGateRejectedCount += 1;
+      else if (/"ok"\s*:\s*true/i.test(toolOutputText(event))) helperMutationGatePassedCount += 1;
+    }
 
     recordInboxProtocolSignals(inboxProtocolToolText(event, input), index);
 
@@ -285,8 +307,9 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
       }
     }
 
-    if (firstMutationIndex < 0 && event.name.toLowerCase() === 'bash' && isServiceMutationCommand(command)) {
-      firstMutationIndex = index;
+    if (event.name.toLowerCase() === 'bash' && isServiceMutationCommand(command)) {
+      if (helperAction !== 'mutate') mutationBypassCount += 1;
+      if (firstMutationIndex < 0) firstMutationIndex = index;
     }
   });
 
@@ -333,6 +356,15 @@ export function tacTeamContractMetrics(trajectory: TraceEvent[]): Record<string,
     teamInboxEvidenceReplyCount: inboxEvidenceReplyCount,
     teamInboxVerifierRequestCount: inboxVerifierRequestCount,
     teamInboxVerifierReplyCount: inboxVerifierReplyCount,
+    teamProtocolHelperAssignmentCount: helperAssignmentCount,
+    teamProtocolHelperEvidenceRecordCount: helperEvidenceRecordCount,
+    teamProtocolHelperEvidenceMessageCount: helperEvidenceMessageCount,
+    teamProtocolHelperVerificationRequestCount: helperVerificationRequestCount,
+    teamProtocolHelperMutationGateCount: helperMutationGateCount,
+    teamProtocolHelperMutationGatePassedCount: helperMutationGatePassedCount,
+    teamProtocolHelperMutationGateRejectedCount: helperMutationGateRejectedCount,
+    teamProtocolMutationBypassCount: mutationBypassCount,
+    teamProtocolMutationBypassed: mutationBypassCount > 0 ? 1 : 0,
     teamInboxEvidenceBeforeMutation: inboxEvidenceBeforeMutation,
     teamOpenTasksEvidenceAfterInbox: openTasksEvidenceAfterInbox,
     teamOpenTasksVerificationAfterVerifier: openTasksVerificationAfterVerifier,
@@ -417,7 +449,16 @@ function isOpenTasksGraphWriteTool(name: string): boolean {
 }
 
 function isOpenTasksEvidenceHelperCommand(name: string, command: string): boolean {
-  return name.toLowerCase() === 'bash' && /\btac-opentasks-record-evidence\b/.test(command);
+  return (
+    name.toLowerCase() === 'bash' &&
+    (/\btac-opentasks-record-evidence\b/.test(command) || /\btac-team-protocol\s+record-evidence\b/.test(command))
+  );
+}
+
+function teamProtocolHelperAction(name: string, command: string): string | undefined {
+  if (name.toLowerCase() !== 'bash') return undefined;
+  const match = command.match(/\btac-team-protocol\s+([a-z-]+)/i);
+  return match?.[1]?.toLowerCase();
 }
 
 function inboxProtocolToolText(event: TraceEvent, input: Record<string, unknown>): string {

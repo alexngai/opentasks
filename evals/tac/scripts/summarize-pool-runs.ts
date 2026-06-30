@@ -66,6 +66,13 @@ export interface CellRow {
   teamInboxEvidence: number;
   teamInboxVerifierRequest: number;
   teamInboxVerifierReply: number;
+  teamProtocolHelperAssignment: number;
+  teamProtocolHelperEvidenceMessage: number;
+  teamProtocolHelperEvidenceRecord: number;
+  teamProtocolHelperVerificationRequest: number;
+  teamProtocolHelperMutationGate: number;
+  teamProtocolHelperMutationGatePassed: number;
+  teamProtocolMutationBypass: number;
   teamInboxEvidenceBeforeMutation: number;
   teamOpenTasksEvidenceAfterInbox: number;
   teamOpenTasksVerificationAfterVerifier: number;
@@ -98,6 +105,13 @@ export interface AggregateRow {
   teamInboxEvidenceMean: number;
   teamInboxVerifierRequestMean: number;
   teamInboxVerifierReplyMean: number;
+  teamProtocolHelperAssignmentMean: number;
+  teamProtocolHelperEvidenceMessageMean: number;
+  teamProtocolHelperEvidenceRecordMean: number;
+  teamProtocolHelperVerificationRequestMean: number;
+  teamProtocolHelperMutationGateMean: number;
+  teamProtocolHelperMutationGatePassedMean: number;
+  teamProtocolMutationBypassMean: number;
   teamInboxEvidenceBeforeMutationMean: number;
   teamOpenTasksEvidenceAfterInboxMean: number;
   teamOpenTasksVerificationAfterVerifierMean: number;
@@ -132,6 +146,13 @@ const CELL_COLUMNS: Array<keyof CellRow> = [
   'teamInboxEvidence',
   'teamInboxVerifierRequest',
   'teamInboxVerifierReply',
+  'teamProtocolHelperAssignment',
+  'teamProtocolHelperEvidenceMessage',
+  'teamProtocolHelperEvidenceRecord',
+  'teamProtocolHelperVerificationRequest',
+  'teamProtocolHelperMutationGate',
+  'teamProtocolHelperMutationGatePassed',
+  'teamProtocolMutationBypass',
   'teamInboxEvidenceBeforeMutation',
   'teamOpenTasksEvidenceAfterInbox',
   'teamOpenTasksVerificationAfterVerifier',
@@ -163,6 +184,13 @@ const AGGREGATE_COLUMNS: Array<keyof AggregateRow> = [
   'teamInboxEvidenceMean',
   'teamInboxVerifierRequestMean',
   'teamInboxVerifierReplyMean',
+  'teamProtocolHelperAssignmentMean',
+  'teamProtocolHelperEvidenceMessageMean',
+  'teamProtocolHelperEvidenceRecordMean',
+  'teamProtocolHelperVerificationRequestMean',
+  'teamProtocolHelperMutationGateMean',
+  'teamProtocolHelperMutationGatePassedMean',
+  'teamProtocolMutationBypassMean',
   'teamInboxEvidenceBeforeMutationMean',
   'teamOpenTasksEvidenceAfterInboxMean',
   'teamOpenTasksVerificationAfterVerifierMean',
@@ -279,6 +307,13 @@ function cellRow(runId: string, runDir: string, cell: CellSummary): CellRow {
     teamInboxEvidence: metric(metrics, 'teamInboxEvidenceReplyCount'),
     teamInboxVerifierRequest: metric(metrics, 'teamInboxVerifierRequestCount'),
     teamInboxVerifierReply: metric(metrics, 'teamInboxVerifierReplyCount'),
+    teamProtocolHelperAssignment: metric(metrics, 'teamProtocolHelperAssignmentCount'),
+    teamProtocolHelperEvidenceMessage: metric(metrics, 'teamProtocolHelperEvidenceMessageCount'),
+    teamProtocolHelperEvidenceRecord: metric(metrics, 'teamProtocolHelperEvidenceRecordCount'),
+    teamProtocolHelperVerificationRequest: metric(metrics, 'teamProtocolHelperVerificationRequestCount'),
+    teamProtocolHelperMutationGate: metric(metrics, 'teamProtocolHelperMutationGateCount'),
+    teamProtocolHelperMutationGatePassed: metric(metrics, 'teamProtocolHelperMutationGatePassedCount'),
+    teamProtocolMutationBypass: metric(metrics, 'teamProtocolMutationBypassCount'),
     teamInboxEvidenceBeforeMutation: metric(metrics, 'teamInboxEvidenceBeforeMutation'),
     teamOpenTasksEvidenceAfterInbox: metric(metrics, 'teamOpenTasksEvidenceAfterInbox'),
     teamOpenTasksVerificationAfterVerifier: metric(metrics, 'teamOpenTasksVerificationAfterVerifier'),
@@ -413,6 +448,13 @@ function aggregateRow(runId: string, runDir: string, aggregate: AggregateSummary
     teamInboxEvidenceMean: metric(metrics, 'teamInboxEvidenceReplyCount'),
     teamInboxVerifierRequestMean: metric(metrics, 'teamInboxVerifierRequestCount'),
     teamInboxVerifierReplyMean: metric(metrics, 'teamInboxVerifierReplyCount'),
+    teamProtocolHelperAssignmentMean: metric(metrics, 'teamProtocolHelperAssignmentCount'),
+    teamProtocolHelperEvidenceMessageMean: metric(metrics, 'teamProtocolHelperEvidenceMessageCount'),
+    teamProtocolHelperEvidenceRecordMean: metric(metrics, 'teamProtocolHelperEvidenceRecordCount'),
+    teamProtocolHelperVerificationRequestMean: metric(metrics, 'teamProtocolHelperVerificationRequestCount'),
+    teamProtocolHelperMutationGateMean: metric(metrics, 'teamProtocolHelperMutationGateCount'),
+    teamProtocolHelperMutationGatePassedMean: metric(metrics, 'teamProtocolHelperMutationGatePassedCount'),
+    teamProtocolMutationBypassMean: metric(metrics, 'teamProtocolMutationBypassCount'),
     teamInboxEvidenceBeforeMutationMean: metric(metrics, 'teamInboxEvidenceBeforeMutation'),
     teamOpenTasksEvidenceAfterInboxMean: metric(metrics, 'teamOpenTasksEvidenceAfterInbox'),
     teamOpenTasksVerificationAfterVerifierMean: metric(metrics, 'teamOpenTasksVerificationAfterVerifier'),

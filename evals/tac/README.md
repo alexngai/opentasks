@@ -178,6 +178,14 @@ fields before scaling:
 - `teamProtocolAgentInboxEnabled`: protocol packets and metrics were enabled.
 - `teamProtocolNativeRoleEnforcement`: `1` only when role enforcement is native
   to the harness; `0` means prompt-packet role guidance only.
+- `teamProtocolHelperAssignmentCount`,
+  `teamProtocolHelperEvidenceRecordCount`,
+  `teamProtocolHelperVerificationRequestCount`, and
+  `teamProtocolHelperMutationGateCount`: use of the helper-assisted carrier
+  path. The helper generates exact `send_message` payloads and a gated mutation
+  wrapper, but does not itself deliver inbox messages.
+- `teamProtocolMutationBypassCount`: raw service mutations that did not go
+  through `tac-team-protocol mutate`.
 - `teamInboxAssignmentCount`, `teamInboxEvidenceReplyCount`,
   `teamInboxVerifierRequestCount`, `teamInboxVerifierReplyCount`: explicit
   inbox protocol activity.
@@ -204,6 +212,27 @@ multi-seed protocol runs until either `teamProtocolPassed=1` is observed or a
 local dispatch fixture proves explicit assignment/reply events with durable
 OpenTasks record ids. See
 `docs/evaluations/2026-06-29-tac-dispatch-carrier-follow-up.md`.
+
+Helper-assisted handoff experiment:
+
+- `tac-team-protocol assignment CORRELATION_ID "request"` prints a JSON result
+  containing the exact `send_message` input for `TEAM_ASSIGNMENT`.
+- `tac-team-protocol evidence-message ROLE CORRELATION_ID JSON_PAYLOAD` prints
+  the exact `send_message` input for `TEAM_EVIDENCE` or `TEAM_VERIFICATION`.
+- `tac-team-protocol record-evidence ROLE CORRELATION_ID JSON_PAYLOAD
+  [OPENTASKS_TASK_ID]` records durable OpenTasks evidence through
+  `tac-opentasks-record-evidence` and writes a local proof file.
+- `tac-team-protocol verification-request CORRELATION_ID "request"` prints the
+  exact verifier `send_message` input.
+- `tac-team-protocol mutate CORRELATION_ID -- <mutation command>` refuses to run
+  unless the evidence proof file for that correlation id exists. Raw mutation
+  commands still work, but are counted as protocol bypasses.
+
+This is a carrier elicitation experiment, not runtime inbox enforcement.
+`teamProtocolPassed=1` still requires actual inbox trace events plus durable
+OpenTasks record ids. For the current metric ordering, workers should send the
+helper-generated evidence/verification message first, then record the durable
+OpenTasks evidence for the same correlation id.
 
 For GitLab-dependent TAC tasks, the adapter now runs pre-agent environment
 checks after TAC init/reset and token refresh. `TAC_ENV_PREFLIGHT` verifies

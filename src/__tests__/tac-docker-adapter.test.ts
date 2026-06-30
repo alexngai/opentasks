@@ -509,6 +509,7 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(command).toContain('/usr/local/bin/tac-gitlab-api');
     expect(command).toContain('/usr/local/bin/tac-plane-api');
     expect(command).toContain('/usr/local/bin/tac-opentasks-record-evidence');
+    expect(command).toContain('/usr/local/bin/tac-team-protocol');
     expect(command).toContain('/usr/local/bin/tac-gitlab-protect-branch');
     expect(command).toContain('PRIVATE-TOKEN');
     expect(command).toContain('x-api-key');
@@ -530,6 +531,9 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(command).toContain('tac-gitlab-api DELETE projects/root/repo/repository/branches/feature/old');
     expect(command).toContain('tac-plane-api GET workspaces/tac/projects/PROJECT_ID/issues/?expand=state');
     expect(command).toContain('usage: tac-opentasks-record-evidence ROLE CORRELATION_ID JSON_PAYLOAD [OPENTASKS_TASK_ID]');
+    expect(command).toContain('tac-team-protocol assignment CORRELATION_ID');
+    expect(command).toContain('tac-team-protocol mutate CORRELATION_ID -- COMMAND');
+    expect(command).toContain('"next_tool": {"name": "send_message"');
     expect(command).toContain('agent-inbox-v1');
     expect(command).toContain('opentasks_record_id');
     expect(command).toContain('TEAM_EVIDENCE');
@@ -541,6 +545,7 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(command).toContain('"/api/v4" + path');
     expect(command).toContain('"projects"');
     expect(command).toContain('command -v tac-plane-api >/dev/null');
+    expect(command).toContain('command -v tac-team-protocol >/dev/null');
   });
 
   it('rejects unknown TAC agent harness ids explicitly', () => {
@@ -887,6 +892,8 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(packet).toContain('service_inspector contract');
     expect(packet).toContain('task_list({})');
     expect(packet).toContain('Local swarm task_update(output:"...") alone is not durable OpenTasks evidence');
+    expect(packet).toContain('tac-team-protocol assignment');
+    expect(packet).toContain('tac-team-protocol mutate');
     expect(packet).toContain('TEAM_EVIDENCE');
     expect(packet).toContain('"protocol": "agent-inbox-v1"');
     expect(packet).toContain('"correlation_id"');
@@ -907,6 +914,7 @@ describe('TAC OpenTasks MCP setup', () => {
 
     expect(fixture).toContain('name: tac-service-sync');
     expect(fixture).toContain('protocol: agent-inbox-v1');
+    expect(fixture).toContain('tac-team-protocol record-evidence');
     expect(fixture).toContain('coordinator:');
     expect(fixture).toContain('service_inspector:');
     expect(fixture).toContain('verifier:');
@@ -926,10 +934,13 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(coordinator).toContain('Stop gate: do not mutate GitLab, Plane, git remotes, or files until TEAM_EVIDENCE');
     expect(coordinator).toContain('TEAM_ASSIGNMENT');
     expect(coordinator).toContain('TEAM_VERIFICATION_REQUEST');
+    expect(coordinator).toContain('tac-team-protocol assignment');
+    expect(coordinator).toContain('tac-team-protocol mutate');
     expect(inspector).toContain('Full TAC task text with GitLab and Plane state sync requirements.');
     expect(inspector).toContain('Do not mutate GitLab, Plane, git remotes, files, branches, issues, wiki pages, or policies.');
     expect(inspector).toContain('tac-gitlab-api');
     expect(inspector).toContain('tac-plane-api');
+    expect(inspector).toContain('tac-team-protocol record-evidence');
     expect(verifier).toContain('Wait for TEAM_VERIFICATION_REQUEST before final verification.');
     expect(verifier).toContain('TEAM_VERIFICATION');
     expect(verifier).toContain('bounded read-only service/API calls');
@@ -1063,6 +1074,9 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(prompt).toContain('Native swarm-harness role enforcement: 0');
     expect(prompt).toContain('TEAM_ASSIGNMENT');
     expect(prompt).toContain('TEAM_VERIFICATION_REQUEST');
+    expect(prompt).toContain('tac-team-protocol assignment');
+    expect(prompt).toContain('tac-team-protocol mutate');
+    expect(prompt).toContain('Raw mutation commands are allowed but counted as protocol bypasses');
     expect(env.TAC_TEAM_PROTOCOL).toBe('agent-inbox-v1');
     expect(env.TAC_TEAM_NATIVE_ROLE_ENFORCEMENT).toBe('0');
   });
@@ -1472,6 +1486,25 @@ describe('TAC OpenTasks MCP setup', () => {
         },
       ],
       [
+        'helper-assisted-positive',
+        {
+          teamInboxAssignmentCount: 1,
+          teamInboxEvidenceReplyCount: 1,
+          teamInboxVerifierRequestCount: 1,
+          teamInboxVerifierReplyCount: 1,
+          teamProtocolHelperAssignmentCount: 1,
+          teamProtocolHelperEvidenceMessageCount: 1,
+          teamProtocolHelperEvidenceRecordCount: 2,
+          teamProtocolHelperVerificationRequestCount: 1,
+          teamProtocolHelperMutationGateCount: 1,
+          teamProtocolHelperMutationGatePassedCount: 1,
+          teamProtocolMutationBypassCount: 0,
+          teamOpenTasksEvidenceAfterInbox: 1,
+          teamOpenTasksVerificationAfterVerifier: 1,
+          teamProtocolPassed: 1,
+        },
+      ],
+      [
         'no-child-reply',
         {
           teamInboxEvidenceReplyCount: 0,
@@ -1592,6 +1625,70 @@ describe('TAC OpenTasks MCP setup', () => {
       teamInboxEvidenceBeforeMutation: 1,
       teamOpenTasksEvidenceAfterInbox: 1,
       teamOpenTasksVerificationAfterVerifier: 1,
+      teamProtocolPassed: 0,
+    });
+  });
+
+  it('tracks helper-assisted protocol intent without counting it as delivered inbox handoff', () => {
+    const metrics = tacTeamContractMetrics([
+      {
+        type: 'tool',
+        ts: 0,
+        name: 'Bash',
+        input: { agentId: 'coordinator', command: 'tac-team-protocol assignment tac-service-sync:cell:inspection inspect service state' },
+        output:
+          '{"ok":true,"action":"assignment","marker":"TEAM_ASSIGNMENT","correlation_id":"tac-service-sync:cell:inspection","next_tool":{"name":"send_message"}}',
+      },
+      {
+        type: 'tool',
+        ts: 1,
+        name: 'Bash',
+        input: {
+          agentId: 'service_inspector',
+          command:
+            'tac-team-protocol record-evidence service_inspector tac-service-sync:cell:inspection \'{"marker":"TEAM_EVIDENCE","evidence":[{"kind":"api"}]}\' t-root',
+        },
+        output:
+          '{"ok":true,"action":"record-evidence","marker":"TEAM_EVIDENCE","opentasks_record_id":"f-helper","correlation_id":"tac-service-sync:cell:inspection"}',
+      },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'Bash',
+        input: {
+          agentId: 'coordinator',
+          command: 'tac-team-protocol mutate tac-service-sync:cell:inspection -- tac-gitlab-api PATCH projects/root/repo/issues/1 {"state_event":"close"}',
+        },
+        output: '{"ok":true,"action":"mutate","correlation_id":"tac-service-sync:cell:inspection"}',
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamProtocolHelperAssignmentCount: 1,
+      teamProtocolHelperEvidenceRecordCount: 1,
+      teamProtocolHelperMutationGateCount: 1,
+      teamProtocolHelperMutationGatePassedCount: 1,
+      teamProtocolMutationBypassCount: 0,
+      teamContractEvidenceWriteCount: 1,
+      teamInboxAssignmentCount: 0,
+      teamProtocolPassed: 0,
+    });
+  });
+
+  it('classifies raw service mutation as a team protocol bypass', () => {
+    const metrics = tacTeamContractMetrics([
+      {
+        type: 'tool',
+        ts: 0,
+        name: 'Bash',
+        input: { agentId: 'coordinator', command: 'tac-gitlab-api PATCH projects/root/repo/issues/1 {"state_event":"close"}' },
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamProtocolHelperMutationGateCount: 0,
+      teamProtocolMutationBypassCount: 1,
+      teamProtocolMutationBypassed: 1,
       teamProtocolPassed: 0,
     });
   });
