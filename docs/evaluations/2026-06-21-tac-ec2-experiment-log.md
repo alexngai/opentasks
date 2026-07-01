@@ -2242,6 +2242,457 @@ Findings:
   all four tagged instances were terminated, and no tagged volumes or security
   groups remained.
 
+### GitLab 4-Task Full-Content Metric Follow-Ups
+
+Runs:
+
+- Failed setup attempt:
+  `tac-gitlab-4task-3arm-gettask-metrics-seed2-2026-06-24T18-30Z`
+- Haiku repeated-seed batch:
+  `tac-gitlab-4task-3arm-gettask-metrics-seed2b-2026-06-24T18-45Z`
+- Sonnet comparison batch:
+  `tac-sonnet-gitlab-4task-3arm-gettask-metrics-seed1-2026-06-24T19-30Z`
+- tasks: `sde-delete-stale-branch`, `sde-close-an-issue`,
+  `sde-change-branch-policy`, `sde-add-wiki-page`
+- arms: `stock`, `notes`, `opentasks`
+- EC2: GitLab-only service slice, 4 m7i.2xlarge workers, preseeded Docker
+  volume snapshot `snap-0c7c6eb08119771e0`
+
+Adapter/scaffolding changes before the batches:
+
+- Added first-class trace metrics for full-content reads:
+  `mainOpenTasksGetTaskCallCount`, `openTasksGetTaskCallsBeforeFirstBash`,
+  `mainFullTaskContentReadBeforeFirstBash`,
+  `seededTaskGetTaskCallCount`,
+  `seededTaskGetTaskBeforeFirstBashCallCount`, and
+  `seededTaskFullContentReadBeforeFirstBash`.
+- Tightened the seeded OpenTasks prompt to require
+  `mcp__opentasks__get_task` with the seeded task id before task-specific
+  Bash/curl/git/python/API work.
+- Focused TAC adapter tests and the build passed after the metric change.
+
+Failed setup attempt:
+
+- The first seed2 attempt forwarded `AWS_PROFILE=default` into the EC2 worker
+  environment. The worker-local LiteLLM/Bedrock grader proxy failed because the
+  profile was not present on the worker.
+- The run was interrupted before useful cells completed. Terraform cleanup and
+  post-destroy verification passed.
+
+Haiku seed2 repeated batch result:
+
+| Arm | n | Success | S_partial | Tokens | p50 latency | EnvErr | Budget |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `stock` | 4 | 100% | 1.000 | 1,128,662 | 86s | 0 | 0 |
+| `notes` | 4 | 100% | 1.000 | 891,852 | 78s | 0 | 0 |
+| `opentasks` | 4 | 100% | 1.000 | 1,570,435 | 117s | 0 | 0 |
+
+Haiku OpenTasks metric findings:
+
+| Task | Status | Tokens | `get_task` | seeded full content before Bash |
+|---|---|---:|---:|---:|
+| `sde-add-wiki-page` | success | 543,843 | 1 | 1 |
+| `sde-change-branch-policy` | success | 353,793 | 1 | 1 |
+| `sde-close-an-issue` | success | 301,884 | 1 | 1 |
+| `sde-delete-stale-branch` | success | 370,915 | 1 | 0 |
+
+Sonnet seed1 comparison result:
+
+| Arm | n | Success | S_partial | Tokens | p50 latency | EnvErr | Budget |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `stock` | 4 | 75% | 0.813 | 825,243 | 91s | 0 | 0 |
+| `notes` | 4 | 100% | 1.000 | 815,759 | 87s | 0 | 0 |
+| `opentasks` | 4 | 100% | 1.000 | 1,538,511 | 134s | 0 | 0 |
+
+Sonnet per-task result:
+
+| Task | Stock | Notes | OpenTasks |
+|---|---|---|---|
+| `sde-add-wiki-page` | failure, 0.25, 307,356 tok | success, 308,982 tok | success, 345,022 tok |
+| `sde-change-branch-policy` | success, 222,285 tok | success, 121,706 tok | success, 366,204 tok |
+| `sde-close-an-issue` | success, 173,399 tok | success, 205,221 tok | success, 583,755 tok |
+| `sde-delete-stale-branch` | success, 122,203 tok | success, 179,850 tok | success, 243,530 tok |
+
+Findings:
+
+- The full-content metric is now informative. It distinguishes "called
+  `get_task` eventually" from "read the seeded task before acting."
+- In the Haiku seed2 batch, OpenTasks called `get_task` on all four tasks but
+  performed the pre-action seeded full-content read on only three. The stale
+  branch cell called `get_task` after an initial Bash command.
+- In the Sonnet seed1 batch, OpenTasks called `get_task` and read the seeded
+  full content before first Bash on all four tasks.
+- The Sonnet run is a useful capability comparison but not a benchmark claim:
+  OpenTasks and notes both reached 4/4, while stock missed the wiki task.
+- Cleanup worked for both completed batches. Terraform state was empty after
+  destroy, the tagged instances were terminated, and no tagged volumes or
+  security groups remained.
+
+### Standalone OpenTasks Get-Task Protocol Smokes
+
+Runs:
+
+- seed 6 baseline after first strict prompt patch:
+  `tac-haiku-gitlab-4task-opentasks-gettask-direct-seed6-2026-06-24T22-30Z`
+- seed 7 after aligning the shared OpenTasks arm appendix with the seeded
+  `get_task`-first prompt:
+  `tac-haiku-gitlab-4task-opentasks-gettask-direct-seed7-2026-06-24T22-42Z`
+- seed 8 after adding strict task-work timing metrics and trace backfill:
+  `tac-haiku-gitlab-4task-opentasks-gettask-direct-seed8-2026-06-25T00-13Z`
+- seed 9 after preferring the GitLab API helper and adding helper path
+  normalization:
+  `tac-haiku-gitlab-4task-opentasks-helper-pref-seed9-2026-06-25T00-27Z`
+- model: Haiku via Bedrock
+- arms: `opentasks` only
+- tasks: `sde-delete-stale-branch`, `sde-close-an-issue`,
+  `sde-change-branch-policy`, `sde-add-wiki-page`
+- EC2: GitLab-only service slice, 4 m7i.2xlarge workers, Docker volume snapshot
+  `snap-0c7c6eb08119771e0`
+
+Aggregate:
+
+| Run | n | Success | S_partial | Tokens | `get_task` mean | seeded full before Bash | seeded full before task work | helper mean | raw API curl mean | HTTP 404 mean | HTTP 5xx mean |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| seed 6 | 4 | 100% | 1.000 | 1,694,397 | 0.50 | 0.25 | 0.25 | 0.75 | 7.25 | 1.25 | 0.75 |
+| seed 7 | 4 | 100% | 1.000 | 1,497,066 | 1.00 | 1.00 | 0.75 | 0.00 | 3.75 | 1.75 | 1.00 |
+| seed 8 | 4 | 100% | 1.000 | 1,463,038 | 1.00 | 1.00 | 1.00 | 0.00 | 7.25 | 4.00 | 1.25 |
+| seed 9 | 4 | 100% | 1.000 | 1,263,515 | 1.00 | 0.75 | 0.75 | 4.50 | 1.25 | 2.50 | 0.00 |
+| seed 10c, 2 workers | 4 | 100% | 1.000 | 2,451,924 | 1.00 | 1.00 | 1.00 | 5.00 | 5.50 | 11.00 | 0.75 |
+| seed 10d, 2 workers | 4 | 75% | 0.813 | 1,257,571 | 1.00 | 1.00 | 1.00 | 4.75 | 0.00 | 1.50 | 0.25 |
+| seed 11, 2 workers | 4 | 100% | 1.000 | 1,359,235 | 1.00 | 1.00 | 0.75 | 2.50 | 3.00 | 2.75 | 0.00 |
+| seed 12, 2 workers | 4 | 100% | 1.000 | 1,320,709 | 1.00 | 0.75 | 0.75 | 4.25 | 2.00 | 2.75 | 0.00 |
+
+Seed 6 findings:
+
+- The first strict prompt improved clarity but did not reliably change Haiku's
+  behavior.
+- `sde-add-wiki-page` and `sde-close-an-issue` still made no native OpenTasks
+  calls in the main agent.
+- `sde-delete-stale-branch` called `get_task`, but only after task-specific
+  work had started.
+- Trace inspection showed recurring failure modes: reading `/instruction/task.md`
+  before `get_task`, shelling or Python-subprocessing the MCP tool name after
+  ToolSearch, and combining multiple `select:` targets despite the prompt.
+
+Intervention before seed 7:
+
+- Aligned the shared OpenTasks arm appendix with the seeded `get_task`-first
+  protocol. It had still told agents to select `list_tasks` or `record_attempt`,
+  which conflicted with the seeded prompt.
+- Tightened the OpenTasks skill and seeded prompt to say:
+  use exactly `select:mcp__opentasks__get_task`, call native `get_task` next,
+  do not read `/instruction/task.md` before `get_task`, and do not shell,
+  Python, node, curl, or subagent the OpenTasks read.
+
+Seed 7 findings:
+
+- All four cells succeeded and all four called native `get_task` with the seeded
+  task before first Bash.
+- The first tool sequence improved materially on three tasks:
+  `ToolSearch -> mcp__opentasks__get_task -> task work`.
+- Manual trace derivation gives 3/4 seeded full-content reads before first
+  task-work tool. The stale-branch trace still inserted an `Agent` delegation
+  between ToolSearch and native `get_task`, so "before first Bash" is not strict
+  enough for the coordination contract.
+- Added stricter metrics after this run:
+  `openTasksGetTaskCallsBeforeFirstTaskWork`,
+  `mainFullTaskContentReadBeforeFirstTaskWork`,
+  `seededTaskGetTaskBeforeFirstTaskWorkCallCount`, and
+  `seededTaskFullContentReadBeforeFirstTaskWork`. These count `Read`, `Bash`,
+  and agent delegation as task work, while allowing `ToolSearch` and native
+  OpenTasks calls as graph-discovery work.
+- One seed 7 worker cold-started GitLab because it did not find the preseeded
+  GitLab Docker volumes, but the cell completed and cleanup still passed.
+
+Seed 8 findings:
+
+- All four cells succeeded with no environment errors.
+- All four cells followed the intended first-tool sequence:
+  `ToolSearch -> mcp__opentasks__get_task -> task work`.
+- Strict seeded full-content read before first task-work improved to 4/4. This
+  is the first Haiku run where the stronger OpenTasks coordination protocol held
+  across the full 4-task GitLab slice.
+- Each cell also recorded an OpenTasks update/attempt after task work.
+- GitLab helper usage remained 0/4. Agents still used raw GitLab API curl
+  heavily: 29 raw API curls across four cells, with 16 HTTP 404 signals and
+  five HTTP 5xx signals. This makes GitLab helper ergonomics the next practical
+  standalone optimization target.
+- Terraform destroy and post-destroy verification passed for all three runs;
+  tagged instances were terminated and no tagged volumes or security groups
+  remained.
+
+Intervention before seed 9:
+
+- Strengthened the shared TAC GitLab operating guidance to prefer
+  `tac-gitlab-api METHOD PATH [JSON_BODY]` over raw curl for GitLab REST API
+  calls.
+- Added concrete generic helper examples for project reads, branch reads,
+  branch deletes, and issue-note writes.
+- Extended `tac-gitlab-api` so shorthand paths such as
+  `projects/root/repo/repository/branches/feature/old` are normalized to the
+  URL-encoded GitLab API form.
+
+Seed 9 findings:
+
+- All four cells succeeded with no environment errors.
+- Helper usage improved sharply: 18 helper calls across four cells, all using
+  API shorthand paths. Raw GitLab API curl dropped from 29 calls in seed 8 to
+  five calls in seed 9.
+- HTTP 5xx signals dropped from five to zero. HTTP 404 signals dropped from 16
+  to 10, but stale-branch still produced seven 404s while probing a deleted
+  branch and branch-name path variants.
+- Total tokens dropped from 1,463,038 in seed 8 to 1,263,515 in seed 9.
+- Strict seeded full-content read before first task-work regressed from 4/4 to
+  3/4. The failing stale-branch trace did not perform real GitLab work before
+  `get_task`; it inserted `Bash echo "Fetching task..."` between ToolSearch and
+  native `get_task`, which still violates the tool-order contract and trips the
+  strict metric.
+- Follow-up patch after seed 9: OpenTasks skill, seeded prompt, and arm appendix
+  now explicitly forbid Bash status/logging commands between ToolSearch and the
+  native OpenTasks tool call.
+- Terraform destroy and post-destroy verification passed; tagged instances were
+  terminated and no tagged volumes or security groups remained.
+
+Seed 10d findings:
+
+- Reran the same seed 10 4-task OpenTasks-only slice after making helper suffix
+  quoting idempotent for already encoded branch/file/wiki/protected-branch
+  tails.
+- Strict OpenTasks coordination remained 4/4: every cell read the seeded task
+  with native `mcp__opentasks__get_task` before task work, and every cell
+  recorded an OpenTasks update afterward.
+- The stale-branch target improved sharply. The cell used
+  `tac-gitlab-api GET/DELETE/GET projects/root/OpenSearch/repository/branches/feature%2Fssl`,
+  made zero raw GitLab API curl calls, and dropped from 1,347,214 tokens in
+  seed 10c to 212,124 tokens.
+- Across the whole 4-task run, raw GitLab API curl dropped from 22 calls in
+  seed 10c to zero in seed 10d. Aggregate tokens dropped from 2,451,924 to
+  1,257,571.
+- The run was not a clean accuracy win: `sde-add-wiki-page` failed with 2/4
+  earned checkpoints despite creating a remote wiki page. Trace inspection
+  showed a separate helper normalization bug during README reads:
+  `repository/files/README.md/raw?ref=main` was encoded as if `raw?ref=main`
+  were part of the file path.
+- Follow-up patch after seed 10d: helper normalization now preserves query
+  strings and special-cases GitLab file raw paths as
+  `repository/files/<file>/raw?ref=<ref>`.
+- Terraform destroy and post-destroy verification passed; tagged instances were
+  terminated and no tagged volumes or security groups remained.
+
+Targeted wiki validation after file raw patch:
+
+- Run:
+  `tac-haiku-gitlab-wiki-opentasks-helper-file-raw-seed10-2026-06-25T03-40Z`.
+- Scope: one OpenTasks/Haiku `sde-add-wiki-page` cell, seed 10, one EC2 worker.
+- Result: success, `S_partial=1.000`, 437,362 tokens, no environment error.
+- Strict seeded full-content read before task work remained true.
+- The agent did not directly exercise the API file raw helper path in this
+  trajectory; it read the README through GitLab web raw URLs, then used
+  `tac-gitlab-api` for repository tree and wiki API operations.
+- Terraform destroy and post-destroy verification passed; tagged instances were
+  terminated and no tagged volumes or security groups remained.
+
+Seed 10/10b bootstrap attempts:
+
+- Two 4-worker relaunches were aborted before agent execution/model spend
+  because one GitLab worker failed to become healthy during bootstrap.
+- The observed failed worker state was `gitlab` unhealthy with local GitLab not
+  serving the expected endpoint; in the second attempt `postgresql` was down
+  while the other GitLab services were running.
+- Cleanup traps ran successfully both times. Terraform destroy and explicit AWS
+  checks showed tagged instances terminated and no tagged volumes or security
+  groups remaining.
+
+Seed 10c findings:
+
+- Relaunched the same seed as a 2-worker pool. The pool scheduler still covered
+  all four cells by queueing two cells per worker, and both workers bootstrapped
+  cleanly.
+- All four cells succeeded with no environment errors.
+- Strict seeded full-content read before first task-work recovered to 4/4 after
+  the anti-echo prompt patch. First tool sequence was consistently
+  `ToolSearch -> mcp__opentasks__get_task -> task work`.
+- Helper usage stayed high: 20 helper calls across four cells, all using API
+  shorthand. The easiest tasks (`close issue`, `wiki page`) had zero raw GitLab
+  API curl calls.
+- The stale-branch cell still fell into a raw-curl verification loop: 18 raw
+  GitLab API curls, 32 HTTP 404s, two HTTP 5xx signals, and 1,347,214 tokens.
+  It succeeded, but this dominated the run cost.
+- Trace inspection found a concrete helper bug: `tac-gitlab-api DELETE
+  projects/root/OpenSearch/repository/branches/feature%2Fssl` double-encoded the
+  already encoded branch tail to `feature%252Fssl`, causing the initial helper
+  DELETE to 404.
+- Follow-up patch after seed 10c: helper suffix normalization now decodes once
+  before quoting branch/file/tag/wiki/protected-branch tails, so raw
+  `feature/ssl` and encoded `feature%2Fssl` normalize idempotently.
+- Terraform destroy and post-destroy verification passed; tagged instances were
+  terminated and no tagged volumes or security groups remained.
+
+Seed 11 findings after both helper normalization fixes:
+
+- Run:
+  `tac-haiku-gitlab-4task-opentasks-helper-fixed-seed11-2w-2026-06-25T03-48Z`.
+- The full 4-task OpenTasks/Haiku slice succeeded with no environment errors:
+  `S_partial=1.000`, 1,359,235 tokens, and p50 latency 118s.
+- The cross-run summary extractor was validated across seed 10c, seed 10d, and
+  seed 11. It shows the stale-branch helper fix holding across two full runs:
+  raw GitLab API curl stayed at zero for that cell, while tokens were 212,124
+  in seed 10d and 187,324 in seed 11, down from 1,347,214 in seed 10c.
+- Strict seeded full-content read before first Bash remained 4/4, but strict
+  full-content read before first task-work regressed to 3/4. The close-issue
+  cell selected multiple OpenTasks tools, emitted an `Agent` event, then called
+  native `get_task`; it still succeeded, but the trace violates the stronger
+  coordination contract.
+- Wiki succeeded, created the remote page, and kept the seeded task read before
+  work, but this trajectory used raw GitLab/web curl rather than
+  `tac-gitlab-api`. The file-raw helper path is fixed and covered by focused
+  tests, but still needs a live trajectory that actually uses it.
+- Branch-policy succeeded but fell back from helper calls to raw GitLab API curl
+  for delete/recreate operations after helper/protected-branch friction. This
+  leaves protected-branch helper ergonomics as another practical optimization
+  target.
+- Terraform destroy, runner post-destroy verification, and independent AWS
+  tag-based checks passed. Tagged instances were terminated and no tagged
+  volumes or security groups remained.
+
+Seed 12 repeated-seed findings:
+
+- Run:
+  `tac-haiku-gitlab-4task-opentasks-helper-fixed-seed12-2w-2026-06-25T03-58Z`.
+- The full 4-task OpenTasks/Haiku slice again succeeded with no environment
+  errors: `S_partial=1.000`, 1,320,709 tokens, and p50 latency 108s.
+- This run directly exercised the fixed file-raw helper trajectory. The wiki
+  cell used only `tac-gitlab-api`, including
+  `repository/files/README.md/raw`, created the remote wiki page, made zero raw
+  GitLab API curl calls, and used 415,351 tokens.
+- The stale-branch helper fix also held: zero raw GitLab API curl calls and
+  188,158 tokens, almost identical to seed 11's 187,324-token cell.
+- Strict OpenTasks coordination remained imperfect under Haiku. The stale-branch
+  cell emitted a Bash status echo between ToolSearch and native `get_task`, so
+  seeded full-content read before first Bash/task-work was 3/4. This repeats
+  the broader pattern from seeds 9, 11, and 12: the agents usually call
+  `get_task`, but weaker-model tool-order discipline is still not reliable.
+- Branch-policy remains the noisiest task after the helper fixes. It succeeded,
+  but helper attempts fell back into eight raw GitLab API curl calls, six HTTP
+  404s, and 497,669 tokens. The next standalone optimization target should be
+  protected-branch helper ergonomics or a more explicit generic helper example
+  for delete/recreate policy changes.
+- Terraform destroy, runner post-destroy verification, and independent AWS
+  tag-based checks passed. Tagged instances were terminated and no tagged
+  volumes or security groups remained.
+
+### 2026-06-25 Standalone Optimization Sweep
+
+This sweep stayed on standalone TAC with the `claude-code` harness and did not
+use the full OpenHive/swarm-dispatch/openswarm stack. The goal was to
+separate product/tooling effects from ecosystem orchestration effects.
+
+Instrumentation and prompt changes:
+
+- Added trace metrics for multi-select `ToolSearch` calls and protected-branch
+  helper usage:
+  `mainToolSearchMultiSelectCallCount` and
+  `gitlabProtectedBranchHelperCallCount`.
+- Tightened the OpenTasks appendix to ask for exactly one initial
+  `mcp__opentasks__get_task` selection and to avoid comma-combined tool
+  searches before the initial task read.
+- Focused tests and TypeScript build passed after the patch:
+  `npm test -- src/__tests__/tac-docker-adapter.test.ts` and
+  `npm run build`.
+
+Fixed-state 4-task, 3-arm Haiku comparison:
+
+- Run:
+  `tac-haiku-gitlab-4task-3arm-helper-fixed-seed12-2w-2026-06-25T05-02Z`.
+- Tasks: stale branch, close issue, branch policy, wiki page.
+- All three arms landed at the same aggregate score: 3/4 success,
+  `S_partial=0.813`, no environment errors.
+- Tokens: `notes=1,085,410`, `stock=1,188,876`,
+  `opentasks=1,232,104`.
+- The common miss was wiki. OpenTasks kept strict seeded full-content reads, so
+  this result does not support the hypothesis that full task reads alone solve
+  the wiki variance.
+
+Protected-branch helper canary:
+
+- Run:
+  `tac-haiku-branch-policy-3arm-protect-helper-seed13-14-2w-2026-06-25T05-20Z`.
+- All six cells succeeded with no environment errors.
+- Tokens: `notes=147,585`, `stock=170,631`, `opentasks=465,546`.
+- The helper path is now effective, but OpenTasks still pays visible
+  coordination overhead on this simple single-action task.
+
+OpenTasks-only coordination slice:
+
+- Run:
+  `tac-haiku-opentasks-coordination-seed15-16-2w-2026-06-25T05-40Z`.
+- Result: 7/8 success, `S_partial=0.875`, one environment error from the Claude
+  MCP smoke behavior rather than TAC service state.
+- Six of eight cells satisfied the strict seeded full-content read metric. One
+  successful branch-policy cell made 30 `ToolSearch` calls, made no native
+  OpenTasks calls, and used 1,105,600 tokens.
+- Follow-up decision: keep direct MCP preflight, but disable
+  `TAC_OPENTASKS_CLAUDE_MCP_SMOKE_FAIL_FAST` for later runs. The smoke failure
+  is a product/tool-discovery signal, not a reason to discard the cell as
+  infrastructure failure.
+
+Broader 8-task Haiku GitLab slice:
+
+- Run:
+  `tac-haiku-gitlab-8task-3arm-seed17-4w-2026-06-25T06-05Z`.
+- Aggregate:
+  - `notes`: 6/8 success, `S_partial=0.750`, one environment error,
+    2,223,850 tokens.
+  - `opentasks`: 5/8 success, `S_partial=0.667`, one environment error,
+    5,160,025 tokens.
+  - `stock`: 5/8 success, `S_partial=0.625`, two environment errors,
+    4,191,215 tokens.
+- The run is useful for failure discovery but too noisy for a benchmark claim.
+  The pipeline task failed for every arm; the close-all-issues task caused
+  timeout/env-error noise; issue-label management produced sandbox env errors
+  for stock and notes while OpenTasks succeeded.
+- Cleaner-task signal: wiki, branch-policy, close-issue, and stale-branch all
+  succeeded across all arms. OpenTasks was token-cheapest on wiki but much more
+  expensive on stale-branch because the Haiku cell ignored OpenTasks native
+  calls and entered raw/helper retry churn.
+
+Sonnet 4-task, 3-arm comparison:
+
+- Run:
+  `tac-sonnet-gitlab-4task-3arm-seed17-3w-2026-06-25T06-25Z`.
+- Tasks: same 4-task GitLab core as above, seed 17.
+- Aggregate:
+  - `opentasks`: 4/4 success, `S_partial=1.000`, 1,367,647 tokens,
+    p50 latency 136s.
+  - `stock`: 4/4 success, `S_partial=1.000`, 954,890 tokens,
+    p50 latency 89s.
+  - `notes`: 3/4 success, `S_partial=0.813`, 839,291 tokens,
+    p50 latency 89s.
+- Sonnet used OpenTasks reliably in this run: every OpenTasks cell read the
+  seeded task full content before task work and then updated the graph.
+- OpenTasks' accuracy lift over notes came from the wiki task, but stock also
+  solved wiki without OpenTasks. The cost/latency tax remains clear:
+  OpenTasks used about 43% more tokens than stock on the same 4/4 successful
+  seed.
+
+Cross-run interpretation:
+
+- The strongest current product win is not graph coordination by itself; it is
+  better task visibility plus GitLab helper ergonomics. Helper fixes removed
+  large raw-curl loops, and wiki visibility improved several trajectories.
+- Standalone OpenTasks does improve reliability in some cells, especially wiki,
+  but on this small sample it does not yet dominate stock/notes on
+  accuracy-cost. Coordination often adds 80k-200k tokens on simple tasks.
+- The main optimization target is now the coordination contract:
+  make the first full task read cheap and reliable, eliminate `ToolSearch`
+  loops/pending MCP behavior, and consider making post-action graph updates
+  lighter or conditional for single-action TAC tasks.
+- Keep the benchmark split into two sets: a clean 4-task core for optimization
+  signal, and a noisy/stress GitLab set for infrastructure/helper discovery.
+- All pools in this sweep destroyed successfully. Independent AWS checks showed
+  terminated tagged instances, no tagged volumes, no tagged security groups,
+  and empty `standalone-tac` Terraform state.
+
 ### Session Wrap-Up
 
 Current ready state:
@@ -2272,6 +2723,9 @@ Current ready state:
 - OpenTasks list output and trace metrics are now instrumented enough to see
   whether agents inspected seeded tasks, updated graph state, and which exact
   MCP tools were used.
+- Full-content graph reads are now first-class report metrics, including
+  whether the seeded task was read with `get_task` before the first
+  task-specific Bash call.
 
 Outstanding work before a full benchmark claim:
 
@@ -2279,10 +2733,10 @@ Outstanding work before a full benchmark claim:
   a positive signal, not a statistically meaningful claim.
 - Reduce sandbox env errors. Worker quarantine prevents cascading failures, but
   env-error cells still distort arm comparisons.
-- Make full-content task reads reliable. Agents see `getTaskHint`, but the
-  latest successful runs still did not call `mcp__opentasks__get_task`.
-- Surface "read full task content before action" as a first-class report
-  metric, not only as dynamic per-tool counts.
+- Make full-content task reads more reliable across weaker models. The metric
+  is now surfaced, and Sonnet read the seeded task before action on all four
+  cells, but Haiku still misses the strict pre-action timing intermittently
+  even after the prompt/tool-order fixes.
 - Compare stronger models/harnesses, especially Sonnet-class Claude and the
   planned Azure/GPT adapter path, once the harness seam has another concrete
   implementation.
@@ -2294,3 +2748,53 @@ Outstanding work before a full benchmark claim:
   budgets, and a PR/report artifact for every round.
 - Audit E2B cleanup paths before any future E2B usage so TAC eval cleanup cannot
   terminate unrelated developer sandboxes.
+
+### 2026-06-29 Team Protocol Smoke And Dispatch Gate
+
+Goal:
+
+- validate the `opentasks-team-contract` arm with `openswarm@0.3.5`,
+  `TAC_TEAM_PROTOCOL=agent-inbox-v1`, and `azureoai/gpt-5.5`;
+- measure protocol behavior separately from TAC score;
+- decide whether dispatch is ready to become the carrier.
+
+Runs:
+
+| Run | Task | TAC result | Tokens | Env error | Protocol result |
+|---|---|---:|---:|---:|---|
+| `tac-team-protocol-smoke-2026-06-29T13-20Z` | `pm-update-plane-issue-from-gitlab-status` | `7/7`, full success | `92,986` | `0` | `teamProtocolPassed=0` |
+| `tac-team-protocol-hard-2026-06-29T13-45Z` | `pm-update-gitlab-issue-from-plane-status` | `2/3`, failure | `67,276` | `0` | `teamProtocolPassed=0` |
+
+What worked:
+
+- EC2 pool provisioning and default cleanup completed; post-destroy
+  verification passed and Terraform state was empty after both runs.
+- `openswarm` spawned teams in both cells.
+- Static role packets and team artifacts were produced.
+- The durable OpenTasks helper path worked: both runs wrote durable evidence
+  and verification records with graph record ids.
+- Failure taxonomy stayed specific on the known-hard retry:
+  `not_found_or_wrong_target`, not an undifferentiated failure.
+
+What did not work:
+
+- No live run exercised the explicit `agent-inbox-v1` assignment/reply flow.
+  `teamInboxAssignmentCount`, `teamInboxEvidenceReplyCount`,
+  `teamInboxVerifierRequestCount`, and `teamInboxVerifierReplyCount` were all
+  zero in both cells.
+- `teamProtocolNativeRoleEnforcement=0`, so roles were prompt-packet enforced
+  only.
+- The known-hard retry exposed a TAC helper/page-inspection gap: the team read
+  Plane through `tac-plane-api`, interpreted both target issues as open, and
+  made no GitLab write, while TAC's checkpoint expects `Model: security problem`
+  to be closed.
+
+Decision:
+
+- Do not wire `swarm-dispatch` into live TAC yet. Dispatch should carry a
+  working protocol, not hide the fact that static `openswarm` traces still
+  lack explicit inbox assignment/reply events.
+- Add dispatch only behind a fixture or a static-harness run that proves
+  ordered assignment, evidence reply, durable OpenTasks evidence, verifier
+  reply, and durable verification. The detailed carrier plan is in
+  `docs/evaluations/2026-06-29-tac-dispatch-carrier-follow-up.md`.

@@ -33,6 +33,7 @@
     "test:e2e": "RUN_FULL_AGENT_TESTS=1 vitest run --config vitest.e2e.config.ts",
     "eval:tac": "npx tsx evals/tac/run.ts",
     "eval:tac:pool": "npx tsx evals/tac/run-pool.ts",
+    "eval:tac:pool:summarize": "npx tsx evals/tac/scripts/summarize-pool-runs.ts",
     "eval:tac:pool:bake-ami": "evals/tac/scripts/bake-ec2-ami.sh",
     "eval:tac:pool:bake-docker-snapshot": "evals/tac/scripts/bake-docker-volume-snapshot.sh",
     "test:all": "npm run test && npm run test:slow && npm run test:e2e",

@@ -92,21 +92,51 @@ if [[ -z "$ssh_key_path" || ! -f "$ssh_key_path" ]]; then
 fi
 
 if [[ "$skip_llm_auth_check" != "1" && "$skip_llm_auth_check" != "true" ]]; then
-  if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${ANTHROPIC_AUTH_TOKEN:-}" ]]; then
-    if [[ "${CLAUDE_CODE_USE_BEDROCK:-}" != "1" ]]; then
-      echo "EC2 TAC runs need remote-usable Claude auth." >&2
-      echo "Set ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN, or set CLAUDE_CODE_USE_BEDROCK=1 with AWS_REGION and AWS credentials/token." >&2
-      echo "Set TAC_POOL_SKIP_LLM_AUTH_CHECK=1 only for environment-only canaries." >&2
-      exit 2
-    fi
+  eval_model="${EVAL_MODEL:-haiku}"
+  model_has_remote_auth=0
+  model_auth_error=""
+
+  if [[ -n "${ANTHROPIC_API_KEY:-}" || -n "${ANTHROPIC_AUTH_TOKEN:-}" ]]; then
+    model_has_remote_auth=1
+  elif [[ "${CLAUDE_CODE_USE_BEDROCK:-}" == "1" ]]; then
     if [[ -z "${AWS_REGION:-}" ]]; then
-      echo "CLAUDE_CODE_USE_BEDROCK=1 requires AWS_REGION for EC2 TAC runs." >&2
-      exit 2
+      model_auth_error="CLAUDE_CODE_USE_BEDROCK=1 requires AWS_REGION for EC2 TAC runs."
+    elif [[ -z "${AWS_BEARER_TOKEN_BEDROCK:-}" && -z "${AWS_ACCESS_KEY_ID:-}" && -z "${AWS_PROFILE:-}" ]]; then
+      model_auth_error="CLAUDE_CODE_USE_BEDROCK=1 requires AWS_BEARER_TOKEN_BEDROCK, AWS_ACCESS_KEY_ID, or AWS_PROFILE for EC2 TAC runs."
+    else
+      model_has_remote_auth=1
     fi
-    if [[ -z "${AWS_BEARER_TOKEN_BEDROCK:-}" && -z "${AWS_ACCESS_KEY_ID:-}" && -z "${AWS_PROFILE:-}" ]]; then
-      echo "CLAUDE_CODE_USE_BEDROCK=1 requires AWS_BEARER_TOKEN_BEDROCK, AWS_ACCESS_KEY_ID, or AWS_PROFILE for EC2 TAC runs." >&2
-      exit 2
+  elif [[ "$eval_model" =~ ^(azureoai/) ]]; then
+    if [[ -z "${AZURE_OPENAI_API_KEY:-${AZURE_OPENAI_KEY:-${AZURE_API_KEY:-}}}" ]]; then
+      model_auth_error="Azure OpenAI TAC runs require AZURE_OPENAI_API_KEY, AZURE_OPENAI_KEY, or AZURE_API_KEY."
+    elif [[ -z "${AZURE_OPENAI_ENDPOINT:-${AZURE_OPENAI_BASE_URL:-${AZURE_API_BASE:-}}}" ]]; then
+      model_auth_error="Azure OpenAI TAC runs require AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_BASE_URL, or AZURE_API_BASE."
+    else
+      model_has_remote_auth=1
     fi
+  elif [[ "$eval_model" =~ ^(gpt|o[134]|openai/) ]]; then
+    if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+      model_has_remote_auth=1
+    else
+      model_auth_error="OpenAI TAC runs require OPENAI_API_KEY."
+    fi
+  elif [[ "$eval_model" =~ ^(litellm/|gateway/|azure/|bedrock/) ]]; then
+    if [[ -n "${LITELLM_API_KEY:-}" && -n "${LITELLM_BASE_URL:-}" ]]; then
+      model_has_remote_auth=1
+    else
+      model_auth_error="LiteLLM/gateway TAC runs require LITELLM_API_KEY and LITELLM_BASE_URL."
+    fi
+  fi
+
+  if [[ "$model_has_remote_auth" != "1" ]]; then
+    echo "EC2 TAC runs need remote-usable model auth for EVAL_MODEL=${eval_model}." >&2
+    if [[ -n "$model_auth_error" ]]; then
+      echo "$model_auth_error" >&2
+    else
+      echo "Set ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN, Bedrock Claude env, Azure/OpenAI env, or LiteLLM gateway env for the selected model." >&2
+    fi
+    echo "Set TAC_POOL_SKIP_LLM_AUTH_CHECK=1 only for environment-only canaries." >&2
+    exit 2
   fi
 fi
 

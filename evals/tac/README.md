@@ -89,14 +89,15 @@ Real-run configuration:
 | `TAC_DOCKER_NETWORK` | Docker network for task containers, default `host` |
 | `TAC_DOCKER_COMMAND` | Docker command prefix, e.g. `sudo docker` on E2B |
 | `TAC_SERVER_HOSTNAME` | Service hostname passed to TAC init, default `the-agent-company.com` |
-| `TAC_AGENT_HARNESS` / `TAC_AGENT_RUNTIME` | Agent harness selected for TAC task containers. Default and currently supported runtime: `claude-code` |
-| `TAC_AGENT_SETUP_CMD` | Optional command run inside each task container before the selected agent harness. Overrides the harness default install command |
+| `TAC_AGENT_HARNESS` / `TAC_AGENT_RUNTIME` | Agent harness selected for TAC task containers. Supported runtimes: `claude-code` (default) and `openswarm` |
+| `TAC_OPENSWARM_VERSION` | npm version used by the default `openswarm` setup command, default `0.3.5` |
+| `TAC_AGENT_SETUP_CMD` | Optional command run inside each task container before the selected agent harness. Overrides the default Node/harness/user setup, useful for testing a local or unpublished harness build |
 | `TAC_AGENT_USER` | Optional non-root user for the agent phase |
 | `TAC_OPENTASKS_MOUNT` | Local/remote OpenTasks checkout mounted only for the `opentasks` arm |
 | `TAC_OPENTASKS_CONTAINER_DIR` | Container path for that mount, default `/opentasks` |
-| `TAC_OPENTASKS_MCP_PREFLIGHT` | Set `0` to skip the OpenTasks MCP list/call preflight before Claude |
-| `TAC_OPENTASKS_CLAUDE_MCP_SMOKE` | Set `0` to skip the tiny Claude-specific OpenTasks MCP registration smoke |
-| `TAC_OPENTASKS_CLAUDE_MCP_SMOKE_FAIL_FAST` | Set `0` to continue the TAC task even when the Claude MCP smoke fails |
+| `TAC_OPENTASKS_MCP_PREFLIGHT` | Set `0` to skip the OpenTasks MCP list/call preflight before the agent |
+| `TAC_OPENTASKS_CLAUDE_MCP_SMOKE` | Set `0` to skip the tiny harness-level OpenTasks MCP smoke. Name retained for compatibility |
+| `TAC_OPENTASKS_CLAUDE_MCP_SMOKE_FAIL_FAST` | Set `0` to continue the TAC task even when the harness-level MCP smoke fails. Name retained for compatibility |
 | `TAC_OPENTASKS_GRAPH_SEED` | Set `0` to skip deterministic OpenTasks graph seeding from `/instruction/task.md`; default enabled for the OpenTasks arm when the LLM prelude is disabled |
 | `TAC_OPENTASKS_TASK_PRELUDE` | Set `1` to enable the optional LLM OpenTasks task-graph prelude before the main TAC agent. Default disabled for benchmark fairness |
 | `TAC_OPENTASKS_TASK_PRELUDE_FAIL_FAST` | Set `0` to continue the TAC task even when the optional task-graph prelude fails |
@@ -104,6 +105,8 @@ Real-run configuration:
 | `TAC_OPENTASKS_TASK_PRELUDE_RETRIES` | Optional prelude retries after the first attempt for init-only timeouts; default `1` when prelude is enabled |
 | `TAC_OPENTASKS_TASK_PRELUDE_TIMEOUT_MS` | Optional prelude per-attempt timeout; default `min(TAC_INIT_TIMEOUT, 240000)` when prelude is enabled |
 | `TAC_OPENTASKS_MCP_COMMAND` | OpenTasks MCP command shape: `wrapper` (default), `sh-lc`, or `direct` |
+| `EVAL_ARMS=opentasks-team-contract` | Experimental full-ecosystem TAC arm. It currently reuses the OpenTasks MCP setup and adds team-contract instructions; static team packets, richer seeding, and stop-gate metrics are layered on top in the team-contract implementation path |
+| `TAC_TEAM_PROTOCOL` | Set `agent-inbox-v1` with `EVAL_ARMS=opentasks-team-contract` to write OpenTeams-style role packets, enable durable evidence helper guidance, and report inbox/protocol metrics |
 | `TAC_GITLAB_TOKEN_REFRESH` | Set `0` to skip refreshing TAC's documented GitLab `root-token` after GitLab task resets |
 | `TAC_ENV_PREFLIGHT` | Set `0` to skip the TAC GitLab health/token preflight before Claude |
 | `TAC_GITLAB_WIKI_SMOKE` | Set `0` to skip the scratch-project GitLab wiki API smoke before agent spend |
@@ -140,12 +143,96 @@ current `claude -p --output-format stream-json` behavior. The TAC adapter now ha
 an explicit harness seam (`evals/tac/agent-harness.ts`) so future runtimes can add
 their own install command, CLI invocation, output parser, and usage extraction
 without changing TAC task setup or grading. If the image does not include the
-selected harness, set `TAC_AGENT_SETUP_CMD` and `TAC_AGENT_USER`, or bake an
-image/template that installs the agent CLI and creates that user.
+selected harness, the default setup installs Node 22 when needed, installs the
+selected harness, creates `TAC_AGENT_USER` when set, and fixes `/workspace` and
+`/eval` ownership. Set `TAC_AGENT_SETUP_CMD` to override this path for local or
+unpublished harness builds, or bake an image/template that already provides the
+agent CLI and user.
 The `opentasks` arm also requires a built OpenTasks
 checkout (`dist/cli.js`) at `TAC_OPENTASKS_MOUNT`; for E2B this must be an
 absolute path inside the remote sandbox, which means baking or uploading the
 repo before the Docker task container starts.
+
+Team-protocol runbook:
+
+```bash
+TAC_AGENT_HARNESS=openswarm \
+TAC_OPENSWARM_VERSION=0.3.5 \
+TAC_TEAM_PROTOCOL=agent-inbox-v1 \
+EVAL_MODEL=azureoai/gpt-5.5 \
+EVAL_ARMS=opentasks-team-contract \
+EVAL_TASKS=pm-update-plane-issue-from-gitlab-status \
+EVAL_SEEDS=1 \
+TAC_POOL_WORKER_COUNT=1 \
+TAC_POOL_MAX_WORKERS=1 \
+TAC_POOL_INSTANCE_TYPE=m7i.2xlarge \
+TAC_CELL_TIMEOUT_SEC=2400 \
+evals/tac/scripts/run-ec2-pool.sh
+```
+
+The team-protocol arm is experimental. TAC score and protocol score are
+separate: a TAC success with `teamProtocolPassed=0` means the task was solved
+without proving the assignment/evidence/verification contract. Inspect these
+fields before scaling:
+
+- `teamProtocolAgentInboxEnabled`: protocol packets and metrics were enabled.
+- `teamProtocolNativeRoleEnforcement`: `1` only when role enforcement is native
+  to the harness; `0` means prompt-packet role guidance only.
+- `teamProtocolHelperAssignmentCount`,
+  `teamProtocolHelperEvidenceRecordCount`,
+  `teamProtocolHelperVerificationRequestCount`, and
+  `teamProtocolHelperMutationGateCount`: use of the helper-assisted carrier
+  path. The helper generates exact `send_message` payloads and a gated mutation
+  wrapper, but does not itself deliver inbox messages.
+- `teamProtocolMutationBypassCount`: raw service mutations that did not go
+  through `tac-team-protocol mutate`.
+- `teamInboxAssignmentCount`, `teamInboxEvidenceReplyCount`,
+  `teamInboxVerifierRequestCount`, `teamInboxVerifierReplyCount`: explicit
+  inbox protocol activity.
+- `teamOpenTasksEvidenceAfterInbox` and
+  `teamOpenTasksVerificationAfterVerifier`: durable graph writes after inbox
+  handoff.
+- `teamProtocolPassed`: post-run gate for ordered inbox handoff plus durable
+  OpenTasks evidence and verification.
+
+Artifacts to inspect live cells:
+
+- `summary.json` / `summary.md`
+- per-cell `report.json` / `report.md`
+- per-cell `agent-stream.jsonl`
+- per-cell `opentasks-graph-seed-report.json`
+- per-cell `team-contract-packet.md`
+- per-cell `team-roles/*.md`
+- per-cell `failure-taxonomy.json` on failed cells
+
+As of the 2026-06-29 live smoke, `agent-inbox-v1` packet generation, durable
+helper evidence, and cleanup all work, but observed live runs still reported
+zero inbox assignment/reply counters. Do not add `swarm-dispatch` or larger
+multi-seed protocol runs until either `teamProtocolPassed=1` is observed or a
+local dispatch fixture proves explicit assignment/reply events with durable
+OpenTasks record ids. See
+`docs/evaluations/2026-06-29-tac-dispatch-carrier-follow-up.md`.
+
+Helper-assisted handoff experiment:
+
+- `tac-team-protocol assignment CORRELATION_ID "request"` prints a JSON result
+  containing the exact `send_message` input for `TEAM_ASSIGNMENT`.
+- `tac-team-protocol evidence-message ROLE CORRELATION_ID JSON_PAYLOAD` prints
+  the exact `send_message` input for `TEAM_EVIDENCE` or `TEAM_VERIFICATION`.
+- `tac-team-protocol record-evidence ROLE CORRELATION_ID JSON_PAYLOAD
+  [OPENTASKS_TASK_ID]` records durable OpenTasks evidence through
+  `tac-opentasks-record-evidence` and writes a local proof file.
+- `tac-team-protocol verification-request CORRELATION_ID "request"` prints the
+  exact verifier `send_message` input.
+- `tac-team-protocol mutate CORRELATION_ID -- <mutation command>` refuses to run
+  unless the evidence proof file for that correlation id exists. Raw mutation
+  commands still work, but are counted as protocol bypasses.
+
+This is a carrier elicitation experiment, not runtime inbox enforcement.
+`teamProtocolPassed=1` still requires actual inbox trace events plus durable
+OpenTasks record ids. For the current metric ordering, workers should send the
+helper-generated evidence/verification message first, then record the durable
+OpenTasks evidence for the same correlation id.
 
 For GitLab-dependent TAC tasks, the adapter now runs pre-agent environment
 checks after TAC init/reset and token refresh. `TAC_ENV_PREFLIGHT` verifies
@@ -258,6 +345,28 @@ evals/tac/scripts/run-ec2-pool.sh
 
 The runner syncs to `TAC_POOL_RESULTS_S3_URI/<run-id>` after completed cells
 and at the end of the run. Reuse the same `TAC_POOL_RUN_ID` to resume from S3.
+
+Summarize one or more completed pool runs:
+
+```bash
+npm run eval:tac:pool:summarize -- \
+  evals/.tac-pool-runs/tac-run-a \
+  evals/.tac-pool-runs/tac-run-b
+```
+
+The summary extractor accepts run directories, `summary.json` files, or a
+directory containing run subdirectories. It emits Markdown by default and supports
+`--format csv` or `--format jsonl` for cell-level analysis. The output includes
+task, arm, model, seed, status, partial score, tokens, env/budget flags,
+OpenTasks `get_task`, seeded full-content-before-Bash, and stricter seeded
+full-content-before-task-work metrics, graph update counts, GitLab helper usage,
+raw GitLab curl count, and HTTP 404/5xx counts.
+
+TAC task containers install small bounded service helpers for agent use:
+`tac-gitlab-api METHOD PATH [JSON_BODY]` for authenticated GitLab REST calls,
+`tac-gitlab-protect-branch PROJECT BRANCH PUSH_LEVEL MERGE_LEVEL` for branch
+policy changes, and `tac-plane-api METHOD PATH [JSON_BODY]` for authenticated
+Plane REST calls using `/utils/config.py`.
 
 Manual pool operation:
 

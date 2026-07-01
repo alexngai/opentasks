@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
+import type { TraceEvent } from 'swarmkit-eval';
 
 import { tacArms } from '../../evals/tac/bench.js';
 import {
@@ -10,10 +13,17 @@ import {
   TacDockerAdapter,
   tacDockerAdapterFromEnv,
   TAC_TASK_PROMPT,
+  taxonomyMetricsForTacResult,
   traceDiagnosticsFromClaudeStream,
   traceEfficiencyMetrics,
 } from '../../evals/tac/docker-adapter.js';
 import { tacAgentHarnessFromId, type TacAgentHarness } from '../../evals/tac/agent-harness.js';
+import {
+  buildTacTeamContractPacket,
+  compileTacServiceSyncRolePackets,
+  TAC_SERVICE_SYNC_TEAM,
+  tacTeamContractMetrics,
+} from '../../evals/tac/team-contract.js';
 
 describe('TAC Docker adapter prompt', () => {
   it('adds shared TAC operating guidance to the task prompt', () => {
@@ -40,8 +50,15 @@ describe('TAC Docker adapter prompt', () => {
     expect(prompt).toContain('Avoid unbounded retry loops');
     expect(prompt).toContain('Do not brute-force credentials');
     expect(prompt).toContain('PRIVATE-TOKEN: root-token');
+    expect(prompt).toContain('tac-plane-api METHOD PATH [JSON_BODY]');
+    expect(prompt).toContain('prefer the installed helper `tac-plane-api METHOD PATH [JSON_BODY]` instead of raw curl');
+    expect(prompt).toContain('tac-plane-api GET workspaces/tac/projects/PROJECT_ID/issues/?expand=state');
     expect(prompt).toContain('tac-gitlab-api METHOD PATH [JSON_BODY]');
+    expect(prompt).toContain('prefer the installed helper `tac-gitlab-api METHOD PATH [JSON_BODY]` instead of raw curl');
+    expect(prompt).toContain('tac-gitlab-api DELETE projects/root/repo/repository/branches/feature/old');
+    expect(prompt).toContain('tac-gitlab-protect-branch root/repo main PUSH_LEVEL MERGE_LEVEL');
     expect(prompt).toContain('head -c 4000');
+    expect(prompt).toContain('Do not run recursive filesystem searches from `/`');
     expect(prompt).toContain('keep generated content tightly grounded in the requested source material');
     expect(prompt).toContain('stop. Do not continue with extra inspection');
     expect(prompt).not.toContain('sotopia');
@@ -54,6 +71,15 @@ describe('TAC Docker adapter prompt', () => {
       '{"content":"AWS_BEARER_TOKEN_BEDROCK=ABSKbase64+/=\\nAWS_REGION=us-west-2"}',
       'standalone ABSKbase64+/=',
       'ANTHROPIC_API_KEY: sk-ant-secret',
+      'ANTHROPIC_AUTH_TOKEN=anthropic-auth-secret',
+      'OPENAI_API_KEY=sk-openai-secret',
+      '{"AZURE_OPENAI_API_KEY":"azure-secret","AZURE_OPENAI_KEY":"azure-key-secret","AZURE_API_KEY":"azure-api-secret"}',
+      '\\"AZURE_API_KEY\\":\\"azure-escaped-secret\\"',
+      'TAC_GRADER_PROXY_KEY=grader-secret',
+      'LITELLM_API_KEY=litellm-secret',
+      'PLANE_API_KEY=plane-secret',
+      '{"headers":{"x-api-key":"plane-header-secret","X-API-Key":"plane-header-secret-2"}}',
+      '-H "x-api-key: plane-curl-secret"',
       'AWS_SECRET_ACCESS_KEY="secret"',
       'http://root:root-token@the-agent-company.com:8929/root/project.wiki.git',
     ].join('\n');
@@ -63,10 +89,33 @@ describe('TAC Docker adapter prompt', () => {
     expect(redacted).not.toContain('ABSKsecret');
     expect(redacted).not.toContain('ABSKbase64');
     expect(redacted).not.toContain('sk-ant-secret');
+    expect(redacted).not.toContain('anthropic-auth-secret');
+    expect(redacted).not.toContain('sk-openai-secret');
+    expect(redacted).not.toContain('azure-secret');
+    expect(redacted).not.toContain('azure-key-secret');
+    expect(redacted).not.toContain('azure-api-secret');
+    expect(redacted).not.toContain('azure-escaped-secret');
+    expect(redacted).not.toContain('grader-secret');
+    expect(redacted).not.toContain('litellm-secret');
+    expect(redacted).not.toContain('plane-secret');
+    expect(redacted).not.toContain('plane-header-secret');
+    expect(redacted).not.toContain('plane-header-secret-2');
+    expect(redacted).not.toContain('plane-curl-secret');
     expect(redacted).not.toContain('"secret"');
     expect(redacted).not.toContain('root-token');
     expect(redacted).toContain('AWS_BEARER_TOKEN_BEDROCK=[REDACTED]');
     expect(redacted).toContain('ANTHROPIC_API_KEY=[REDACTED]');
+    expect(redacted).toContain('ANTHROPIC_AUTH_TOKEN=[REDACTED]');
+    expect(redacted).toContain('OPENAI_API_KEY=[REDACTED]');
+    expect(redacted).toContain('"AZURE_OPENAI_API_KEY":"[REDACTED]"');
+    expect(redacted).toContain('"AZURE_OPENAI_KEY":"[REDACTED]"');
+    expect(redacted).toContain('"AZURE_API_KEY":"[REDACTED]"');
+    expect(redacted).toContain('TAC_GRADER_PROXY_KEY=[REDACTED]');
+    expect(redacted).toContain('LITELLM_API_KEY=[REDACTED]');
+    expect(redacted).toContain('PLANE_API_KEY=[REDACTED]');
+    expect(redacted).toContain('"x-api-key":"[REDACTED]"');
+    expect(redacted).toContain('"X-API-Key":"[REDACTED]"');
+    expect(redacted).toContain('x-api-key: [REDACTED]');
     expect(redacted).toContain('AWS_SECRET_ACCESS_KEY=[REDACTED]');
     expect(redacted).toContain('[REDACTED_TAC_GITLAB_TOKEN]');
   });
@@ -145,6 +194,203 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(command).toContain("--mcp-config '/eval/.tac/cell/mcp.json'");
   });
 
+  it('builds TAC agent commands for openswarm with a staged MCP config', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+      agentHarnessId: 'openswarm',
+    }) as unknown as {
+      agentCommand: (cell: { arm: ReturnType<typeof tacArms>[number]; model: { name: string } }, runDir: string) => string;
+      agentSetup: () => string;
+    };
+
+    const command = adapter.agentCommand({ arm: tacArms(['stock'])[0], model: { name: 'haiku' } }, '.tac/cell');
+    const setup = adapter.agentSetup();
+
+    expect(setup).toContain('https://deb.nodesource.com/setup_22.x');
+    expect(setup).toContain('then\napt-get update');
+    expect(setup).not.toContain('then apt-get update');
+    expect(setup).toContain('npm install -g openswarm@${TAC_OPENSWARM_VERSION:-0.3.5}');
+    expect(command).toContain('mkdir -p .openswarm');
+    expect(command).toContain("cp '/eval/.tac/cell/mcp.json' .openswarm/mcp.json");
+    expect(command).toContain('openswarm --single --headless --output-format json');
+    expect(command).toContain('TAC_OPENSWARM_MODE:-single');
+    expect(command).toContain('openswarm swarm run');
+    expect(command).toContain('team|team-contract|opentasks-team-contract)');
+    expect(command).toContain('openswarm-tasks.jsonl');
+    expect(command).toContain('openswarm-results.jsonl');
+    expect(command).toContain('openswarm-trace.jsonl');
+    expect(command).toContain('const [promptPath, tasksPath, model] = process.argv.slice(1);');
+    expect(command).toContain('  model,');
+    expect(command).toContain("--opentasks --opentasks-socket ${OPENTASKS_PROJECT_DIR:-/workspace/.opentasks}/daemon.sock");
+    expect(command).toContain("export OPENSWARM_MODEL='haiku'");
+    expect(command).not.toContain('then;');
+    expect(command).toContain("--model 'haiku'");
+    expect(command).toContain('--permission-mode danger-full-access');
+    expect(command).toContain('"$(cat /eval/.tac/cell/prompt.txt)"');
+    expect(command).not.toContain('--mcp-config');
+  });
+
+  it('passes custom prompts through to openswarm smoke/prelude commands', () => {
+    const command = tacAgentHarnessFromId('openswarm').buildCommand({
+      prompt: "'custom smoke prompt'",
+      model: 'haiku',
+      runDir: '.tac/cell',
+      tools: [],
+      allowedTools: true,
+      strictMcpConfig: true,
+    });
+
+    expect(command).toContain("openswarm --single --headless --output-format json --model 'haiku'");
+    expect(command).toContain("'custom smoke prompt'");
+    expect(command).not.toContain('"$(cat \'/eval/.tac/cell/prompt.txt\')"');
+  });
+
+  it('creates the configured agent user in the default setup command', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+      agentHarnessId: 'openswarm',
+      agentUser: 'agent',
+    }) as unknown as {
+      agentSetup: () => string;
+    };
+
+    expect(adapter.agentSetup()).toContain("id -u 'agent'");
+    expect(adapter.agentSetup()).toContain("chown -R 'agent':'agent' /workspace /eval");
+  });
+
+  it('prepends TAC system prompt appendices for openswarm commands', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+      agentHarnessId: 'openswarm',
+    }) as unknown as {
+      agentCommand: (cell: { arm: ReturnType<typeof tacArms>[number]; model: { name: string } }, runDir: string) => string;
+    };
+
+    const [arm] = tacArms(['stock']);
+    arm.scaffold.systemPromptAppendix = 'system guidance';
+    const command = adapter.agentCommand({ arm, model: { name: 'haiku' } }, '.tac/cell');
+
+    expect(command).toContain(
+      "{ cat '/eval/.tac/cell/system.txt'; printf '\\n\\n'; cat '/eval/.tac/cell/prompt.txt'; } > '/eval/.tac/cell/openswarm-prompt.txt'",
+    );
+    expect(command).toContain('"$(cat \'/eval/.tac/cell/openswarm-prompt.txt\')"');
+  });
+
+  it('parses openswarm JSONL streams through the TAC harness seam', () => {
+    const parsed = tacAgentHarnessFromId('openswarm').parse(
+      [
+        JSON.stringify({ type: 'text_delta', text: 'done' }),
+        JSON.stringify({ type: 'tool_use_start', id: 't1', name: 'bash' }),
+        JSON.stringify({ type: 'tool_use_input', id: 't1', jsonDelta: '{"command":' }),
+        JSON.stringify({ type: 'tool_use_input', id: 't1', jsonDelta: '"tac-gitlab-api GET /projects"}' }),
+        JSON.stringify({ type: 'tool_use_end', id: 't1' }),
+        JSON.stringify({ type: 'tool_result', toolUseId: 't1', content: 'command failed once', isError: true }),
+        JSON.stringify({ type: 'tool_use_start', id: 't2', name: 'read_file' }),
+        JSON.stringify({ type: 'tool_use_end', id: 't2', input: { path: '/instruction/task.md' } }),
+        JSON.stringify({
+          type: 'message_stop',
+          usage: { inputTokens: 5, outputTokens: 3, cacheReadInputTokens: 2 },
+        }),
+      ].join('\n'),
+      'haiku',
+    );
+
+    expect(parsed.output).toBe('done');
+    expect(parsed.sawResult).toBe(true);
+    expect(parsed.isError).toBe(false);
+    expect(parsed.usage).toMatchObject({ inputTokens: 5, outputTokens: 3, cacheReadTokens: 2, totalTokens: 10 });
+    expect(parsed.trajectory).toEqual([
+      expect.objectContaining({ type: 'tool', name: 'Bash', input: { command: 'tac-gitlab-api GET /projects' } }),
+      expect.objectContaining({ type: 'tool', name: 'Read', input: { path: '/instruction/task.md' } }),
+    ]);
+  });
+
+  it('parses openswarm swarm-run lane traces and result records', () => {
+    const parsed = tacAgentHarnessFromId('openswarm').parse(
+      [
+        JSON.stringify({
+          ts: 1,
+          agentId: 'agent-1',
+          type: 'tool_use_start',
+          payload: { type: 'tool_use_start', id: 't1', name: 'bash' },
+        }),
+        JSON.stringify({
+          ts: 2,
+          agentId: 'agent-1',
+          type: 'tool_use_input',
+          payload: { type: 'tool_use_input', id: 't1', jsonDelta: '{"command":"echo ok"}' },
+        }),
+        JSON.stringify({
+          ts: 3,
+          agentId: 'agent-1',
+          type: 'tool_use_end',
+          payload: { type: 'tool_use_end', id: 't1' },
+        }),
+        JSON.stringify({
+          ts: 4,
+          agentId: 'coordinator',
+          type: 'message_sent',
+          payload: {
+            type: 'message_sent',
+            from: 'coordinator',
+            to: 'service_inspector',
+            message: { content: 'TEAM_ASSIGNMENT tac-service-sync:cell:inspection' },
+          },
+        }),
+        JSON.stringify({
+          id: 'tac-root',
+          status: 'succeeded',
+          output: 'done',
+          usage: { inputTokens: 11, outputTokens: 7 },
+          wallClockMs: 123,
+        }),
+      ].join('\n'),
+      'haiku',
+    );
+
+    expect(parsed.output).toContain('done');
+    expect(parsed.sawResult).toBe(true);
+    expect(parsed.usage.totalTokens).toBe(18);
+    expect(parsed.trajectory).toEqual([
+      { type: 'tool', ts: 0, name: 'Bash', input: { agentId: 'agent-1', command: 'echo ok' } },
+      { type: 'message', ts: 1, from: 'coordinator', to: 'service_inspector', content: 'TEAM_ASSIGNMENT tac-service-sync:cell:inspection' },
+    ]);
+  });
+
+  it('does not double-count openswarm final usage when message_stop already reported it', () => {
+    const parsed = tacAgentHarnessFromId('openswarm').parse(
+      [
+        JSON.stringify({ type: 'message_stop', usage: { inputTokens: 5, outputTokens: 3, cacheReadInputTokens: 2 } }),
+        JSON.stringify({
+          id: 'tac-root',
+          status: 'succeeded',
+          output: 'done',
+          usage: { inputTokens: 5, outputTokens: 3, cacheReadTokens: 2 },
+        }),
+      ].join('\n'),
+      'haiku',
+    );
+
+    expect(parsed.output).toBe('done');
+    expect(parsed.sawResult).toBe(true);
+    expect(parsed.usage).toMatchObject({ inputTokens: 5, outputTokens: 3, cacheReadTokens: 2, totalTokens: 10 });
+  });
+
   it('allows TAC tests and future adapters to inject a different agent harness', () => {
     const fakeHarness: TacAgentHarness = {
       id: 'fake-agent',
@@ -172,7 +418,8 @@ describe('TAC OpenTasks MCP setup', () => {
       agentSetup: () => string;
     };
 
-    expect(adapter.agentSetup()).toBe('install-fake-agent');
+    expect(adapter.agentSetup()).toContain('https://deb.nodesource.com/setup_22.x');
+    expect(adapter.agentSetup()).toContain('install-fake-agent');
     expect(adapter.agentCommand({ arm: tacArms(['stock'])[0], model: { name: 'gpt-test' } }, '.tac/cell')).toBe(
       'fake-agent --model gpt-test --prompt "$(cat /eval/.tac/cell/prompt.txt)" --dir .tac/cell',
     );
@@ -201,7 +448,51 @@ describe('TAC OpenTasks MCP setup', () => {
     });
   });
 
-  it('installs a bounded TAC GitLab API helper into the task container', () => {
+  it('defaults the team-contract arm to openswarm team mode with OpenTasks enabled', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+      agentHarnessId: 'openswarm',
+    }) as unknown as {
+      agentEnv: (cell: { task: { id: string }; arm: ReturnType<typeof tacArms>[number] }) => Record<string, string>;
+      usesOpenSwarmSwarmMode: (cell: { arm: ReturnType<typeof tacArms>[number] }) => boolean;
+    };
+
+    const cell = { task: { id: 'pm-test' }, arm: tacArms(['opentasks-team-contract'])[0] };
+    const env = adapter.agentEnv(cell);
+
+    expect(adapter.usesOpenSwarmSwarmMode(cell)).toBe(true);
+    expect(env.TAC_OPENSWARM_MODE).toBe('team-contract');
+    expect(env.TAC_OPENSWARM_OPENTASKS).toBe('1');
+    expect(env.OPENTASKS_PROJECT_DIR).toBe('/workspace/.opentasks');
+  });
+
+  it('defaults env-driven team-contract runs to the openswarm runtime', () => {
+    const previousArms = process.env.EVAL_ARMS;
+    const previousHarness = process.env.TAC_AGENT_HARNESS;
+    const previousRuntime = process.env.TAC_AGENT_RUNTIME;
+    process.env.EVAL_ARMS = 'opentasks-team-contract';
+    delete process.env.TAC_AGENT_HARNESS;
+    delete process.env.TAC_AGENT_RUNTIME;
+    try {
+      const adapter = tacDockerAdapterFromEnv() as unknown as { agentSetup: () => string };
+
+      expect(adapter.agentSetup()).toContain('openswarm');
+    } finally {
+      if (previousArms === undefined) delete process.env.EVAL_ARMS;
+      else process.env.EVAL_ARMS = previousArms;
+      if (previousHarness === undefined) delete process.env.TAC_AGENT_HARNESS;
+      else process.env.TAC_AGENT_HARNESS = previousHarness;
+      if (previousRuntime === undefined) delete process.env.TAC_AGENT_RUNTIME;
+      else process.env.TAC_AGENT_RUNTIME = previousRuntime;
+    }
+  });
+
+  it('installs bounded TAC service API helpers into the task container', () => {
     const adapter = new TacDockerAdapter({
       timeoutMs: 1,
       initTimeoutMs: 1,
@@ -216,13 +507,45 @@ describe('TAC OpenTasks MCP setup', () => {
     const command = adapter.tacAgentHelperInstallCommand();
 
     expect(command).toContain('/usr/local/bin/tac-gitlab-api');
+    expect(command).toContain('/usr/local/bin/tac-plane-api');
+    expect(command).toContain('/usr/local/bin/tac-opentasks-record-evidence');
+    expect(command).toContain('/usr/local/bin/tac-team-protocol');
+    expect(command).toContain('/usr/local/bin/tac-gitlab-protect-branch');
     expect(command).toContain('PRIVATE-TOKEN');
+    expect(command).toContain('x-api-key');
+    expect(command).toContain('PLANE_API_KEY');
     expect(command).toContain('TAC_HELPER_MAX_OUTPUT_BYTES');
     expect(command).toContain('[truncated by tac-gitlab-api');
+    expect(command).toContain('[truncated by tac-plane-api');
     expect(command).toContain('[REDACTED_TAC_GITLAB_TOKEN]');
+    expect(command).toContain('[REDACTED_TAC_PLANE_API_KEY]');
     expect(command).toContain('def normalize_api_path');
+    expect(command).toContain('def normalize_url');
+    expect(command).toContain('def normalize_projects_path');
+    expect(command).toContain('def normalize_project_suffix');
+    expect(command).toContain('def quote_path_tail');
+    expect(command).toContain('path, sep, query = path.partition("?")');
+    expect(command).toContain('suffix[-1] == "raw"');
+    expect(command).toContain('urllib.parse.quote("/".join(project_parts), safe="")');
+    expect(command).toContain('urllib.parse.quote(urllib.parse.unquote("/".join(parts)), safe="")');
+    expect(command).toContain('tac-gitlab-api DELETE projects/root/repo/repository/branches/feature/old');
+    expect(command).toContain('tac-plane-api GET workspaces/tac/projects/PROJECT_ID/issues/?expand=state');
+    expect(command).toContain('usage: tac-opentasks-record-evidence ROLE CORRELATION_ID JSON_PAYLOAD [OPENTASKS_TASK_ID]');
+    expect(command).toContain('tac-team-protocol assignment CORRELATION_ID');
+    expect(command).toContain('tac-team-protocol mutate CORRELATION_ID -- COMMAND');
+    expect(command).toContain('"next_tool": {"name": "send_message"');
+    expect(command).toContain('agent-inbox-v1');
+    expect(command).toContain('opentasks_record_id');
+    expect(command).toContain('TEAM_EVIDENCE');
+    expect(command).toContain('TEAM_VERIFICATION');
+    expect(command).toContain('return base_url + "/api/v1" + path');
+    expect(command).toContain('usage: tac-gitlab-protect-branch PROJECT BRANCH PUSH_LEVEL MERGE_LEVEL');
+    expect(command).toContain('tac-gitlab-api DELETE "projects/${project}/protected_branches/${branch}"');
+    expect(command).toContain('tac-gitlab-api POST "projects/${project}/protected_branches" "$body"');
     expect(command).toContain('"/api/v4" + path');
     expect(command).toContain('"projects"');
+    expect(command).toContain('command -v tac-plane-api >/dev/null');
+    expect(command).toContain('command -v tac-team-protocol >/dev/null');
   });
 
   it('rejects unknown TAC agent harness ids explicitly', () => {
@@ -273,7 +596,7 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(config.mcpServers.opentasks.args.join(' ')).toContain('/workspace/.opentasks');
   });
 
-  it('reports a failed Claude MCP smoke when Claude leaves opentasks pending', () => {
+  it('reports a failed OpenTasks MCP smoke when Claude leaves opentasks pending', () => {
     const adapter = new TacDockerAdapter({
       timeoutMs: 1,
       initTimeoutMs: 1,
@@ -282,7 +605,7 @@ describe('TAC OpenTasks MCP setup', () => {
       network: 'host',
       decryptionKey: 'test',
     }) as unknown as {
-      claudeMcpSmokeReport: (
+      opentasksMcpSmokeReport: (
         cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; model: { name: string } } : never,
         agent: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean },
       ) => { ok: boolean; failureReason?: string; opentasksToolCount: number; skillNames: string[] };
@@ -298,7 +621,7 @@ describe('TAC OpenTasks MCP setup', () => {
       JSON.stringify({ type: 'result', is_error: false, result: 'done', usage: { input_tokens: 1, output_tokens: 1 } }),
     ].join('\n');
 
-    const report = adapter.claudeMcpSmokeReport(
+    const report = adapter.opentasksMcpSmokeReport(
       { arm: tacArms(['opentasks'])[0], model: { name: 'haiku' } },
       { exitCode: 0, stdout, stderr: '' },
     );
@@ -309,7 +632,7 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(report.skillNames).toContain('opentasks');
   });
 
-  it('reports a passed Claude MCP smoke when Claude exposes opentasks tools', () => {
+  it('reports a passed OpenTasks MCP smoke when Claude exposes opentasks tools', () => {
     const adapter = new TacDockerAdapter({
       timeoutMs: 1,
       initTimeoutMs: 1,
@@ -318,7 +641,7 @@ describe('TAC OpenTasks MCP setup', () => {
       network: 'host',
       decryptionKey: 'test',
     }) as unknown as {
-      claudeMcpSmokeReport: (
+      opentasksMcpSmokeReport: (
         cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; model: { name: string } } : never,
         agent: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean },
       ) => { ok: boolean; opentasksToolCount: number; usedNativeOpentasksTool: boolean };
@@ -340,7 +663,7 @@ describe('TAC OpenTasks MCP setup', () => {
       JSON.stringify({ type: 'result', is_error: false, result: 'done', usage: { input_tokens: 1, output_tokens: 1 } }),
     ].join('\n');
 
-    const report = adapter.claudeMcpSmokeReport(
+    const report = adapter.opentasksMcpSmokeReport(
       { arm: tacArms(['opentasks'])[0], model: { name: 'haiku' } },
       { exitCode: 0, stdout, stderr: '' },
     );
@@ -359,7 +682,7 @@ describe('TAC OpenTasks MCP setup', () => {
       network: 'host',
       decryptionKey: 'test',
     }) as unknown as {
-      claudeMcpSmokeReport: (
+      opentasksMcpSmokeReport: (
         cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; model: { name: string } } : never,
         agent: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean },
       ) => { ok: boolean; failureReason?: string; opentasksToolCount: number; usedNativeOpentasksTool: boolean };
@@ -381,7 +704,7 @@ describe('TAC OpenTasks MCP setup', () => {
       JSON.stringify({ type: 'result', is_error: false, result: 'done', usage: { input_tokens: 1, output_tokens: 1 } }),
     ].join('\n');
 
-    const report = adapter.claudeMcpSmokeReport(
+    const report = adapter.opentasksMcpSmokeReport(
       { arm: tacArms(['opentasks'])[0], model: { name: 'haiku' } },
       { exitCode: 0, stdout, stderr: '' },
     );
@@ -392,16 +715,370 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(report.usedNativeOpentasksTool).toBe(true);
   });
 
+  it('treats openswarm OpenTasks tool execution as a successful MCP smoke without Claude init metadata', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+      agentHarnessId: 'openswarm',
+    }) as unknown as {
+      opentasksMcpSmokeReport: (
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; model: { name: string } } : never,
+        agent: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean },
+      ) => { ok: boolean; harnessId: string; nativeCalls: string[]; opentasksToolCount: number; usedNativeOpentasksTool: boolean };
+    };
+    const stdout = [
+      JSON.stringify({ type: 'text_delta', text: 'Calling OpenTasks.' }),
+      JSON.stringify({ type: 'tool_use_start', id: 'toolu_1', name: 'mcp__opentasks__list_tasks' }),
+      JSON.stringify({ type: 'tool_use_input', id: 'toolu_1', jsonDelta: '{}' }),
+      JSON.stringify({ type: 'tool_use_end', id: 'toolu_1' }),
+      JSON.stringify({ type: 'tool_result', toolUseId: 'toolu_1', content: '{"items":[]}', isError: false }),
+      JSON.stringify({ type: 'message_stop', stopReason: 'end_turn', usage: { inputTokens: 2, outputTokens: 3 } }),
+    ].join('\n');
+
+    const report = adapter.opentasksMcpSmokeReport(
+      { arm: tacArms(['opentasks'])[0], model: { name: 'haiku' } },
+      { exitCode: 0, stdout, stderr: '' },
+    );
+
+    expect(report.ok).toBe(true);
+    expect(report.harnessId).toBe('openswarm');
+    expect(report.opentasksToolCount).toBe(0);
+    expect(report.nativeCalls).toEqual(['mcp__opentasks__list_tasks']);
+    expect(report.usedNativeOpentasksTool).toBe(true);
+  });
+
+  it('treats openswarm swarm-run task tool execution as a successful coordination smoke', () => {
+    const previousMode = process.env.TAC_OPENSWARM_MODE;
+    process.env.TAC_OPENSWARM_MODE = 'swarm-run';
+    try {
+      const adapter = new TacDockerAdapter({
+        timeoutMs: 1,
+        initTimeoutMs: 1,
+        evalTimeoutMs: 1,
+        serverHostname: 'the-agent-company.com',
+        network: 'host',
+        decryptionKey: 'test',
+        agentHarnessId: 'openswarm',
+      }) as unknown as {
+        opentasksMcpSmokeReport: (
+          cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; model: { name: string } } : never,
+          agent: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean },
+        ) => {
+          ok: boolean;
+          usedSwarmTaskTool: boolean;
+          swarmTaskToolCount: number;
+          swarmTaskCalls: string[];
+          usedNativeOpentasksTool: boolean;
+        };
+      };
+      const stdout = [
+        JSON.stringify({ type: 'tool_use_start', id: 'toolu_1', name: 'task_list' }),
+        JSON.stringify({ type: 'tool_use_input', id: 'toolu_1', jsonDelta: '{}' }),
+        JSON.stringify({ type: 'tool_use_end', id: 'toolu_1' }),
+        JSON.stringify({ type: 'tool_result', toolUseId: 'toolu_1', content: '{"tasks":[]}', isError: false }),
+        JSON.stringify({ type: 'message_stop', stopReason: 'end_turn', usage: { inputTokens: 2, outputTokens: 3 } }),
+      ].join('\n');
+
+      const report = adapter.opentasksMcpSmokeReport(
+        { arm: tacArms(['opentasks'])[0], model: { name: 'haiku' } },
+        { exitCode: 0, stdout, stderr: '' },
+      );
+
+      expect(report.ok).toBe(true);
+      expect(report.usedSwarmTaskTool).toBe(true);
+      expect(report.swarmTaskToolCount).toBe(1);
+      expect(report.swarmTaskCalls).toEqual(['task_list']);
+      expect(report.usedNativeOpentasksTool).toBe(false);
+    } finally {
+      if (previousMode === undefined) delete process.env.TAC_OPENSWARM_MODE;
+      else process.env.TAC_OPENSWARM_MODE = previousMode;
+    }
+  });
+
+  it('treats team-contract arm swarm task execution as a successful coordination smoke', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+      agentHarnessId: 'openswarm',
+    }) as unknown as {
+      opentasksMcpSmokeReport: (
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; model: { name: string } } : never,
+        agent: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean },
+      ) => { ok: boolean; usedSwarmTaskTool: boolean; swarmTaskCalls: string[] };
+    };
+    const stdout = [
+      JSON.stringify({ type: 'tool_use_start', id: 'toolu_1', name: 'task_list' }),
+      JSON.stringify({ type: 'tool_use_input', id: 'toolu_1', jsonDelta: '{}' }),
+      JSON.stringify({ type: 'tool_use_end', id: 'toolu_1' }),
+      JSON.stringify({ type: 'tool_result', toolUseId: 'toolu_1', content: '{"tasks":[]}', isError: false }),
+      JSON.stringify({ type: 'message_stop', stopReason: 'end_turn', usage: { inputTokens: 2, outputTokens: 3 } }),
+    ].join('\n');
+
+    const report = adapter.opentasksMcpSmokeReport(
+      { arm: tacArms(['opentasks-team-contract'])[0], model: { name: 'haiku' } },
+      { exitCode: 0, stdout, stderr: '' },
+    );
+
+    expect(report.ok).toBe(true);
+    expect(report.usedSwarmTaskTool).toBe(true);
+    expect(report.swarmTaskCalls).toEqual(['task_list']);
+  });
+
   it('ships a Claude-discoverable OpenTasks skill that says to use native tools', () => {
     expect(OPENTASKS_TAC_SKILL).toContain('name: opentasks');
     expect(OPENTASKS_TAC_SKILL).toContain('mcp__opentasks__create_task');
     expect(OPENTASKS_TAC_SKILL).toContain('mcp__opentasks__get_task');
     expect(OPENTASKS_TAC_SKILL).toContain('ToolSearch');
     expect(OPENTASKS_TAC_SKILL).toContain('Never run those tool names in Bash');
+    expect(OPENTASKS_TAC_SKILL).toContain('the next tool call should be the native');
+    expect(OPENTASKS_TAC_SKILL).toContain('Do not insert Bash status commands such as echo');
+    expect(OPENTASKS_TAC_SKILL).toContain('Do not delegate OpenTasks reads to a subagent');
     expect(OPENTASKS_TAC_SKILL).toContain('Minimal TAC graph protocol');
-    expect(OPENTASKS_TAC_SKILL).toContain('read the full `content` before acting');
+    expect(OPENTASKS_TAC_SKILL).toContain('read the full `content` before task-specific Bash');
+    expect(OPENTASKS_TAC_SKILL).toContain('Do not read `/instruction/task.md` before the seeded `get_task` call');
     expect(OPENTASKS_TAC_SKILL).toContain('Do not create a duplicate top-level task');
     expect(OPENTASKS_TAC_SKILL).toContain('Do not create subtasks for simple single-action TAC tasks');
+  });
+
+  it('keeps the OpenTasks arm appendix aligned with the seeded get_task-first protocol', () => {
+    const [arm] = tacArms(['opentasks']);
+    const appendix = arm.scaffold.systemPromptAppendix ?? '';
+
+    expect(appendix).toContain('mcp__opentasks__get_task');
+    expect(appendix).toContain('before task-specific Bash/curl/git/service API work');
+    expect(appendix).toContain('exactly one query, select:mcp__opentasks__get_task');
+    expect(appendix).toContain('Do not combine multiple select queries with commas');
+    expect(appendix).toContain('do not invoke mcp__opentasks__ tool names as shell commands');
+    expect(appendix).toContain('Do not insert Bash status commands such as echo');
+    expect(appendix).not.toContain('select:mcp__opentasks__list_tasks or select:mcp__opentasks__record_attempt');
+  });
+
+  it('exposes the dormant OpenTasks team-contract TAC arm', () => {
+    const [arm] = tacArms(['opentasks-team-contract']);
+    const appendix = arm.scaffold.systemPromptAppendix ?? '';
+
+    expect(arm.id).toBe('opentasks-team-contract');
+    expect(arm.scaffold.mcpServers?.[0]?.name).toBe('opentasks');
+    expect(arm.scaffold.extraTools).toContain('mcp__opentasks__get_task');
+    expect(arm.scaffold.extraTools).toContain('mcp__opentasks__record_attempt');
+    expect(appendix).toContain('team-contract TAC arm');
+    expect(appendix).toContain('structured evidence before mutation');
+    expect(appendix).toContain('task_list({})');
+    expect(appendix).toContain('local swarm coordination log');
+    expect(appendix).toContain('not durable OpenTasks evidence by itself');
+    expect(appendix).toContain('Do not assume tac-root');
+    expect(appendix).toContain('Do not search for mcp__opentasks__ tools in openswarm');
+    expect(appendix).toContain('permissionMode:"danger-full-access"');
+  });
+
+  it('builds a static TAC team-contract packet with full task text and evidence schema', () => {
+    const packet = buildTacTeamContractPacket({
+      sourceTaskId: 'pm-update-plane-issue-from-gitlab-status',
+      seededRootTaskId: 't-root',
+      taskText: 'Update the Plane issue based on GitLab issue status.',
+    });
+
+    expect(TAC_SERVICE_SYNC_TEAM.name).toBe('tac-service-sync');
+    expect(packet).toContain('Template: tac-service-sync@1');
+    expect(packet).toContain('Seeded OpenTasks root task id: t-root');
+    expect(packet).toContain('service_inspector contract');
+    expect(packet).toContain('task_list({})');
+    expect(packet).toContain('Local swarm task_update(output:"...") alone is not durable OpenTasks evidence');
+    expect(packet).toContain('tac-team-protocol assignment');
+    expect(packet).toContain('tac-team-protocol mutate');
+    expect(packet).toContain('TEAM_EVIDENCE');
+    expect(packet).toContain('"protocol": "agent-inbox-v1"');
+    expect(packet).toContain('"correlation_id"');
+    expect(packet).toContain('"opentasks_record_id"');
+    expect(packet).toContain('"commands_or_endpoints"');
+    expect(packet).toContain('tac-plane-api');
+    expect(packet).toContain('Update the Plane issue based on GitLab issue status.');
+  });
+
+  it('compiles the static OpenTeams TAC service-sync fixture into role packets', () => {
+    const fixture = readFileSync('evals/tac/openteams/tac-service-sync.yml', 'utf8');
+    const packets = compileTacServiceSyncRolePackets({
+      sourceTaskId: 'pm-update-plane-issue-from-gitlab-status',
+      seededRootTaskId: 't-root',
+      taskText: 'Full TAC task text with GitLab and Plane state sync requirements.',
+      basePath: '.tac/cell/team-roles',
+    });
+
+    expect(fixture).toContain('name: tac-service-sync');
+    expect(fixture).toContain('protocol: agent-inbox-v1');
+    expect(fixture).toContain('tac-team-protocol record-evidence');
+    expect(fixture).toContain('coordinator:');
+    expect(fixture).toContain('service_inspector:');
+    expect(fixture).toContain('verifier:');
+    expect(fixture).not.toContain('api_mapper');
+    expect(TAC_SERVICE_SYNC_TEAM.roles).toEqual(['coordinator', 'service_inspector', 'verifier']);
+    expect(packets.map((packet) => packet.role)).toEqual(['coordinator', 'service_inspector', 'verifier']);
+    expect(packets.map((packet) => packet.path)).toEqual([
+      '.tac/cell/team-roles/coordinator.md',
+      '.tac/cell/team-roles/service_inspector.md',
+      '.tac/cell/team-roles/verifier.md',
+    ]);
+
+    const coordinator = packets.find((packet) => packet.role === 'coordinator')?.content ?? '';
+    const inspector = packets.find((packet) => packet.role === 'service_inspector')?.content ?? '';
+    const verifier = packets.find((packet) => packet.role === 'verifier')?.content ?? '';
+
+    expect(coordinator).toContain('Stop gate: do not mutate GitLab, Plane, git remotes, or files until TEAM_EVIDENCE');
+    expect(coordinator).toContain('TEAM_ASSIGNMENT');
+    expect(coordinator).toContain('TEAM_VERIFICATION_REQUEST');
+    expect(coordinator).toContain('tac-team-protocol assignment');
+    expect(coordinator).toContain('tac-team-protocol mutate');
+    expect(inspector).toContain('Full TAC task text with GitLab and Plane state sync requirements.');
+    expect(inspector).toContain('Do not mutate GitLab, Plane, git remotes, files, branches, issues, wiki pages, or policies.');
+    expect(inspector).toContain('tac-gitlab-api');
+    expect(inspector).toContain('tac-plane-api');
+    expect(inspector).toContain('tac-team-protocol record-evidence');
+    expect(verifier).toContain('Wait for TEAM_VERIFICATION_REQUEST before final verification.');
+    expect(verifier).toContain('TEAM_VERIFICATION');
+    expect(verifier).toContain('bounded read-only service/API calls');
+  });
+
+  it('adds static team-contract files and prompt text only for the team-contract arm', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+    }) as unknown as {
+      teamContractFiles: (
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; task: { id: string; prompt: string } } : never,
+        runDir: string,
+        seedReport?: unknown,
+      ) => Array<{ path: string; content: string }>;
+      mainPrompt: (
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; task: { id: string; prompt: string } } : never,
+      ) => string;
+      mainPromptWithGraphSeed: (
+        report: unknown,
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; task: { id: string; prompt: string } } : never,
+      ) => string;
+    };
+    const [teamArm] = tacArms(['opentasks-team-contract']);
+    const [plainArm] = tacArms(['opentasks']);
+    const cell = {
+      arm: teamArm,
+      task: { id: 'pm-update-plane-issue-from-gitlab-status', prompt: 'Full TAC task text.' },
+    };
+
+    const files = adapter.teamContractFiles(cell, '.tac/cell');
+    const prompt = adapter.mainPrompt(cell);
+    const seededPrompt = adapter.mainPromptWithGraphSeed(
+      {
+        ok: true,
+        taskId: 't-seed1',
+        taskTitle: 'Seeded TAC task',
+        sourceTaskId: 'pm-update-plane-issue-from-gitlab-status',
+        cellKey: 'cell/example',
+        contentBytes: 123,
+        tags: ['tac', 'seeded'],
+        exitCode: 0,
+        stdoutHead: '',
+        stderrHead: '',
+      },
+      cell,
+    );
+
+    expect(files.map((file) => file.path)).toEqual([
+      '.tac/cell/team-contract-packet.md',
+      '.tac/cell/team-contract-template.json',
+    ]);
+    expect(files[0]?.content).toContain('Full TAC task text.');
+    expect(prompt).toContain('TAC Team Contract Packet');
+    expect(seededPrompt).toContain('Seeded OpenTasks root task id: t-seed1');
+    expect(adapter.teamContractFiles({ arm: plainArm, task: cell.task }, '.tac/cell')).toEqual([]);
+  });
+
+  it('writes agent-inbox role packet artifacts when TAC_TEAM_PROTOCOL is enabled', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+      agentHarnessId: 'openswarm',
+      env: { TAC_TEAM_PROTOCOL: 'agent-inbox-v1' },
+    }) as unknown as {
+      agentEnv: (
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; task: { id: string; prompt: string } } : never,
+      ) => Record<string, string>;
+      teamContractFiles: (
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; task: { id: string; prompt: string } } : never,
+        runDir: string,
+        seedReport?: unknown,
+      ) => Array<{ path: string; content: string }>;
+      mainPromptWithGraphSeed: (
+        report: unknown,
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; task: { id: string; prompt: string } } : never,
+        runDir?: string,
+      ) => string;
+    };
+    const [teamArm] = tacArms(['opentasks-team-contract']);
+    const cell = {
+      arm: teamArm,
+      task: { id: 'pm-update-plane-issue-from-gitlab-status', prompt: 'Full TAC task text.' },
+    };
+    const seedReport = {
+      ok: true,
+      taskId: 't-seed1',
+      taskTitle: 'Seeded TAC task',
+      sourceTaskId: 'pm-update-plane-issue-from-gitlab-status',
+      cellKey: 'cell/example',
+      contentBytes: 123,
+      tags: ['tac', 'seeded'],
+      exitCode: 0,
+      stdoutHead: '',
+      stderrHead: '',
+    };
+
+    const files = adapter.teamContractFiles(cell, '.tac/cell', seedReport);
+    const protocol = JSON.parse(files.find((file) => file.path === '.tac/cell/team-contract-protocol.json')?.content ?? '{}');
+    const prompt = adapter.mainPromptWithGraphSeed(seedReport, cell, '.tac/cell');
+    const env = adapter.agentEnv(cell);
+
+    expect(files.map((file) => file.path)).toEqual([
+      '.tac/cell/team-contract-packet.md',
+      '.tac/cell/team-contract-template.json',
+      '.tac/cell/team-roles/coordinator.md',
+      '.tac/cell/team-roles/service_inspector.md',
+      '.tac/cell/team-roles/verifier.md',
+      '.tac/cell/team-contract-protocol.json',
+    ]);
+    expect(files.find((file) => file.path.endsWith('/coordinator.md'))?.content).toContain('Seeded OpenTasks root task id: t-seed1');
+    expect(protocol).toMatchObject({
+      protocol: 'agent-inbox-v1',
+      template: 'tac-service-sync',
+      nativeRoleEnforcement: 0,
+    });
+    expect(protocol.rolePacketPaths).toEqual([
+      '.tac/cell/team-roles/coordinator.md',
+      '.tac/cell/team-roles/service_inspector.md',
+      '.tac/cell/team-roles/verifier.md',
+    ]);
+    expect(prompt).toContain('/eval/.tac/cell/team-roles/coordinator.md');
+    expect(prompt).toContain('Native openswarm role enforcement: 0');
+    expect(prompt).toContain('TEAM_ASSIGNMENT');
+    expect(prompt).toContain('TEAM_VERIFICATION_REQUEST');
+    expect(prompt).toContain('tac-team-protocol assignment');
+    expect(prompt).toContain('tac-team-protocol mutate');
+    expect(prompt).toContain('Raw mutation commands are allowed but counted as protocol bypasses');
+    expect(env.TAC_TEAM_PROTOCOL).toBe('agent-inbox-v1');
+    expect(env.TAC_TEAM_NATIVE_ROLE_ENFORCEMENT).toBe('0');
   });
 
   it('builds a deterministic OpenTasks graph seed command from the TAC task file', () => {
@@ -430,8 +1107,670 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(command).toContain('tail = first[-50:]');
     expect(command).toContain('opentasks-graph-seed-report.json');
     expect(command).toContain('"--status", "open"');
-    expect(command).toContain('"--tags", "tac,seeded"');
+    expect(command).toContain('"--tags", "tac,seeded,team-contract" if team_contract else "tac,seeded"');
     expect(command).toContain('"deterministicGraphSeed"');
+  });
+
+  it('adds richer OpenTasks graph seeding for the team-contract arm', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+    }) as unknown as {
+      opentasksGraphSeedCommand: (
+        cell: ReturnType<typeof tacArms>[number] extends infer Arm ? { arm: Arm; model: { name: string }; task: { id: string }; cellKey: string; seed: number } : never,
+        runDir: string,
+      ) => string;
+      opentasksGraphSeedSummary: (report: unknown) => string;
+    };
+    const command = adapter.opentasksGraphSeedCommand(
+      { arm: tacArms(['opentasks-team-contract'])[0], model: { name: 'haiku' }, task: { id: 'pm-test' }, cellKey: 'cell/team', seed: 3 },
+      '.tac/cell-team',
+    );
+
+    expect(command).toContain('team_contract = arm_id == "opentasks-team-contract"');
+    expect(command).toContain('"service_inspection"');
+    expect(command).toContain('"mutation_plan"');
+    expect(command).toContain('"verification"');
+    expect(command).toContain('"role": role');
+    expect(command).toContain('"capabilities": capabilities');
+    expect(command).toContain('"--type", edge_type');
+    expect(command).toContain('"relation": relation');
+
+    const summary = adapter.opentasksGraphSeedSummary({
+      ok: true,
+      taskId: 't-root',
+      taskTitle: 'Seeded TAC task',
+      sourceTaskId: 'pm-test',
+      cellKey: 'cell/team',
+      contentBytes: 123,
+      tags: ['tac', 'seeded'],
+      teamContract: { enabled: true, nodes: [{ slug: 'service_inspection' }, { slug: 'verification' }] },
+      exitCode: 0,
+      stdoutHead: '',
+      stderrHead: '',
+    });
+
+    expect(summary).toContain('teamContract: on');
+    expect(summary).toContain('teamNodes: service_inspection,verification');
+  });
+
+  it('classifies TAC team-contract productive coordination from parsed trace order', () => {
+    const metrics = tacTeamContractMetrics([
+      { type: 'tool', ts: 0, name: 'mcp__opentasks__get_task', input: { agentId: 'root', id: 't-root' } },
+      {
+        type: 'tool',
+        ts: 1,
+        name: 'mcp__opentasks__update_task',
+        input: {
+          agentId: 'child-1',
+          id: 'service_inspection',
+          metadata: {
+            evidence: [{ kind: 'api', summary: 'Issue is closed' }],
+            commands_or_endpoints: ['tac-gitlab-api GET projects/root/repo/issues'],
+          },
+        },
+        success: true,
+        output: '{"id":"t-service-inspection"}',
+      },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'Bash',
+        input: { agentId: 'root', command: 'tac-gitlab-api PATCH projects/root/repo/issues/1 {"state_event":"close"}' },
+      },
+      {
+        type: 'tool',
+        ts: 3,
+        name: 'mcp__opentasks__record_attempt',
+        input: { agentId: 'root', taskId: 'verification', evidence: 'verified final service state' },
+        success: true,
+        output: '{"attemptId":"a-verification"}',
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamContractDistinctAgentCount: 2,
+      teamContractWorkerSpawned: 1,
+      teamContractChildEvidenceWritten: 1,
+      teamContractCoordinatorConsumedEvidenceBeforeMutation: 1,
+      teamContractVerificationWritten: 1,
+      teamContractVerificationAfterMutation: 1,
+      teamContractProductiveCoordination: 1,
+      teamContractStopGatePassed: 1,
+    });
+  });
+
+  it('does not classify local swarm task updates as durable TAC team-contract evidence writes', () => {
+    const trajectory = [
+      { type: 'tool', ts: 0, name: 'task_get', input: { agentId: 'root', id: 'tac-root' } },
+      { type: 'tool', ts: 1, name: 'agent', input: { agentId: 'root', prompt: 'inspect service state' } },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'task_update',
+        input: {
+          agentId: 'root',
+          id: 'tac-root',
+          output: 'EVIDENCE_FOUND service_inspection commands_or_endpoints=["GET /api"] evidence=[{"kind":"api"}]',
+        },
+      },
+      { type: 'tool', ts: 3, name: 'Bash', input: { agentId: 'root', command: 'curl -X PATCH http://plane/api/issues/1' } },
+      {
+        type: 'tool',
+        ts: 4,
+        name: 'task_update',
+        input: { agentId: 'root', id: 'tac-root', output: 'VERIFIED final verification evidence' },
+      },
+      { type: 'tool', ts: 5, name: 'Read', input: { agentId: 'child' } },
+    ];
+
+    const metrics = tacTeamContractMetrics(trajectory);
+
+    expect(metrics).toMatchObject({
+      teamContractOpenTasksGraphCallCount: 0,
+      teamContractEvidenceWriteCount: 0,
+      teamContractFailedGraphWriteCount: 0,
+      teamContractVerificationWriteCount: 0,
+      teamContractCoordinatorConsumedEvidenceBeforeMutation: 0,
+      teamContractVerificationAfterMutation: 0,
+      teamContractStopGatePassed: 0,
+    });
+  });
+
+  it('classifies TAC OpenTasks helper output with durable record ids as team-contract evidence', () => {
+    const metrics = tacTeamContractMetrics([
+      { type: 'tool', ts: 0, name: 'task_list', input: { agentId: 'root' } },
+      { type: 'tool', ts: 1, name: 'agent', input: { agentId: 'root', prompt: 'inspect service state' } },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'Bash',
+        input: {
+          agentId: 'child-1',
+          command:
+            'tac-opentasks-record-evidence service_inspector tac-service-sync:cell:inspection \'{"marker":"TEAM_EVIDENCE","commands_or_endpoints":["tac-gitlab-api GET projects/root/repo/issues"]}\' t-root',
+        },
+        output:
+          '{"ok":true,"protocol":"agent-inbox-v1","marker":"TEAM_EVIDENCE","opentasks_record_id":"f-abcd","correlation_id":"tac-service-sync:cell:inspection"}',
+      },
+      {
+        type: 'tool',
+        ts: 3,
+        name: 'Bash',
+        input: { agentId: 'root', command: 'tac-gitlab-api PATCH projects/root/repo/issues/1 {"state_event":"close"}' },
+      },
+      {
+        type: 'tool',
+        ts: 4,
+        name: 'Bash',
+        input: {
+          agentId: 'root',
+          command:
+            'tac-opentasks-record-evidence verifier tac-service-sync:cell:verification \'{"marker":"TEAM_VERIFICATION","summary":"verified"}\' t-root',
+        },
+        output:
+          '{"ok":true,"protocol":"agent-inbox-v1","marker":"TEAM_VERIFICATION","opentasks_record_id":"f-efgh","correlation_id":"tac-service-sync:cell:verification"}',
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamContractDistinctAgentCount: 2,
+      teamContractWorkerSpawned: 1,
+      teamContractOpenTasksGraphCallCount: 2,
+      teamContractEvidenceWriteCount: 1,
+      teamContractChildEvidenceWritten: 1,
+      teamContractCoordinatorConsumedEvidenceBeforeMutation: 1,
+      teamContractVerificationWriteCount: 1,
+      teamContractVerificationAfterMutation: 1,
+      teamContractStopGatePassed: 1,
+    });
+  });
+
+  it('does not count TAC OpenTasks helper output without a durable record id', () => {
+    const metrics = tacTeamContractMetrics([
+      {
+        type: 'tool',
+        ts: 0,
+        name: 'Bash',
+        input: {
+          agentId: 'child-1',
+          command:
+            'tac-opentasks-record-evidence service_inspector tac-service-sync:cell:inspection \'{"marker":"TEAM_EVIDENCE","evidence":[{"kind":"api"}]}\' t-root',
+        },
+        output: '{"ok":true,"protocol":"agent-inbox-v1","marker":"TEAM_EVIDENCE"}',
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamContractOpenTasksGraphCallCount: 1,
+      teamContractEvidenceWriteCount: 0,
+      teamContractFailedGraphWriteCount: 1,
+      teamContractChildEvidenceWritten: 0,
+      teamContractStopGatePassed: 0,
+    });
+  });
+
+  it('classifies ordered agent-inbox protocol markers with durable OpenTasks graph evidence', () => {
+    const metrics = tacTeamContractMetrics([
+      {
+        type: 'message',
+        ts: 0,
+        from: 'coordinator',
+        to: 'service_inspector',
+        content: 'TEAM_ASSIGNMENT correlation_id=tac-service-sync:cell:inspection',
+      },
+      {
+        type: 'tool',
+        ts: 1,
+        name: 'check_inbox',
+        input: { agentId: 'coordinator' },
+        output:
+          '{"messages":[{"from":"service_inspector","content":"TEAM_EVIDENCE correlation_id=tac-service-sync:cell:inspection commands_or_endpoints=[\\"tac-gitlab-api GET projects/root/repo/issues\\"]"}]}',
+      },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'Bash',
+        input: {
+          agentId: 'service_inspector',
+          command:
+            'tac-opentasks-record-evidence service_inspector tac-service-sync:cell:inspection \'{"marker":"TEAM_EVIDENCE","evidence":[{"kind":"api"}]}\' t-root',
+        },
+        output:
+          '{"ok":true,"protocol":"agent-inbox-v1","marker":"TEAM_EVIDENCE","opentasks_record_id":"f-aaaa","correlation_id":"tac-service-sync:cell:inspection"}',
+      },
+      {
+        type: 'tool',
+        ts: 3,
+        name: 'Bash',
+        input: { agentId: 'coordinator', command: 'tac-gitlab-api PATCH projects/root/repo/issues/1 {"state_event":"close"}' },
+      },
+      {
+        type: 'tool',
+        ts: 4,
+        name: 'send_message',
+        input: {
+          agentId: 'coordinator',
+          to: 'verifier',
+          content: 'TEAM_VERIFICATION_REQUEST correlation_id=tac-service-sync:cell:verification',
+        },
+      },
+      {
+        type: 'message',
+        ts: 5,
+        from: 'verifier',
+        to: 'coordinator',
+        content: 'TEAM_VERIFICATION correlation_id=tac-service-sync:cell:verification verified final service state',
+      },
+      {
+        type: 'tool',
+        ts: 6,
+        name: 'mcp__opentasks__record_attempt',
+        input: {
+          agentId: 'coordinator',
+          taskId: 'verification',
+          summary: 'TEAM_VERIFICATION verified final service state',
+          metadata: { correlation_id: 'tac-service-sync:cell:verification' },
+          evidence: { kind: 'command', ref: 'tac-gitlab-api GET projects/root/repo/issues/1' },
+        },
+        success: true,
+        output: '{"attemptId":"a-team-verification"}',
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamInboxAssignmentCount: 1,
+      teamInboxEvidenceReplyCount: 1,
+      teamInboxVerifierRequestCount: 1,
+      teamInboxVerifierReplyCount: 1,
+      teamInboxEvidenceBeforeMutation: 1,
+      teamOpenTasksEvidenceAfterInbox: 1,
+      teamOpenTasksVerificationAfterVerifier: 1,
+      teamProtocolPassed: 1,
+    });
+  });
+
+  it('rejects agent-inbox protocol evidence that arrives after service mutation', () => {
+    const metrics = tacTeamContractMetrics([
+      { type: 'message', ts: 0, from: 'coordinator', to: 'service_inspector', content: 'TEAM_ASSIGNMENT' },
+      {
+        type: 'tool',
+        ts: 1,
+        name: 'Bash',
+        input: { agentId: 'coordinator', command: 'curl -X PATCH http://plane/api/issues/1' },
+      },
+      {
+        type: 'message',
+        ts: 2,
+        from: 'service_inspector',
+        to: 'coordinator',
+        content: 'TEAM_EVIDENCE late evidence',
+      },
+      {
+        type: 'tool',
+        ts: 3,
+        name: 'mcp__opentasks__update_task',
+        input: { agentId: 'coordinator', id: 'service_inspection', metadata: { evidence: [{ kind: 'api' }] } },
+        success: true,
+        output: '{"id":"t-service-inspection"}',
+      },
+      {
+        type: 'message',
+        ts: 4,
+        from: 'coordinator',
+        to: 'verifier',
+        content: 'TEAM_VERIFICATION_REQUEST',
+      },
+      { type: 'message', ts: 5, from: 'verifier', to: 'coordinator', content: 'TEAM_VERIFICATION verified' },
+      {
+        type: 'tool',
+        ts: 6,
+        name: 'mcp__opentasks__record_attempt',
+        input: { agentId: 'coordinator', taskId: 'verification', summary: 'TEAM_VERIFICATION verified' },
+        success: true,
+        output: '{"attemptId":"a-verification"}',
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamInboxEvidenceReplyCount: 1,
+      teamInboxEvidenceBeforeMutation: 0,
+      teamOpenTasksEvidenceAfterInbox: 1,
+      teamProtocolPassed: 0,
+    });
+  });
+
+  it('rejects inbox evidence followed only by local swarm task_update output', () => {
+    const metrics = tacTeamContractMetrics([
+      { type: 'message', ts: 0, from: 'coordinator', to: 'service_inspector', content: 'TEAM_ASSIGNMENT' },
+      { type: 'message', ts: 1, from: 'service_inspector', to: 'coordinator', content: 'TEAM_EVIDENCE service state' },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'task_update',
+        input: {
+          agentId: 'coordinator',
+          id: 'tac-root',
+          output: 'TEAM_EVIDENCE persisted only in local swarm registry',
+        },
+      },
+      { type: 'tool', ts: 3, name: 'Bash', input: { agentId: 'coordinator', command: 'curl -X PATCH http://plane/api/issues/1' } },
+      { type: 'message', ts: 4, from: 'coordinator', to: 'verifier', content: 'TEAM_VERIFICATION_REQUEST' },
+      { type: 'message', ts: 5, from: 'verifier', to: 'coordinator', content: 'TEAM_VERIFICATION verified' },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamInboxEvidenceBeforeMutation: 1,
+      teamOpenTasksEvidenceAfterInbox: 0,
+      teamOpenTasksVerificationAfterVerifier: 0,
+      teamProtocolPassed: 0,
+    });
+  });
+
+  it('classifies synthetic openswarm team protocol fixture files', () => {
+    const cases: Array<[string, Record<string, number>]> = [
+      [
+        'positive',
+        {
+          teamInboxAssignmentCount: 1,
+          teamInboxEvidenceReplyCount: 1,
+          teamInboxVerifierRequestCount: 1,
+          teamInboxVerifierReplyCount: 1,
+          teamOpenTasksEvidenceAfterInbox: 1,
+          teamOpenTasksVerificationAfterVerifier: 1,
+          teamProtocolPassed: 1,
+        },
+      ],
+      [
+        'helper-assisted-positive',
+        {
+          teamInboxAssignmentCount: 1,
+          teamInboxEvidenceReplyCount: 1,
+          teamInboxVerifierRequestCount: 1,
+          teamInboxVerifierReplyCount: 1,
+          teamProtocolHelperAssignmentCount: 1,
+          teamProtocolHelperEvidenceMessageCount: 1,
+          teamProtocolHelperEvidenceRecordCount: 2,
+          teamProtocolHelperVerificationRequestCount: 1,
+          teamProtocolHelperMutationGateCount: 1,
+          teamProtocolHelperMutationGatePassedCount: 1,
+          teamProtocolMutationBypassCount: 0,
+          teamOpenTasksEvidenceAfterInbox: 1,
+          teamOpenTasksVerificationAfterVerifier: 1,
+          teamProtocolPassed: 1,
+        },
+      ],
+      [
+        'no-child-reply',
+        {
+          teamInboxEvidenceReplyCount: 0,
+          teamOpenTasksEvidenceAfterInbox: 0,
+          teamProtocolPassed: 0,
+        },
+      ],
+      [
+        'evidence-after-mutation',
+        {
+          teamInboxEvidenceReplyCount: 1,
+          teamInboxEvidenceBeforeMutation: 0,
+          teamProtocolPassed: 0,
+        },
+      ],
+      [
+        'no-verification-write',
+        {
+          teamInboxVerifierReplyCount: 1,
+          teamOpenTasksVerificationAfterVerifier: 0,
+          teamProtocolPassed: 0,
+        },
+      ],
+      [
+        'local-task-update-only',
+        {
+          teamInboxEvidenceBeforeMutation: 1,
+          teamOpenTasksEvidenceAfterInbox: 0,
+          teamProtocolPassed: 0,
+        },
+      ],
+    ];
+
+    for (const [fixture, expected] of cases) {
+      const stdout = readFileSync(`evals/tac/fixtures/team-protocol/${fixture}.jsonl`, 'utf8');
+      const trajectory = tacAgentHarnessFromId('openswarm').parse(stdout, 'haiku').trajectory;
+      expect(tacTeamContractMetrics(trajectory), fixture).toMatchObject(expected);
+    }
+  });
+
+  it('requires a durable record id before counting direct OpenTasks graph writes', () => {
+    const metrics = tacTeamContractMetrics([
+      {
+        type: 'message',
+        ts: 0,
+        from: 'coordinator',
+        to: 'service_inspector',
+        content: 'TEAM_ASSIGNMENT correlation_id=tac-service-sync:cell:inspection',
+      },
+      {
+        type: 'message',
+        ts: 1,
+        from: 'service_inspector',
+        to: 'coordinator',
+        content: 'TEAM_EVIDENCE correlation_id=tac-service-sync:cell:inspection service state',
+      },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'mcp__opentasks__update_task',
+        input: {
+          agentId: 'coordinator',
+          id: 'service_inspection',
+          metadata: { correlation_id: 'tac-service-sync:cell:inspection', evidence: [{ kind: 'api' }] },
+        },
+        success: true,
+      },
+      {
+        type: 'tool',
+        ts: 3,
+        name: 'Bash',
+        input: { agentId: 'coordinator', command: 'tac-gitlab-api PATCH projects/root/repo/issues/1 {"state_event":"close"}' },
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamContractOpenTasksGraphCallCount: 1,
+      teamContractEvidenceWriteCount: 0,
+      teamContractFailedGraphWriteCount: 1,
+      teamOpenTasksEvidenceAfterInbox: 0,
+      teamProtocolPassed: 0,
+    });
+  });
+
+  it('uses correlation ordering for the agent-inbox protocol gate', () => {
+    const metrics = tacTeamContractMetrics([
+      { type: 'message', ts: 0, from: 'coordinator', to: 'service_inspector', content: 'TEAM_ASSIGNMENT correlation_id=tac-service-sync:cell:a' },
+      { type: 'message', ts: 1, from: 'service_inspector', to: 'coordinator', content: 'TEAM_EVIDENCE correlation_id=tac-service-sync:cell:b' },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'Bash',
+        input: {
+          agentId: 'service_inspector',
+          command:
+            'tac-opentasks-record-evidence service_inspector tac-service-sync:cell:b \'{"marker":"TEAM_EVIDENCE","evidence":[{"kind":"api"}]}\' t-root',
+        },
+        output:
+          '{"ok":true,"protocol":"agent-inbox-v1","marker":"TEAM_EVIDENCE","opentasks_record_id":"f-corr","correlation_id":"tac-service-sync:cell:b"}',
+      },
+      { type: 'tool', ts: 3, name: 'Bash', input: { agentId: 'coordinator', command: 'tac-plane-api PATCH workspaces/tac/projects/p/issues/i/ {"state":"done"}' } },
+      { type: 'message', ts: 4, from: 'coordinator', to: 'verifier', content: 'TEAM_VERIFICATION_REQUEST correlation_id=tac-service-sync:cell:v' },
+      { type: 'message', ts: 5, from: 'verifier', to: 'coordinator', content: 'TEAM_VERIFICATION correlation_id=tac-service-sync:cell:v verified' },
+      {
+        type: 'tool',
+        ts: 6,
+        name: 'Bash',
+        input: {
+          agentId: 'coordinator',
+          command: 'tac-opentasks-record-evidence verifier tac-service-sync:cell:v \'{"marker":"TEAM_VERIFICATION","summary":"verified"}\' t-root',
+        },
+        output:
+          '{"ok":true,"protocol":"agent-inbox-v1","marker":"TEAM_VERIFICATION","opentasks_record_id":"f-ver","correlation_id":"tac-service-sync:cell:v"}',
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamInboxEvidenceBeforeMutation: 1,
+      teamOpenTasksEvidenceAfterInbox: 1,
+      teamOpenTasksVerificationAfterVerifier: 1,
+      teamProtocolPassed: 0,
+    });
+  });
+
+  it('tracks helper-assisted protocol intent without counting it as delivered inbox handoff', () => {
+    const metrics = tacTeamContractMetrics([
+      {
+        type: 'tool',
+        ts: 0,
+        name: 'Bash',
+        input: { agentId: 'coordinator', command: 'tac-team-protocol assignment tac-service-sync:cell:inspection inspect service state' },
+        output:
+          '{"ok":true,"action":"assignment","marker":"TEAM_ASSIGNMENT","correlation_id":"tac-service-sync:cell:inspection","next_tool":{"name":"send_message"}}',
+      },
+      {
+        type: 'tool',
+        ts: 1,
+        name: 'Bash',
+        input: {
+          agentId: 'service_inspector',
+          command:
+            'tac-team-protocol record-evidence service_inspector tac-service-sync:cell:inspection \'{"marker":"TEAM_EVIDENCE","evidence":[{"kind":"api"}]}\' t-root',
+        },
+        output:
+          '{"ok":true,"action":"record-evidence","marker":"TEAM_EVIDENCE","opentasks_record_id":"f-helper","correlation_id":"tac-service-sync:cell:inspection"}',
+      },
+      {
+        type: 'tool',
+        ts: 2,
+        name: 'Bash',
+        input: {
+          agentId: 'coordinator',
+          command: 'tac-team-protocol mutate tac-service-sync:cell:inspection -- tac-gitlab-api PATCH projects/root/repo/issues/1 {"state_event":"close"}',
+        },
+        output: '{"ok":true,"action":"mutate","correlation_id":"tac-service-sync:cell:inspection"}',
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamProtocolHelperAssignmentCount: 1,
+      teamProtocolHelperEvidenceRecordCount: 1,
+      teamProtocolHelperMutationGateCount: 1,
+      teamProtocolHelperMutationGatePassedCount: 1,
+      teamProtocolMutationBypassCount: 0,
+      teamContractEvidenceWriteCount: 1,
+      teamInboxAssignmentCount: 0,
+      teamProtocolPassed: 0,
+    });
+  });
+
+  it('classifies raw service mutation as a team protocol bypass', () => {
+    const metrics = tacTeamContractMetrics([
+      {
+        type: 'tool',
+        ts: 0,
+        name: 'Bash',
+        input: { agentId: 'coordinator', command: 'tac-gitlab-api PATCH projects/root/repo/issues/1 {"state_event":"close"}' },
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamProtocolHelperMutationGateCount: 0,
+      teamProtocolMutationBypassCount: 1,
+      teamProtocolMutationBypassed: 1,
+      teamProtocolPassed: 0,
+    });
+  });
+
+  it('does not count failed swarm task updates as durable TAC team-contract evidence', () => {
+    const metrics = tacTeamContractMetrics([
+      { type: 'tool', ts: 0, name: 'task_list', input: { agentId: 'root' } },
+      {
+        type: 'tool',
+        ts: 1,
+        name: 'task_update',
+        input: { agentId: 'root', id: 't-missing', output: 'EVIDENCE_FOUND service_inspection evidence' },
+        isError: true,
+      } as TraceEvent & { isError: true },
+      { type: 'tool', ts: 2, name: 'Bash', input: { agentId: 'root', command: 'curl -X PATCH http://plane/api/issues/1' } },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamContractOpenTasksGraphCallCount: 0,
+      teamContractEvidenceWriteCount: 0,
+      teamContractFailedGraphWriteCount: 0,
+      teamContractChildEvidenceWritten: 0,
+      teamContractCoordinatorConsumedEvidenceBeforeMutation: 0,
+      teamContractStopGatePassed: 0,
+    });
+  });
+
+  it('classifies Python service writes before final TAC team-contract verification', () => {
+    const metrics = tacTeamContractMetrics([
+      { type: 'tool', ts: 0, name: 'task_list', input: { agentId: 'root' } },
+      { type: 'tool', ts: 1, name: 'agent', input: { agentId: 'root', prompt: 'inspect service state' } },
+      { type: 'tool', ts: 2, name: 'Read', input: { agentId: 'child' } },
+      {
+        type: 'tool',
+        ts: 3,
+        name: 'mcp__opentasks__update_task',
+        input: {
+          agentId: 'root',
+          id: 'service_inspection',
+          metadata: {
+            correlation_id: 'tac-service-sync:cell:inspection',
+            evidence: [{ kind: 'api' }],
+            commands_or_endpoints: ['tac-plane-api GET workspaces/tac/projects/p/issues/?expand=state'],
+          },
+        },
+        success: true,
+        output: '{"id":"t-service-inspection"}',
+      },
+      {
+        type: 'tool',
+        ts: 4,
+        name: 'Bash',
+        input: {
+          agentId: 'root',
+          command: [
+            'python - <<\'PY\'',
+            'import requests',
+            'requests.request("PATCH", "http://plane/api/issues/1", json={"state":"done"})',
+            'PY',
+          ].join('\n'),
+        },
+      },
+      {
+        type: 'tool',
+        ts: 5,
+        name: 'mcp__opentasks__record_attempt',
+        input: {
+          agentId: 'root',
+          taskId: 'verification',
+          summary: 'TEAM_VERIFICATION verified final service state',
+          metadata: { correlation_id: 'tac-service-sync:cell:verification' },
+        },
+        success: true,
+        output: '{"attemptId":"a-verification"}',
+      },
+    ]);
+
+    expect(metrics).toMatchObject({
+      teamContractVerificationAfterMutation: 1,
+      teamContractProductiveCoordination: 1,
+      teamContractStopGatePassed: 1,
+    });
   });
 
   it('uses seeded graph prompt language for the main OpenTasks agent', () => {
@@ -461,7 +1800,16 @@ describe('TAC OpenTasks MCP setup', () => {
 
     expect(prompt).toContain('deterministically seeded');
     expect(prompt).toContain('Use the opentasks skill');
-    expect(prompt).toContain('Call native mcp__opentasks__list_tasks once');
+    expect(prompt).toContain('select:mcp__opentasks__get_task');
+    expect(prompt).toContain('Call native mcp__opentasks__get_task with seeded task id t-seed1');
+    expect(prompt).toContain('read the full content before any task-specific Bash');
+    expect(prompt).toContain('the next tool call should be mcp__opentasks__get_task');
+    expect(prompt).toContain('Do not insert Bash status commands such as echo');
+    expect(prompt).toContain('Do not read /instruction/task.md before this get_task call');
+    expect(prompt).toContain('Do not run mcp__opentasks__get_task in Bash');
+    expect(prompt).toContain('do not fetch OpenTasks over curl');
+    expect(prompt).toContain('do not ask a subagent');
+    expect(prompt).toContain('Use mcp__opentasks__list_tasks only as a fallback');
     expect(prompt).toContain('Use seeded task id t-seed1');
     expect(prompt).toContain('Do not create a duplicate top-level task');
     expect(prompt).toContain('record one final outcome');
@@ -689,6 +2037,37 @@ describe('TAC OpenTasks MCP setup', () => {
     expect(command).not.toContain('A-Za-z0-9_-');
   });
 
+  it('runs GitLab API readiness checks against task projects before TAC populate scripts', () => {
+    const adapter = new TacDockerAdapter({
+      timeoutMs: 1,
+      initTimeoutMs: 1,
+      evalTimeoutMs: 1,
+      serverHostname: 'the-agent-company.com',
+      network: 'host',
+      decryptionKey: 'test',
+    }) as unknown as {
+      tacGitlabApiReadinessCommand: (runDir: string) => string;
+      tacInitWithoutResetCommand: () => string;
+      tacResetWithHostAliasCommand: () => string;
+    };
+
+    const readiness = adapter.tacGitlabApiReadinessCommand('.tac/test-cell');
+    const init = adapter.tacInitWithoutResetCommand();
+    const reset = adapter.tacResetWithHostAliasCommand();
+
+    expect(readiness).toContain('/eval/.tac/test-cell/tac-gitlab-api-readiness.json');
+    expect(readiness).toContain('/api/v4');
+    expect(readiness).toContain('/user');
+    expect(readiness).toContain('/projects?per_page=1');
+    expect(readiness).toContain('GITLAB_PROJECT_PATH|PROJECT_PATH');
+    expect(readiness).toContain('/projects/{encoded}/issues?per_page=1');
+    expect(readiness).toContain('isinstance(issues, list)');
+    expect(init).toContain('could not remove reset step from /utils/init.sh');
+    expect(init).toContain('bash /tmp/tac-init-without-reset.sh');
+    expect(reset).toContain('the-agent-company.com');
+    expect(reset).toContain('bash /utils/reset.sh');
+  });
+
   it('diagnoses an init-only prelude timeout as retryable', () => {
     const adapter = new TacDockerAdapter({
       timeoutMs: 1,
@@ -857,7 +2236,12 @@ describe('TAC adapter guardrail diagnostics', () => {
   it('extracts trace efficiency metrics for graph and service-call overhead', () => {
     const metrics = traceEfficiencyMetrics([
       { type: 'tool', ts: 0, name: 'Read', input: {} },
-      { type: 'tool', ts: 1, name: 'ToolSearch', input: {} },
+      {
+        type: 'tool',
+        ts: 1,
+        name: 'ToolSearch',
+        input: { query: 'select:mcp__opentasks__get_task,select:mcp__opentasks__record_attempt' },
+      },
       { type: 'tool', ts: 2, name: 'mcp__opentasks__list_tasks', input: {} },
       { type: 'tool', ts: 2.5, name: 'mcp__opentasks__get_task', input: { id: 't-1' } },
       {
@@ -870,28 +2254,99 @@ describe('TAC adapter guardrail diagnostics', () => {
         type: 'tool',
         ts: 4,
         name: 'Bash',
+        input: { command: 'tac-gitlab-protect-branch root/sotopia main 0 30' },
+      },
+      {
+        type: 'tool',
+        ts: 5,
+        name: 'Bash',
         input: { command: 'curl -s http://the-agent-company.com:8929/api/v4/projects/root%2FOpenSearch' },
       },
-      { type: 'tool', ts: 5, name: 'mcp__opentasks__record_attempt', input: {} },
-    ]);
+      { type: 'tool', ts: 6, name: 'mcp__opentasks__record_attempt', input: {} },
+    ], { seededTaskId: 't-1' });
 
     expect(metrics).toMatchObject({
-      mainToolCallCount: 7,
-      mainBashCallCount: 2,
+      mainToolCallCount: 8,
+      mainBashCallCount: 3,
       mainReadCallCount: 1,
       mainToolSearchCallCount: 1,
+      mainToolSearchMultiSelectCallCount: 1,
       mainOpenTasksCallCount: 3,
       mainOpenTasksListCallCount: 1,
+      mainOpenTasksGetTaskCallCount: 1,
       mainOpenTasksUpdateCallCount: 1,
       openTasksCallsBeforeFirstBash: 2,
       openTasksCallsAfterLastBash: 1,
+      openTasksGetTaskCallsBeforeFirstBash: 1,
+      mainFullTaskContentReadBeforeFirstBash: 1,
+      openTasksGetTaskCallsBeforeFirstTaskWork: 0,
+      mainFullTaskContentReadBeforeFirstTaskWork: 0,
+      seededTaskGetTaskCallCount: 1,
+      seededTaskGetTaskBeforeFirstBashCallCount: 1,
+      seededTaskFullContentReadBeforeFirstBash: 1,
+      seededTaskGetTaskBeforeFirstTaskWorkCallCount: 0,
+      seededTaskFullContentReadBeforeFirstTaskWork: 0,
       mainOpenTasksDistinctToolCount: 3,
       mainOpenTasksListTasksCallCount: 1,
-      mainOpenTasksGetTaskCallCount: 1,
       mainOpenTasksRecordAttemptCallCount: 1,
-      gitlabHelperCallCount: 1,
+      gitlabHelperCallCount: 2,
       gitlabHelperApiShorthandCallCount: 1,
+      gitlabProtectedBranchHelperCallCount: 1,
       rawGitlabApiCurlCallCount: 1,
+    });
+  });
+
+  it('does not count full task content as pre-action when get_task happens after Bash', () => {
+    const metrics = traceEfficiencyMetrics(
+      [
+        { type: 'tool', ts: 0, name: 'mcp__opentasks__list_tasks', input: {} },
+        { type: 'tool', ts: 1, name: 'Bash', input: { command: 'echo acting' } },
+        { type: 'tool', ts: 2, name: 'mcp__opentasks__get_task', input: { id: 't-1' } },
+      ],
+      { seededTaskId: 't-1' },
+    );
+
+    expect(metrics).toMatchObject({
+      mainOpenTasksGetTaskCallCount: 1,
+      openTasksGetTaskCallsBeforeFirstBash: 0,
+      mainFullTaskContentReadBeforeFirstBash: 0,
+      openTasksGetTaskCallsBeforeFirstTaskWork: 0,
+      mainFullTaskContentReadBeforeFirstTaskWork: 0,
+      seededTaskGetTaskCallCount: 1,
+      seededTaskGetTaskBeforeFirstBashCallCount: 0,
+      seededTaskFullContentReadBeforeFirstBash: 0,
+      seededTaskGetTaskBeforeFirstTaskWorkCallCount: 0,
+      seededTaskFullContentReadBeforeFirstTaskWork: 0,
+    });
+  });
+
+  it('counts full task content before task work only when get_task precedes Read Bash and delegation', () => {
+    const compliant = traceEfficiencyMetrics(
+      [
+        { type: 'tool', ts: 0, name: 'ToolSearch', input: {} },
+        { type: 'tool', ts: 1, name: 'mcp__opentasks__get_task', input: { id: 't-1' } },
+        { type: 'tool', ts: 2, name: 'Read', input: { file_path: '/instruction/task.md' } },
+        { type: 'tool', ts: 3, name: 'Bash', input: { command: 'echo acting' } },
+      ],
+      { seededTaskId: 't-1' },
+    );
+    const delegatedFirst = traceEfficiencyMetrics(
+      [
+        { type: 'tool', ts: 0, name: 'ToolSearch', input: {} },
+        { type: 'tool', ts: 1, name: 'Agent', input: { prompt: 'inspect task' } },
+        { type: 'tool', ts: 2, name: 'mcp__opentasks__get_task', input: { id: 't-1' } },
+        { type: 'tool', ts: 3, name: 'Bash', input: { command: 'echo acting' } },
+      ],
+      { seededTaskId: 't-1' },
+    );
+
+    expect(compliant).toMatchObject({
+      seededTaskFullContentReadBeforeFirstBash: 1,
+      seededTaskFullContentReadBeforeFirstTaskWork: 1,
+    });
+    expect(delegatedFirst).toMatchObject({
+      seededTaskFullContentReadBeforeFirstBash: 1,
+      seededTaskFullContentReadBeforeFirstTaskWork: 0,
     });
   });
 
@@ -930,6 +2385,99 @@ describe('TAC adapter guardrail diagnostics', () => {
     expect(diagnostics.liveTokenBudgetExceeded).toBe(1);
     expect(taxonomy.labels).toContain('budget_live_tokens');
     expect(taxonomy.labels).toContain('auth_or_permission');
+  });
+
+  it('extracts repeated tool/API failure signals from openswarm lane events', () => {
+    const stdout = [
+      JSON.stringify({
+        ts: 1,
+        agentId: 'agent-1',
+        type: 'tool_use_start',
+        payload: { type: 'tool_use_start', id: 't1', name: 'bash' },
+      }),
+      JSON.stringify({
+        ts: 2,
+        agentId: 'agent-1',
+        type: 'tool_use_input',
+        payload: { type: 'tool_use_input', id: 't1', jsonDelta: '{"command":"curl -i http://example.test/missing"}' },
+      }),
+      JSON.stringify({
+        ts: 3,
+        agentId: 'agent-1',
+        type: 'tool_use_end',
+        payload: { type: 'tool_use_end', id: 't1' },
+      }),
+      JSON.stringify({
+        ts: 4,
+        agentId: 'agent-1',
+        type: 'tool_result',
+        payload: { type: 'tool_result', toolUseId: 't1', content: 'HTTP/1.1 404 Not Found', isError: true },
+      }),
+    ].join('\n');
+
+    const diagnostics = traceDiagnosticsFromClaudeStream(stdout, '');
+
+    expect(diagnostics.toolErrorCount).toBe(1);
+    expect(diagnostics.http404Count).toBeGreaterThan(0);
+  });
+
+  it('counts broad root filesystem searches from Bash commands only', () => {
+    const stdout = [
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              name: 'Bash',
+              input: {
+                command: [
+                  'find / -name "*plane*"',
+                  'grep -R "needle" /',
+                  "python3 - <<'PY'",
+                  'import glob',
+                  "glob.glob('/**/*plane*', recursive=True)",
+                  'PY',
+                  'find /workspace -name package.json',
+                ].join('\n'),
+              },
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: 'user',
+        message: {
+          content: [
+            {
+              type: 'tool_result',
+              content: 'Prompt reminder: do not run find / or glob("/**/*", recursive=True).',
+            },
+          ],
+        },
+      }),
+    ].join('\n');
+
+    const diagnostics = traceDiagnosticsFromClaudeStream(stdout, '');
+    const taxonomy = failureTaxonomy(diagnostics);
+
+    expect(diagnostics.broadFilesystemSearchCount).toBe(3);
+    expect(taxonomy.labels).toContain('broad_filesystem_search');
+  });
+
+  it('suppresses failure taxonomy metrics on full TAC success', () => {
+    const diagnostics = traceDiagnosticsFromClaudeStream(
+      JSON.stringify({
+        type: 'user',
+        message: { content: [{ type: 'tool_result', is_error: true, content: 'HTTP/1.1 404 Not Found' }] },
+      }),
+      '',
+    );
+
+    const metrics = taxonomyMetricsForTacResult({ final_score: { total: 1, result: 1 } }, diagnostics);
+
+    expect(metrics.taxonomyNotFoundOrWrongTarget).toBe(0);
+    expect(metrics.taxonomyUndifferentiatedTaskFailure).toBe(0);
   });
 
   it('extracts GitLab wiki write signals from commands and tool results', () => {

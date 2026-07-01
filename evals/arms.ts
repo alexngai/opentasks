@@ -27,37 +27,59 @@ const NOTES: EvalArm = {
   extraTools: [],
 };
 
+const OPENTASKS_TOOLS = [
+  'Skill',
+  'ToolSearch',
+  'mcp__opentasks__create_task',
+  'mcp__opentasks__get_task',
+  'mcp__opentasks__update_task',
+  'mcp__opentasks__list_tasks',
+  'mcp__opentasks__query',
+  'mcp__opentasks__link',
+  'mcp__opentasks__create_context',
+  'mcp__opentasks__get_context',
+  'mcp__opentasks__list_contexts',
+  'mcp__opentasks__context_summary',
+  'mcp__opentasks__record_attempt',
+  'mcp__opentasks__list_attempts',
+];
+
+const OPENTASKS_MCP = { name: 'opentasks', command: 'node', args: [OPENTASKS_CLI, 'mcp', '--scope', 'all'] };
+
 const OPENTASKS: EvalArm = {
   id: 'opentasks',
   label: 'OpenTasks MCP',
   systemPromptAppendix:
     'You have an OpenTasks MCP server (native tools prefixed mcp__opentasks__) and a project skill named opentasks. ' +
-    'Use the opentasks skill for the minimal TAC graph protocol. Use native MCP tools only; do not invoke ' +
-    'mcp__opentasks__ tool names as shell commands. If tools are hidden or pending, use ToolSearch with ' +
-    'select:mcp__opentasks__list_tasks or select:mcp__opentasks__record_attempt, then call the returned native tool. ' +
-    'Inspect the seeded task once near the start, use Bash/curl/git/service APIs for the TAC work, and record one final ' +
+    'Use the opentasks skill for the minimal TAC graph protocol. If a seeded TAC task id is given, call native ' +
+    'mcp__opentasks__get_task on that id before task-specific Bash/curl/git/service API work. Use native MCP tools ' +
+    'only; do not invoke mcp__opentasks__ tool names as shell commands, Python subprocesses, or curl requests. If tools ' +
+    'are hidden or pending, use ToolSearch with exactly one query, select:mcp__opentasks__get_task, then call the returned native tool. ' +
+    'Do not combine multiple select queries with commas or search for update/record tools before the initial get_task call. ' +
+    'Do not insert Bash status commands such as echo, printf, or logging between ToolSearch and the native OpenTasks call. ' +
+    'Use Bash/curl/git/service APIs for the TAC work itself, and record one final ' +
     'outcome/evidence update after verification. Create no duplicate top-level task when a seeded TAC task already exists.',
-  extraTools: [
-    'Skill',
-    'ToolSearch',
-    'mcp__opentasks__create_task',
-    'mcp__opentasks__get_task',
-    'mcp__opentasks__update_task',
-    'mcp__opentasks__list_tasks',
-    'mcp__opentasks__query',
-    'mcp__opentasks__link',
-    'mcp__opentasks__create_context',
-    'mcp__opentasks__get_context',
-    'mcp__opentasks__list_contexts',
-    'mcp__opentasks__context_summary',
-    'mcp__opentasks__record_attempt',
-    'mcp__opentasks__list_attempts',
-  ],
-  mcp: { name: 'opentasks', command: 'node', args: [OPENTASKS_CLI, 'mcp', '--scope', 'all'] },
+  extraTools: OPENTASKS_TOOLS,
+  mcp: OPENTASKS_MCP,
+};
+
+const OPENTASKS_TEAM_CONTRACT: EvalArm = {
+  id: 'opentasks-team-contract',
+  label: 'OpenTasks Team Contract',
+  systemPromptAppendix:
+    'You are running the OpenTasks team-contract TAC arm. Treat the task graph as the durable evidence, decision, and verification record. ' +
+    'In openswarm team mode, first call native swarm task_list({}) and use the returned running task id for task_get/task_update as the local swarm coordination log. Local task_update(id:"<task_list id>", output:"...") output is not durable OpenTasks evidence by itself. ' +
+    'Do not assume tac-root or the seeded OpenTasks id is the swarm task registry id unless task_list returns that exact id. If task_list returns no usable task, call task_create to create a coordination log and update that returned id. ' +
+    'Do not search for mcp__opentasks__ tools in openswarm. If direct mcp__opentasks__ tools are visible in another harness, use them instead of the swarm task aliases. ' +
+    'Use the team contract packet if provided: spawn or delegate to a service_inspector when useful, require structured evidence before mutation, and persist final verification evidence through direct OpenTasks MCP or a verified graph-writing helper/artifact. ' +
+    'When spawning a service inspector that needs shell/API reads, pass permissionMode:"danger-full-access" and instruct it not to mutate service state; do not use read-only permission mode for API inspection.',
+  extraTools: OPENTASKS_TOOLS,
+  mcp: OPENTASKS_MCP,
 };
 
 export const ARMS: Record<ArmId, EvalArm> = {
   stock: STOCK,
   notes: NOTES,
   opentasks: OPENTASKS,
+  'opentasks-team-contract': OPENTASKS_TEAM_CONTRACT,
 };

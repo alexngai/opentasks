@@ -1,0 +1,10 @@
+{"type":"message_sent","from":"coordinator","to":"service_inspector","message":{"content":"TEAM_ASSIGNMENT correlation_id=tac-service-sync:cell:inspection"}}
+{"type":"tool_use_start","id":"tool-1","name":"bash","agentId":"service_inspector"}
+{"type":"tool_use_end","id":"tool-1","input":{"command":"tac-opentasks-record-evidence service_inspector tac-service-sync:cell:inspection '{\"marker\":\"TEAM_EVIDENCE\",\"evidence\":[{\"kind\":\"api\"}]}' t-root"},"agentId":"service_inspector"}
+{"type":"tool_result","toolUseId":"tool-1","content":"{\"ok\":true,\"protocol\":\"agent-inbox-v1\",\"marker\":\"TEAM_EVIDENCE\",\"opentasks_record_id\":\"f-e1\"}","isError":false}
+{"type":"tool_use_start","id":"tool-2","name":"bash","agentId":"coordinator"}
+{"type":"tool_use_end","id":"tool-2","input":{"command":"tac-gitlab-api PATCH projects/root/repo/issues/1 '{\"state_event\":\"close\"}'"},"agentId":"coordinator"}
+{"type":"message_sent","from":"coordinator","to":"verifier","message":{"content":"TEAM_VERIFICATION_REQUEST correlation_id=tac-service-sync:cell:verification"}}
+{"type":"message_sent","from":"verifier","to":"coordinator","message":{"content":"TEAM_VERIFICATION correlation_id=tac-service-sync:cell:verification verified"}}
+{"type":"tool_use_start","id":"tool-3","name":"mcp__opentasks__record_attempt","agentId":"coordinator"}
+{"type":"tool_use_end","id":"tool-3","input":{"taskId":"verification","summary":"TEAM_VERIFICATION verified"},"agentId":"coordinator"}

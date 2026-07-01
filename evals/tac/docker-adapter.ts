@@ -15,13 +15,25 @@ import {
 import {
   TAC_BASE_TOOLS,
   tacAgentHarnessFromId,
+  tacDefaultAgentSetupCommand,
   type TacAgentHarness,
 } from './agent-harness.js';
+import { tacForwardedEnv } from './env.js';
 import { scoreFromTacResult, type TacResultJson } from './score.js';
+import {
+  buildTacTeamContractPacket,
+  compileTacServiceSyncRolePackets,
+  isTacTeamContractArm,
+  TAC_SERVICE_SYNC_TEAM,
+  TAC_TEAM_CONTRACT_ARM_ID,
+  TAC_TEAM_PROTOCOL_HELPER,
+  TAC_TEAM_PROTOCOL_ID,
+  tacTeamContractMetrics,
+} from './team-contract.js';
 
 const ZERO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 const OPENTASKS_PROJECT_DIR = '/workspace/.opentasks';
-const OPENTASKS_REQUIRED_MCP_TOOLS = ['create_task', 'list_tasks', 'record_attempt', 'query'];
+const OPENTASKS_REQUIRED_MCP_TOOLS = ['create_task', 'get_task', 'list_tasks', 'record_attempt', 'query', 'update_task'];
 const OPENTASKS_MCP_TOOL_PREFIX = 'mcp__opentasks__';
 type OpenTasksMcpCommandVariant = 'wrapper' | 'sh-lc' | 'direct';
 type OpenTasksPreludeFailureMode = 'fail-fast' | 'degrade';
@@ -35,12 +47,12 @@ export interface TacDockerAdapterOptions {
   network: string;
   dockerCommand?: string;
   env?: Record<string, string>;
-  /** Optional command run inside the TAC task container before invoking claude. */
+  /** Optional command run inside the TAC task container before invoking the selected agent harness. */
   agentSetupCommand?: string;
   /** Swappable agent runtime used inside the TAC task container. Defaults to claude-code. */
   agentHarness?: TacAgentHarness;
   agentHarnessId?: string;
-  /** Optional non-root user for the Claude CLI phase. Init/eval still run as root. */
+  /** Optional non-root user for the agent phase. Init/eval still run as root. */
   agentUser?: string;
   /** Mount local OpenTasks checkout for the opentasks arm. Local/EC2 path only. */
   opentasksMount?: string;
@@ -50,11 +62,11 @@ export interface TacDockerAdapterOptions {
   operatingPrompt?: string | false;
   /** Optional experiment-specific prompt text applied equally to all arms. */
   agentPromptAppendix?: string;
-  /** Verify the OpenTasks MCP server inside the TAC task container before invoking Claude. */
+  /** Verify the OpenTasks MCP server inside the TAC task container before invoking the agent. */
   opentasksMcpPreflight?: boolean;
-  /** Run a tiny Claude Code invocation to verify it registers the OpenTasks MCP tools. */
+  /** Run a tiny agent invocation to verify it can call native OpenTasks MCP tools. */
   opentasksClaudeMcpSmoke?: boolean;
-  /** Stop before the expensive TAC task if the Claude-specific MCP smoke fails. */
+  /** Stop before the expensive TAC task if the harness-level MCP smoke fails. */
   opentasksClaudeMcpSmokeFailFast?: boolean;
   /** Test Claude Code with/without --strict-mcp-config. Defaults to strict. */
   strictMcpConfig?: boolean;
@@ -109,9 +121,15 @@ export const DEFAULT_TAC_OPERATING_PROMPT = [
   '- RocketChat login is theagentcompany / theagentcompany.',
   '- Plane login is agent@company.com / theagentcompany; Plane API requests usually use the x-api-key from /utils/config.py.',
   '',
-  'For GitLab tasks, prefer the REST API or git over the web UI. Use the target URL to derive the project path, then resolve the project with /api/v4/projects/:urlencoded_path instead of guessing numeric project ids.',
-  'For GitLab writes, include PRIVATE-TOKEN: root-token. Unauthenticated GET requests can succeed; that does not mean POST/PUT/PATCH/DELETE will succeed.',
-  'Use the installed helper `tac-gitlab-api METHOD PATH [JSON_BODY]` for concise GitLab API calls when possible. It adds the token, accepts API shorthand paths like `projects/root%2Frepo`, and caps response output.',
+  'For Plane tasks, prefer the installed helper `tac-plane-api METHOD PATH [JSON_BODY]` instead of raw curl or ad hoc Python auth setup. It loads the Plane API key from /utils/config.py, accepts API shorthand paths, redacts credentials, and caps response output.',
+  'Helpful Plane helper examples: `tac-plane-api GET workspaces/tac/projects/PROJECT_ID/issues/?expand=state`, `tac-plane-api GET workspaces/tac/projects/PROJECT_ID/states/`, `tac-plane-api PATCH workspaces/tac/projects/PROJECT_ID/issues/ISSUE_ID/ \'{"state":"STATE_ID"}\'`.',
+  'For Plane issue-state tasks, resolve issue states with `?expand=state` or the project states endpoint before deciding whether an issue is open or closed; do not infer state meaning from an opaque UUID alone.',
+  '',
+  'For GitLab tasks, prefer the REST API or git over the web UI. For GitLab REST API calls, prefer the installed helper `tac-gitlab-api METHOD PATH [JSON_BODY]` instead of raw curl. It adds the token, accepts API shorthand paths, normalizes common project path encodings, redacts credentials, and caps response output.',
+  'Use the target URL to derive the project path, then resolve the project with `tac-gitlab-api GET projects/root/repo` or `tac-gitlab-api GET projects/root%2Frepo` instead of guessing numeric project ids.',
+  'For GitLab writes through raw curl, include PRIVATE-TOKEN: root-token. Unauthenticated GET requests can succeed; that does not mean POST/PUT/PATCH/DELETE will succeed. Raw curl is mainly for cases the helper cannot express.',
+  'Helpful GitLab helper examples: `tac-gitlab-api GET projects/root/repo`, `tac-gitlab-api GET projects/root/repo/repository/branches/main`, `tac-gitlab-api DELETE projects/root/repo/repository/branches/feature/old`, `tac-gitlab-api POST projects/root/repo/issues \'{"title":"Done"}\'`.',
+  'For GitLab protected branch policy changes, prefer `tac-gitlab-protect-branch root/repo main PUSH_LEVEL MERGE_LEVEL`; access levels are 0 no one, 30 developers, 40 maintainers. It safely delete/recreates the branch protection and verifies the result.',
   'If you need git push access, use an authenticated HTTP remote such as http://root:root-token@the-agent-company.com:8929/group/project.git, but avoid printing credentials.',
   'Inspect the target project, modify the requested files or configuration, commit changes when requested, and verify the resulting state through GitLab, git, or HTTP/API calls.',
   'For documentation or wiki tasks, keep generated content tightly grounded in the requested source material. Do not add broad external background or speculative structure unless the task explicitly asks for it and you verified it from the repository.',
@@ -122,6 +140,7 @@ export const DEFAULT_TAC_OPERATING_PROMPT = [
   '- For unknown URLs, first request status and headers or cap content with `head -c 4000`.',
   '- Prefer jq-selected JSON fields, grep -n with a narrow pattern, and small file previews.',
   '- If a response is HTML from a web UI or a Not Found page, do not keep reading it; switch to the API or git route.',
+  '- Do not run recursive filesystem searches from `/` such as `find /`, `grep -R /`, or Python `glob("/**/*", recursive=True)`. Search only bounded paths such as `/workspace`, `/utils`, the current repo, or a known service/config directory.',
   '',
   'Avoid unbounded retry loops. If the same command, API request, write attempt, or login/permission approach fails repeatedly with the same evidence, stop repeating it, try at most one materially different strategy, then proceed with the best verified state and report the blocker.',
   'Do not brute-force credentials, tokens, URLs, or forms. If GitLab returns 401/403 on a write, use the documented root-token header rather than trying passwords, CSRF/session flows, SSH key generation, or token guessing.',
@@ -137,18 +156,21 @@ export const OPENTASKS_TAC_SKILL = [
   '---',
   '# OpenTasks',
   '',
-  'Use native MCP tools named `mcp__opentasks__...` for task graph state. Never run those tool names in Bash, curl, node, or python.',
-  'If an OpenTasks tool is hidden or still pending, use `ToolSearch` with a query such as `select:mcp__opentasks__list_tasks`, `select:mcp__opentasks__get_task`, or `select:mcp__opentasks__record_attempt`, then call the returned native tool.',
-  'Do not test OpenTasks by echoing tool names or simulating MCP calls in Bash.',
+  'Use native MCP tools named `mcp__opentasks__...` for task graph state. Never run those tool names in Bash, curl, node, python, or a shell command.',
+  'If an OpenTasks tool is hidden or still pending, call `ToolSearch` with one exact select query such as `select:mcp__opentasks__get_task`, then call the returned native tool directly.',
+  'After ToolSearch returns a tool reference, the next tool call should be the native `mcp__opentasks__...` tool, not Bash or Read.',
+  'Do not insert Bash status commands such as echo, printf, or logging between ToolSearch and the native OpenTasks tool call.',
+  'Do not combine multiple select queries with commas. Do not delegate OpenTasks reads to a subagent. Do not test OpenTasks by echoing tool names or simulating MCP calls in Bash.',
   '',
   'Minimal TAC graph protocol:',
   '',
-  '1. Inspect the graph once near the start with `mcp__opentasks__list_tasks`.',
-  '2. If a seeded TAC task exists, call `mcp__opentasks__get_task` on that task id and read the full `content` before acting; list output may be only a short title.',
-  '3. Use that seeded task id. Do not create a duplicate top-level task.',
-  '4. If no seeded task exists, create one top-level task with `mcp__opentasks__create_task` and `status: "open"`.',
-  '5. Use Bash, curl, git, python, and service APIs for the TAC work itself.',
-  '6. At the end, record the final outcome and concrete verification evidence with `mcp__opentasks__record_attempt` or `mcp__opentasks__update_task`.',
+  '1. If the prompt gives a seeded TAC task id, call `mcp__opentasks__get_task` on that exact id and read the full `content` before task-specific Bash, curl, git, python, or service API work.',
+  '2. Do not read `/instruction/task.md` before the seeded `get_task` call unless `get_task` is unavailable after one exact ToolSearch attempt.',
+  '3. If no seeded id is given, inspect the graph once near the start with `mcp__opentasks__list_tasks`, then call `mcp__opentasks__get_task` for the relevant task.',
+  '4. Use that seeded task id. Do not create a duplicate top-level task.',
+  '5. If no seeded task exists, create one top-level task with `mcp__opentasks__create_task` and `status: "open"`.',
+  '6. Use Bash, curl, git, python, and service APIs for the TAC work itself.',
+  '7. At the end, record the final outcome and concrete verification evidence with `mcp__opentasks__record_attempt` or `mcp__opentasks__update_task`.',
   '',
   'Efficiency rules:',
   '',
@@ -194,12 +216,10 @@ export class TacDockerAdapter implements ExecutionAdapter {
       await ws.writeFiles([
         {
           path: `${runDir}/prompt.txt`,
-          content: buildTacAgentPrompt({
-            operatingPrompt: this.opts.operatingPrompt,
-            appendix: this.opts.agentPromptAppendix,
-          }),
+          content: this.mainPrompt(cell, runDir),
         },
         { path: `${runDir}/mcp.json`, content: JSON.stringify(this.mcpConfig(cell, runDir), null, 2) },
+        ...this.teamContractFiles(cell, runDir),
         ...(usesOpenTasks(cell)
           ? [
               { path: `${runDir}/opentasks-skill.md`, content: OPENTASKS_TAC_SKILL } satisfies FileSeed,
@@ -222,15 +242,20 @@ export class TacDockerAdapter implements ExecutionAdapter {
       });
       if (setup.exitCode !== 0) return envRaw('crash', `agent setup failed: ${setup.stderr || setup.stdout}`, start);
 
-      const init = await this.runInContainer(ws, container, 'bash /utils/init.sh', {
-        timeoutMs: this.opts.initTimeoutMs,
-        cwd: '/workspace',
-        env: this.initEnv(),
-      });
+      const gitlabRequired = await this.taskRequiresGitlab(ws, container);
+      let gitlabRootTokenRefreshed = false;
+      const init = gitlabRequired
+        ? await this.runGitlabAwareTacInit(ws, container, runDir, start)
+        : await this.runInContainer(ws, container, 'bash /utils/init.sh', {
+            timeoutMs: this.opts.initTimeoutMs,
+            cwd: '/workspace',
+            env: this.initEnv(),
+          });
+      if ('raw' in init) return init.raw;
+      gitlabRootTokenRefreshed = init.gitlabRootTokenRefreshed;
       await this.writeCommandArtifacts(ws, runDir, 'tac-init', init);
       if (init.exitCode !== 0) return envRaw('sandbox', `TAC init failed: ${init.stderr || init.stdout}`, start);
 
-      const gitlabRequired = await this.taskRequiresGitlab(ws, container);
       const helperInstall = await this.runInContainer(ws, container, this.tacAgentHelperInstallCommand(), {
         timeoutMs: Math.min(this.opts.initTimeoutMs, 60_000),
         cwd: '/workspace',
@@ -238,7 +263,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
       await this.writeCommandArtifacts(ws, runDir, 'tac-agent-helpers', helperInstall);
       if (helperInstall.exitCode !== 0) return envRaw('crash', `TAC agent helper install failed: ${helperInstall.stderr || helperInstall.stdout}`, start);
 
-      if (gitlabRequired && this.opts.tacGitlabTokenRefresh !== false) {
+      if (gitlabRequired && this.opts.tacGitlabTokenRefresh !== false && !gitlabRootTokenRefreshed) {
         const tokenRefresh = await this.refreshTacGitlabRootToken(ws);
         await this.writeCommandArtifacts(ws, runDir, 'tac-gitlab-token-refresh', tokenRefresh);
         if (!this.tacGitlabRootTokenRefreshOk(tokenRefresh)) {
@@ -389,7 +414,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
         }
 
         if (this.opts.opentasksClaudeMcpSmoke !== false) {
-          const smoke = await this.runInContainer(ws, container, this.claudeMcpSmokeCommand(cell, runDir), {
+          const smoke = await this.runInContainer(ws, container, this.opentasksMcpSmokeCommand(cell, runDir), {
             timeoutMs: Math.min(this.opts.initTimeoutMs, 180_000),
             cwd: '/workspace',
             env: this.agentEnv(cell),
@@ -400,19 +425,21 @@ export class TacDockerAdapter implements ExecutionAdapter {
             stdout: redactSensitiveText(smoke.stdout),
             stderr: redactSensitiveText(smoke.stderr),
           };
-          const smokeReport = this.claudeMcpSmokeReport(cell, sanitizedSmoke);
+          const smokeReport = this.opentasksMcpSmokeReport(cell, sanitizedSmoke);
           await ws.writeFiles([
+            { path: `${runDir}/opentasks-mcp-smoke.jsonl`, content: sanitizedSmoke.stdout },
+            { path: `${runDir}/opentasks-mcp-smoke-report.json`, content: `${JSON.stringify(smokeReport, null, 2)}\n` },
             { path: `${runDir}/claude-mcp-smoke.jsonl`, content: sanitizedSmoke.stdout },
             { path: `${runDir}/claude-mcp-smoke-report.json`, content: `${JSON.stringify(smokeReport, null, 2)}\n` },
           ]);
-          await writeLocalArtifact('claude-mcp-smoke.jsonl', sanitizedSmoke.stdout);
-          await writeLocalArtifact('claude-mcp-smoke-stderr.log', sanitizedSmoke.stderr);
-          await writeLocalArtifact('claude-mcp-smoke-report.json', `${JSON.stringify(smokeReport, null, 2)}\n`);
+          await writeLocalArtifact('opentasks-mcp-smoke.jsonl', sanitizedSmoke.stdout);
+          await writeLocalArtifact('opentasks-mcp-smoke-stderr.log', sanitizedSmoke.stderr);
+          await writeLocalArtifact('opentasks-mcp-smoke-report.json', `${JSON.stringify(smokeReport, null, 2)}\n`);
           await this.copyOpenTasksMcpWrapperLog(ws, runDir);
           if (smokeReport.ok !== true && this.opts.opentasksClaudeMcpSmokeFailFast !== false) {
             return envRaw(
               'crash',
-              `Claude OpenTasks MCP smoke failed: ${smokeReport.failureReason ?? 'unknown failure'}`,
+              `OpenTasks MCP smoke failed: ${smokeReport.failureReason ?? 'unknown failure'}`,
               start,
               smokeReport.usage ?? ZERO_USAGE,
               smokeReport.trajectory ?? [],
@@ -447,7 +474,10 @@ export class TacDockerAdapter implements ExecutionAdapter {
               start,
             );
           }
-          await ws.writeFiles([{ path: `${runDir}/prompt.txt`, content: this.mainPromptWithGraphSeed(opentasksGraphSeedReport) }]);
+          await ws.writeFiles([
+            ...this.teamContractFiles(cell, runDir, opentasksGraphSeedReport),
+            { path: `${runDir}/prompt.txt`, content: this.mainPromptWithGraphSeed(opentasksGraphSeedReport, cell, runDir) },
+          ]);
         }
 
         if (this.opts.opentasksTaskPrelude === true) {
@@ -636,7 +666,16 @@ export class TacDockerAdapter implements ExecutionAdapter {
       const observedOpenTasksToolUse = hasOpenTasksMcpCall(parsed.trajectory) || hasOpenTasksMcpCall(opentasksPreludeTrajectory);
       const mcpServersConnected = Math.max(explicitOpenTasksServerConnections, observedOpenTasksToolUse ? 1 : 0);
       const mainReadGraph = mcpServersConnected > 0 || mainGraphInspected === 1;
-      const efficiencyMetrics = traceEfficiencyMetrics(parsed.trajectory);
+      const efficiencyMetrics = traceEfficiencyMetrics(parsed.trajectory, {
+        seededTaskId: opentasksGraphSeedReport?.taskId,
+      });
+      const teamContractMetrics = isTacTeamContractArm(cell.arm.id)
+        ? {
+            ...tacTeamContractMetrics(parsed.trajectory),
+            teamProtocolAgentInboxEnabled: this.teamProtocolEnabled(cell) ? 1 : 0,
+            teamProtocolNativeRoleEnforcement: this.teamProtocolEnabled(cell) ? 0 : 0,
+          }
+        : {};
       const score = scoreFromTacResult(resultJson, {
         readGraph: mainReadGraph ? 1 : 0,
         seededGraphInitialized,
@@ -645,8 +684,9 @@ export class TacDockerAdapter implements ExecutionAdapter {
         mainGraphUpdated,
         mcpServersConnected,
         ...efficiencyMetrics,
+        ...teamContractMetrics,
         ...diagnostics,
-        ...taxonomyMetrics(failureTaxonomy(diagnostics)),
+        ...taxonomyMetricsForTacResult(resultJson, diagnostics),
       });
       await writeLocalArtifact('failure-taxonomy.json', `${JSON.stringify(failureTaxonomy(diagnostics), null, 2)}\n`);
       return {
@@ -683,6 +723,104 @@ export class TacDockerAdapter implements ExecutionAdapter {
     return args.join(' ');
   }
 
+  private mainPrompt(cell: PublicCell, runDir?: string): string {
+    return buildTacAgentPrompt({
+      operatingPrompt: this.opts.operatingPrompt,
+      appendix: this.mainPromptAppendix(cell, undefined, runDir),
+    });
+  }
+
+  private mainPromptAppendix(cell: PublicCell, seedReport?: OpenTasksGraphSeedReport, runDir?: string): string | undefined {
+    const chunks = [this.opts.agentPromptAppendix?.trim()].filter((chunk): chunk is string => Boolean(chunk));
+    if (isTacTeamContractArm(cell.arm.id)) {
+      chunks.push(
+        buildTacTeamContractPacket({
+          sourceTaskId: cell.task.id,
+          taskText: cell.task.prompt,
+          seededRootTaskId: seedReport?.taskId,
+        }),
+      );
+      if (this.teamProtocolEnabled(cell) && runDir) {
+        chunks.push(this.teamProtocolPromptAppendix(cell, runDir, seedReport));
+      }
+    }
+    return chunks.length ? chunks.join('\n\n') : undefined;
+  }
+
+  private teamContractFiles(cell: PublicCell, runDir: string, seedReport?: OpenTasksGraphSeedReport): FileSeed[] {
+    if (!isTacTeamContractArm(cell.arm.id)) return [];
+    const files: FileSeed[] = [
+      {
+        path: `${runDir}/team-contract-packet.md`,
+        content: buildTacTeamContractPacket({
+          sourceTaskId: cell.task.id,
+          taskText: cell.task.prompt,
+          seededRootTaskId: seedReport?.taskId,
+        }),
+      },
+      {
+        path: `${runDir}/team-contract-template.json`,
+        content: `${JSON.stringify(TAC_SERVICE_SYNC_TEAM, null, 2)}\n`,
+      },
+    ];
+    if (!this.teamProtocolEnabled(cell)) return files;
+
+    const rolePackets = compileTacServiceSyncRolePackets({
+      sourceTaskId: cell.task.id,
+      taskText: cell.task.prompt,
+      seededRootTaskId: seedReport?.taskId,
+      basePath: `${runDir}/team-roles`,
+    });
+    files.push(
+      ...rolePackets.map((packet) => ({ path: packet.path, content: packet.content })),
+      {
+        path: `${runDir}/team-contract-protocol.json`,
+        content: `${JSON.stringify(
+          {
+            protocol: TAC_TEAM_PROTOCOL_ID,
+            template: TAC_SERVICE_SYNC_TEAM.name,
+            rolePacketPaths: rolePackets.map((packet) => packet.path),
+            nativeRoleEnforcement: 0,
+            nativeRoleEnforcementReason: 'openswarm native role task fields are not wired in this TAC adapter slice',
+          },
+          null,
+          2,
+        )}\n`,
+      },
+    );
+    return files;
+  }
+
+  private teamProtocolPromptAppendix(cell: PublicCell, runDir: string, seedReport?: OpenTasksGraphSeedReport): string {
+    const rolePackets = compileTacServiceSyncRolePackets({
+      sourceTaskId: cell.task.id,
+      taskText: cell.task.prompt,
+      seededRootTaskId: seedReport?.taskId,
+      basePath: `/eval/${runDir}/team-roles`,
+    });
+    return [
+      '# TAC Agent-Inbox Team Protocol',
+      '',
+      `Protocol: ${TAC_TEAM_PROTOCOL_ID}`,
+      'Native openswarm role enforcement: 0 (audit/prompt packets only in this adapter slice).',
+      'Role packet files:',
+      ...rolePackets.map((packet) => `- ${packet.role}: ${packet.path}`),
+      '',
+      `Use ${TAC_TEAM_PROTOCOL_HELPER} to generate exact protocol envelopes; helper output alone is not delivery, so call send_message with next_tool.input.`,
+      `Coordinator first action: run ${TAC_TEAM_PROTOCOL_HELPER} assignment CORRELATION_ID "inspect required service state", then call send_message with the generated TEAM_ASSIGNMENT content.`,
+      `Coordinator mutation path: after TEAM_EVIDENCE arrives and durable evidence exists, use ${TAC_TEAM_PROTOCOL_HELPER} mutate CORRELATION_ID -- <mutation command>. Raw mutation commands are allowed but counted as protocol bypasses.`,
+      `Coordinator verification path: run ${TAC_TEAM_PROTOCOL_HELPER} verification-request CORRELATION_ID "verify final state", call send_message with the generated TEAM_VERIFICATION_REQUEST content, wait for TEAM_VERIFICATION, then record durable verification.`,
+      `Inspector/verifier evidence path: use ${TAC_TEAM_PROTOCOL_HELPER} evidence-message ROLE CORRELATION_ID JSON_PAYLOAD, call send_message with next_tool.input, then persist the same payload with ${TAC_TEAM_PROTOCOL_HELPER} record-evidence ROLE CORRELATION_ID JSON_PAYLOAD [OPENTASKS_TASK_ID].`,
+      'Use tac-opentasks-record-evidence directly only when the team protocol helper is unavailable.',
+    ].join('\n');
+  }
+
+  private teamProtocolEnabled(cell: PublicCell): boolean {
+    if (!isTacTeamContractArm(cell.arm.id)) return false;
+    const value = this.opts.env?.TAC_TEAM_PROTOCOL ?? process.env.TAC_TEAM_PROTOCOL;
+    return value === TAC_TEAM_PROTOCOL_ID;
+  }
+
   private async runInContainer(
     ws: Workspace,
     container: string,
@@ -715,22 +853,35 @@ export class TacDockerAdapter implements ExecutionAdapter {
     return this.withLiveTokenMonitor(command, runDir, remainingLiveTokenLimit(this.opts.liveTokenLimit, priorUsage));
   }
 
-  private claudeMcpSmokeCommand(cell: PublicCell, runDir: string): string {
-    return this.agentCliCommand({
-      cell,
-      prompt: shq(
-        [
+  private opentasksMcpSmokeCommand(cell: PublicCell, runDir: string): string {
+    const prompt = this.usesOpenSwarmSwarmMode(cell)
+      ? [
+          'This is a TAC openswarm OpenTasks coordination smoke test.',
+          'Call the native swarm task tool task_list once; do not echo or simulate the tool name in Bash.',
+          'Then answer exactly: opentasks swarm smoke complete',
+          'Do not solve the TAC task.',
+        ]
+      : [
           'This is a TAC OpenTasks MCP smoke test.',
           'Use the opentasks skill if available.',
           'If the OpenTasks tool is still pending or not visible, use ToolSearch with query select:mcp__opentasks__list_tasks.',
           'Call the native MCP tool mcp__opentasks__list_tasks once; do not echo or simulate the tool name in Bash.',
-          'Then answer exactly: claude opentasks mcp smoke complete',
+          'Then answer exactly: opentasks mcp smoke complete',
           'Do not solve the TAC task.',
-        ].join(' '),
-      ),
+        ];
+    return this.agentCliCommand({
+      cell,
+      prompt: shq(prompt.join(' ')),
       runDir,
       includeSystemPrompt: cell.arm.scaffold.systemPromptAppendix ? `/eval/${runDir}/system.txt` : undefined,
     });
+  }
+
+  private usesOpenSwarmSwarmMode(cell?: PublicCell): boolean {
+    if (this.agentHarness.id !== 'openswarm') return false;
+    if (isTacTeamContractArm(cell?.arm.id)) return true;
+    const mode = (this.opts.env?.TAC_OPENSWARM_MODE ?? process.env.TAC_OPENSWARM_MODE ?? 'single').trim();
+    return ['swarm', 'swarm-run', 'multi', 'multi-agent', 'team', 'team-contract', 'opentasks-team-contract'].includes(mode);
   }
 
   private opentasksGraphSeedCommand(cell: PublicCell, runDir: string): string {
@@ -775,41 +926,104 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '        "seed": seed,',
       '    }',
       '}',
-      'cmd = [',
-      '    "node", cli, "create",',
-      '    "--type", "task",',
-      '    "--title", title,',
-      '    "--status", "open",',
-      '    "--content", task_text,',
-      '    "--tags", "tac,seeded",',
-      '    "--priority", "2",',
-      '    "--metadata", json.dumps(metadata, sort_keys=True),',
-      ']',
-      'proc = subprocess.run(cmd, text=True, capture_output=True)',
-      'created = None',
-      'error = None',
-      'if proc.stdout.strip():',
-      '    try:',
-      '        created = json.loads(proc.stdout)',
-      '    except Exception as exc:',
-      '        error = f"could not parse opentasks create output: {exc}"',
-      'elif proc.returncode == 0:',
-      '    error = "opentasks create succeeded without JSON output"',
-      'if proc.returncode != 0 and not error:',
-      '    error = (proc.stderr or proc.stdout or "opentasks create failed").strip()',
-      'task_node_id = created.get("id") if isinstance(created, dict) else None',
+      'team_contract = arm_id == "opentasks-team-contract"',
+      'def run_json(cmd):',
+      '    proc = subprocess.run(cmd, text=True, capture_output=True)',
+      '    parsed = None',
+      '    error = None',
+      '    if proc.stdout.strip():',
+      '        try:',
+      '            parsed = json.loads(proc.stdout)',
+      '        except Exception as exc:',
+      '            error = f"could not parse command output: {exc}"',
+      '    elif proc.returncode == 0:',
+      '        error = "command succeeded without JSON output"',
+      '    if proc.returncode != 0 and not error:',
+      '        error = (proc.stderr or proc.stdout or "command failed").strip()',
+      '    return proc, parsed, error',
+      'def create_task_node(slug, node_title, content, role, capabilities, extra_metadata=None):',
+      '    if team_contract:',
+      '        node_metadata = {',
+      '            "tac": metadata["tac"],',
+      '            "teamContract": {',
+      '                "template": "tac-service-sync",',
+      '                "slug": slug,',
+      '                "role": role,',
+      '                "capabilities": capabilities,',
+      '                "outcome": "pending",',
+      '            },',
+      '        }',
+      '        if extra_metadata:',
+      '            node_metadata["teamContract"].update(extra_metadata)',
+      '    else:',
+      '        node_metadata = metadata',
+      '    cmd = [',
+      '        "node", cli, "create",',
+      '        "--type", "task",',
+      '        "--title", node_title,',
+      '        "--status", "open",',
+      '        "--content", content,',
+      '        "--tags", "tac,seeded,team-contract" if team_contract else "tac,seeded",',
+      '        "--priority", "2",',
+      '        "--metadata", json.dumps(node_metadata, sort_keys=True),',
+      '    ]',
+      '    proc, parsed, error = run_json(cmd)',
+      '    return {"slug": slug, "proc": proc, "created": parsed, "error": error, "id": parsed.get("id") if isinstance(parsed, dict) else None}',
+      'def link_nodes(from_id, to_id, edge_type, relation):',
+      '    cmd = [',
+      '        "node", cli, "link",',
+      '        "--from", from_id,',
+      '        "--to", to_id,',
+      '        "--type", edge_type,',
+      '        "--metadata", json.dumps({"relation": relation, "source": "tac-team-contract-seed"}, sort_keys=True),',
+      '    ]',
+      '    proc, parsed, error = run_json(cmd)',
+      '    return {"from": from_id, "to": to_id, "type": edge_type, "relation": relation, "exitCode": proc.returncode, "error": error, "result": parsed}',
+      'root = create_task_node("root", title, task_text, "coordinator", ["task-read", "service-write", "verify"])',
+      'proc = root["proc"]',
+      'created = root["created"]',
+      'error = root["error"]',
+      'task_node_id = root["id"]',
+      'team_nodes = []',
+      'team_edges = []',
+      'team_errors = []',
+      'report_tags = ["tac", "seeded", "team-contract"] if team_contract else ["tac", "seeded"]',
+      'if team_contract and task_node_id:',
+      '    specs = [',
+      '        ("service_inspection", "TAC service inspection evidence", "service_inspector", ["task-read", "service-read"], "Inspect source service state. Do not mutate. Return structured evidence JSON."),',
+      '        ("mutation_plan", "TAC mutation plan", "coordinator", ["task-read", "service-write"], "Record the proposed service write after consuming child evidence."),',
+      '        ("verification", "TAC final verification evidence", "verifier", ["task-read", "service-read", "verify"], "Inspect final service state after mutation. Do not mutate."),',
+      '    ]',
+      '    for slug, node_title, role, capabilities, content in specs:',
+      '        node = create_task_node(slug, node_title, content, role, capabilities, {"rootTaskId": task_node_id})',
+      '        compact = {k: v for k, v in node.items() if k != "proc"}',
+      '        team_nodes.append(compact)',
+      '        if not node["id"] or node["error"]:',
+      '            team_errors.append(f"{slug}: {node[\'error\'] or \'missing id\'}")',
+      '            continue',
+      '        team_edges.append(link_nodes(node["id"], task_node_id, "implements", f"{slug}_implements_root"))',
+      '    node_by_slug = {node.get("slug"): node for node in team_nodes}',
+      '    mutation_id = (node_by_slug.get("mutation_plan") or {}).get("id")',
+      '    inspection_id = (node_by_slug.get("service_inspection") or {}).get("id")',
+      '    verification_id = (node_by_slug.get("verification") or {}).get("id")',
+      '    if mutation_id and inspection_id:',
+      '        team_edges.append(link_nodes(inspection_id, mutation_id, "blocks", "inspection_blocks_mutation"))',
+      '    if verification_id and mutation_id:',
+      '        team_edges.append(link_nodes(verification_id, mutation_id, "references", "verifies"))',
+      '    team_errors.extend(edge["error"] for edge in team_edges if edge.get("error"))',
       'report = {',
-      '    "ok": proc.returncode == 0 and bool(task_node_id),',
+      '    "ok": proc.returncode == 0 and bool(task_node_id) and not team_errors,',
       '    "taskId": task_node_id,',
       '    "taskTitle": title,',
       '    "sourceTaskId": task_id,',
       '    "cellKey": cell_key,',
       '    "idempotencyKey": None,',
       '    "contentBytes": len(task_text.encode("utf-8")),',
-      '    "tags": ["tac", "seeded"],',
+      '    "tags": report_tags,',
       '    "created": created,',
+      '    "teamContract": {"enabled": team_contract, "nodes": team_nodes, "edges": team_edges, "errors": team_errors},',
       '    "exitCode": proc.returncode,',
-      '    "error": error,',
+      '    "error": error or ("; ".join(team_errors) if team_errors else None),',
       '    "stdoutHead": proc.stdout[:1000],',
       '    "stderrHead": proc.stderr[:1000],',
       '}',
@@ -821,6 +1035,8 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '    f"taskId: {task_node_id or \'none\'}",',
       '    f"title: {title}",',
       '    f"source: {task_path}",',
+      '    f"teamContract: {\'on\' if team_contract else \'off\'}",',
+      '    f"teamNodes: {\',\'.join(node.get(\'slug\', \'unknown\') for node in team_nodes) if team_nodes else \'none\'}",',
       ']) + "\\n"',
       'with open(summary_path, "w", encoding="utf-8") as f:',
       '    f.write(summary)',
@@ -907,6 +1123,9 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '                    else:',
       '                        usage = obj.get("usage") or {}',
       '                        final_total = num(usage.get("input_tokens")) + num(usage.get("output_tokens")) + num(usage.get("cache_read_input_tokens")) + num(usage.get("cache_creation_input_tokens"))',
+      '                elif obj.get("type") == "message_stop":',
+      '                    usage = obj.get("usage") or {}',
+      '                    final_total = num(usage.get("inputTokens", usage.get("input_tokens"))) + num(usage.get("outputTokens", usage.get("output_tokens"))) + num(usage.get("cacheReadInputTokens", usage.get("cache_read_input_tokens"))) + num(usage.get("cacheCreationInputTokens", usage.get("cache_creation_input_tokens")))',
       '    except FileNotFoundError:',
       '        return 0',
       '    return int(final_total if final_total is not None else total)',
@@ -947,21 +1166,26 @@ export class TacDockerAdapter implements ExecutionAdapter {
     ].join('\n');
   }
 
-  private mainPromptWithGraphSeed(seedReport: OpenTasksGraphSeedReport): string {
+  private mainPromptWithGraphSeed(seedReport: OpenTasksGraphSeedReport, cell?: PublicCell, runDir?: string): string {
     return [
       buildTacAgentPrompt({
         operatingPrompt: this.opts.operatingPrompt,
-        appendix: this.opts.agentPromptAppendix,
+        appendix: cell ? this.mainPromptAppendix(cell, seedReport, runDir) : this.opts.agentPromptAppendix,
       }).trimEnd(),
       '',
       'OpenTasks graph has been deterministically seeded for this TAC run.',
       'Use the opentasks skill for the minimal TAC graph protocol.',
       'Required OpenTasks protocol before task-specific Bash exploration:',
-      '1. If OpenTasks tools are hidden or pending, use ToolSearch with select:mcp__opentasks__list_tasks and select:mcp__opentasks__record_attempt.',
-      '2. Call native mcp__opentasks__list_tasks once and find the seeded task.',
-      `3. Use seeded task id ${seedReport.taskId} for OpenTasks updates. Do not create a duplicate top-level task unless this seeded task is missing.`,
-      '4. Use Bash, curl, git, python, and service APIs for the TAC work itself.',
-      '5. After verified success or failure, record one final outcome and concrete verification evidence with mcp__opentasks__record_attempt or mcp__opentasks__update_task.',
+      `1. Call native mcp__opentasks__get_task with seeded task id ${seedReport.taskId} and read the full content before any task-specific Bash, curl, git, python, or service API work.`,
+      '2. If the native get_task tool is hidden or pending, call ToolSearch with query select:mcp__opentasks__get_task, then call the returned native tool directly.',
+      '3. After ToolSearch returns mcp__opentasks__get_task, the next tool call should be mcp__opentasks__get_task with the seeded id.',
+      '4. Do not insert Bash status commands such as echo, printf, or logging between ToolSearch and this get_task call.',
+      '5. Do not read /instruction/task.md before this get_task call unless get_task is unavailable after one exact ToolSearch attempt.',
+      '6. Do not run mcp__opentasks__get_task in Bash, Python, or node; do not fetch OpenTasks over curl; do not ask a subagent to do this read.',
+      '7. Use mcp__opentasks__list_tasks only as a fallback if the seeded id is missing or get_task reports not found.',
+      `8. Use seeded task id ${seedReport.taskId} for OpenTasks updates. Do not create a duplicate top-level task unless this seeded task is missing.`,
+      '9. Use Bash, curl, git, python, and service APIs for the TAC work itself.',
+      '10. After verified success or failure, record one final outcome and concrete verification evidence with mcp__opentasks__record_attempt or mcp__opentasks__update_task.',
       'Only add a mid-task OpenTasks update for a material blocker, changed target, or important verification result.',
       'Do not create subtasks for simple single-action TAC tasks. Stop updating the graph after verified success.',
       'Do not echo, shell out, or simulate mcp__opentasks__ tool names.',
@@ -1007,7 +1231,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
   }
 
   private agentSetup(): string {
-    return this.opts.agentSetupCommand ?? this.agentHarness.setupCommand();
+    return this.opts.agentSetupCommand ?? tacDefaultAgentSetupCommand(this.agentHarness, this.opts.agentUser);
   }
 
   private tacAgentHelperInstallCommand(): string {
@@ -1020,9 +1244,22 @@ export class TacDockerAdapter implements ExecutionAdapter {
       'import urllib.parse',
       'import urllib.request',
       '',
-      'USAGE = "usage: tac-gitlab-api METHOD PATH [JSON_BODY]"',
+      'USAGE = """usage: tac-gitlab-api METHOD PATH [JSON_BODY]',
+      '',
+      'Examples:',
+      '  tac-gitlab-api GET projects/root/repo',
+      '  tac-gitlab-api GET projects/root/repo/repository/branches/main',
+      '  tac-gitlab-api DELETE projects/root/repo/repository/branches/feature/old',
+      '  tac-gitlab-api POST projects/root/repo/issues \'{"title":"Done"}\'',
+      '',
+      'PATH may be a full URL, an /api/v4 path, or shorthand such as projects/root/repo.',
+      'The helper adds PRIVATE-TOKEN, redacts root-token, caps output, and encodes common GitLab project paths.',
+      '"""',
       '',
       'def main():',
+      '    if len(sys.argv) == 2 and sys.argv[1] in {"-h", "--help", "help"}:',
+      '        print(USAGE)',
+      '        return 0',
       '    if len(sys.argv) < 3:',
       '        print(USAGE, file=sys.stderr)',
       '        return 2',
@@ -1038,7 +1275,8 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '    else:',
       '        if not path.startswith("/"):',
       '            path = "/" + path',
-      '        path = normalize_api_path(path)',
+      '        path, sep, query = path.partition("?")',
+      '        path = normalize_api_path(path) + ((sep + query) if sep else "")',
       '        url = base_url + path',
       '',
       '    data = None',
@@ -1108,17 +1346,552 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '        "users",',
       '    }',
       '    if first in api_roots:',
+      '        if first == "projects":',
+      '            path = normalize_projects_path(path)',
       '        return "/api/v4" + path',
       '    return path',
       '',
+      'PROJECT_SUBRESOURCES = {',
+      '    "access_tokens", "approvals", "archive", "badges", "branches", "clusters", "commits",',
+      '    "deploy_keys", "deploy_tokens", "environments", "events", "export", "fork", "hooks",',
+      '    "issues", "jobs", "labels", "languages", "members", "merge_requests", "milestones",',
+      '    "packages", "pages", "pipeline", "pipelines", "protected_branches", "releases",',
+      '    "repository", "runners", "search", "services", "share", "snippets", "starrers",',
+      '    "statuses", "tags", "triggers", "uploads", "variables", "wikis",',
+      '}',
+      '',
+      'def normalize_projects_path(path):',
+      '    parts = path.strip("/").split("/")',
+      '    if len(parts) < 2 or parts[0] != "projects":',
+      '        return path',
+      '    project = parts[1]',
+      '    if project.isdigit() or "%" in project:',
+      '        suffix = normalize_project_suffix(parts[2:])',
+      '        return "/projects/" + project + ("/" + "/".join(suffix) if suffix else "")',
+      '    subresource_index = None',
+      '    for index in range(2, len(parts)):',
+      '        if parts[index] in PROJECT_SUBRESOURCES:',
+      '            subresource_index = index',
+      '            break',
+      '    project_parts = parts[1:subresource_index] if subresource_index is not None else parts[1:]',
+      '    suffix = parts[subresource_index:] if subresource_index is not None else []',
+      '    encoded_project = urllib.parse.quote("/".join(project_parts), safe="")',
+      '    suffix = normalize_project_suffix(suffix)',
+      '    return "/projects/" + encoded_project + ("/" + "/".join(suffix) if suffix else "")',
+      '',
+      'def normalize_project_suffix(suffix):',
+      '    if len(suffix) > 3 and suffix[0] == "repository" and suffix[1] == "files" and suffix[-1] == "raw":',
+      '        return suffix[:2] + [quote_path_tail(suffix[2:-1]), "raw"]',
+      '    if len(suffix) > 2 and suffix[0] == "repository" and suffix[1] in {"branches", "files", "tags"}:',
+      '        return suffix[:2] + [quote_path_tail(suffix[2:])]',
+      '    if len(suffix) > 1 and suffix[0] in {"protected_branches", "wikis"}:',
+      '        return suffix[:1] + [quote_path_tail(suffix[1:])]',
+      '    return suffix',
+      '',
+      'def quote_path_tail(parts):',
+      '    # Agents often retry with an already-encoded branch/wiki slug. Decode once',
+      '    # before quoting so feature%2Fssl stays feature%2Fssl, not feature%252Fssl.',
+      '    return urllib.parse.quote(urllib.parse.unquote("/".join(parts)), safe="")',
+      '',
       'if __name__ == "__main__":',
       '    raise SystemExit(main())',
+    ].join('\n');
+    const planeHelper = [
+      '#!/usr/bin/env python3',
+      'import importlib.util',
+      'import json',
+      'import os',
+      'import sys',
+      'import urllib.error',
+      'import urllib.request',
+      '',
+      'USAGE = """usage: tac-plane-api METHOD PATH [JSON_BODY]',
+      '',
+      'Examples:',
+      '  tac-plane-api GET workspaces/tac/projects/PROJECT_ID/issues/?expand=state',
+      '  tac-plane-api GET workspaces/tac/projects/PROJECT_ID/states/',
+      '  tac-plane-api PATCH workspaces/tac/projects/PROJECT_ID/issues/ISSUE_ID/ \'{"state":"STATE_ID"}\'',
+      '',
+      'PATH may be a full URL, an /api/v1 path, or shorthand such as workspaces/tac/projects/PROJECT_ID/issues/.',
+      'The helper adds x-api-key from /utils/config.py or PLANE_API_KEY, redacts credentials, and caps output.',
+      '"""',
+      '',
+      'def main():',
+      '    if len(sys.argv) == 2 and sys.argv[1] in {"-h", "--help", "help"}:',
+      '        print(USAGE)',
+      '        return 0',
+      '    if len(sys.argv) < 3:',
+      '        print(USAGE, file=sys.stderr)',
+      '        return 2',
+      '    method = sys.argv[1].upper()',
+      '    path = sys.argv[2]',
+      '    body_arg = sys.argv[3] if len(sys.argv) > 3 else None',
+      '    cfg = load_config()',
+      '    base_url = os.environ.get("PLANE_BASE_URL") or getattr(cfg, "PLANE_BASEURL", None) or "http://the-agent-company.com:8091"',
+      '    api_key = os.environ.get("PLANE_API_KEY") or getattr(cfg, "PLANE_API_KEY", None) or ""',
+      '    max_bytes = int(os.environ.get("TAC_HELPER_MAX_OUTPUT_BYTES", "6000"))',
+      '    url = normalize_url(base_url.rstrip("/"), path)',
+      '',
+      '    data = None',
+      '    headers = {"Accept": "application/json"}',
+      '    if api_key:',
+      '        headers["x-api-key"] = api_key',
+      '    if body_arg is not None:',
+      '        if body_arg == "@-":',
+      '            body_arg = sys.stdin.read()',
+      '        elif body_arg.startswith("@"):',
+      '            with open(body_arg[1:], "r", encoding="utf-8") as f:',
+      '                body_arg = f.read()',
+      '        data = body_arg.encode("utf-8")',
+      '        headers["Content-Type"] = "application/json"',
+      '',
+      '    req = urllib.request.Request(url, data=data, method=method, headers=headers)',
+      '    status = 0',
+      '    raw = b""',
+      '    content_type = ""',
+      '    try:',
+      '        with urllib.request.urlopen(req, timeout=30) as resp:',
+      '            status = resp.status',
+      '            content_type = resp.headers.get("content-type", "")',
+      '            raw = resp.read(max_bytes + 1)',
+      '    except urllib.error.HTTPError as e:',
+      '        status = e.code',
+      '        content_type = e.headers.get("content-type", "") if e.headers else ""',
+      '        raw = e.read(max_bytes + 1)',
+      '    except Exception as e:',
+      '        print(json.dumps({"ok": False, "error": str(e), "url": redact(url, api_key)}, sort_keys=True))',
+      '        return 1',
+      '',
+      '    truncated = len(raw) > max_bytes',
+      '    raw = raw[:max_bytes]',
+      '    text = raw.decode("utf-8", errors="replace")',
+      '    print(f"HTTP {status} {method} {redact(url, api_key)}")',
+      '    if "json" in content_type.lower():',
+      '        try:',
+      '            print(json.dumps(json.loads(text), indent=2, sort_keys=True))',
+      '        except Exception:',
+      '            print(text)',
+      '    else:',
+      '        print(text)',
+      '    if truncated:',
+      '        print(f"\\n[truncated by tac-plane-api at {max_bytes} bytes]", file=sys.stderr)',
+      '    return 0 if 200 <= status < 300 else 1',
+      '',
+      'def load_config():',
+      '    config_path = "/utils/config.py"',
+      '    if not os.path.exists(config_path):',
+      '        return object()',
+      '    spec = importlib.util.spec_from_file_location("tac_config", config_path)',
+      '    if spec is None or spec.loader is None:',
+      '        return object()',
+      '    module = importlib.util.module_from_spec(spec)',
+      '    spec.loader.exec_module(module)',
+      '    return module',
+      '',
+      'def normalize_url(base_url, path):',
+      '    if path.startswith("http://") or path.startswith("https://"):',
+      '        return path',
+      '    if not path.startswith("/"):',
+      '        path = "/" + path',
+      '    if path == "/api/v1" or path.startswith("/api/v1/") or path == "/api" or path.startswith("/api/"):',
+      '        return base_url + path',
+      '    return base_url + "/api/v1" + path',
+      '',
+      'def redact(value, api_key):',
+      '    if api_key:',
+      '        value = value.replace(api_key, "[REDACTED_TAC_PLANE_API_KEY]")',
+      '    return value',
+      '',
+      'if __name__ == "__main__":',
+      '    raise SystemExit(main())',
+    ].join('\n');
+    const openTasksEvidenceHelper = [
+      '#!/usr/bin/env python3',
+      'import json',
+      'import os',
+      'import subprocess',
+      'import sys',
+      '',
+      'PROTOCOL = "agent-inbox-v1"',
+      'USAGE = """usage: tac-opentasks-record-evidence ROLE CORRELATION_ID JSON_PAYLOAD [OPENTASKS_TASK_ID]',
+      '',
+      'Examples:',
+      '  tac-opentasks-record-evidence service_inspector tac-service-sync:cell:inspection \'{"marker":"TEAM_EVIDENCE","evidence":[{"kind":"api","summary":"state"}]}\' t-abcd',
+      '  tac-opentasks-record-evidence verifier tac-service-sync:cell:verify @- t-abcd',
+      '',
+      'JSON_PAYLOAD may be inline JSON, @file, or @-.',
+      'With OPENTASKS_TASK_ID, the helper stores feedback on that OpenTasks node.',
+      'Without OPENTASKS_TASK_ID, the helper creates a standalone OpenTasks context artifact.',
+      'The helper prints JSON with ok, protocol, correlation_id, role, and opentasks_record_id.',
+      '"""',
+      '',
+      'def main():',
+      '    if len(sys.argv) == 2 and sys.argv[1] in {"-h", "--help", "help"}:',
+      '        print(USAGE)',
+      '        return 0',
+      '    if len(sys.argv) < 4:',
+      '        print(USAGE, file=sys.stderr)',
+      '        return 2',
+      '    role = sys.argv[1]',
+      '    correlation_id = sys.argv[2]',
+      '    payload_arg = sys.argv[3]',
+      '    try:',
+      '        payload = load_payload(payload_arg)',
+      '    except Exception as exc:',
+      '        print(json.dumps({"ok": False, "error": f"invalid JSON payload: {exc}"}, sort_keys=True))',
+      '        return 2',
+      '    target_id = first_nonempty(',
+      '        sys.argv[4] if len(sys.argv) > 4 else None,',
+      '        payload.get("opentasks_task_id") if isinstance(payload, dict) else None,',
+      '        payload.get("root_task_id") if isinstance(payload, dict) else None,',
+      '        payload.get("rootTaskId") if isinstance(payload, dict) else None,',
+      '        os.environ.get("TAC_OPENTASKS_ROOT_TASK_ID"),',
+      '    )',
+      '    marker = marker_for(role, payload)',
+      '    content = json.dumps({',
+      '        "protocol": PROTOCOL,',
+      '        "correlation_id": correlation_id,',
+      '        "role": role,',
+      '        "marker": marker,',
+      '        "payload": payload,',
+      '    }, indent=2, sort_keys=True)',
+      '    metadata = {',
+      '        "protocol": PROTOCOL,',
+      '        "correlation_id": correlation_id,',
+      '        "role": role,',
+      '        "marker": marker,',
+      '        "source": "tac-opentasks-record-evidence",',
+      '        "payload": payload,',
+      '    }',
+      '    cli = os.environ.get("OPENTASKS_CLI", "/opentasks/dist/cli.js")',
+      '    if target_id:',
+      '        params = {"targetId": target_id, "create": {"content": content, "type": "comment"}}',
+      '        proc, parsed, error = run_json(["node", cli, "annotate", json.dumps(params, sort_keys=True)])',
+      '        record_id = parsed.get("feedbackId") if isinstance(parsed, dict) else None',
+      '        record_type = "feedback"',
+      '    else:',
+      '        title = f"{marker} {role} {correlation_id}"[:180]',
+      '        proc, parsed, error = run_json([',
+      '            "node", cli, "create",',
+      '            "--type", "context",',
+      '            "--title", title,',
+      '            "--content", content,',
+      '            "--tags", "tac,team-contract,evidence",',
+      '            "--metadata", json.dumps(metadata, sort_keys=True),',
+      '        ])',
+      '        record_id = parsed.get("id") if isinstance(parsed, dict) else None',
+      '        record_type = "context"',
+      '    ok = proc.returncode == 0 and bool(record_id)',
+      '    result = {',
+      '        "ok": ok,',
+      '        "protocol": PROTOCOL,',
+      '        "correlation_id": correlation_id,',
+      '        "role": role,',
+      '        "marker": marker,',
+      '        "record_type": record_type,',
+      '        "opentasks_record_id": record_id,',
+      '        "target_id": target_id,',
+      '        "exit_code": proc.returncode,',
+      '        "error": error,',
+      '    }',
+      '    if ok:',
+      '        write_protocol_proof(result)',
+      '    print(json.dumps(result, sort_keys=True))',
+      '    return 0 if ok else 1',
+      '',
+      'def load_payload(arg):',
+      '    if arg == "@-":',
+      '        arg = sys.stdin.read()',
+      '    elif arg.startswith("@"):',
+      '        with open(arg[1:], "r", encoding="utf-8") as f:',
+      '            arg = f.read()',
+      '    value = json.loads(arg)',
+      '    if not isinstance(value, dict):',
+      '        raise ValueError("payload must be a JSON object")',
+      '    return value',
+      '',
+      'def first_nonempty(*values):',
+      '    for value in values:',
+      '        if isinstance(value, str) and value.strip():',
+      '            return value.strip()',
+      '    return None',
+      '',
+      'def marker_for(role, payload):',
+      '    text = json.dumps(payload, sort_keys=True).lower()',
+      '    if "team_verification" in text or "verification" in text or "verified" in text or role.lower() == "verifier":',
+      '        return "TEAM_VERIFICATION"',
+      '    return "TEAM_EVIDENCE"',
+      '',
+      'def write_protocol_proof(result):',
+      '    base = os.environ.get("TAC_TEAM_PROTOCOL_DIR", "/eval/.tac-team-protocol")',
+      '    marker = result.get("marker")',
+      '    correlation_id = result.get("correlation_id")',
+      '    if not marker or not correlation_id:',
+      '        return',
+      '    safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in str(correlation_id))[:180]',
+      '    kind = "verification" if marker == "TEAM_VERIFICATION" else "evidence"',
+      '    try:',
+      '        os.makedirs(os.path.join(base, kind), exist_ok=True)',
+      '        with open(os.path.join(base, "events.jsonl"), "a", encoding="utf-8") as f:',
+      '            f.write(json.dumps({"event": "durable-record", **result}, sort_keys=True) + "\\n")',
+      '        with open(os.path.join(base, kind, safe + ".json"), "w", encoding="utf-8") as f:',
+      '            json.dump(result, f, sort_keys=True)',
+      '            f.write("\\n")',
+      '    except Exception:',
+      '        pass',
+      '',
+      'def run_json(cmd):',
+      '    proc = subprocess.run(cmd, text=True, capture_output=True)',
+      '    parsed = None',
+      '    error = None',
+      '    if proc.stdout.strip():',
+      '        try:',
+      '            parsed = json.loads(proc.stdout)',
+      '        except Exception as exc:',
+      '            error = f"could not parse opentasks output: {exc}"',
+      '    elif proc.returncode == 0:',
+      '        error = "OpenTasks command succeeded without JSON output"',
+      '    if proc.returncode != 0 and not error:',
+      '        error = (proc.stderr or proc.stdout or "OpenTasks command failed").strip()[:1000]',
+      '    return proc, parsed, error',
+      '',
+      'if __name__ == "__main__":',
+      '    raise SystemExit(main())',
+    ].join('\n');
+    const teamProtocolHelper = [
+      '#!/usr/bin/env python3',
+      'import json',
+      'import os',
+      'import subprocess',
+      'import sys',
+      '',
+      `PROTOCOL = "${TAC_TEAM_PROTOCOL_ID}"`,
+      `HELPER = "${TAC_TEAM_PROTOCOL_HELPER}"`,
+      'LOG_DIR = os.environ.get("TAC_TEAM_PROTOCOL_DIR", "/eval/.tac-team-protocol")',
+      'USAGE = """usage:',
+      '  tac-team-protocol assignment CORRELATION_ID [REQUEST_TEXT...]',
+      '  tac-team-protocol verification-request CORRELATION_ID [REQUEST_TEXT...]',
+      '  tac-team-protocol evidence-message ROLE CORRELATION_ID JSON_PAYLOAD',
+      '  tac-team-protocol record-evidence ROLE CORRELATION_ID JSON_PAYLOAD [OPENTASKS_TASK_ID]',
+      '  tac-team-protocol mutate CORRELATION_ID -- COMMAND [ARGS...]',
+      '',
+      'This helper generates exact agent-inbox-v1 envelopes and a gated mutation path.',
+      'It does not deliver inbox messages by itself. Call send_message with next_tool.input.',
+      '"""',
+      '',
+      'def main():',
+      '    if len(sys.argv) < 2 or sys.argv[1] in {"-h", "--help", "help"}:',
+      '        print(USAGE)',
+      '        return 0 if len(sys.argv) >= 2 else 2',
+      '    action = sys.argv[1]',
+      '    if action == "assignment":',
+      '        return emit_envelope("assignment", "service_inspector", "TEAM_ASSIGNMENT", sys.argv[2:])',
+      '    if action == "verification-request":',
+      '        return emit_envelope("verification-request", "verifier", "TEAM_VERIFICATION_REQUEST", sys.argv[2:])',
+      '    if action == "evidence-message":',
+      '        return evidence_message(sys.argv[2:])',
+      '    if action == "record-evidence":',
+      '        return record_evidence(sys.argv[2:])',
+      '    if action == "mutate":',
+      '        return mutate(sys.argv[2:])',
+      '    print(json.dumps({"ok": False, "protocol": PROTOCOL, "helper": HELPER, "error": f"unknown action: {action}"}), file=sys.stderr)',
+      '    print(USAGE, file=sys.stderr)',
+      '    return 2',
+      '',
+      'def emit_envelope(action, to, marker, args):',
+      '    if not args:',
+      '        print(json.dumps({"ok": False, "protocol": PROTOCOL, "helper": HELPER, "action": action, "error": "missing correlation_id"}, sort_keys=True))',
+      '        return 2',
+      '    correlation_id = args[0]',
+      '    detail = " ".join(args[1:]).strip()',
+      '    content = f"{marker} correlation_id={correlation_id}" + (f" {detail}" if detail else "")',
+      '    result = {',
+      '        "ok": True,',
+      '        "protocol": PROTOCOL,',
+      '        "helper": HELPER,',
+      '        "action": action,',
+      '        "marker": marker,',
+      '        "correlation_id": correlation_id,',
+      '        "to": to,',
+      '        "content": content,',
+      '        "next_tool": {"name": "send_message", "input": {"to": to, "content": content}},',
+      '    }',
+      '    write_event(result)',
+      '    print(json.dumps(result, sort_keys=True))',
+      '    return 0',
+      '',
+      'def evidence_message(args):',
+      '    if len(args) < 3:',
+      '        print(json.dumps({"ok": False, "protocol": PROTOCOL, "helper": HELPER, "action": "evidence-message", "error": "expected ROLE CORRELATION_ID JSON_PAYLOAD"}, sort_keys=True))',
+      '        return 2',
+      '    role, correlation_id, payload_arg = args[0], args[1], args[2]',
+      '    try:',
+      '        payload = load_payload(payload_arg)',
+      '    except Exception as exc:',
+      '        print(json.dumps({"ok": False, "protocol": PROTOCOL, "helper": HELPER, "action": "evidence-message", "error": str(exc)}, sort_keys=True))',
+      '        return 2',
+      '    marker = marker_for(role, payload)',
+      '    compact = json.dumps(payload, sort_keys=True, separators=(",", ":"))',
+      '    content = f"{marker} correlation_id={correlation_id} {compact}"',
+      '    result = {',
+      '        "ok": True,',
+      '        "protocol": PROTOCOL,',
+      '        "helper": HELPER,',
+      '        "action": "evidence-message",',
+      '        "role": role,',
+      '        "marker": marker,',
+      '        "correlation_id": correlation_id,',
+      '        "to": "coordinator",',
+      '        "content": content,',
+      '        "next_tool": {"name": "send_message", "input": {"to": "coordinator", "content": content}},',
+      '    }',
+      '    write_event(result)',
+      '    print(json.dumps(result, sort_keys=True))',
+      '    return 0',
+      '',
+      'def record_evidence(args):',
+      '    if len(args) < 3:',
+      '        print(json.dumps({"ok": False, "protocol": PROTOCOL, "helper": HELPER, "action": "record-evidence", "error": "expected ROLE CORRELATION_ID JSON_PAYLOAD [OPENTASKS_TASK_ID]"}, sort_keys=True))',
+      '        return 2',
+      '    role, correlation_id, payload_arg = args[0], args[1], args[2]',
+      '    cmd = ["tac-opentasks-record-evidence", role, correlation_id, payload_arg]',
+      '    if len(args) > 3:',
+      '        cmd.append(args[3])',
+      '    proc = subprocess.run(cmd, text=True, capture_output=True)',
+      '    parsed = parse_json(proc.stdout)',
+      '    marker = marker_for(role, parse_json_payload(payload_arg))',
+      '    ok = proc.returncode == 0 and isinstance(parsed, dict) and parsed.get("ok") is True and bool(parsed.get("opentasks_record_id"))',
+      '    result = {',
+      '        "ok": ok,',
+      '        "protocol": PROTOCOL,',
+      '        "helper": HELPER,',
+      '        "action": "record-evidence",',
+      '        "role": role,',
+      '        "marker": marker,',
+      '        "correlation_id": correlation_id,',
+      '        "opentasks_record_id": parsed.get("opentasks_record_id") if isinstance(parsed, dict) else None,',
+      '        "record": parsed,',
+      '        "stderr": proc.stderr.strip()[:1000],',
+      '    }',
+      '    if ok:',
+      '        write_event(result)',
+      '    print(json.dumps(result, sort_keys=True))',
+      '    return 0 if ok else 1',
+      '',
+      'def mutate(args):',
+      '    if len(args) < 3 or args[1] != "--":',
+      '        print(json.dumps({"ok": False, "protocol": PROTOCOL, "helper": HELPER, "action": "mutate", "error": "expected CORRELATION_ID -- COMMAND [ARGS...]"}, sort_keys=True))',
+      '        return 2',
+      '    correlation_id = args[0]',
+      '    command = args[2:]',
+      '    proof = proof_path("evidence", correlation_id)',
+      '    if not os.path.exists(proof):',
+      '        result = {"ok": False, "protocol": PROTOCOL, "helper": HELPER, "action": "mutate", "correlation_id": correlation_id, "error": "missing durable evidence proof", "required_proof": proof}',
+      '        write_event(result)',
+      '        print(json.dumps(result, sort_keys=True))',
+      '        return 3',
+      '    result = {"ok": True, "protocol": PROTOCOL, "helper": HELPER, "action": "mutate", "correlation_id": correlation_id, "proof": proof, "command": command}',
+      '    write_event(result)',
+      '    print(json.dumps(result, sort_keys=True))',
+      '    proc = subprocess.run(command)',
+      '    return proc.returncode',
+      '',
+      'def load_payload(arg):',
+      '    if arg == "@-":',
+      '        arg = sys.stdin.read()',
+      '    elif arg.startswith("@"):',
+      '        with open(arg[1:], "r", encoding="utf-8") as f:',
+      '            arg = f.read()',
+      '    value = json.loads(arg)',
+      '    if not isinstance(value, dict):',
+      '        raise ValueError("payload must be a JSON object")',
+      '    return value',
+      '',
+      'def parse_json_payload(arg):',
+      '    try:',
+      '        return load_payload(arg)',
+      '    except Exception:',
+      '        return {}',
+      '',
+      'def parse_json(text):',
+      '    try:',
+      '        return json.loads(text.strip()) if text.strip() else None',
+      '    except Exception:',
+      '        return None',
+      '',
+      'def marker_for(role, payload):',
+      '    text = json.dumps(payload, sort_keys=True).lower()',
+      '    if "team_verification" in text or "verification" in text or "verified" in text or role.lower() == "verifier":',
+      '        return "TEAM_VERIFICATION"',
+      '    return "TEAM_EVIDENCE"',
+      '',
+      'def proof_path(kind, correlation_id):',
+      '    safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in str(correlation_id))[:180]',
+      '    return os.path.join(LOG_DIR, kind, safe + ".json")',
+      '',
+      'def write_event(event):',
+      '    try:',
+      '        os.makedirs(LOG_DIR, exist_ok=True)',
+      '        with open(os.path.join(LOG_DIR, "events.jsonl"), "a", encoding="utf-8") as f:',
+      '            f.write(json.dumps(event, sort_keys=True) + "\\n")',
+      '    except Exception:',
+      '        pass',
+      '',
+      'if __name__ == "__main__":',
+      '    raise SystemExit(main())',
+    ].join('\n');
+    const protectedBranchHelper = [
+      '#!/usr/bin/env bash',
+      'set -euo pipefail',
+      'usage() {',
+      '  cat >&2 <<\'EOF\'',
+      'usage: tac-gitlab-protect-branch PROJECT BRANCH PUSH_LEVEL MERGE_LEVEL',
+      '',
+      'Examples:',
+      '  tac-gitlab-protect-branch root/repo main 0 30',
+      '  tac-gitlab-protect-branch projects/root/repo main 0 40',
+      '',
+      'Access levels: 0 no one, 30 developers, 40 maintainers.',
+      'This helper delete/recreates a GitLab protected branch and verifies the final state.',
+      'EOF',
+      '}',
+      'if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] || [ "$#" -ne 4 ]; then',
+      '  usage',
+      '  [ "$#" -eq 4 ] || exit 2',
+      'fi',
+      'project="$1"',
+      'branch="$2"',
+      'push_level="$3"',
+      'merge_level="$4"',
+      'project="${project#/api/v4/projects/}"',
+      'project="${project#api/v4/projects/}"',
+      'project="${project#/projects/}"',
+      'project="${project#projects/}"',
+      'case "$push_level" in ""|*[!0-9]*) echo "push level must be numeric" >&2; exit 2 ;; esac',
+      'case "$merge_level" in ""|*[!0-9]*) echo "merge level must be numeric" >&2; exit 2 ;; esac',
+      'delete_log="$(mktemp)"',
+      'tac-gitlab-api DELETE "projects/${project}/protected_branches/${branch}" >"$delete_log" 2>&1 || true',
+      'body="$(printf \'{"name":"%s","push_access_level":%s,"merge_access_level":%s}\' "$branch" "$push_level" "$merge_level")"',
+      'tac-gitlab-api POST "projects/${project}/protected_branches" "$body"',
+      'tac-gitlab-api GET "projects/${project}/protected_branches/${branch}"',
     ].join('\n');
     return [
       'set -e',
       `cat > /usr/local/bin/tac-gitlab-api <<'PY'\n${helper}\nPY`,
       'chmod +x /usr/local/bin/tac-gitlab-api',
+      `cat > /usr/local/bin/tac-plane-api <<'PY'\n${planeHelper}\nPY`,
+      'chmod +x /usr/local/bin/tac-plane-api',
+      `cat > /usr/local/bin/tac-opentasks-record-evidence <<'PY'\n${openTasksEvidenceHelper}\nPY`,
+      'chmod +x /usr/local/bin/tac-opentasks-record-evidence',
+      `cat > /usr/local/bin/${TAC_TEAM_PROTOCOL_HELPER} <<'PY'\n${teamProtocolHelper}\nPY`,
+      `chmod +x /usr/local/bin/${TAC_TEAM_PROTOCOL_HELPER}`,
+      `cat > /usr/local/bin/tac-gitlab-protect-branch <<'SH'\n${protectedBranchHelper}\nSH`,
+      'chmod +x /usr/local/bin/tac-gitlab-protect-branch',
       'command -v tac-gitlab-api >/dev/null',
+      'command -v tac-plane-api >/dev/null',
+      'command -v tac-opentasks-record-evidence >/dev/null',
+      `command -v ${TAC_TEAM_PROTOCOL_HELPER} >/dev/null`,
+      'command -v tac-gitlab-protect-branch >/dev/null',
     ].join('\n');
   }
 
@@ -1143,6 +1916,11 @@ export class TacDockerAdapter implements ExecutionAdapter {
       TAC_HELPER_MAX_OUTPUT_BYTES: this.opts.env?.TAC_HELPER_MAX_OUTPUT_BYTES ?? '6000',
       ...(this.opts.agentUser ? { HOME: `/home/${this.opts.agentUser}` } : {}),
       ...(usesOpenTasks(cell) ? { OPENTASKS_PROJECT_DIR } : {}),
+      ...(usesOpenTasks(cell) && this.usesOpenSwarmSwarmMode(cell) ? { TAC_OPENSWARM_OPENTASKS: '1' } : {}),
+      ...(isTacTeamContractArm(cell.arm.id) && this.agentHarness.id === 'openswarm' ? { TAC_OPENSWARM_MODE: 'team-contract' } : {}),
+      ...(this.teamProtocolEnabled(cell)
+        ? { TAC_TEAM_PROTOCOL: TAC_TEAM_PROTOCOL_ID, TAC_TEAM_NATIVE_ROLE_ENFORCEMENT: '0' }
+        : {}),
       ...this.opts.env,
       ...(cell.arm.scaffold.env ?? {}),
     };
@@ -1187,6 +1965,178 @@ export class TacDockerAdapter implements ExecutionAdapter {
 
   private gitlabDependencyProbeCommand(): string {
     return "test -f /utils/dependencies.yml && grep -Eq '(^|[^A-Za-z0-9_])gitlab([^A-Za-z0-9_]|$)' /utils/dependencies.yml";
+  }
+
+  private async runGitlabAwareTacInit(
+    ws: Workspace,
+    container: string,
+    runDir: string,
+    start: number,
+  ): Promise<(CommandResult & { gitlabRootTokenRefreshed: boolean }) | { raw: RawRun }> {
+    if (this.opts.tacGitlabTokenRefresh === false) {
+      const init = await this.runInContainer(ws, container, 'bash /utils/init.sh', {
+        timeoutMs: this.opts.initTimeoutMs,
+        cwd: '/workspace',
+        env: this.initEnv(),
+      });
+      return { ...init, gitlabRootTokenRefreshed: false };
+    }
+
+    const reset = await this.runInContainer(ws, container, this.tacResetWithHostAliasCommand(), {
+      timeoutMs: this.opts.initTimeoutMs,
+      cwd: '/workspace',
+      env: this.initEnv(),
+    });
+    await this.writeCommandArtifacts(ws, runDir, 'tac-reset', reset);
+    if (reset.exitCode !== 0) return { ...reset, gitlabRootTokenRefreshed: false };
+
+    const tokenRefresh = await this.refreshTacGitlabRootToken(ws);
+    await this.writeCommandArtifacts(ws, runDir, 'tac-gitlab-token-refresh', tokenRefresh);
+    if (!this.tacGitlabRootTokenRefreshOk(tokenRefresh)) {
+      return { raw: envRaw('sandbox', `TAC GitLab token refresh failed: ${tokenRefresh.stderr || tokenRefresh.stdout}`, start) };
+    }
+
+    const readiness = await this.runInContainer(ws, container, this.tacGitlabApiReadinessCommand(runDir), {
+      timeoutMs: Math.min(this.opts.initTimeoutMs, 240_000),
+      cwd: '/workspace',
+      env: this.initEnv(),
+    });
+    await this.writeCommandArtifacts(ws, runDir, 'tac-gitlab-api-readiness', readiness);
+    const readinessReport = await ws.readFile(`${runDir}/tac-gitlab-api-readiness.json`);
+    if (readinessReport) await writeLocalArtifact('tac-gitlab-api-readiness.json', redactSensitiveText(readinessReport));
+    if (readiness.exitCode !== 0) {
+      return { raw: envRaw('sandbox', `TAC GitLab API readiness failed: ${readiness.stderr || readiness.stdout}`, start) };
+    }
+
+    const init = await this.runInContainer(ws, container, this.tacInitWithoutResetCommand(), {
+      timeoutMs: this.opts.initTimeoutMs,
+      cwd: '/workspace',
+      env: this.initEnv(),
+    });
+    return { ...init, gitlabRootTokenRefreshed: true };
+  }
+
+  private tacInitWithoutResetCommand(): string {
+    return [
+      "python_default - <<'PY'",
+      'from pathlib import Path',
+      '',
+      'source = Path("/utils/init.sh").read_text()',
+      'lines = source.splitlines()',
+      'out = []',
+      'skip_reset_echo = False',
+      'removed_reset = False',
+      'for line in lines:',
+      '    stripped = line.strip()',
+      '    if not removed_reset and stripped == \'echo "Resetting services..."\':',
+      '        skip_reset_echo = True',
+      '        continue',
+      '    if skip_reset_echo and stripped == "bash /utils/reset.sh":',
+      '        removed_reset = True',
+      '        skip_reset_echo = False',
+      '        continue',
+      '    if skip_reset_echo:',
+      '        out.append(\'echo "Resetting services..."\')',
+      '        skip_reset_echo = False',
+      '    out.append(line)',
+      'if not removed_reset:',
+      '    raise SystemExit("could not remove reset step from /utils/init.sh")',
+      'Path("/tmp/tac-init-without-reset.sh").write_text("\\n".join(out) + "\\n")',
+      'PY',
+      'bash /tmp/tac-init-without-reset.sh',
+    ].join('\n');
+  }
+
+  private tacResetWithHostAliasCommand(): string {
+    return [
+      'SERVICE_IP=$(ping -c 1 ${SERVER_HOSTNAME:-localhost} | grep PING | awk -F"[()]" \'{print $2}\')',
+      'echo "$SERVICE_IP the-agent-company.com" >> /etc/hosts',
+      'bash /utils/reset.sh',
+    ].join('\n');
+  }
+
+  private tacGitlabApiReadinessCommand(runDir: string): string {
+    const outPath = `/eval/${runDir}/tac-gitlab-api-readiness.json`;
+    return [
+      `cat > /tmp/tac-gitlab-api-readiness.py <<'PY'`,
+      'import datetime',
+      'import json',
+      'import os',
+      'import re',
+      'import sys',
+      'import time',
+      'import urllib.error',
+      'import urllib.parse',
+      'import urllib.request',
+      '',
+      'OUT_PATH = sys.argv[1]',
+      'HOST = os.environ.get("SERVER_HOSTNAME") or "the-agent-company.com"',
+      'BASE = f"http://{HOST}:8929/api/v4"',
+      'TOKEN = os.environ.get("GITLAB_ACCESS_TOKEN") or "root-token"',
+      'HEADERS = {"PRIVATE-TOKEN": TOKEN}',
+      'PROJECT_RE = re.compile(r\'(?:GITLAB_PROJECT_PATH|PROJECT_PATH)\\s*=\\s*f?[\\\'"]\\{GITLAB_USER\\}/([^\\\'"]+)[\\\'"]\')',
+      '',
+      'def read_text(path):',
+      '    try:',
+      '        with open(path, "r") as f:',
+      '            return f.read()',
+      '    except Exception:',
+      '        return ""',
+      '',
+      'def project_candidates():',
+      '    candidates = []',
+      '    for path in ("/utils/populate_data.py", "/utils/evaluator.py"):',
+      '        for match in PROJECT_RE.finditer(read_text(path)):',
+      '            project = match.group(1).strip("/")',
+      '            if project and "{" not in project and "}" not in project:',
+      '                candidates.append(f"root/{project}")',
+      '    return sorted(set(candidates))',
+      '',
+      'def get_json(path):',
+      '    req = urllib.request.Request(f"{BASE}{path}", headers=HEADERS)',
+      '    with urllib.request.urlopen(req, timeout=20) as resp:',
+      '        body = resp.read().decode("utf-8", "replace")',
+      '        return resp.status, json.loads(body), body[:1000]',
+      '',
+      'def validate_once():',
+      '    checks = []',
+      '    status, user, body = get_json("/user")',
+      '    checks.append({"name": "user", "status": status, "ok": isinstance(user, dict) and user.get("username") == "root", "body": body[:300]})',
+      '    status, projects, body = get_json("/projects?per_page=1")',
+      '    checks.append({"name": "projects-list", "status": status, "ok": isinstance(projects, list), "body": body[:300]})',
+      '    for project in project_candidates():',
+      '        encoded = urllib.parse.quote(project, safe="")',
+      '        status, project_body, body = get_json(f"/projects/{encoded}")',
+      '        checks.append({"name": f"project:{project}", "status": status, "ok": isinstance(project_body, dict) and project_body.get("path_with_namespace") == project, "body": body[:300]})',
+      '        status, issues, body = get_json(f"/projects/{encoded}/issues?per_page=1")',
+      '        checks.append({"name": f"issues:{project}", "status": status, "ok": isinstance(issues, list), "body": body[:300]})',
+      '    return checks',
+      '',
+      'last = []',
+      'for attempt in range(1, 121):',
+      '    try:',
+      '        last = validate_once()',
+      '        if all(check.get("ok") for check in last):',
+      '            report = {"ok": True, "attempt": attempt, "checkedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(), "checks": last}',
+      '            with open(OUT_PATH, "w") as f:',
+      '                json.dump(report, f, indent=2, sort_keys=True)',
+      '                f.write("\\n")',
+      '            print(json.dumps(report, sort_keys=True))',
+      '            raise SystemExit(0)',
+      '    except Exception as exc:',
+      '        last = [{"name": "exception", "ok": False, "error": str(exc)}]',
+      '    print(f"waiting for GitLab API readiness attempt {attempt}/120: {last}", file=sys.stderr)',
+      '    time.sleep(2)',
+      '',
+      'report = {"ok": False, "checkedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(), "checks": last}',
+      'with open(OUT_PATH, "w") as f:',
+      '    json.dump(report, f, indent=2, sort_keys=True)',
+      '    f.write("\\n")',
+      'print(json.dumps(report, sort_keys=True))',
+      'raise SystemExit(2)',
+      'PY',
+      `python_default /tmp/tac-gitlab-api-readiness.py ${shq(outPath)}`,
+    ].join('\n');
   }
 
   private tacEvalLlmPreflightCommand(runDir: string): string {
@@ -1285,7 +2235,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '',
       'report = {',
       '    "ok": False,',
-      '    "checkedAt": datetime.datetime.now(datetime.UTC).isoformat(),',
+      '    "checkedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),',
       '    "checks": [],',
       '}',
       '',
@@ -1400,7 +2350,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '    "apiOk": False,',
       '    "gitOk": False,',
       '    "requireGit": REQUIRE_GIT,',
-      '    "checkedAt": datetime.datetime.now(datetime.UTC).isoformat(),',
+      '    "checkedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),',
       '    "scratchProjectPath": PROJECT_PATH,',
       '    "checks": [],',
       '}',
@@ -1541,7 +2491,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '    "gitOk": False,',
       '    "cleanupOk": False,',
       '    "requireGit": REQUIRE_GIT,',
-      '    "checkedAt": datetime.datetime.now(datetime.UTC).isoformat(),',
+      '    "checkedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),',
       '    "targetProjectPath": PROJECT_PATH,',
       '    "checks": [],',
       '}',
@@ -1749,19 +2699,27 @@ export class TacDockerAdapter implements ExecutionAdapter {
     };
   }
 
-  private claudeMcpSmokeReport(
+  private opentasksMcpSmokeReport(
     cell: PublicCell,
     agent: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean },
-  ): ClaudeMcpSmokeReport {
+  ): OpenTasksMcpSmokeReport {
     const parsed = this.agentHarness.parse(agent.stdout, cell.model.name);
     const init = parseClaudeInit(agent.stdout);
+    const streamStats = claudeStreamStats(agent.stdout);
     const opentasksToolNames = init.toolNames.filter((name) => name.startsWith(OPENTASKS_MCP_TOOL_PREFIX)).sort();
+    const nativeCalls = parsed.trajectory
+      .filter((event) => event.type === 'tool' && event.name.startsWith(OPENTASKS_MCP_TOOL_PREFIX))
+      .map((event) => event.name);
     const usedNativeOpentasksTool = parsed.trajectory.some(
       (event) => event.type === 'tool' && event.name.startsWith(OPENTASKS_MCP_TOOL_PREFIX),
     );
+    const swarmTaskCalls = parsed.trajectory
+      .filter((event) => event.type === 'tool' && event.name.startsWith('task_'))
+      .map((event) => event.name);
+    const usedSwarmTaskTool = this.usesOpenSwarmSwarmMode(cell) && swarmTaskCalls.length > 0;
     const connected = parsed.mcpServers.some((server) => server.name === 'opentasks' && server.status === 'connected');
-    const exposed = opentasksToolNames.length > 0 || usedNativeOpentasksTool;
-    const ok = agent.exitCode === 0 && parsed.sawResult && !parsed.isError && usedNativeOpentasksTool;
+    const exposed = opentasksToolNames.length > 0 || usedNativeOpentasksTool || usedSwarmTaskTool;
+    const ok = agent.exitCode === 0 && parsed.sawResult && !parsed.isError && (usedNativeOpentasksTool || usedSwarmTaskTool);
     const failureReason =
       ok === true
         ? undefined
@@ -1775,10 +2733,12 @@ export class TacDockerAdapter implements ExecutionAdapter {
             exposed,
             mcpServers: parsed.mcpServers,
             stderr: agent.stderr,
+            harnessId: this.agentHarness.id,
           });
     return {
       ok,
       failureReason,
+      harnessId: this.agentHarness.id,
       exitCode: agent.exitCode,
       timedOut: agent.timedOut === true,
       sawResult: parsed.sawResult,
@@ -1790,8 +2750,13 @@ export class TacDockerAdapter implements ExecutionAdapter {
       opentasksToolNames,
       skillNames: init.skillNames,
       usedNativeOpentasksTool,
+      nativeCalls,
+      usedSwarmTaskTool,
+      swarmTaskToolCount: swarmTaskCalls.length,
+      swarmTaskCalls,
       stdoutHead: agent.stdout.slice(0, 1000),
       stderrHead: agent.stderr.slice(0, 1000),
+      streamStats,
       trajectory: parsed.trajectory,
     };
   }
@@ -1878,6 +2843,11 @@ export class TacDockerAdapter implements ExecutionAdapter {
       `sourceTaskId: ${report.sourceTaskId}`,
       `contentBytes: ${report.contentBytes}`,
     ];
+    if (report.teamContract?.enabled) {
+      const slugs = (report.teamContract.nodes ?? []).map((node) => node.slug).filter(Boolean);
+      lines.push(`teamContract: on`);
+      lines.push(`teamNodes: ${slugs.length ? slugs.join(',') : 'none'}`);
+    }
     if (report.error) lines.push(`error: ${report.error}`);
     return `${lines.join('\n')}\n`;
   }
@@ -1916,7 +2886,7 @@ export function tacDockerAdapterFromEnv(): TacDockerAdapter {
     dockerCommand: process.env.TAC_DOCKER_COMMAND,
     env: passEnv(),
     agentSetupCommand: process.env.TAC_AGENT_SETUP_CMD,
-    agentHarnessId: process.env.TAC_AGENT_HARNESS ?? process.env.TAC_AGENT_RUNTIME,
+    agentHarnessId: tacAgentHarnessIdFromEnv(),
     agentUser: process.env.TAC_AGENT_USER,
     opentasksMount: process.env.TAC_OPENTASKS_MOUNT ?? process.cwd(),
     opentasksContainerDir: process.env.TAC_OPENTASKS_CONTAINER_DIR ?? '/opentasks',
@@ -1949,47 +2919,18 @@ export function tacDockerAdapterFromEnv(): TacDockerAdapter {
   });
 }
 
+function tacAgentHarnessIdFromEnv(): string | undefined {
+  const explicit = process.env.TAC_AGENT_HARNESS ?? process.env.TAC_AGENT_RUNTIME;
+  if (explicit?.trim()) return explicit;
+  const arms = (process.env.EVAL_ARMS ?? '')
+    .split(',')
+    .map((arm) => arm.trim())
+    .filter(Boolean);
+  return arms.includes(TAC_TEAM_CONTRACT_ARM_ID) ? 'openswarm' : undefined;
+}
+
 function passEnv(): Record<string, string> {
-  const keys = [
-    'CLAUDE_CODE_USE_BEDROCK',
-    'AWS_BEARER_TOKEN_BEDROCK',
-    'AWS_REGION',
-    'AWS_PROFILE',
-    'AWS_ACCESS_KEY_ID',
-    'AWS_SECRET_ACCESS_KEY',
-    'AWS_SESSION_TOKEN',
-    'ANTHROPIC_BASE_URL',
-    'ANTHROPIC_API_KEY',
-    'ANTHROPIC_AUTH_TOKEN',
-    'ANTHROPIC_MODEL',
-    'OPENAI_API_KEY',
-    'OPENAI_BASE_URL',
-    'OPENAI_ORG_ID',
-    'OPENAI_PROJECT_ID',
-    'AZURE_OPENAI_API_KEY',
-    'AZURE_OPENAI_KEY',
-    'AZURE_OPENAI_ENDPOINT',
-    'AZURE_OPENAI_BASE_URL',
-    'AZURE_OPENAI_DEPLOYMENT',
-    'AZURE_OPENAI_API_VERSION',
-    'AZURE_OPENAI_AUTH_MODE',
-    'AZURE_OPENAI_RESPONSES_PATH',
-    'TAC_GRADER_PROXY',
-    'TAC_GRADER_PROXY_HOST',
-    'TAC_GRADER_PROXY_PORT',
-    'TAC_GRADER_PROXY_MODEL',
-    'TAC_GRADER_PROXY_KEY',
-    'TAC_GRADER_BEDROCK_MODEL',
-    'TAC_GRADER_BEDROCK_REGION',
-    'TAC_GRADER_PROXY_STATE_DIR',
-    'TAC_GRADER_PROXY_START_TIMEOUT_SEC',
-    'LITELLM_API_KEY',
-    'LITELLM_BASE_URL',
-    'LITELLM_MODEL',
-  ];
-  const out: Record<string, string> = {};
-  for (const key of keys) if (process.env[key]) out[key] = process.env[key]!;
-  return out;
+  return tacForwardedEnv();
 }
 
 function openAiCompatibleLitellmModel(model: string): string {
@@ -2050,21 +2991,37 @@ function hasOpenTasksMcpCall(trajectory: TraceEvent[], names?: string[]): boolea
   );
 }
 
-export function traceEfficiencyMetrics(trajectory: TraceEvent[]): Record<string, number> {
+function isTaskWorkTool(event: TraceEvent): boolean {
+  return event.type === 'tool' && event.name !== 'ToolSearch' && event.name !== 'Skill' && !event.name.startsWith(OPENTASKS_MCP_TOOL_PREFIX);
+}
+
+export function traceEfficiencyMetrics(
+  trajectory: TraceEvent[],
+  opts: { seededTaskId?: string } = {},
+): Record<string, number> {
   const toolEvents = trajectory.filter((event) => event.type === 'tool');
   const firstBashIndex = toolEvents.findIndex((event) => event.name === 'Bash');
   const lastBashIndex = findLastIndex(toolEvents, (event) => event.name === 'Bash');
+  const firstTaskWorkIndex = toolEvents.findIndex(isTaskWorkTool);
   const openTasksToolCallCounts: Record<string, number> = {};
   let mainBashCallCount = 0;
   let mainReadCallCount = 0;
   let mainToolSearchCallCount = 0;
+  let mainToolSearchMultiSelectCallCount = 0;
   let mainOpenTasksCallCount = 0;
   let mainOpenTasksListCallCount = 0;
+  let mainOpenTasksGetTaskCallCount = 0;
   let mainOpenTasksUpdateCallCount = 0;
   let openTasksCallsBeforeFirstBash = 0;
   let openTasksCallsAfterLastBash = 0;
+  let openTasksGetTaskCallsBeforeFirstBash = 0;
+  let openTasksGetTaskCallsBeforeFirstTaskWork = 0;
+  let seededTaskGetTaskCallCount = 0;
+  let seededTaskGetTaskBeforeFirstBashCallCount = 0;
+  let seededTaskGetTaskBeforeFirstTaskWorkCallCount = 0;
   let gitlabHelperCallCount = 0;
   let gitlabHelperApiShorthandCallCount = 0;
+  let gitlabProtectedBranchHelperCallCount = 0;
   let rawGitlabApiCurlCallCount = 0;
 
   toolEvents.forEach((event, index) => {
@@ -2075,15 +3032,33 @@ export function traceEfficiencyMetrics(trajectory: TraceEvent[]): Record<string,
         gitlabHelperCallCount += 1;
         if (isGitlabApiShorthandCommand(command)) gitlabHelperApiShorthandCallCount += 1;
       }
+      if (/\btac-gitlab-protect-branch\b/.test(command)) {
+        gitlabHelperCallCount += 1;
+        gitlabProtectedBranchHelperCallCount += 1;
+      }
       if (/\bcurl\b/.test(command) && /\/api\/v4\//.test(command)) rawGitlabApiCurlCallCount += 1;
     }
     if (event.name === 'Read') mainReadCallCount += 1;
-    if (event.name === 'ToolSearch') mainToolSearchCallCount += 1;
+    if (event.name === 'ToolSearch') {
+      mainToolSearchCallCount += 1;
+      const query = String((event.input as { query?: unknown } | undefined)?.query ?? '');
+      if (countOpenTasksSelectTargets(query) > 1) mainToolSearchMultiSelectCallCount += 1;
+    }
     if (event.name.startsWith(OPENTASKS_MCP_TOOL_PREFIX)) {
       const toolName = event.name.slice(OPENTASKS_MCP_TOOL_PREFIX.length);
       openTasksToolCallCounts[toolName] = (openTasksToolCallCounts[toolName] ?? 0) + 1;
       mainOpenTasksCallCount += 1;
       if (event.name === 'mcp__opentasks__list_tasks') mainOpenTasksListCallCount += 1;
+      if (event.name === 'mcp__opentasks__get_task') {
+        mainOpenTasksGetTaskCallCount += 1;
+        if (firstBashIndex < 0 || index < firstBashIndex) openTasksGetTaskCallsBeforeFirstBash += 1;
+        if (firstTaskWorkIndex < 0 || index < firstTaskWorkIndex) openTasksGetTaskCallsBeforeFirstTaskWork += 1;
+        if (opts.seededTaskId && String((event.input as { id?: unknown } | undefined)?.id ?? '') === opts.seededTaskId) {
+          seededTaskGetTaskCallCount += 1;
+          if (firstBashIndex < 0 || index < firstBashIndex) seededTaskGetTaskBeforeFirstBashCallCount += 1;
+          if (firstTaskWorkIndex < 0 || index < firstTaskWorkIndex) seededTaskGetTaskBeforeFirstTaskWorkCallCount += 1;
+        }
+      }
       if (event.name === 'mcp__opentasks__record_attempt' || event.name === 'mcp__opentasks__update_task') {
         mainOpenTasksUpdateCallCount += 1;
       }
@@ -2098,23 +3073,44 @@ export function traceEfficiencyMetrics(trajectory: TraceEvent[]): Record<string,
       count,
     ]),
   );
+  const seededTaskMetrics = opts.seededTaskId
+    ? {
+        seededTaskGetTaskCallCount,
+        seededTaskGetTaskBeforeFirstBashCallCount,
+        seededTaskFullContentReadBeforeFirstBash: seededTaskGetTaskBeforeFirstBashCallCount > 0 ? 1 : 0,
+        seededTaskGetTaskBeforeFirstTaskWorkCallCount,
+        seededTaskFullContentReadBeforeFirstTaskWork: seededTaskGetTaskBeforeFirstTaskWorkCallCount > 0 ? 1 : 0,
+      }
+    : {};
 
   return {
     mainToolCallCount: toolEvents.length,
     mainBashCallCount,
     mainReadCallCount,
     mainToolSearchCallCount,
+    mainToolSearchMultiSelectCallCount,
     mainOpenTasksCallCount,
     mainOpenTasksListCallCount,
+    mainOpenTasksGetTaskCallCount,
     mainOpenTasksUpdateCallCount,
     openTasksCallsBeforeFirstBash,
     openTasksCallsAfterLastBash,
+    openTasksGetTaskCallsBeforeFirstBash,
+    mainFullTaskContentReadBeforeFirstBash: openTasksGetTaskCallsBeforeFirstBash > 0 ? 1 : 0,
+    openTasksGetTaskCallsBeforeFirstTaskWork,
+    mainFullTaskContentReadBeforeFirstTaskWork: openTasksGetTaskCallsBeforeFirstTaskWork > 0 ? 1 : 0,
+    ...seededTaskMetrics,
     mainOpenTasksDistinctToolCount: Object.keys(openTasksToolCallCounts).length,
     ...perOpenTasksToolMetrics,
     gitlabHelperCallCount,
     gitlabHelperApiShorthandCallCount,
+    gitlabProtectedBranchHelperCallCount,
     rawGitlabApiCurlCallCount,
   };
+}
+
+function countOpenTasksSelectTargets(query: string): number {
+  return query.match(/select:mcp__opentasks__[A-Za-z0-9_:-]*/g)?.length ?? 0;
 }
 
 function metricNamePart(name: string): string {
@@ -2159,6 +3155,7 @@ function findLastIndex<T>(items: T[], predicate: (item: T) => boolean): number {
 export interface TraceDiagnostics {
   repeatedToolCallCount: number;
   repeatedBashCommandCount: number;
+  broadFilesystemSearchCount: number;
   toolErrorCount: number;
   http401Count: number;
   http403Count: number;
@@ -2185,6 +3182,7 @@ export function traceDiagnosticsFromClaudeStream(stdout: string, stderr: string)
   const diagnostics: TraceDiagnostics = {
     repeatedToolCallCount: 0,
     repeatedBashCommandCount: 0,
+    broadFilesystemSearchCount: 0,
     toolErrorCount: 0,
     http401Count: 0,
     http403Count: 0,
@@ -2203,6 +3201,21 @@ export function traceDiagnosticsFromClaudeStream(stdout: string, stderr: string)
   const toolCounts = new Map<string, number>();
   const bashCounts = new Map<string, number>();
   const scannedText: string[] = [stderr];
+  const commandText: string[] = [];
+  const openSwarmTools = new Map<string, { name: string; json: string; input?: unknown }>();
+
+  const recordToolUse = (name: string, input: unknown) => {
+    const key = `${name}:${stableJson(input ?? {})}`;
+    toolCounts.set(key, (toolCounts.get(key) ?? 0) + 1);
+    if (canonicalDiagnosticToolName(name) === 'Bash') {
+      const command = normalizeCommand((input as { command?: unknown } | undefined)?.command);
+      if (command) {
+        bashCounts.set(command, (bashCounts.get(command) ?? 0) + 1);
+        commandText.push(command);
+        scannedText.push(command);
+      }
+    }
+  };
 
   for (const line of stdout.split('\n')) {
     if (!line.trim().startsWith('{')) continue;
@@ -2212,6 +3225,40 @@ export function traceDiagnosticsFromClaudeStream(stdout: string, stderr: string)
     } catch {
       continue;
     }
+    const event = swarmDiagnosticPayload(obj);
+
+    if (event.type === 'tool_use_start') {
+      const id = typeof event.id === 'string' ? event.id : typeof event.toolUseId === 'string' ? event.toolUseId : '';
+      const name = typeof event.name === 'string' ? event.name : typeof event.toolName === 'string' ? event.toolName : 'tool';
+      if (id) openSwarmTools.set(id, { name, json: '' });
+    }
+
+    if (event.type === 'tool_use_input') {
+      const id = typeof event.id === 'string' ? event.id : typeof event.toolUseId === 'string' ? event.toolUseId : '';
+      const open = openSwarmTools.get(id);
+      if (open && typeof event.jsonDelta === 'string') open.json += event.jsonDelta;
+    }
+
+    if (event.type === 'tool_use_end') {
+      const id = typeof event.id === 'string' ? event.id : typeof event.toolUseId === 'string' ? event.toolUseId : '';
+      const open = openSwarmTools.get(id);
+      if (open) {
+        const input = isRecord(event.input) ? event.input : parseJsonRecord(open.json);
+        recordToolUse(canonicalDiagnosticToolName(open.name), input ?? {});
+        openSwarmTools.delete(id);
+      }
+    }
+
+    if (event.type === 'tool_result') {
+      if (event.isError === true || event.is_error === true) diagnostics.toolErrorCount += 1;
+      const text = textFromContent(event.content);
+      if (text) scannedText.push(text);
+    }
+
+    if (event.type === 'error' || obj.status === 'failed' || obj.status === 'timeout' || obj.status === 'cancelled') {
+      diagnostics.toolErrorCount += 1;
+      scannedText.push(textFromContent(obj.error));
+    }
 
     if (obj.type === 'assistant') {
       const content = (obj.message as { content?: unknown } | undefined)?.content;
@@ -2220,15 +3267,7 @@ export function traceDiagnosticsFromClaudeStream(stdout: string, stderr: string)
         if (!block || typeof block !== 'object' || (block as { type?: unknown }).type !== 'tool_use') continue;
         const tool = block as { name?: unknown; input?: unknown };
         if (typeof tool.name !== 'string') continue;
-        const key = `${tool.name}:${stableJson(tool.input ?? {})}`;
-        toolCounts.set(key, (toolCounts.get(key) ?? 0) + 1);
-        if (tool.name === 'Bash') {
-          const command = normalizeCommand((tool.input as { command?: unknown } | undefined)?.command);
-          if (command) {
-            bashCounts.set(command, (bashCounts.get(command) ?? 0) + 1);
-            scannedText.push(command);
-          }
-        }
+        recordToolUse(tool.name, tool.input ?? {});
       }
     }
 
@@ -2252,6 +3291,7 @@ export function traceDiagnosticsFromClaudeStream(stdout: string, stderr: string)
 
   diagnostics.repeatedToolCallCount = repeatedCount(toolCounts);
   diagnostics.repeatedBashCommandCount = repeatedCount(bashCounts);
+  diagnostics.broadFilesystemSearchCount = broadFilesystemSearchCount(commandText.join('\n'));
   const statusCounts = statusSignalCounts(scannedText.join('\n'));
   diagnostics.http401Count = statusCounts.http401Count;
   diagnostics.http403Count = statusCounts.http403Count;
@@ -2273,6 +3313,7 @@ export function failureTaxonomy(signals: TraceDiagnostics): FailureTaxonomyRepor
   const labels: string[] = [];
   if (signals.liveTokenBudgetExceeded === 1) labels.push('budget_live_tokens');
   if (signals.authFailureSignalCount > 0 || signals.http401Count > 0 || signals.http403Count > 0) labels.push('auth_or_permission');
+  if (signals.broadFilesystemSearchCount > 0) labels.push('broad_filesystem_search');
   if (signals.repeatedBashCommandCount >= 2 || signals.repeatedToolCallCount >= 3) labels.push('repetition_loop');
   if (signals.http404Count > 0) labels.push('not_found_or_wrong_target');
   if (signals.http5xxCount > 0) labels.push('service_unavailable');
@@ -2289,11 +3330,34 @@ export function taxonomyMetrics(report: FailureTaxonomyReport): Record<string, n
   return {
     taxonomyBudgetLiveTokens: labels.has('budget_live_tokens') ? 1 : 0,
     taxonomyAuthOrPermission: labels.has('auth_or_permission') ? 1 : 0,
+    taxonomyBroadFilesystemSearch: labels.has('broad_filesystem_search') ? 1 : 0,
     taxonomyRepetitionLoop: labels.has('repetition_loop') ? 1 : 0,
     taxonomyNotFoundOrWrongTarget: labels.has('not_found_or_wrong_target') ? 1 : 0,
     taxonomyServiceUnavailable: labels.has('service_unavailable') ? 1 : 0,
     taxonomyUndifferentiatedTaskFailure: labels.has('undifferentiated_task_failure') ? 1 : 0,
   };
+}
+
+export function taxonomyMetricsForTacResult(result: TacResultJson, diagnostics: TraceDiagnostics): Record<string, number> {
+  return tacResultIsFullSuccess(result) ? taxonomyMetrics({ ...failureTaxonomy(diagnostics), labels: [] }) : taxonomyMetrics(failureTaxonomy(diagnostics));
+}
+
+function tacResultIsFullSuccess(result: TacResultJson): boolean {
+  const final = result.final_score ?? {};
+  if (finiteNonnegative(final.total) && Number(final.total) > 0 && finiteNonnegative(final.result)) {
+    return Number(final.result) >= Number(final.total);
+  }
+  const checkpoints = result.checkpoints ?? [];
+  if (!checkpoints.length) return false;
+  return checkpoints.every((cp) => {
+    const total = finiteNonnegative(cp.total) ? Number(cp.total) : 1;
+    const earned = finiteNonnegative(cp.result) ? Number(cp.result) : 0;
+    return total > 0 && earned >= total;
+  });
+}
+
+function finiteNonnegative(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 function liveTokenLimitFromEnv(): number | undefined {
@@ -2311,6 +3375,39 @@ function remainingLiveTokenLimit(limit: number | undefined, priorUsage: TokenUsa
 
 function stableJson(value: unknown): string {
   return JSON.stringify(sortJson(value));
+}
+
+function swarmDiagnosticPayload(obj: Record<string, unknown>): Record<string, unknown> {
+  return isRecord(obj.payload) && typeof obj.payload.type === 'string' ? obj.payload : obj;
+}
+
+function parseJsonRecord(json: string): Record<string, unknown> | undefined {
+  if (!json) return undefined;
+  try {
+    const parsed = JSON.parse(json);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function canonicalDiagnosticToolName(name: string): string {
+  const map: Record<string, string> = {
+    bash: 'Bash',
+    read_file: 'Read',
+    write_file: 'Write',
+    edit_file: 'Edit',
+    multi_edit: 'Edit',
+    glob: 'Glob',
+    grep: 'Grep',
+    tool_search: 'ToolSearch',
+    skill: 'Skill',
+  };
+  return map[name] ?? name;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function sortJson(value: unknown): unknown {
@@ -2339,6 +3436,17 @@ function repeatedCount(counts: Map<string, number>): number {
   let total = 0;
   for (const count of counts.values()) total += Math.max(0, count - 1);
   return total;
+}
+
+function broadFilesystemSearchCount(text: string): number {
+  const pythonGlobModuleCount = matchCount(text, /\bglob\.glob\s*\(\s*['"]\/\*\*\/\*/gi);
+  const textWithoutGlobModuleCalls = text.replace(/\bglob\.glob\s*\(\s*['"]\/\*\*\/\*/gi, '');
+  return [
+    /\bfind\s+\/(?:\s|$|[;&|])/gi,
+    /\bgrep\b[^\n;&|]*\s-(?:[A-Za-z]*R[A-Za-z]*|[A-Za-z]*r[A-Za-z]*)\b[^\n;&|]*\s\/(?:\s|$|[;&|])/gi,
+    /\brg\b[^\n;&|]*\s\/(?:\s|$|[;&|])/gi,
+  ].reduce((sum, pattern) => sum + matchCount(text, pattern), pythonGlobModuleCount)
+    + matchCount(textWithoutGlobModuleCalls, /\bglob\s*\(\s*['"]\/\*\*\/\*/gi);
 }
 
 function statusSignalCounts(text: string): Pick<
@@ -2405,9 +3513,10 @@ function matchCount(text: string, pattern: RegExp): number {
   return text.match(pattern)?.length ?? 0;
 }
 
-interface ClaudeMcpSmokeReport {
+interface OpenTasksMcpSmokeReport {
   ok: boolean;
   failureReason?: string;
+  harnessId: string;
   exitCode: number;
   timedOut: boolean;
   sawResult: boolean;
@@ -2419,8 +3528,13 @@ interface ClaudeMcpSmokeReport {
   opentasksToolNames: string[];
   skillNames: string[];
   usedNativeOpentasksTool: boolean;
+  nativeCalls: string[];
+  usedSwarmTaskTool: boolean;
+  swarmTaskToolCount: number;
+  swarmTaskCalls: string[];
   stdoutHead: string;
   stderrHead: string;
+  streamStats: ClaudeStreamStats;
   trajectory: TraceEvent[];
 }
 
@@ -2460,6 +3574,12 @@ interface OpenTasksGraphSeedReport {
   contentBytes: number;
   tags: string[];
   created?: unknown;
+  teamContract?: {
+    enabled?: boolean;
+    nodes?: Array<{ slug?: string; id?: string | null; error?: string | null }>;
+    edges?: Array<{ from?: string; to?: string; type?: string; relation?: string; error?: string | null }>;
+    errors?: string[];
+  };
   exitCode: number;
   error?: string | null;
   stdoutHead: string;
@@ -2592,17 +3712,20 @@ function smokeFailureReason(opts: {
   exposed: boolean;
   mcpServers: { name: string; status: string }[];
   stderr: string;
+  harnessId: string;
 }): string {
-  if (opts.timedOut) return 'claude smoke timed out';
-  if (!opts.sawResult) return 'claude smoke did not emit a result event';
-  if (opts.isError) return `claude smoke result was marked is_error=true: ${(opts.output || opts.stderr).slice(0, 200)}`;
-  if (opts.exitCode !== 0) return `claude smoke exited ${opts.exitCode}: ${opts.stderr.slice(0, 200)}`;
-  if (opts.exposed) return 'Claude exposed OpenTasks tools but did not execute a native mcp__opentasks__ tool';
+  if (opts.timedOut) return `${opts.harnessId} OpenTasks MCP smoke timed out`;
+  if (!opts.sawResult) return `${opts.harnessId} OpenTasks MCP smoke did not emit a completed assistant result`;
+  if (opts.isError) return `${opts.harnessId} OpenTasks MCP smoke result was marked as an error: ${(opts.output || opts.stderr).slice(0, 200)}`;
+  if (opts.exitCode !== 0) return `${opts.harnessId} OpenTasks MCP smoke exited ${opts.exitCode}: ${opts.stderr.slice(0, 200)}`;
+  if (opts.exposed) return `${opts.harnessId} exposed OpenTasks tools but did not execute a native mcp__opentasks__ tool`;
   if (!opts.connected) {
     const status = opts.mcpServers.find((server) => server.name === 'opentasks')?.status ?? 'missing';
-    return `opentasks MCP server was not connected in Claude init; status=${status}`;
+    return opts.harnessId === 'claude-code'
+      ? `opentasks MCP server was not connected in Claude init; status=${status}`
+      : `${opts.harnessId} did not report or execute OpenTasks MCP tools; opentasks status=${status}`;
   }
-  if (!opts.exposed) return 'Claude did not expose or execute native mcp__opentasks__ tools';
+  if (!opts.exposed) return `${opts.harnessId} did not expose or execute native mcp__opentasks__ tools`;
   return 'unknown smoke failure';
 }
 
@@ -2700,15 +3823,37 @@ async function writeLocalArtifact(name: string, content: string): Promise<void> 
 }
 
 export function redactSensitiveText(text: string): string {
-  return text
-    .replace(/\bAWS_BEARER_TOKEN_BEDROCK\s*[=:]\s*\\?"?[^\\\n\r"']+/g, 'AWS_BEARER_TOKEN_BEDROCK=[REDACTED]')
-    .replace(/\bANTHROPIC_API_KEY\s*[=:]\s*\\?"?[^\\\n\r"']+/g, 'ANTHROPIC_API_KEY=[REDACTED]')
-    .replace(/\bLITELLM_API_KEY\s*[=:]\s*\\?"?[^\\\n\r"']+/g, 'LITELLM_API_KEY=[REDACTED]')
-    .replace(/\bAWS_SECRET_ACCESS_KEY\s*[=:]\s*\\?"?[^\\\n\r"']+/g, 'AWS_SECRET_ACCESS_KEY=[REDACTED]')
-    .replace(/\bAWS_SESSION_TOKEN\s*[=:]\s*\\?"?[^\\\n\r"']+/g, 'AWS_SESSION_TOKEN=[REDACTED]')
+  const secretEnvKeys = [
+    'AWS_BEARER_TOKEN_BEDROCK',
+    'AWS_SECRET_ACCESS_KEY',
+    'AWS_SESSION_TOKEN',
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_AUTH_TOKEN',
+    'OPENAI_API_KEY',
+    'AZURE_API_KEY',
+    'AZURE_OPENAI_API_KEY',
+    'AZURE_OPENAI_KEY',
+    'TAC_GRADER_PROXY_KEY',
+    'LITELLM_API_KEY',
+    'PLANE_API_KEY',
+  ];
+  let redacted = text;
+  for (const key of secretEnvKeys) {
+    const escaped = escapeRegExp(key);
+    redacted = redacted
+      .replace(new RegExp(`(\\\\?["']${escaped}\\\\?["']\\s*:\\s*\\\\?["'])[^\\\\"']+`, 'g'), `$1[REDACTED]`)
+      .replace(new RegExp(`\\b${escaped}\\b\\s*[=:]\\s*\\\\?"?[^\\\\\\n\\r"',}\\s]+`, 'g'), `${key}=[REDACTED]`);
+  }
+  return redacted
+    .replace(/(\\?["']x-api-key\\?["']\s*:\s*\\?["'])[^\\\n\r"']+/gi, '$1[REDACTED]')
+    .replace(/\bx-api-key\b\s*:\s*\\?"?[^\\\n\r"',}\s]+/gi, 'x-api-key: [REDACTED]')
     .replace(/\bABSK[A-Za-z0-9+/=._-]+/g, '[REDACTED]')
-    .replace(/\bsk-ant-[A-Za-z0-9._-]+/g, '[REDACTED]')
+    .replace(/\bsk-(?:ant-)?[A-Za-z0-9._-]+/g, '[REDACTED]')
     .replace(/\broot-token\b/g, '[REDACTED_TAC_GITLAB_TOKEN]');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function envRaw(kind: EnvError['kind'], message: string, start: number, usage: TokenUsage = ZERO_USAGE, trajectory: TraceEvent[] = []): RawRun {

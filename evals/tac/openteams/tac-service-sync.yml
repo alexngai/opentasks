@@ -1,0 +1,51 @@
+name: tac-service-sync
+version: 1
+protocol: agent-inbox-v1
+
+roles:
+  coordinator:
+    capabilities:
+      - task-read
+      - service-write
+      - graph-write
+      - inbox-send
+      - inbox-read
+    spawns:
+      - service_inspector
+      - verifier
+  service_inspector:
+    capabilities:
+      - task-read
+      - service-read
+      - inbox-reply
+      - graph-evidence
+    spawns: []
+  verifier:
+    capabilities:
+      - service-read
+      - inbox-reply
+      - graph-verification
+    spawns: []
+
+communication:
+  enforcement: audit
+  markers:
+    assignment: TEAM_ASSIGNMENT
+    evidence: TEAM_EVIDENCE
+    decision: TEAM_DECISION
+    verification_request: TEAM_VERIFICATION_REQUEST
+    verification: TEAM_VERIFICATION
+
+durable_evidence:
+  required: true
+  accepted_paths:
+    - mcp__opentasks__record_attempt
+    - mcp__opentasks__update_task
+    - tac-opentasks-record-evidence
+    - tac-team-protocol record-evidence
+
+helpers:
+  envelope: tac-team-protocol assignment
+  evidence: tac-team-protocol record-evidence
+  verification_request: tac-team-protocol verification-request
+  mutation_gate: tac-team-protocol mutate
