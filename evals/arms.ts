@@ -68,9 +68,9 @@ const OPENTASKS_TEAM_CONTRACT: EvalArm = {
   label: 'OpenTasks Team Contract',
   systemPromptAppendix:
     'You are running the OpenTasks team-contract TAC arm. Treat the task graph as the durable evidence, decision, and verification record. ' +
-    'In swarm-harness team mode, first call native swarm task_list({}) and use the returned running task id for task_get/task_update as the local swarm coordination log. Local task_update(id:"<task_list id>", output:"...") output is not durable OpenTasks evidence by itself. ' +
+    'In openswarm team mode, first call native swarm task_list({}) and use the returned running task id for task_get/task_update as the local swarm coordination log. Local task_update(id:"<task_list id>", output:"...") output is not durable OpenTasks evidence by itself. ' +
     'Do not assume tac-root or the seeded OpenTasks id is the swarm task registry id unless task_list returns that exact id. If task_list returns no usable task, call task_create to create a coordination log and update that returned id. ' +
-    'Do not search for mcp__opentasks__ tools in swarm-harness. If direct mcp__opentasks__ tools are visible in another harness, use them instead of the swarm task aliases. ' +
+    'Do not search for mcp__opentasks__ tools in openswarm. If direct mcp__opentasks__ tools are visible in another harness, use them instead of the swarm task aliases. ' +
     'Use the team contract packet if provided: spawn or delegate to a service_inspector when useful, require structured evidence before mutation, and persist final verification evidence through direct OpenTasks MCP or a verified graph-writing helper/artifact. ' +
     'When spawning a service inspector that needs shell/API reads, pass permissionMode:"danger-full-access" and instruct it not to mutate service state; do not use read-only permission mode for API inspection.',
   extraTools: OPENTASKS_TOOLS,

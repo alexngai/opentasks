@@ -2584,7 +2584,7 @@ Seed 12 repeated-seed findings:
 ### 2026-06-25 Standalone Optimization Sweep
 
 This sweep stayed on standalone TAC with the `claude-code` harness and did not
-use the full OpenHive/swarm-dispatch/swarm-harness stack. The goal was to
+use the full OpenHive/swarm-dispatch/openswarm stack. The goal was to
 separate product/tooling effects from ecosystem orchestration effects.
 
 Instrumentation and prompt changes:
@@ -2753,7 +2753,7 @@ Outstanding work before a full benchmark claim:
 
 Goal:
 
-- validate the `opentasks-team-contract` arm with `swarm-harness@0.3.5`,
+- validate the `opentasks-team-contract` arm with `openswarm@0.3.5`,
   `TAC_TEAM_PROTOCOL=agent-inbox-v1`, and `azureoai/gpt-5.5`;
 - measure protocol behavior separately from TAC score;
 - decide whether dispatch is ready to become the carrier.
@@ -2769,7 +2769,7 @@ What worked:
 
 - EC2 pool provisioning and default cleanup completed; post-destroy
   verification passed and Terraform state was empty after both runs.
-- `swarm-harness` spawned teams in both cells.
+- `openswarm` spawned teams in both cells.
 - Static role packets and team artifacts were produced.
 - The durable OpenTasks helper path worked: both runs wrote durable evidence
   and verification records with graph record ids.
@@ -2792,7 +2792,7 @@ What did not work:
 Decision:
 
 - Do not wire `swarm-dispatch` into live TAC yet. Dispatch should carry a
-  working protocol, not hide the fact that static `swarm-harness` traces still
+  working protocol, not hide the fact that static `openswarm` traces still
   lack explicit inbox assignment/reply events.
 - Add dispatch only behind a fixture or a static-harness run that proves
   ordered assignment, evidence reply, durable OpenTasks evidence, verifier

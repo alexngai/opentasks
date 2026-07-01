@@ -2,7 +2,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { parseSwarmHarnessJsonl } from '../agent-harness';
+import { parseOpenSwarmJsonl } from '../agent-harness';
 import { traceDiagnosticsFromClaudeStream } from '../docker-adapter';
 
 interface CellSummary {
@@ -397,7 +397,7 @@ interface ToolEvent {
 
 function readToolEvents(stdout: string): ToolEvent[] {
   const events: ToolEvent[] = [];
-  for (const event of parseSwarmHarnessJsonl(stdout).trajectory) {
+  for (const event of parseOpenSwarmJsonl(stdout).trajectory) {
     if (event.type === 'tool') events.push({ name: event.name, input: event.input });
   }
   if (events.length > 0) return events;

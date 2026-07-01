@@ -3,14 +3,14 @@
 **Status:** gated follow-up design; dispatch implementation deferred.
 **Extends:** [TAC OpenTeams Team Contract Design](./2026-06-26-tac-openteams-team-contract-design.md).
 **Scope:** define how `swarm-dispatch` should carry the TAC team protocol once
-the static `swarm-harness` protocol is behaviorally adopted.
+the static `openswarm` protocol is behaviorally adopted.
 
 ## 1. Live V1 Evidence
 
 Two live TAC cells ran with:
 
-- `TAC_AGENT_HARNESS=swarm-harness`
-- `TAC_SWARM_HARNESS_VERSION=0.3.5`
+- `TAC_AGENT_HARNESS=openswarm`
+- `TAC_OPENSWARM_VERSION=0.3.5`
 - `TAC_TEAM_PROTOCOL=agent-inbox-v1`
 - `EVAL_MODEL=azureoai/gpt-5.5`
 - `EVAL_ARMS=opentasks-team-contract`
@@ -78,7 +78,7 @@ The dispatch carrier should preserve the same `agent-inbox-v1` envelope:
 ```text
 OpenTasks seeded node
   -> swarm-dispatch claim
-  -> swarm-harness role runtime
+  -> openswarm role runtime
   -> explicit assignment/reply event
   -> durable OpenTasks evidence record
   -> coordinator decision
@@ -109,7 +109,7 @@ The TaskSource must include:
 
 ### AgentRuntime Handoff
 
-The dispatch `AgentRuntime` should invoke `swarm-harness` with a single role
+The dispatch `AgentRuntime` should invoke `openswarm` with a single role
 packet and task payload. It should not ask one coordinator prompt to remember
 every routing rule.
 
@@ -141,7 +141,7 @@ Each TAC cell should archive:
 - `dispatch-lifecycle.jsonl`
 - `dispatch-runtime-handoffs.jsonl`
 - `dispatch-opentasks-records.jsonl`
-- raw `swarm-harness` stream
+- raw `openswarm` stream
 - existing TAC `summary.json` and report artifacts
 
 The summary extractor should keep TAC score, team protocol score, and dispatch
@@ -153,7 +153,7 @@ Before a live TAC dispatch run, add a local fixture with:
 
 1. a fake OpenTasks TaskSource containing the root, inspection, mutation, and
    verification nodes;
-2. a fake `swarm-harness` AgentRuntime that emits assignment, evidence reply,
+2. a fake `openswarm` AgentRuntime that emits assignment, evidence reply,
    decision, verifier reply, and durable record ids;
 3. a negative case where the runtime emits only local task output;
 4. a negative case where the inspector replies after mutation;
@@ -172,8 +172,8 @@ Acceptance:
 Only after the fixture or static harness gate passes, run one live TAC cell:
 
 ```bash
-TAC_AGENT_HARNESS=swarm-harness \
-TAC_SWARM_HARNESS_VERSION=0.3.5 \
+TAC_AGENT_HARNESS=openswarm \
+TAC_OPENSWARM_VERSION=0.3.5 \
 TAC_TEAM_PROTOCOL=agent-inbox-v1 \
 TAC_DISPATCH_CARRIER=1 \
 EVAL_MODEL=azureoai/gpt-5.5 \
@@ -207,7 +207,7 @@ TAC score:
 
 ## 8. Next Work
 
-1. Make static `swarm-harness` runs produce explicit inbox assignment/reply
+1. Make static `openswarm` runs produce explicit inbox assignment/reply
    events, or document that dispatch will be the first component to force them.
 2. Add the local dispatch carrier fixture before live TAC carrier wiring.
 3. Improve the Plane helper/page-inspection contract for `pm-update-*` tasks.

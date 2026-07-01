@@ -781,7 +781,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
             template: TAC_SERVICE_SYNC_TEAM.name,
             rolePacketPaths: rolePackets.map((packet) => packet.path),
             nativeRoleEnforcement: 0,
-            nativeRoleEnforcementReason: 'swarm-harness native role task fields are not wired in this TAC adapter slice',
+            nativeRoleEnforcementReason: 'openswarm native role task fields are not wired in this TAC adapter slice',
           },
           null,
           2,
@@ -802,7 +802,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
       '# TAC Agent-Inbox Team Protocol',
       '',
       `Protocol: ${TAC_TEAM_PROTOCOL_ID}`,
-      'Native swarm-harness role enforcement: 0 (audit/prompt packets only in this adapter slice).',
+      'Native openswarm role enforcement: 0 (audit/prompt packets only in this adapter slice).',
       'Role packet files:',
       ...rolePackets.map((packet) => `- ${packet.role}: ${packet.path}`),
       '',
@@ -854,9 +854,9 @@ export class TacDockerAdapter implements ExecutionAdapter {
   }
 
   private opentasksMcpSmokeCommand(cell: PublicCell, runDir: string): string {
-    const prompt = this.usesSwarmHarnessSwarmMode(cell)
+    const prompt = this.usesOpenSwarmSwarmMode(cell)
       ? [
-          'This is a TAC swarm-harness OpenTasks coordination smoke test.',
+          'This is a TAC openswarm OpenTasks coordination smoke test.',
           'Call the native swarm task tool task_list once; do not echo or simulate the tool name in Bash.',
           'Then answer exactly: opentasks swarm smoke complete',
           'Do not solve the TAC task.',
@@ -877,10 +877,10 @@ export class TacDockerAdapter implements ExecutionAdapter {
     });
   }
 
-  private usesSwarmHarnessSwarmMode(cell?: PublicCell): boolean {
-    if (this.agentHarness.id !== 'swarm-harness') return false;
+  private usesOpenSwarmSwarmMode(cell?: PublicCell): boolean {
+    if (this.agentHarness.id !== 'openswarm') return false;
     if (isTacTeamContractArm(cell?.arm.id)) return true;
-    const mode = (this.opts.env?.TAC_SWARM_HARNESS_MODE ?? process.env.TAC_SWARM_HARNESS_MODE ?? 'single').trim();
+    const mode = (this.opts.env?.TAC_OPENSWARM_MODE ?? process.env.TAC_OPENSWARM_MODE ?? 'single').trim();
     return ['swarm', 'swarm-run', 'multi', 'multi-agent', 'team', 'team-contract', 'opentasks-team-contract'].includes(mode);
   }
 
@@ -1916,8 +1916,8 @@ export class TacDockerAdapter implements ExecutionAdapter {
       TAC_HELPER_MAX_OUTPUT_BYTES: this.opts.env?.TAC_HELPER_MAX_OUTPUT_BYTES ?? '6000',
       ...(this.opts.agentUser ? { HOME: `/home/${this.opts.agentUser}` } : {}),
       ...(usesOpenTasks(cell) ? { OPENTASKS_PROJECT_DIR } : {}),
-      ...(usesOpenTasks(cell) && this.usesSwarmHarnessSwarmMode(cell) ? { TAC_SWARM_HARNESS_OPENTASKS: '1' } : {}),
-      ...(isTacTeamContractArm(cell.arm.id) && this.agentHarness.id === 'swarm-harness' ? { TAC_SWARM_HARNESS_MODE: 'team-contract' } : {}),
+      ...(usesOpenTasks(cell) && this.usesOpenSwarmSwarmMode(cell) ? { TAC_OPENSWARM_OPENTASKS: '1' } : {}),
+      ...(isTacTeamContractArm(cell.arm.id) && this.agentHarness.id === 'openswarm' ? { TAC_OPENSWARM_MODE: 'team-contract' } : {}),
       ...(this.teamProtocolEnabled(cell)
         ? { TAC_TEAM_PROTOCOL: TAC_TEAM_PROTOCOL_ID, TAC_TEAM_NATIVE_ROLE_ENFORCEMENT: '0' }
         : {}),
@@ -2716,7 +2716,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
     const swarmTaskCalls = parsed.trajectory
       .filter((event) => event.type === 'tool' && event.name.startsWith('task_'))
       .map((event) => event.name);
-    const usedSwarmTaskTool = this.usesSwarmHarnessSwarmMode(cell) && swarmTaskCalls.length > 0;
+    const usedSwarmTaskTool = this.usesOpenSwarmSwarmMode(cell) && swarmTaskCalls.length > 0;
     const connected = parsed.mcpServers.some((server) => server.name === 'opentasks' && server.status === 'connected');
     const exposed = opentasksToolNames.length > 0 || usedNativeOpentasksTool || usedSwarmTaskTool;
     const ok = agent.exitCode === 0 && parsed.sawResult && !parsed.isError && (usedNativeOpentasksTool || usedSwarmTaskTool);
@@ -2926,7 +2926,7 @@ function tacAgentHarnessIdFromEnv(): string | undefined {
     .split(',')
     .map((arm) => arm.trim())
     .filter(Boolean);
-  return arms.includes(TAC_TEAM_CONTRACT_ARM_ID) ? 'swarm-harness' : undefined;
+  return arms.includes(TAC_TEAM_CONTRACT_ARM_ID) ? 'openswarm' : undefined;
 }
 
 function passEnv(): Record<string, string> {

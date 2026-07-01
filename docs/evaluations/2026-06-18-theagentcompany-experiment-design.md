@@ -292,7 +292,7 @@ Protocol:
 
 - Use OpenTeams to declare TAC roles, topology, communication channels, and
   capability loadouts.
-- Use swarm-harness to run the coordinator and workers.
+- Use openswarm to run the coordinator and workers.
 - Use OpenTasks for root task content, subtasks, evidence, decisions, and
   verification records.
 - Use swarm-dispatch for claim/retry/continuation only after the static team

@@ -89,7 +89,7 @@ export function buildTacTeamContractPacket(opts: TacTeamContractPacketOptions): 
     '',
     'Coordinator contract:',
     '- Read the seeded OpenTasks root task before task-specific service work when direct mcp__opentasks__ tools are available.',
-    '- In swarm-harness team mode, first call task_list({}) and use the returned running task id for task_get/task_update as the local swarm coordination log.',
+    '- In openswarm team mode, first call task_list({}) and use the returned running task id for task_get/task_update as the local swarm coordination log.',
     '- Durable OpenTasks evidence requires a successful direct mcp__opentasks__record_attempt/update_task call, or a verified OpenTasks helper/graph artifact with a durable record id. Local swarm task_update(output:"...") alone is not durable OpenTasks evidence.',
     '- If native OpenTasks MCP writes are unavailable but Bash is available, persist the same evidence with tac-opentasks-record-evidence ROLE CORRELATION_ID JSON_PAYLOAD [SEEDED_ROOT_TASK_ID] and keep its JSON output containing opentasks_record_id.',
     `- Prefer ${TAC_TEAM_PROTOCOL_HELPER} assignment, ${TAC_TEAM_PROTOCOL_HELPER} evidence-message, ${TAC_TEAM_PROTOCOL_HELPER} record-evidence, ${TAC_TEAM_PROTOCOL_HELPER} verification-request, and ${TAC_TEAM_PROTOCOL_HELPER} mutate to generate exact inbox envelopes and gate service mutations.`,

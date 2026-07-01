@@ -5,11 +5,11 @@ import {
 } from 'swarmkit-eval';
 
 export const TAC_BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'];
-export const DEFAULT_SWARM_HARNESS_VERSION = '0.3.5';
+export const DEFAULT_OPENSWARM_VERSION = '0.3.5';
 
-export type TacAgentHarnessId = 'claude-code' | 'swarm-harness';
+export type TacAgentHarnessId = 'claude-code' | 'openswarm';
 
-const SUPPORTED_TAC_AGENT_HARNESSES = 'claude-code, swarm-harness';
+const SUPPORTED_TAC_AGENT_HARNESSES = 'claude-code, openswarm';
 
 export interface TacParsedAgentStream {
   output: string;
@@ -40,14 +40,14 @@ export interface TacAgentHarness {
 export function tacAgentHarnessFromId(id: string | undefined): TacAgentHarness {
   const normalized = normalizeTacAgentHarnessId(id);
   if (normalized === 'claude-code') return claudeCodeTacHarness();
-  if (normalized === 'swarm-harness') return swarmHarnessTacHarness();
+  if (normalized === 'openswarm') return openSwarmTacHarness();
   throw new Error(`Unsupported TAC agent harness "${id}". Supported harnesses: ${SUPPORTED_TAC_AGENT_HARNESSES}`);
 }
 
 export function normalizeTacAgentHarnessId(id: string | undefined): TacAgentHarnessId {
   const value = (id ?? 'claude-code').trim();
   if (!value || value === 'claude' || value === 'claude-code') return 'claude-code';
-  if (value === 'swarm' || value === 'swarm-coder' || value === 'swarm-harness') return 'swarm-harness';
+  if (value === 'openswarm') return 'openswarm';
   throw new Error(`Unsupported TAC agent harness "${id}". Supported harnesses: ${SUPPORTED_TAC_AGENT_HARNESSES}`);
 }
 
@@ -83,24 +83,24 @@ export function claudeCodeTacHarness(): TacAgentHarness {
   };
 }
 
-export function swarmHarnessTacHarness(): TacAgentHarness {
+export function openSwarmTacHarness(): TacAgentHarness {
   return {
-    id: 'swarm-harness',
+    id: 'openswarm',
     setupCommand() {
-      return `npm install -g swarm-harness@\${TAC_SWARM_HARNESS_VERSION:-${DEFAULT_SWARM_HARNESS_VERSION}}`;
+      return `npm install -g openswarm@\${TAC_OPENSWARM_VERSION:-${DEFAULT_OPENSWARM_VERSION}}`;
     },
     buildCommand(spec) {
       const promptPath = `/eval/${spec.runDir}/prompt.txt`;
       const mcpConfigPath = `/eval/${spec.runDir}/mcp.json`;
-      const effectivePromptPath = spec.includeSystemPrompt ? `/eval/${spec.runDir}/swarm-harness-prompt.txt` : promptPath;
-      const tasksPath = `/eval/${spec.runDir}/swarm-harness-tasks.jsonl`;
-      const resultsPath = `/eval/${spec.runDir}/swarm-harness-results.jsonl`;
-      const tracePath = `/eval/${spec.runDir}/swarm-harness-trace.jsonl`;
-      const deadLetterPath = `/eval/${spec.runDir}/swarm-harness-dead-letter.jsonl`;
+      const effectivePromptPath = spec.includeSystemPrompt ? `/eval/${spec.runDir}/openswarm-prompt.txt` : promptPath;
+      const tasksPath = `/eval/${spec.runDir}/openswarm-tasks.jsonl`;
+      const resultsPath = `/eval/${spec.runDir}/openswarm-results.jsonl`;
+      const tracePath = `/eval/${spec.runDir}/openswarm-trace.jsonl`;
+      const deadLetterPath = `/eval/${spec.runDir}/openswarm-dead-letter.jsonl`;
       let promptArg = spec.prompt;
       const prelude = [
-        'mkdir -p .swarm-harness',
-        `cp ${shq(mcpConfigPath)} .swarm-harness/mcp.json`,
+        'mkdir -p .openswarm',
+        `cp ${shq(mcpConfigPath)} .openswarm/mcp.json`,
       ];
       if (spec.includeSystemPrompt) {
         const defaultPromptArg = `"$(cat /eval/${spec.runDir}/prompt.txt)"`;
@@ -112,7 +112,7 @@ export function swarmHarnessTacHarness(): TacAgentHarness {
         promptArg = `"$(cat ${shq(effectivePromptPath)})"`;
       }
       const singleCommand = [
-        'swarm-harness',
+        'openswarm',
         '--single',
         '--headless',
         '--output-format',
@@ -129,7 +129,7 @@ export function swarmHarnessTacHarness(): TacAgentHarness {
           'const fs = require("fs");',
           'const [promptPath, tasksPath, model] = process.argv.slice(1);',
           'let prompt = fs.readFileSync(promptPath, "utf8");',
-          'const prefix = process.env.TAC_SWARM_HARNESS_MULTIAGENT_PROMPT || "";',
+          'const prefix = process.env.TAC_OPENSWARM_MULTIAGENT_PROMPT || "";',
           'if (prefix) prompt = `${prefix.trimEnd()}\\n\\n${prompt}`;',
           'const task = {',
           '  id: "tac-root",',
@@ -143,12 +143,12 @@ export function swarmHarnessTacHarness(): TacAgentHarness {
         ].join(' '))} ${shq(effectivePromptPath)} ${shq(tasksPath)} ${shq(spec.model)}`,
       ];
       const swarmCommand = [
-        'swarm-harness',
+        'openswarm',
         'swarm',
         'run',
         shq(tasksPath),
         '--concurrency',
-        '"${TAC_SWARM_HARNESS_CONCURRENCY:-3}"',
+        '"${TAC_OPENSWARM_CONCURRENCY:-3}"',
         '--output',
         shq(resultsPath),
         '--trace-output',
@@ -164,14 +164,14 @@ export function swarmHarnessTacHarness(): TacAgentHarness {
       ];
       const swarmCommandWithOptionalOpenTasks = [
         `swarm_cmd=${shq(swarmCommand.join(' '))}`,
-        'if [ "${TAC_SWARM_HARNESS_OPENTASKS:-0}" = "1" ]; then',
+        'if [ "${TAC_OPENSWARM_OPENTASKS:-0}" = "1" ]; then',
         '  swarm_cmd="$swarm_cmd --opentasks --opentasks-socket ${OPENTASKS_PROJECT_DIR:-/workspace/.opentasks}/daemon.sock"',
         'fi',
         'eval "$swarm_cmd"',
       ].join('\n');
       const swarmModeCommand = [
         'set +e',
-        `export SWARM_HARNESS_MODEL=${shq(spec.model)}`,
+        `export OPENSWARM_MODEL=${shq(spec.model)}`,
         swarmCommandWithOptionalOpenTasks,
         'swarm_status=$?',
         `cat ${shq(tracePath)} 2>/dev/null || true`,
@@ -179,22 +179,22 @@ export function swarmHarnessTacHarness(): TacAgentHarness {
         'exit "$swarm_status"',
       ].join('; ');
       const modeSwitch = [
-        'case "${TAC_SWARM_HARNESS_MODE:-single}" in',
+        'case "${TAC_OPENSWARM_MODE:-single}" in',
         `  swarm|swarm-run|multi|multi-agent) ${swarmTaskPrelude.join(' && ')} && ${swarmModeCommand} ;;`,
         `  team|team-contract|opentasks-team-contract) ${swarmTaskPrelude.join(' && ')} && ${swarmModeCommand} ;;`,
         `  single|"") ${singleCommand.join(' ')} ;;`,
-        '  *) echo "Unsupported TAC_SWARM_HARNESS_MODE=${TAC_SWARM_HARNESS_MODE}" >&2; exit 2 ;;',
+        '  *) echo "Unsupported TAC_OPENSWARM_MODE=${TAC_OPENSWARM_MODE}" >&2; exit 2 ;;',
         'esac',
       ].join('\n');
       return `${prelude.join(' && ')} && ${modeSwitch}`;
     },
     parse(stdout) {
-      return parseSwarmHarnessJsonl(stdout);
+      return parseOpenSwarmJsonl(stdout);
     },
   };
 }
 
-export function parseSwarmHarnessJsonl(stdout: string): TacParsedAgentStream {
+export function parseOpenSwarmJsonl(stdout: string): TacParsedAgentStream {
   let output = '';
   let isError = false;
   let sawResult = false;

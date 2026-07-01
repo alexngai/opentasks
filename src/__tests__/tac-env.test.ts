@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { tacForwardedEnv } from '../../evals/tac/env.js';
 
 describe('TAC forwarded environment', () => {
-  it('normalizes Azure OpenAI aliases used by swarm-harness and pool preflights', () => {
+  it('normalizes Azure OpenAI aliases used by openswarm and pool preflights', () => {
     const env = tacForwardedEnv({
       AZURE_API_KEY: 'sk-test',
       AZURE_API_BASE: 'https://azure.example.test/',

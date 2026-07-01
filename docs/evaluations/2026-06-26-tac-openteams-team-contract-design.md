@@ -3,10 +3,10 @@
 **Status:** design draft for review.
 **Extends:** [2026-06-18 TheAgentCompany experiment design](./2026-06-18-theagentcompany-experiment-design.md).
 **Scope:** a full-ecosystem TAC arm that uses OpenTeams, swarm-dispatch,
-swarm-harness, and OpenTasks to emulate the "team-first orchestration" pattern
+openswarm, and OpenTasks to emulate the "team-first orchestration" pattern
 seen in OMC/OMX-style workflows.
 
-**2026-06-29 live update:** the static `swarm-harness` V1 path produced useful
+**2026-06-29 live update:** the static `openswarm` V1 path produced useful
 TAC artifacts and durable OpenTasks evidence, but did not exercise the
 `agent-inbox-v1` assignment/reply protocol. Dispatch remains gated; see
 [TAC Dispatch Carrier Follow-Up](./2026-06-29-tac-dispatch-carrier-follow-up.md).
@@ -21,14 +21,14 @@ The single-harness TAC path already tests:
 - `stock`: agent plus native task instructions
 - `notes`: agent plus unstructured durable notes
 - `opentasks`: agent plus OpenTasks MCP/graph nudge
-- `swarm-harness --single`: one swarm-harness worker with OpenTasks available
-- `swarm-harness swarm run`: model-driven worker spawning
+- `openswarm --single`: one openswarm worker with OpenTasks available
+- `openswarm swarm run`: model-driven worker spawning
 
 This design adds an experimental arm:
 
 | Arm | Purpose |
 |---|---|
-| `opentasks-team-contract` | OpenTeams defines roles/topology/loadouts; swarm-dispatch schedules work; swarm-harness executes agents; OpenTasks records task/evidence/verification state. |
+| `opentasks-team-contract` | OpenTeams defines roles/topology/loadouts; swarm-dispatch schedules work; openswarm executes agents; OpenTasks records task/evidence/verification state. |
 
 The headline question is not "can we spawn more agents?" The previous smoke
 already proved that. The question is:
@@ -43,7 +43,7 @@ Latest successful full-stack smoke:
 - run: `tac-complex-plane-gitlab-opentasks-swarmrun-azure-gpt55-2026-06-26T00-46-56Z`
 - task: `pm-update-plane-issue-from-gitlab-status`
 - arm/model: `opentasks` / `azureoai/gpt-5.5`
-- harness mode: `swarm-harness swarm run`
+- harness mode: `openswarm swarm run`
 - result: full TAC success, `S_partial=1.0`
 - reported tokens: `55,306`
 - latency: `453s`
@@ -87,7 +87,7 @@ The full-ecosystem design should make coordination a contract:
 1. OpenTeams declares role and topology intent.
 2. swarm-dispatch owns durable dispatch lifecycle, retries, continuation, and
    reconciliation.
-3. swarm-harness owns agent execution and tool exposure.
+3. openswarm owns agent execution and tool exposure.
 4. OpenTasks owns root task, subtask, attempt, evidence, decision, and
    verification state.
 5. TAC evaluator remains the only scoring authority.
@@ -98,12 +98,12 @@ The full-ecosystem design should make coordination a contract:
 |---|---|---|
 | OpenTeams | Declarative team shape: roles, loadouts, topology, communication rules, role prompts. | Runtime state, claims, retry, scoring. |
 | swarm-dispatch | Poll/claim ready work, route or spawn agents, track lifecycle, retry, continuation, reconcile stale work. | Defining domain roles or grading TAC. |
-| swarm-harness | Run coordinator/workers, expose role-appropriate tools, capture raw team trace. | Owning task graph semantics. |
+| openswarm | Run coordinator/workers, expose role-appropriate tools, capture raw team trace. | Owning task graph semantics. |
 | OpenTasks | Durable graph: task content, claims, attempts, evidence, decisions, verification records, provenance edges. | Choosing which worker process to spawn. |
 | TAC adapter | Seed task graph, prepare container/services, collect traces, run TAC grader, report metrics. | Letting graph state affect TAC score. |
 
 This preserves the SwarmKit ownership boundary: OpenTasks owns work state,
-swarm-dispatch owns generic dispatch mechanics, and swarm-harness owns runtime
+swarm-dispatch owns generic dispatch mechanics, and openswarm owns runtime
 execution.
 
 ## 4. TAC Team Template
@@ -265,7 +265,7 @@ This gate distinguishes "spawned a worker" from "coordinated productively."
 For v1, enforce the stop-gate in the TAC adapter's post-run metric pass. Do not
 block the running agent process yet. The first goal is a reliable measurement
 that can classify a run as `productive_coordination=true|false`; runtime
-termination or retry can move into swarm-harness/swarm-dispatch after the
+termination or retry can move into openswarm/swarm-dispatch after the
 contract is stable.
 
 ## 8. Evaluation Arms
@@ -278,13 +278,13 @@ clean.
 | `stock` | same baseline harness | none beyond task instruction |
 | `notes` | same baseline harness | shared `NOTES.md` discipline |
 | `opentasks` | same baseline harness | OpenTasks MCP graph |
-| `opentasks-swarm` | swarm-harness `swarm run` | swarm task tools + optional OpenTasks |
-| `opentasks-team-contract` | swarm-harness + OpenTeams + swarm-dispatch | OpenTasks graph + runtime team contract |
+| `opentasks-swarm` | openswarm `swarm run` | swarm task tools + optional OpenTasks |
+| `opentasks-team-contract` | openswarm + OpenTeams + swarm-dispatch | OpenTasks graph + runtime team contract |
 
 Primary score remains TAC `S_partial`. Graph state never changes score.
 
 For the first runnable slice, `opentasks-team-contract` means static OpenTeams
-role packets plus swarm-harness execution and OpenTasks evidence records. Do not
+role packets plus openswarm execution and OpenTasks evidence records. Do not
 include swarm-dispatch in the first smoke; add it only after static team
 coordination produces useful child evidence.
 
@@ -360,7 +360,7 @@ Pass gate:
 
 Non-goals for v1:
 
-- dynamic OpenTeams template loading in swarm-harness;
+- dynamic OpenTeams template loading in openswarm;
 - swarm-dispatch retries or continuation;
 - heterogeneous verifier model;
 - runtime stop-gate enforcement;
@@ -397,7 +397,7 @@ Non-goals for v1:
 ### Phase D - Dispatch integration
 
 1. Wrap seeded OpenTasks tasks in a swarm-dispatch `TaskSource`.
-2. Use swarm-harness as the `AgentRuntime`.
+2. Use openswarm as the `AgentRuntime`.
 3. Add continuation/retry for blocked or failed children.
 4. Emit dispatch lifecycle events into run artifacts.
 
@@ -415,7 +415,7 @@ Non-goals for v1:
 |---|---|
 | First proof target | Useful child evidence consumed before mutation, not full benchmark lift. |
 | Product boundary | `opentasks-team-contract` is a full-ecosystem experimental arm; plain `opentasks` remains the product baseline. |
-| First stop-gate location | TAC adapter metrics, not swarm-harness core. |
+| First stop-gate location | TAC adapter metrics, not openswarm core. |
 | OpenTeams integration v1 | Precompile/generate role packets first; native runtime loading later. |
 | Child permissions v1 | `danger-full-access` plus no-mutation contract and audit; bounded-read mode later. |
 | Child task content | Every child receives full TAC task text or a readable mirrored file. |
@@ -459,7 +459,7 @@ Do not scale if:
 - It is complementary to the CooperBench coordination design: CooperBench tests
   conflict-heavy collaborative coding; this TAC arm tests digital-office tasks
   with service state and cross-application verification.
-- It implements the same general lesson as the swarm-harness adaptive
+- It implements the same general lesson as the openswarm adaptive
   orchestration design: multi-agent work must earn its cost through
   heterogeneity, parallelism, or independent verification.
 - It keeps OpenTasks within its intended role: durable task/spec/evidence graph,
