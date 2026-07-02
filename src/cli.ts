@@ -28,16 +28,21 @@ import { createDaemonWithStore, createMultiLocationDaemonFromGit, checkExistingD
 import { VERSION } from './version.js';
 
 const OPENTASKS_DIR = '.opentasks';
+const OPENSWARM_OPENTASKS_DIR = '.openswarm/opentasks';
 const SWARM_OPENTASKS_DIR = '.swarm/opentasks';
 const CONFIG_FILE = 'config.json';
 
 /**
  * Resolve the project-level opentasks directory.
- * Priority: OPENTASKS_PROJECT_DIR env var > .swarm/opentasks > .opentasks
+ * Priority: OPENTASKS_PROJECT_DIR env > .openswarm/opentasks > .swarm/opentasks
+ * (legacy) > .opentasks. The swarmkit namespace is migrating .swarm → .openswarm;
+ * both are honored so mixed-version repos keep working, preferring the new name.
  */
 function resolveProjectDir(baseDir: string = process.cwd()): string {
   const envDir = process.env.OPENTASKS_PROJECT_DIR;
   if (envDir) return path.resolve(baseDir, envDir);
+  const openswarmDir = path.resolve(baseDir, OPENSWARM_OPENTASKS_DIR);
+  if (fs.existsSync(openswarmDir)) return openswarmDir;
   const swarmDir = path.resolve(baseDir, SWARM_OPENTASKS_DIR);
   if (fs.existsSync(swarmDir)) return swarmDir;
   return path.resolve(baseDir, OPENTASKS_DIR);

@@ -108,6 +108,37 @@ describe('socket discovery with auto-init', () => {
     expect(mockEnsureGlobalStoreInitialized).not.toHaveBeenCalled();
   });
 
+  it('prefers .openswarm/opentasks over legacy .swarm/opentasks', async () => {
+    // Both swarmkit layouts exist at the same ancestor; the new name wins.
+    const openswarmDir = path.join(tmpDir, 'some', '.openswarm', 'opentasks');
+    const swarmDir = path.join(tmpDir, 'some', '.swarm', 'opentasks');
+    await fsp.mkdir(openswarmDir, { recursive: true });
+    await fsp.mkdir(swarmDir, { recursive: true });
+    await fsp.writeFile(path.join(openswarmDir, 'daemon.sock'), '');
+    await fsp.writeFile(path.join(swarmDir, 'daemon.sock'), '');
+
+    const client = new OpenTasksClient({ autoConnect: false });
+
+    // Discovery finds a project socket (either swarmkit layout) → skips global.
+    await expect(client.connect()).rejects.toMatchObject({
+      code: 'CONNECTION_FAILED',
+    });
+    expect(mockEnsureGlobalStoreInitialized).not.toHaveBeenCalled();
+  });
+
+  it('falls back to legacy .swarm/opentasks when .openswarm is absent', async () => {
+    const swarmDir = path.join(tmpDir, 'some', '.swarm', 'opentasks');
+    await fsp.mkdir(swarmDir, { recursive: true });
+    await fsp.writeFile(path.join(swarmDir, 'daemon.sock'), '');
+
+    const client = new OpenTasksClient({ autoConnect: false });
+
+    await expect(client.connect()).rejects.toMatchObject({
+      code: 'CONNECTION_FAILED',
+    });
+    expect(mockEnsureGlobalStoreInitialized).not.toHaveBeenCalled();
+  });
+
   it('does not call ensureGlobalStoreInitialized when socketPath is explicitly provided', async () => {
     const client = new OpenTasksClient({
       socketPath: '/nonexistent/daemon.sock',

@@ -95,7 +95,9 @@ function findGitDaemonSocket(startDir: string = process.cwd()): string | null {
 
 /**
  * Find the opentasks directory starting from cwd and walking up.
- * Priority: OPENTASKS_PROJECT_DIR env var > .swarm/opentasks > .opentasks
+ * Priority: OPENTASKS_PROJECT_DIR env > .openswarm/opentasks > .swarm/opentasks
+ * (legacy) > .opentasks. The swarmkit namespace is migrating .swarm →
+ * .openswarm; both are honored (new name first) during the transition.
  */
 function findOpenTasksDir(startDir: string = process.cwd()): string | null {
   // Explicit override via env var
@@ -109,7 +111,13 @@ function findOpenTasksDir(startDir: string = process.cwd()): string | null {
   let currentDir = startDir;
 
   while (true) {
-    // Check swarmkit-managed layout first, then standalone
+    // Check swarmkit-managed layouts first (new .openswarm, then legacy
+    // .swarm), then the standalone .opentasks layout.
+    const openswarmCandidate = path.join(currentDir, '.openswarm', 'opentasks');
+    if (fs.existsSync(openswarmCandidate) && fs.statSync(openswarmCandidate).isDirectory()) {
+      return openswarmCandidate;
+    }
+
     const swarmCandidate = path.join(currentDir, '.swarm', 'opentasks');
     if (fs.existsSync(swarmCandidate) && fs.statSync(swarmCandidate).isDirectory()) {
       return swarmCandidate;

@@ -33,15 +33,16 @@ export interface ContextFilesMethodsOptions {
 /**
  * Derive repo root from the opentasks path.
  *
- * Handles both layouts:
+ * Handles the layouts:
  * - `.opentasks/` → parent is repo root
  * - `.git/opentasks/` → grandparent is repo root
- * - `.swarm/opentasks/` → grandparent is repo root
+ * - `.swarm/opentasks/` → grandparent is repo root (legacy swarmkit)
+ * - `.openswarm/opentasks/` → grandparent is repo root (swarmkit)
  */
 function deriveRepoRoot(opentasksPath: string): string {
   const parent = path.dirname(opentasksPath);
   const parentBase = path.basename(parent);
-  if (parentBase === '.git' || parentBase === '.swarm') {
+  if (parentBase === '.git' || parentBase === '.swarm' || parentBase === '.openswarm') {
     return path.dirname(parent);
   }
   return parent;
