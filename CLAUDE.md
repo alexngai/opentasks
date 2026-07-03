@@ -135,10 +135,13 @@ Exposes the OpenTasks tool interface over Model Context Protocol (`src/mcp/serve
 
 ### Scopes
 
-- `tasks` (default) — `create_task`, `get_task`, `update_task`, `delete_task`, `list_tasks`, `list_providers`, `reconcile`
-- `graph` — `link`, `query`, `context_summary`
+- `tasks` (default) — `create_task`, `get_task`, `update_task`, `delete_task`, `list_tasks`, `list_providers`, `reconcile`, and atomic claiming: `claim_task`, `claim_next`, `release_task`, `renew_claim`
+- `graph` — `link`, `query`, `context_summary`, `events_since`
 - `annotate` — `annotate`
 - `context` — `create_context`, `get_context`, `update_context`, `list_contexts`
+- `attempts` — `record_attempt`, `list_attempts`
+
+22 tools across 5 scopes total; `--scope all` enables everything.
 
 ### Context tools — source support
 
@@ -164,8 +167,8 @@ Defined in `src/config/schema.ts` using Zod. Key sections:
 ## Testing
 
 ```bash
-npm test                    # Watch mode
-npm run test:run           # Single run
+npm test                   # Single run
+npm run test:watch         # Watch mode
 npx vitest run <path>      # Single file
 npm run test:slow          # Include slow tests
 npm run test:e2e           # End-to-end

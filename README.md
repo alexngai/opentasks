@@ -48,9 +48,9 @@ claude mcp add opentasks -- npx opentasks mcp --scope all
 }
 ```
 
-Scopes are `tasks` (default), `graph`, `annotate`, `context`; `--scope all` enables
-everything. The agent gets `create_task`, `claim_task`, `query`, `events_since`, and
-the rest.
+Scopes are `tasks` (default), `graph`, `annotate`, `context`, `attempts`; `--scope all`
+enables everything. The agent gets `create_task`, `claim_task`, `query`, `events_since`,
+and the rest.
 
 ### Programmatic (embedders)
 
@@ -131,7 +131,7 @@ await link({ fromId: 't-setup', toId: 't-impl', type: 'blocks' })
 await link({ fromId: 't-setup', toId: 't-impl', type: 'blocks', remove: true })
 ```
 
-Edge types: `blocks` (cycle-checked), `implements`, `references`, `related`, `parent-of`, `depends-on`, `discovered-from`, `duplicates`, `supersedes`. Add custom types as strings.
+Edge types: `blocks` (cycle-checked), `implements`, `references`, `related`, `parent-of`, `child-of`, `depends-on`, `discovered-from`, `duplicates`, `supersedes`, `verifies`, `reproduces`. Add custom types as strings.
 
 ### query()
 
@@ -168,7 +168,7 @@ Types: `comment`, `suggestion`, `request`. Each can be resolved, dismissed, or r
 
 ## Nodes
 
-Four types, all stored in `.opentasks/graph.jsonl`:
+Five types, all stored in `.opentasks/graph.jsonl`:
 
 | Type | Prefix | Purpose |
 |------|--------|---------|
@@ -176,6 +176,7 @@ Four types, all stored in `.opentasks/graph.jsonl`:
 | Task | t- | Actionable work with status (open / in_progress / blocked / closed) |
 | Feedback | f- | Anchored comments on nodes, with threading |
 | ExternalNode | e- | References to Beads — and (planned) Jira, Linear, GitHub |
+| Attempt | a- | Records of work attempts, with `verifies` / `reproduces` edges |
 
 Edges carry an `x-` prefix.
 
@@ -185,7 +186,7 @@ A typical feature graph looks like this:
 graph LR
     S["c-a2b3<br/>Auth Spec"]
     I1["t-x7k9<br/>Implement OAuth"]
-    I2["i-m4n5<br/>Add rate limiting"]
+    I2["t-m4n5<br/>Add rate limiting"]
     F["f-p8q9<br/>suggestion"]
     EXT["e-jira<br/>PROJ-123"]
 
@@ -253,16 +254,16 @@ File-backed contexts never duplicate file content into the graph store. They rec
 Expose the full tool interface via [Model Context Protocol](https://modelcontextprotocol.io):
 
 ```bash
-opentasks mcp --scope tasks,graph,annotate,context
+opentasks mcp --scope tasks,graph,annotate,context,attempts
 ```
 
 Register with Claude Code (the MCP server auto-starts the daemon on first use):
 
 ```bash
-claude mcp add opentasks -- npx opentasks mcp --scope tasks,graph,annotate,context
+claude mcp add opentasks -- npx opentasks mcp --scope all
 ```
 
-20 tools across 4 scopes: `tasks` (CRUD + lifecycle + atomic claiming: `claim_task`, `claim_next`, `release_task`, `renew_claim`), `graph` (edges, queries, context summary, `events_since` change polling), `annotate` (feedback), `context` (context CRUD with file/snippet/inline sources).
+22 tools across 5 scopes: `tasks` (CRUD + lifecycle + atomic claiming: `claim_task`, `claim_next`, `release_task`, `renew_claim`), `graph` (edges, queries, context summary, `events_since` change polling), `annotate` (feedback), `context` (context CRUD with file/snippet/inline sources), `attempts` (`record_attempt`, `list_attempts` with `verifies` edges).
 
 ## Programmatic API
 
@@ -344,7 +345,7 @@ JSONL is the source of truth (git-tracked). The daemon writes it as a full-file 
 
 ## Providers
 
-OpenTasks owns the graph. Providers own node content. Three patterns:
+OpenTasks owns the graph. Providers own node content. Four patterns:
 
 | Pattern | Use | Example |
 |---------|-----|---------|
