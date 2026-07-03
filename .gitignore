@@ -10,12 +10,14 @@ __pycache__/
 .claude/settings.json
 
 evals/.swarmkit*
+evals/.roadmap*
 references/
 
 # Internal research/eval artifacts (kept local, not published)
 docs/evaluations/
 docs/evals/
 docs/HARDENING-PLAN.md
+docs/CASCADE-INTEGRATION.md
 
 # Terraform local state/cache
 **/.terraform/

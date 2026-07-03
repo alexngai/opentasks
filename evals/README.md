@@ -1,12 +1,10 @@
 # OpenTasks evaluation harness
 
 Runs a standard benchmark's tasks with OpenTasks as a **harness ablation** (the
-*arm*), scoring on the benchmark's own ground-truth scale. See the design:
-[docs/evaluations/2026-06-14-P6-evaluation-design.md](../docs/evaluations/2026-06-14-P6-evaluation-design.md).
+*arm*), scoring on the benchmark's own ground-truth scale.
 
-Inspired by `~/GitHub/skill-tree/test/eval/disclosure` (headless `claude -p` per
-cell, model-swappable, Bedrock-capable, JSON token accounting, hidden post-hoc
-verifier).
+Inspired by a headless disclosure-style eval harness (`claude -p` per cell,
+model-swappable, Bedrock-capable, JSON token accounting, hidden post-hoc verifier).
 
 ## Arms (the E2′ RCT — same model+tasks, only state mechanism differs)
 
@@ -63,13 +61,12 @@ Ground truth = each item emitted **exactly once**. Arms: `stock` (none) / `notes
 ```bash
 # GLM-5 (proxy stack must be up: bash evals/glm5/start-stack.sh)
 EVAL_CELL=D EVAL_MODEL=glm-5 ANTHROPIC_BASE_URL=http://127.0.0.1:4000 \
-  ANTHROPIC_API_KEY=sk-glm5-spike-master EVAL_N=3 EVAL_M=6 EVAL_K=3 EVAL_REPEATS=5 \
+  ANTHROPIC_API_KEY=glm5-local-master EVAL_N=3 EVAL_M=6 EVAL_K=3 EVAL_REPEATS=5 \
   npx tsx evals/swarmkit/synth-run.ts   # +CIs/report; synth-marble-run.ts = native multi-agent engine
 ```
 
 Headline metric = **race incidents** (`doubleEmits`) and **re-emits** (`p2ReEmits`),
-not completion (saturation hides completion). Design + results:
-[docs/evaluations/2026-06-15-cellD-concurrency-continuity-design.md](../docs/evaluations/2026-06-15-cellD-concurrency-continuity-design.md).
+not completion (saturation hides completion).
 
 ## Scoring (hard rules)
 
@@ -126,5 +123,4 @@ confirmed. Full write-ups in `results/`.
 - Clean cell-C k≥5 + contention sweep (N∈{2,8}) + a second model.
 - **Stage 2:** the TheAgentCompany GitLab-only host as a `swarmkit-eval`
   benchmark adapter (TAC-native `S_partial`, stock/notes/opentasks arms, reset
-  and width variants after the pilot). See
-  [the TAC experiment design](../docs/evaluations/2026-06-18-theagentcompany-experiment-design.md).
+  and width variants after the pilot).

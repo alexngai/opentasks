@@ -62,9 +62,9 @@ at:
 
 ```bash
 cd ~/GitHub/appworld && source ~/GitHub/hal-harness/.venv-appworld/bin/activate
-OPENAI_API_KEY=sk-glm5-spike-master \
+OPENAI_API_KEY=glm5-local-master \
 OPENAI_BASE_URL=http://127.0.0.1:4000/v1 \
-ZAI_API_KEY=sk-glm5-spike-master \
+ZAI_API_KEY=glm5-local-master \
 appworld run simplified_react_code_agent/zai/glm-5/test_normal \
   --task-id 3d9a636_1 --root . --with-setup
 # (drop --task-id to run the whole test_normal split; --num-processes N for parallel)

@@ -1,5 +1,10 @@
 # OpenTasks
 
+[![CI](https://github.com/alexngai/opentasks/actions/workflows/ci.yml/badge.svg)](https://github.com/alexngai/opentasks/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/opentasks.svg)](https://www.npmjs.com/package/opentasks)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Node >= 18](https://img.shields.io/node/v/opentasks.svg)](https://nodejs.org)
+
 Cross-system graph for tasks and specs. Link Claude Tasks, Beads issues, and native tasks today — Jira, Linear, and other remote trackers are on the roadmap ([docs/STATUS.md](docs/STATUS.md)). Query blockers and ready work across all of them.
 
 ```

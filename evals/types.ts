@@ -1,12 +1,11 @@
 /**
  * OpenTasks evaluation harness — core types.
  *
- * Design (see docs/evaluations/2026-06-14-P6-evaluation-design.md):
- * we run a STANDARD benchmark's tasks and score on its scale; OpenTasks is a
+ * Design: we run a STANDARD benchmark's tasks and score on its scale; OpenTasks is a
  * *harness ablation* (the arm), never the benchmark. Scoring is ground-truth
  * (checkpoints run against the work dir), NEVER the agent's self-reported state.
  *
- * Inspired by skill-tree's eval runner (headless `claude -p` per cell on
+ * Inspired by a headless disclosure-style eval runner (`claude -p` per cell on
  * Bedrock, model-swappable, JSON token accounting, hidden post-hoc verifier).
  */
 
