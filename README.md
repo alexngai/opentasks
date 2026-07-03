@@ -15,7 +15,8 @@ npm install opentasks
 
 OpenTasks runs as a small daemon that the CLI, the MCP server, and the client all
 talk to over a Unix socket. **You don't manage it** — the first command that needs
-it starts one automatically (opt out with `--no-autostart`).
+it starts one automatically (opt out with `--no-autostart`). If it ever misbehaves,
+see [docs/TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md).
 
 ### CLI
 
@@ -348,6 +349,16 @@ graph TB
 
 JSONL is the source of truth (git-tracked). The daemon writes it as a full-file snapshot on a debounced flush (not literally append-only). SQLite is the query cache (gitignored, rebuilt on startup). Markdown is optional human-readable expansion.
 
+## Configuration
+
+Everything lives in `.opentasks/config.json` (created by `opentasks init`); every
+field is optional. Precedence is **defaults < `config.json` < `OPENTASKS_*` env
+vars**. See the full reference — storage, daemon, providers, sync, reconciliation,
+logging, and env-var overrides — in [docs/CONFIGURATION.md](./docs/CONFIGURATION.md).
+
+Daemon acting up (socket not found, hangs, stale lock, `NODE_MODULE_VERSION`)?
+See [docs/TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md).
+
 ## Providers
 
 OpenTasks owns the graph. Providers own node content. Four patterns:
@@ -602,6 +613,19 @@ The bridge accepts either a raw `send` function or a shared `MAPConnection` obje
 OpenTasks is not a replacement for Claude Tasks, Beads, Jira, or any existing tool. It is not a unified CRUD API. It is not a project management tool. It is not an orchestration platform.
 
 It adds the relationship layer these tools lack.
+
+## Documentation
+
+| Doc | What's in it |
+|-----|--------------|
+| [CONFIGURATION.md](./docs/CONFIGURATION.md) | Full `config.json` reference + env overrides |
+| [TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md) | Daemon issues, socket resolution, recovery |
+| [ARCHITECTURE.md](./docs/ARCHITECTURE.md) | System design and layering |
+| [PROVIDERS.md](./docs/PROVIDERS.md) | Provider patterns, MAP, reconciliation |
+| [SYNC.md](./docs/SYNC.md) | Git sync model and consistency |
+| [PERSISTENCE.md](./docs/PERSISTENCE.md) | Storage, JSONL/SQLite, archiving |
+| [SCHEMA.md](./docs/SCHEMA.md) | Node and edge schema |
+| [STATUS.md](./docs/STATUS.md) | As-built implementation status |
 
 ## Development
 
