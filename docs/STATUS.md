@@ -6,8 +6,7 @@ This is the **as-built** inventory: what actually ships and runs today, versus w
 is designed/planned. The design docs ([ARCHITECTURE.md](./ARCHITECTURE.md),
 [DESIGN.md](./DESIGN.md), [PERSISTENCE.md](./PERSISTENCE.md)) describe *intent* and
 include features not yet implemented — read them as design notes, not as
-descriptions of current behavior. The hardening roadmap is in
-[HARDENING-PLAN.md](./HARDENING-PLAN.md).
+descriptions of current behavior.
 
 Legend: ✅ implemented & tested · 🟡 partial / caveats · ⏳ planned (not in code)
 
@@ -59,7 +58,7 @@ the daemon, so the daemon must be running. Register with
 
 ## Multi-agent coordination primitives
 
-These are the substrate features the [HARDENING-PLAN](./HARDENING-PLAN.md) targets:
+The substrate features for multi-agent coordination:
 
 | Primitive | Status | Notes |
 |---|---|---|

@@ -5,9 +5,17 @@ dist/
 __pycache__/
 .omc/
 .opentasks/
+.sudocode/
+.sessionlog/
+.claude/settings.json
 
 evals/.swarmkit*
-references/cooperbench/
+references/
+
+# Internal research/eval artifacts (kept local, not published)
+docs/evaluations/
+docs/evals/
+docs/HARDENING-PLAN.md
 
 # Terraform local state/cache
 **/.terraform/

@@ -104,8 +104,8 @@ opentasks link --from t-x7k9 --to "claude://current/t-abc" --type blocks
 ## Discovering Work During Implementation
 
 ```bash
-# Create the discovered issue
-opentasks create --type issue --title "Token refresh fails for expired sessions" --status open --tags auth,bug --priority 1
+# Create the discovered task
+opentasks create --type task --title "Token refresh fails for expired sessions" --status open --tags auth,bug --priority 1
 # → t-new1
 
 # Link to where it was discovered

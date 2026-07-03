@@ -70,8 +70,8 @@ opentasks annotate '{"targetId":"c-a2b3","reopen":"f-t1u2"}'
 ### Create — add nodes
 
 ```bash
-opentasks create --type issue --title "Fix SSO redirect" --status open --tags auth,bug --priority 1
-opentasks create --type spec --title "OAuth2 for API" --status active --content "## Requirements\n..."
+opentasks create --type task --title "Fix SSO redirect" --status open --tags auth,bug --priority 1
+opentasks create --type context --title "OAuth2 for API" --status active --content "## Requirements\n..."
 opentasks create --type external --title "Slack: SSO bug" --uri "slack://C04ABCD/p123" --source slack --metadata '{"author":"alex"}'
 ```
 
@@ -89,8 +89,8 @@ opentasks delete t-x7k9 --hard
 
 | Type | Prefix | Required | Purpose |
 |------|--------|----------|---------|
-| `spec` | `s-` | title | Requirements, intent, context |
-| `issue` | `i-` | title, status | Actionable work items |
+| `context` | `c-` | title | Requirements, specs, intent (inline or file-backed) |
+| `task` | `t-` | title, status | Actionable work items |
 | `feedback` | `f-` | title, target_id, feedback_type | Comments, suggestions, requests |
 | `external` | `e-` | title, uri, source | References to external systems |
 
@@ -112,7 +112,7 @@ Content is stored directly in the node. Use for design decisions, requirements w
 
 ```bash
 # CLI
-opentasks create --type spec --title "OAuth2 for API" --content "## Requirements\n..."
+opentasks create --type context --title "OAuth2 for API" --content "## Requirements\n..."
 ```
 
 ```json

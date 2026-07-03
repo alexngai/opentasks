@@ -266,34 +266,37 @@ claude mcp add opentasks -- npx opentasks mcp --scope tasks,graph,annotate,conte
 
 ## Programmatic API
 
-For direct graph manipulation without the daemon:
+For direct graph manipulation without the daemon. `createStoreForLocation` wires
+the SQLite cache and JSONL persister for a `.opentasks/` directory and initializes
+the store:
 
 ```typescript
-import { createGraphStore, createJSONLPersister } from 'opentasks'
+import { createStoreForLocation } from 'opentasks'
 
-const persister = createJSONLPersister({ path: '.opentasks/graph.jsonl' })
-const store = createGraphStore({ storage: persister })
+const store = await createStoreForLocation('.opentasks')
 
-const spec = await store.create({
+const spec = await store.createNode({
   type: 'context',
   title: 'OAuth2 authentication',
   content: 'Users authenticate via OAuth2 with PKCE...',
 })
 
-const issue = await store.create({
+const task = await store.createNode({
   type: 'task',
   title: 'Implement OAuth2 flow',
   status: 'open',
 })
 
 await store.createEdge({
-  from_id: issue.id,
+  from_id: task.id,
   to_id: spec.id,
   type: 'implements',
 })
 
-const ready = await store.ready()
-const blockers = await store.blockers(issue.id)
+const ready = await store.query.ready()
+const blockers = await store.query.blockers(task.id)
+
+await store.close() // flush pending changes to graph.jsonl
 ```
 
 ## Client Library
