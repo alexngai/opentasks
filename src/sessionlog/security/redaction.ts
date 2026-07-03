@@ -28,7 +28,7 @@ const SECRET_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: 'github-token', pattern: /gh[pousr]_[A-Za-z0-9_]{36,255}/g },
   { name: 'github-fine-grained', pattern: /github_pat_[A-Za-z0-9_]{22,255}/g },
   { name: 'gitlab-token', pattern: /glpat-[A-Za-z0-9\-=_]{20,}/g },
-  { name: 'google-api-key', pattern: /AIza[A-Za-z0-9_\-]{35}/g },
+  { name: 'google-api-key', pattern: /AIza[A-Za-z0-9_-]{35}/g },
   { name: 'slack-token', pattern: /xox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,34}/g },
   { name: 'slack-webhook', pattern: /https:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]{10}\/B[A-Z0-9]{10}\/[a-zA-Z0-9]{24}/g },
   { name: 'stripe-key', pattern: /(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{10,99}/g },

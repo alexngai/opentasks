@@ -7,7 +7,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { createFilesystemTaskStore } from '../claude-tasks-fs.js';
-import type { ClaudeTaskStore } from '../claude-tasks.js';
+import type { ClaudeTaskStore, ClaudeTask } from '../claude-tasks.js';
 import { ProviderError } from '../types.js';
 
 describe('FilesystemTaskStore', () => {
@@ -185,7 +185,7 @@ describe('FilesystemTaskStore', () => {
       const updated = await store.update(created.id, {
         subject: 'Changed',
         id: '999',
-      } as Partial<import('../claude-tasks.js').ClaudeTask>);
+      } as Partial<ClaudeTask>);
       expect(updated.id).toBe(created.id);
     });
   });

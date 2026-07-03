@@ -14,87 +14,18 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as crypto from 'node:crypto';
 import type { SessionStore } from '../store/session-store.js';
 import type { CheckpointStore } from '../store/checkpoint-store.js';
-import type {
-  SessionState,
-  TokenUsage,
-  CheckpointID,
-  InitialAttribution,
-  AgentType,
-  WriteCommittedOptions,
-} from '../types.js';
-import {
-  addTokenUsage,
-  emptyTokenUsage,
-  CHECKPOINTS_BRANCH,
-  SHADOW_BRANCH_PREFIX,
-  CHECKPOINT_ID_LENGTH,
-  validateCheckpointID,
-  checkpointIDPath,
-} from '../types.js';
-import {
-  git,
-  gitSafe,
-  getHead,
-  getShortHash,
-  getCurrentBranch,
-  getWorktreeRoot,
-  getGitAuthor,
-  getUntrackedFiles,
-  refExists,
-  pushBranch,
-  hasUncommittedChanges,
-  listBranches,
-  showFile,
-  lsTree,
-  deleteBranch,
-  updateRef,
-  diffNameOnly,
-} from '../git-operations.js';
-import {
-  parseCheckpoint,
-  parseSession,
-  parseAllSessions,
-  formatShadowCommit,
-  formatCheckpoint,
-  CheckpointTrailerKey,
-  SessionTrailerKey,
-} from '../utils/trailers.js';
-import {
-  filesOverlapWithContent,
-  stagedFilesOverlapWithContent,
-  filesWithRemainingAgentChanges,
-  hasOverlappingFiles,
-} from './content-overlap.js';
-import {
-  calculateAttributionWithAccumulated,
-  calculatePromptAttribution,
-} from './attribution.js';
-import type {
-  Strategy,
-  StepContext,
-  TaskStepContext,
-  CondensationResult,
-  CheckpointInfo,
-  PromptAttribution,
-  RewindPoint,
-  StrategySessionState,
-  OrphanedItem,
-} from './types.js';
+import type { SessionState, CheckpointID } from '../types.js';
+import { addTokenUsage, CHECKPOINTS_BRANCH, SHADOW_BRANCH_PREFIX, validateCheckpointID } from '../types.js';
+import { git, gitSafe, getHead, getCurrentBranch, getWorktreeRoot, getGitAuthor, getUntrackedFiles, refExists, pushBranch, hasUncommittedChanges, listBranches, showFile, lsTree, deleteBranch, updateRef, diffNameOnly } from '../git-operations.js';
+import { parseCheckpoint, formatShadowCommit, CheckpointTrailerKey } from '../utils/trailers.js';
+import { filesOverlapWithContent, stagedFilesOverlapWithContent, filesWithRemainingAgentChanges } from './content-overlap.js';
+import type { Strategy, StepContext, TaskStepContext, CondensationResult, RewindPoint, OrphanedItem } from './types.js';
 import {
   STRATEGY_NAME_MANUAL_COMMIT,
-  PROMPT_TRUNCATE_LENGTH,
   formatSubagentEndMessage,
 } from './types.js';
-import { truncateRunes, collapseWhitespace } from '../utils/string-utils.js';
-import { generateCommitMessage } from '../utils/commit-message.js';
-import type { Agent } from '../agent/types.js';
-import {
-  hasTranscriptAnalyzer,
-  hasTokenCalculator,
-} from '../agent/types.js';
 
 // ============================================================================
 // ManualCommitStrategy
@@ -129,10 +60,6 @@ export function createManualCommitStrategy(
     await sessionStore.save(state);
   }
 
-  async function clearSession(sessionID: string): Promise<void> {
-    await sessionStore.delete(sessionID);
-  }
-
   async function listAllSessions(): Promise<SessionState[]> {
     return sessionStore.list();
   }
@@ -164,12 +91,6 @@ export function createManualCommitStrategy(
       for (const f of list) seen.add(f);
     }
     return Array.from(seen).sort();
-  }
-
-  function truncatePrompt(prompt: string): string {
-    if (!prompt) return '';
-    const cleaned = collapseWhitespace(prompt);
-    return truncateRunes(cleaned, PROMPT_TRUNCATE_LENGTH, '...');
   }
 
   // ========================================================================
@@ -414,7 +335,7 @@ export function createManualCommitStrategy(
       // Initialize if needed
       if (!state || !state.baseCommit) {
         const head = await getHead(cwd);
-        const author = await getGitAuthor(cwd);
+        const _author = await getGitAuthor(cwd);
         const untrackedFiles = await getUntrackedFiles(cwd);
         const worktreeRoot = await getWorktreeRoot(cwd);
 

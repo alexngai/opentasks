@@ -2,7 +2,7 @@
  * Tests for CLI Entry Point
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 

@@ -820,7 +820,7 @@ vi.mock('util', async () => {
   const actual = await vi.importActual('util');
   return {
     ...actual,
-    promisify: (fn: Function) => {
+    promisify: (fn: (...args: unknown[]) => unknown) => {
       return (...args: unknown[]) => {
         return new Promise((resolve, reject) => {
           fn(...args, (err: Error | null, result?: unknown) => {
@@ -851,7 +851,7 @@ describe('createSessionlogCliStoreAsync', () => {
   it('should use native store when executable is configured but not available', async () => {
     const { exec } = await import('child_process');
     vi.mocked(exec).mockImplementation((_cmd: unknown, _opts: unknown, cb: unknown) => {
-      (cb as Function)(new Error('command not found'));
+      (cb as (...args: unknown[]) => unknown)(new Error('command not found'));
       return {} as ReturnType<typeof exec>;
     });
 
@@ -871,7 +871,7 @@ describe('createSessionlogCliStoreAsync', () => {
   it('should use exec store when executable is configured and available', async () => {
     const { exec } = await import('child_process');
     vi.mocked(exec).mockImplementation((_cmd: unknown, _opts: unknown, cb: unknown) => {
-      (cb as Function)(null, { stdout: 'entire v1.2.3\n' });
+      (cb as (...args: unknown[]) => unknown)(null, { stdout: 'entire v1.2.3\n' });
       return {} as ReturnType<typeof exec>;
     });
 
@@ -915,7 +915,7 @@ describe('createSessionlogExecStore', () => {
   it('should return null for getSession when CLI fails', async () => {
     const { exec } = await import('child_process');
     vi.mocked(exec).mockImplementation((_cmd: unknown, _opts: unknown, cb: unknown) => {
-      (cb as Function)(new Error('CLI error'));
+      (cb as (...args: unknown[]) => unknown)(new Error('CLI error'));
       return {} as ReturnType<typeof exec>;
     });
 
@@ -927,7 +927,7 @@ describe('createSessionlogExecStore', () => {
   it('should return empty array for listSessions when CLI fails', async () => {
     const { exec } = await import('child_process');
     vi.mocked(exec).mockImplementation((_cmd: unknown, _opts: unknown, cb: unknown) => {
-      (cb as Function)(new Error('CLI error'));
+      (cb as (...args: unknown[]) => unknown)(new Error('CLI error'));
       return {} as ReturnType<typeof exec>;
     });
 
@@ -939,7 +939,7 @@ describe('createSessionlogExecStore', () => {
   it('should parse session JSON from CLI output', async () => {
     const { exec } = await import('child_process');
     vi.mocked(exec).mockImplementation((_cmd: unknown, _opts: unknown, cb: unknown) => {
-      (cb as Function)(null, {
+      (cb as (...args: unknown[]) => unknown)(null, {
         stdout: JSON.stringify([{
           id: 'sess-1',
           agent: 'claude-code',
@@ -964,7 +964,7 @@ describe('createSessionlogExecStore', () => {
   it('should parse checkpoint JSON from CLI output', async () => {
     const { exec } = await import('child_process');
     vi.mocked(exec).mockImplementation((_cmd: unknown, _opts: unknown, cb: unknown) => {
-      (cb as Function)(null, {
+      (cb as (...args: unknown[]) => unknown)(null, {
         stdout: JSON.stringify([{
           id: 'cp-1',
           sessionId: 'sess-1',
@@ -991,7 +991,7 @@ describe('createSessionlogExecStore', () => {
       callCount++;
       if (callCount <= 2) {
         // status --json (called twice: once for search sessions, once for getSession)
-        (cb as Function)(null, {
+        (cb as (...args: unknown[]) => unknown)(null, {
           stdout: JSON.stringify([{
             id: 'sess-1', agent: 'claude', phase: 'ACTIVE',
             summary: 'Auth feature', filesTouched: ['src/auth.ts'],
@@ -999,7 +999,7 @@ describe('createSessionlogExecStore', () => {
         });
       } else {
         // rewind --list
-        (cb as Function)(null, {
+        (cb as (...args: unknown[]) => unknown)(null, {
           stdout: JSON.stringify([{
             id: 'cp-1', commitMessage: 'Add auth', context: 'Auth work',
           }]),

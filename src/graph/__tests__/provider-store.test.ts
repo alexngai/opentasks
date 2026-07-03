@@ -6,14 +6,9 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { createProviderAwareStore, type ProviderAwareStore } from '../provider-store.js';
 import type { GraphStore } from '../store.js';
 import type { Node, ExternalNode, Context, Task } from '../../schema/index.js';
-import type { Provider, ProviderNode, ProviderRegistry } from '../../providers/types.js';
-import { ProviderError } from '../../providers/types.js';
+import type { Provider, ProviderNode } from '../../providers/types.js';
 import { createProviderRegistry } from '../../providers/registry.js';
-import type {
-  TaskManageable,
-  TaskAction,
-  TaskCapabilities,
-} from '../../providers/traits/TaskManageable.js';
+import type { TaskManageable, TaskAction } from '../../providers/traits/TaskManageable.js';
 
 describe('ProviderAwareStore', () => {
   let baseStore: GraphStore;
@@ -242,7 +237,7 @@ describe('ProviderAwareStore', () => {
         vi.mocked(baseStore.query.nodes).mockResolvedValue([]);
         vi.mocked(baseStore.createNode).mockResolvedValue(mockExternalNode as unknown as Node);
 
-        const result = await providerStore.resolveNode('beads://./bd-123', {
+        const _result = await providerStore.resolveNode('beads://./bd-123', {
           materialize: true,
         });
 
@@ -257,7 +252,7 @@ describe('ProviderAwareStore', () => {
       it('should return provider node directly when not materializing', async () => {
         vi.mocked(baseStore.query.nodes).mockResolvedValue([]);
 
-        const result = await providerStore.resolveNode('beads://./bd-123');
+        const _result = await providerStore.resolveNode('beads://./bd-123');
 
         // With on-demand strategy (default), should not materialize without explicit flag
         expect(baseStore.createNode).not.toHaveBeenCalled();
@@ -274,7 +269,7 @@ describe('ProviderAwareStore', () => {
       vi.mocked(baseStore.query.nodes).mockResolvedValue([]);
       vi.mocked(baseStore.createNode).mockResolvedValue(mockExternalNode as unknown as Node);
 
-      const result = await providerStore.materializeNode('beads://./bd-123');
+      const _result = await providerStore.materializeNode('beads://./bd-123');
 
       expect(mockBeadsProvider.get).toHaveBeenCalledWith('bd-123');
       expect(baseStore.createNode).toHaveBeenCalledWith(
@@ -322,7 +317,7 @@ describe('ProviderAwareStore', () => {
       vi.mocked(baseStore.query.nodes).mockResolvedValue([mockExternalNode as unknown as Node]);
       vi.mocked(baseStore.updateNode).mockResolvedValue(mockExternalNode as unknown as Node);
 
-      const result = await providerStore.refreshNode('x-ext1');
+      const _result = await providerStore.refreshNode('x-ext1');
 
       expect(mockBeadsProvider.get).toHaveBeenCalledWith('beads://./bd-123', undefined);
       expect(baseStore.updateNode).toHaveBeenCalled();
@@ -646,7 +641,7 @@ describe('ProviderAwareStore', () => {
         cached_at: new Date().toISOString(),
       } as unknown as Node);
 
-      const result = await providerStore.providerGet('x-ext1');
+      const _result = await providerStore.providerGet('x-ext1');
 
       expect(mockBeadsProvider.get).toHaveBeenCalled();
     });
@@ -657,7 +652,7 @@ describe('ProviderAwareStore', () => {
       vi.mocked(baseStore.query.nodes).mockResolvedValue([]);
       vi.mocked(baseStore.createNode).mockResolvedValue(mockExternalNode as unknown as Node);
 
-      const result = await providerStore.providerGet('beads://./bd-123');
+      const _result = await providerStore.providerGet('beads://./bd-123');
 
       expect(mockBeadsProvider.get).toHaveBeenCalled();
     });
@@ -701,7 +696,7 @@ describe('ProviderAwareStore', () => {
         title: 'Updated in Beads',
       } as unknown as Node);
 
-      const result = await providerStore.providerUpdate('x-ext1', { title: 'Updated in Beads' });
+      const _result = await providerStore.providerUpdate('x-ext1', { title: 'Updated in Beads' });
 
       expect(mockBeadsProvider.update).toHaveBeenCalledWith(
         'bd-123',
@@ -737,7 +732,7 @@ describe('ProviderAwareStore', () => {
         title: 'Updated via URI',
       } as unknown as Node);
 
-      const result = await providerStore.providerUpdate('beads://./bd-123', {
+      const _result = await providerStore.providerUpdate('beads://./bd-123', {
         title: 'Updated via URI',
       });
 

@@ -2,7 +2,7 @@
  * Tests for Graph Store
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createGraphStore, type GraphStore } from '../store.js';
 import type { Storage, Transaction } from '../../storage/interface.js';
 import type { StoredNode, StoredEdge } from '../../schema/storage.js';

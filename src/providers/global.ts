@@ -73,7 +73,7 @@ export function createGlobalProvider(
 ): Provider & TaskManageable & Watchable {
   const globalPath = config.globalPath || path.join(os.homedir(), '.opentasks');
   const socketPath = path.join(globalPath, 'daemon.sock');
-  const timeout = config.timeout ?? 10000;
+  const _timeout = config.timeout ?? 10000;
 
   let client: IPCClient | null = null;
   let watchCallback: WatchChangeCallback | null = null;

@@ -7,7 +7,7 @@
 
 import type { IPCServer } from '../ipc.js';
 import type { LocationResolver, LocationState } from '../location-state.js';
-import { createLocationState, destroyLocationState } from '../location-state.js';
+import { createLocationState } from '../location-state.js';
 import type { LocationInfo } from '../types.js';
 import { registerWorktree, unregisterWorktree, type WorktreeEntry } from '../../core/worktree.js';
 

@@ -77,7 +77,6 @@ export async function createMAPClient(
     agentName = 'opentasks-daemon',
     scope = '',
     systemId = 'default',
-    timeout = 30000,
   } = options;
 
   try {

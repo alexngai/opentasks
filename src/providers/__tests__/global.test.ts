@@ -2,9 +2,8 @@
  * Tests for Global Provider
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as os from 'node:os';
-import * as path from 'node:path';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type * as fsModule from 'node:fs';
 
 // Mock the IPC client before imports
 const mockRequest = vi.fn();
@@ -31,9 +30,9 @@ vi.mock('../../daemon/ipc.js', () => ({
 }));
 
 // Mock fs.existsSync for socket checks
-const originalExistsSync = (await import('node:fs')).existsSync;
+const _originalExistsSync = (await import('node:fs')).existsSync;
 vi.mock('node:fs', async (importOriginal) => {
-  const actual = (await importOriginal()) as typeof import('node:fs');
+  const actual = (await importOriginal()) as fsModule;
   return {
     ...actual,
     existsSync: vi.fn((p: string) => {

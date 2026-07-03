@@ -26,6 +26,7 @@ import {
   type EdgeLike,
 } from '../graph/attempts.js';
 import type { UpdateNodeInput } from '../graph/types.js';
+import type { QueryParams, AnnotateParams } from '../tools/types.js';
 
 // ============================================================================
 // Types
@@ -175,7 +176,7 @@ function registerTaskTools(server: McpServer, client: OpenTasksClient): void {
     async (args) => {
       const results: Array<{ op: string; success: boolean; result?: unknown; error?: string }> = [];
 
-      const { id, transition, addBlockedBy, removeBlockedBy, addBlocks, removeBlocks, tags, ...fieldUpdates } = args;
+      const { id, transition, addBlockedBy, removeBlockedBy, addBlocks, removeBlocks, tags: _tags, ...fieldUpdates } = args;
       const hasFieldUpdates = Object.values(fieldUpdates).some((v) => v !== undefined);
 
       // 1. Apply field updates if any
@@ -557,7 +558,7 @@ function registerGraphTools(server: McpServer, client: OpenTasksClient): void {
     },
     async (args) => {
       try {
-        const result = await client.query(args as any);
+        const result = await client.query(args as unknown as QueryParams);
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
         return errorResult(error);
@@ -670,7 +671,7 @@ function registerAnnotateTools(server: McpServer, client: OpenTasksClient): void
     },
     async (args) => {
       try {
-        const result = await client.annotate(args as any);
+        const result = await client.annotate(args as unknown as AnnotateParams);
         return {
           content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
           isError: !result.success,

@@ -6,15 +6,10 @@
  * the existing OpenTasks provider system.
  */
 
-import type {
-  SessionlogStore,
-  EntireSession,
-  SessionlogCheckpoint,
-  SessionlogTokenUsage,
-} from './provider-types.js';
+import type { SessionlogStore, EntireSession, SessionlogCheckpoint } from './provider-types.js';
 import type { SessionState } from '../types.js';
-import { createSessionStore, type SessionStore } from './session-store.js';
-import { createCheckpointStore, type CheckpointStore } from './checkpoint-store.js';
+import { createSessionStore } from './session-store.js';
+import { createCheckpointStore } from './checkpoint-store.js';
 
 // ============================================================================
 // Implementation

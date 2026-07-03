@@ -7,7 +7,7 @@
 
 import { bidirectional } from 'graphology-shortest-path';
 import type { GraphologyAdapter, NodeURI, GraphNodeAttributes } from './GraphologyAdapter.js';
-import type { EdgeTypeDefinition, EdgeTypeRegistry } from './EdgeTypeRegistry.js';
+import type { EdgeTypeDefinition } from './EdgeTypeRegistry.js';
 import { getEdgeTypeRegistry } from './EdgeTypeRegistry.js';
 
 /**

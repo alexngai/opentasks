@@ -6,7 +6,6 @@
 
 import type { StoredNode, StoredEdge } from '../schema/storage.js';
 import type { Storage } from '../storage/interface.js';
-import type { Connection } from '../core/connections.js';
 import type { ProviderNode } from '../providers/types.js';
 import type { LocationProvider } from '../providers/location.js';
 import type { NodeResolver } from './query.js';
@@ -133,7 +132,7 @@ function getReferencedLocationHashes(edges: StoredEdge[], localHash: string): Se
 function findCrossLocationEdges(
   edges: StoredEdge[],
   localHash: string,
-  connectedHashes: Set<string>,
+  _connectedHashes: Set<string>,
 ): StoredEdge[] {
   return edges.filter((edge) => {
     for (const field of [edge.from_id, edge.to_id]) {

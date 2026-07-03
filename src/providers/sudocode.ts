@@ -180,16 +180,6 @@ type SudocodeEntity = SudocodeSpec | SudocodeIssue;
 const SUDOCODE_URI_PATTERN = /^(sudocode|sc):\/\/(?:([^/]+)\/)?(.+)$/i;
 
 /**
- * Pattern for Sudocode spec IDs (e.g., s-14sh, SPEC-001)
- */
-const SPEC_ID_PATTERN = /^(?:s-[a-z0-9]+|SPEC-\d+)$/i;
-
-/**
- * Pattern for Sudocode issue IDs (e.g., i-x7k9, ISSUE-001)
- */
-const ISSUE_ID_PATTERN = /^(?:i-[a-z0-9]+|ISSUE-\d+)$/i;
-
-/**
  * Pattern for any Sudocode entity ID
  */
 const ENTITY_ID_PATTERN = /^(?:[si]-[a-z0-9]+|(?:SPEC|ISSUE)-\d+)$/i;
@@ -725,7 +715,7 @@ export function createSudocodeProvider(
    */
   async function findEntityById(
     id: string,
-    workspace: string = '.',
+    _workspace: string = '.',
   ): Promise<SudocodeEntity | null> {
     const entityType = entityTypeFromId(id);
     const dir = sudocodeDataDir();
@@ -1184,7 +1174,7 @@ export function createSudocodeProvider(
 
     async readyTasks(
       options?: ReadyTaskOptions,
-      context?: ProviderOperationContext,
+      _context?: ProviderOperationContext,
     ): Promise<ProviderNode[]> {
       const issues = await readEntitiesFromJsonl('issue');
 
@@ -1287,7 +1277,7 @@ export function createSudocodeProvider(
       return entityToProviderNode(entity);
     },
 
-    async validActions(id: string, context?: ProviderOperationContext): Promise<TaskAction[]> {
+    async validActions(id: string, _context?: ProviderOperationContext): Promise<TaskAction[]> {
       const parsed = this.parseUri(id);
       const entityId = parsed?.id ?? id;
 

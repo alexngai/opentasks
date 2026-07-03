@@ -76,7 +76,7 @@ export function createSyncManager(
   storage: Storage,
   onFlush: FlushCallback,
 ): SyncManager {
-  let pendingDirtyNodes = new Set<string>();
+  const pendingDirtyNodes = new Set<string>();
 
   // Create debounced flusher with our flush logic
   const flusher: DebouncedFlusher = createDebouncedFlusher(config, async () => {

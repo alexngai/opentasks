@@ -6,16 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  resolveLocationTarget,
-  resolveOpentasksUri,
-  parseOpentasksUri,
-  buildOpentasksUri,
-  buildLocalUri,
-  isOpentasksUri,
-  type ResolvedLocationTarget,
-  type ResolvedLocation,
-} from '../uri.js';
+import { resolveLocationTarget, resolveOpentasksUri, parseOpentasksUri, buildOpentasksUri, buildLocalUri, isOpentasksUri } from '../uri.js';
 import type { Connection } from '../connections.js';
 import type { LocationIdentity } from '../location.js';
 

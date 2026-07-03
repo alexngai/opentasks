@@ -7,8 +7,8 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ENTIRE_TMP_DIR, SHADOW_BRANCH_PREFIX, CHECKPOINTS_BRANCH, SESSION_DIR_NAME } from '../types.js';
-import { getWorktreeRoot, getGitDir, listBranches, deleteBranch } from '../git-operations.js';
+import { ENTIRE_TMP_DIR, SHADOW_BRANCH_PREFIX, CHECKPOINTS_BRANCH } from '../types.js';
+import { getWorktreeRoot, listBranches, deleteBranch } from '../git-operations.js';
 import { createSessionStore } from '../store/session-store.js';
 
 // ============================================================================
@@ -55,7 +55,7 @@ export async function findOrphaned(
   const resolvedCheckpointsBranch = options?.checkpointsBranch ?? CHECKPOINTS_BRANCH;
   const sessionStore = createSessionStore(cwd, options?.sessionDirName);
   const sessions = await sessionStore.list();
-  const activeSessionIDs = new Set(sessions.map((s) => s.sessionID));
+  const _activeSessionIDs = new Set(sessions.map((s) => s.sessionID));
   const activeBaseCommits = new Set(sessions.map((s) => s.baseCommit).filter(Boolean));
 
   // 1. Orphaned shadow branches

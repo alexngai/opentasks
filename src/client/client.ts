@@ -7,11 +7,9 @@
 
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import { createIPCClient, type IPCClient } from '../daemon/ipc.js';
 import type { WatchFilter } from '../daemon/methods/watch.js';
 import type { EventCursor, SinceResult, WatchEventPayload } from '../daemon/events.js';
-import type { ProviderNodeChangeEvent } from '../providers/traits/Watchable.js';
 import { getGitCommonDir } from '../core/worktree.js';
 import { ensureGlobalStoreInitialized } from '../core/init.js';
 import type {

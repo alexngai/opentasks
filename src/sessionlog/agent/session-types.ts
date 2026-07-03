@@ -7,7 +7,7 @@
  * Ported from Go: agent/session.go
  */
 
-import type { AgentType, TokenUsage } from '../types.js';
+import type { AgentType } from '../types.js';
 
 // ============================================================================
 // Entry Types

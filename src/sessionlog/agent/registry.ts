@@ -6,7 +6,7 @@
  */
 
 import type { AgentName, AgentType } from '../types.js';
-import { AGENT_NAMES, AGENT_TYPES, DEFAULT_AGENT_NAME } from '../types.js';
+import { DEFAULT_AGENT_NAME } from '../types.js';
 import type { Agent } from './types.js';
 
 // ============================================================================

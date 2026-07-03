@@ -13,11 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import {
-  createSessionlogAutoLinker,
-  type SessionlogAutoLinker,
-  type CorrelationResult,
-} from '../sessionlog-linker.js';
+import { createSessionlogAutoLinker, type SessionlogAutoLinker } from '../sessionlog-linker.js';
 import type { SessionlogSessionEvent, SessionlogSessionState } from '../sessionlog-watcher.js';
 import type { GraphStore } from '../../graph/store.js';
 import type { DaemonFlushManager } from '../flush.js';

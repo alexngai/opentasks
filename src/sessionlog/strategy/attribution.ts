@@ -117,12 +117,12 @@ export function calculateAttributionWithAccumulated(
   if (filesTouched.length === 0) return null;
 
   // Sum accumulated user lines from prompt attributions
-  let accumulatedUserAdded = 0;
+  let _accumulatedUserAdded = 0;
   let accumulatedUserRemoved = 0;
   const accumulatedUserAddedPerFile = new Map<string, number>();
 
   for (const pa of promptAttributions) {
-    accumulatedUserAdded += pa.userLinesAdded;
+    _accumulatedUserAdded += pa.userLinesAdded;
     accumulatedUserRemoved += pa.userLinesRemoved;
     for (const [filePath, added] of Object.entries(pa.userAddedPerFile)) {
       accumulatedUserAddedPerFile.set(

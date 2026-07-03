@@ -5,11 +5,7 @@
  * file watcher integration for handling external changes.
  */
 
-import {
-  createDebouncedFlusher,
-  type DebouncedFlusher,
-  type DebounceConfig,
-} from '../graph/debounce.js';
+import { createDebouncedFlusher, type DebouncedFlusher } from '../graph/debounce.js';
 
 // ============================================================================
 // Types

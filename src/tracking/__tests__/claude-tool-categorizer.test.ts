@@ -3,11 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  extractToolCalls,
-  categorizeToolName,
-  type ExtractedToolCall,
-} from '../claude-tool-categorizer.js';
+import { extractToolCalls, categorizeToolName } from '../claude-tool-categorizer.js';
 import type { claude } from 'agent-session-parser';
 
 // ============================================================================

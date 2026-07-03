@@ -6,13 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import {
-  createIPCServer,
-  createIPCClient,
-  JSON_RPC_ERRORS,
-  type IPCServer,
-  type IPCClient,
-} from '../ipc.js';
+import { createIPCServer, createIPCClient, type IPCServer, type IPCClient } from '../ipc.js';
 import { registerLifecycleMethods } from '../methods/lifecycle.js';
 import type { DaemonStatus } from '../types.js';
 

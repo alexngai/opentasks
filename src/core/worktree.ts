@@ -142,7 +142,7 @@ function getRegistryLockPath(gitCommonDir: string): string {
  */
 function withRegistryLock<T>(gitCommonDir: string, fn: () => T): T {
   const lockPath = getRegistryLockPath(gitCommonDir);
-  const lock = new FileLock({ lockPath, timeout: 5000 });
+  const _lock = new FileLock({ lockPath, timeout: 5000 });
 
   // Synchronously spin-acquire: create lock file exclusively
   const dir = path.dirname(lockPath);
@@ -170,13 +170,13 @@ function withRegistryLock<T>(gitCommonDir: string, fn: () => T): T {
           if (isStale) {
             try {
               fs.unlinkSync(lockPath);
-            } catch {}
+            } catch { /* best-effort cleanup */ }
             continue;
           }
         } catch {
           try {
             fs.unlinkSync(lockPath);
-          } catch {}
+          } catch { /* best-effort cleanup */ }
           continue;
         }
         if (Date.now() - startTime >= 5000) {
@@ -198,7 +198,7 @@ function withRegistryLock<T>(gitCommonDir: string, fn: () => T): T {
   } finally {
     try {
       fs.unlinkSync(lockPath);
-    } catch {}
+    } catch { /* best-effort cleanup */ }
   }
 }
 

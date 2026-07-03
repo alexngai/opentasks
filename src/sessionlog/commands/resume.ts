@@ -157,7 +157,7 @@ async function findSessionInfo(
   }
 
   const shas = logOutput.split('\n').filter(Boolean);
-  let latestSHA = shas[0] ?? '';
+  const _latestSHA = shas[0] ?? '';
 
   for (let i = 0; i < shas.length; i++) {
     const sha = shas[i].trim();

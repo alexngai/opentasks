@@ -10,15 +10,7 @@ import type { Database as DatabaseType } from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Connection } from '../core/connections.js';
-import type {
-  Provider,
-  ProviderNode,
-  ProviderCapabilities,
-  ParsedUri,
-  ProviderFilter,
-  ProviderCreateInput,
-  ProviderUpdateInput,
-} from './types.js';
+import type { Provider, ProviderNode, ProviderCapabilities, ParsedUri, ProviderFilter } from './types.js';
 import { ProviderError } from './types.js';
 
 /**

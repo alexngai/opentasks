@@ -6,8 +6,8 @@
  */
 
 import * as crypto from 'node:crypto';
-import type { Event, SessionState, TokenUsage } from '../types.js';
-import { EventType, emptyTokenUsage, addTokenUsage } from '../types.js';
+import type { Event, SessionState } from '../types.js';
+import { EventType, addTokenUsage } from '../types.js';
 import type { SessionStore } from '../store/session-store.js';
 import type { CheckpointStore } from '../store/checkpoint-store.js';
 import type { Agent } from '../agent/types.js';
@@ -15,7 +15,7 @@ import {
   hasTranscriptAnalyzer,
   hasTokenCalculator,
 } from '../agent/types.js';
-import { getHead, getCurrentBranch, getGitAuthor, getUntrackedFiles } from '../git-operations.js';
+import { getHead, getCurrentBranch, getUntrackedFiles } from '../git-operations.js';
 
 // ============================================================================
 // Types
@@ -37,7 +37,7 @@ export interface LifecycleHandler {
 // ============================================================================
 
 export function createLifecycleHandler(config: LifecycleConfig): LifecycleHandler {
-  const { sessionStore, checkpointStore, cwd } = config;
+  const { sessionStore, cwd } = config;
 
   return {
     async dispatch(agent: Agent, event: Event): Promise<void> {
@@ -79,7 +79,7 @@ export function createLifecycleHandler(config: LifecycleConfig): LifecycleHandle
 
     // Create new session state
     const head = await getHead(cwd);
-    const branch = await getCurrentBranch(cwd);
+    const _branch = await getCurrentBranch(cwd);
     const untrackedFiles = await getUntrackedFiles(cwd);
 
     const state: SessionState = {
@@ -146,7 +146,7 @@ export function createLifecycleHandler(config: LifecycleConfig): LifecycleHandle
     // Extract modified files from transcript
     if (hasTranscriptAnalyzer(agent) && state.transcriptPath) {
       try {
-        const { files, currentPosition } = await agent.extractModifiedFilesFromOffset(
+        const { files } = await agent.extractModifiedFilesFromOffset(
           state.transcriptPath,
           state.checkpointTranscriptStart,
         );

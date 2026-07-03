@@ -1,19 +1,10 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
-import {
-  HydratingFederatedGraphImpl,
-  createHydratingFederatedGraph,
-  type HydratingFederatedGraph,
-  DEFAULT_CACHE_CONFIG,
-} from '../HydratingFederatedGraph.js';
+import { createHydratingFederatedGraph, type HydratingFederatedGraph, DEFAULT_CACHE_CONFIG } from '../HydratingFederatedGraph.js';
 import { createGraphologyAdapter, type GraphologyAdapter } from '../GraphologyAdapter.js';
-import type { StoredNode, StoredEdge } from '../../schema/storage.js';
+import type { StoredNode } from '../../schema/storage.js';
 import type { Storage } from '../../storage/interface.js';
 import type { Provider, ProviderRegistry, ProviderNode } from '../../providers/types.js';
-import type {
-  RelationshipQueryable,
-  ProviderEdge,
-  EdgeTypeSupport,
-} from '../../providers/traits/RelationshipQueryable.js';
+import type { RelationshipQueryable, ProviderEdge } from '../../providers/traits/RelationshipQueryable.js';
 
 describe('HydratingFederatedGraph', () => {
   let adapter: GraphologyAdapter;

@@ -15,9 +15,8 @@ import { createMCPServer, type MCPScope } from '../server.js';
 import { createIPCServer, type IPCServer } from '../../daemon/ipc.js';
 import { registerToolsMethods } from '../../daemon/methods/tools.js';
 import { registerGraphMethods } from '../../daemon/methods/graph.js';
-import { createDaemonFlushManager, type DaemonFlushManager } from '../../daemon/flush.js';
+import { createDaemonFlushManager } from '../../daemon/flush.js';
 import type { GraphStore } from '../../graph/store.js';
-import type { Node, Edge } from '../../schema/index.js';
 import type { LocationResolver, LocationState } from '../../daemon/location-state.js';
 import type { ProviderAwareStore } from '../../graph/provider-store.js';
 
@@ -211,8 +210,8 @@ describe('MCP Server Integration', () => {
   });
 
   afterEach(async () => {
-    try { await ipcServer.stop(); } catch {}
-    try { await fs.rm(tempDir, { recursive: true, force: true }); } catch {}
+    try { await ipcServer.stop(); } catch { /* ignore cleanup errors */ }
+    try { await fs.rm(tempDir, { recursive: true, force: true }); } catch { /* ignore cleanup errors */ }
   });
 
   // ==========================================================================
@@ -520,8 +519,8 @@ describe('MCP Server Integration', () => {
     });
 
     afterEach(async () => {
-      try { await providerIpcServer.stop(); } catch {}
-      try { await fs.rm(providerTempDir, { recursive: true, force: true }); } catch {}
+      try { await providerIpcServer.stop(); } catch { /* ignore cleanup errors */ }
+      try { await fs.rm(providerTempDir, { recursive: true, force: true }); } catch { /* ignore cleanup errors */ }
     });
 
     it('should transition task through lifecycle', async () => {

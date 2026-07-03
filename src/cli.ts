@@ -720,7 +720,7 @@ async function cmdDaemonStop(): Promise<void> {
     const result = await client.call('shutdown', {});
     client.disconnect();
     console.log(JSON.stringify({ status: 'stopped', ...result as Record<string, unknown> }));
-  } catch (error) {
+  } catch (_error) {
     client.disconnect();
     // If the connection was refused or reset, the daemon may have already stopped
     console.log(JSON.stringify({ status: 'stopped', note: 'daemon may have already exited' }));

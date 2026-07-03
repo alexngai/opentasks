@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
-  EdgeTypeRegistry,
+  type EdgeTypeRegistry,
   createEdgeTypeRegistry,
   getEdgeTypeRegistry,
   resetEdgeTypeRegistry,

@@ -5,7 +5,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { annotate } from '../annotate.js';
 import type { GraphStore } from '../../graph/store.js';
-import type { AnnotateParams } from '../types.js';
 
 describe('annotate tool', () => {
   let mockStore: GraphStore;

@@ -106,7 +106,7 @@ export class JSONLPersister {
         } else {
           nodes.push(obj as StoredNode);
         }
-      } catch (error) {
+      } catch (_error) {
         console.warn(`Invalid JSON at line ${i + 1}: ${line.slice(0, 50)}...`);
       }
     }
@@ -207,7 +207,7 @@ export class JSONLPersister {
       this.watcher.on('error', (error) => {
         console.warn('File watcher error:', error);
       });
-    } catch (error) {
+    } catch (_error) {
       // File might not exist yet - that's OK
       console.warn('Could not watch file:', this.config.path);
     }

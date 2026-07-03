@@ -10,7 +10,6 @@ import {
   ValidationError,
 } from '../validation.js';
 import type { StoredNode } from '../storage.js';
-import type { Node, Context, Task, Feedback, ExternalNode } from '../nodes.js';
 
 // Test fixtures
 const baseFields = {

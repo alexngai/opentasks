@@ -3,11 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import {
-  createMaterializationManager,
-  type MaterializationManager,
-  type MaterializationContext,
-} from '../materialization.js';
+import { createMaterializationManager, type MaterializationManager } from '../materialization.js';
 import type { GraphStore } from '../../graph/index.js';
 import type { ExternalNode, Node } from '../../schema/index.js';
 import type { Provider, ProviderNode, ProviderRegistry } from '../types.js';
@@ -329,7 +325,7 @@ describe('MaterializationManager', () => {
         createMockExternalNode() as unknown as Node,
       );
 
-      const beforeCall = new Date().toISOString();
+      const _beforeCall = new Date().toISOString();
       await manager.materialize('beads://./bd-123', mockProviderNode, mockStore);
 
       expect(mockStore.createNode).toHaveBeenCalledWith(

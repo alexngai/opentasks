@@ -226,7 +226,7 @@ function taskToProviderNode(task: MAPTask, systemId: string): ProviderNode {
 export function createMAPProvider(
   config: MAPProviderConfig,
 ): Provider & TaskManageable & Partial<Watchable> {
-  const { client, systemId = 'default', timeout = 30000 } = config;
+  const { client, systemId = 'default' } = config;
   const hasEvents = typeof client.onTaskEvent === 'function';
 
   let watchCallback: WatchChangeCallback | null = null;

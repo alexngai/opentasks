@@ -9,6 +9,7 @@
  */
 
 import { access } from 'fs/promises';
+import type { FSWatcher } from 'chokidar';
 import type {
   Provider,
   ProviderCapabilities,
@@ -259,7 +260,7 @@ export function createClaudeTasksProvider(
   const cachedHashes = new Map<string, string>();
 
   /** chokidar watcher instance */
-  let fileWatcher: import('chokidar').FSWatcher | null = null;
+  let fileWatcher: FSWatcher | null = null;
 
   /** Current watch callback */
   let watchCallback: WatchChangeCallback | null = null;

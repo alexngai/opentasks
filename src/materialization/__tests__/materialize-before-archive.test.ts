@@ -4,12 +4,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { createMaterializationArchiver } from '../archiver.js';
-import type {
-  MaterializationStore,
-  RemoteStore,
-  MaterializationProvider,
-  MaterializationSnapshot,
-} from '../types.js';
+import type { MaterializationStore, MaterializationProvider, MaterializationSnapshot } from '../types.js';
 import type { ExternalNode } from '../../schema/nodes.js';
 
 // ============================================================================

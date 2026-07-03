@@ -8,13 +8,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import {
-  type SessionState,
-  type SessionPhase,
-  type TokenUsage,
-  STALE_SESSION_DAYS,
-  SESSION_DIR_NAME,
-} from '../types.js';
+import { type SessionState, type SessionPhase, type TokenUsage, STALE_SESSION_DAYS } from '../types.js';
 import { getSessionsDir, atomicWriteFile } from '../git-operations.js';
 
 // ============================================================================
