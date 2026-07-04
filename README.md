@@ -5,11 +5,44 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Node >= 18](https://img.shields.io/node/v/opentasks.svg)](https://nodejs.org)
 
-Cross-system graph for tasks and specs. Link Claude Tasks, Beads issues, and native tasks today — Jira, Linear, and other remote trackers are on the roadmap ([docs/STATUS.md](docs/STATUS.md)). Query blockers and ready work across all of them.
+**One dependency graph across every task system you already use.** OpenTasks is a
+local-first graph layer that links Claude Tasks, Beads, and native tasks — with
+Jira, Linear, and other trackers on the roadmap ([docs/STATUS.md](docs/STATUS.md)) —
+so you can ask *what's blocked* and *what's ready* across all of them at once.
 
 ```
 npm install opentasks
 ```
+
+## Why OpenTasks
+
+- **It's the relationship layer, not another tracker.** Keep using Beads, Jira, or
+  Claude Tasks. OpenTasks adds typed edges (`blocks`, `depends-on`, `implements`,
+  `verifies`, …) *between* items that live in different systems — the layer none of
+  them have.
+- **Cross-system `ready` / `blocked` in one query.** Surface unblocked work, or the
+  chain holding something up, spanning every connected provider at once.
+- **Local-first, no server to run.** A tiny Unix-socket daemon auto-starts on first
+  use. `graph.jsonl` is the git-tracked source of truth; SQLite is a rebuildable
+  cache. Nothing to host, nothing to sign up for.
+- **Agent-native.** Ships an MCP server (22 tools across 5 scopes) and is built for
+  multi-agent work: collision-resistant IDs, task leases/claims, idempotent writes,
+  change events, and a git merge driver so concurrent worktrees don't clobber the graph.
+- **Federated and offline-tolerant.** Providers own their content; remote items
+  resolve on demand and disappear cleanly when a backend is unreachable — no stale data.
+
+### How it compares
+
+|  | Task trackers (Beads / Jira / Linear / Claude Tasks) | Orchestration engines | **OpenTasks** |
+|--|:--:|:--:|:--:|
+| Stores task content | yes | sometimes | no — delegates to providers |
+| Typed edges *across* systems | no | no | **yes** |
+| `ready` / `blocked` across systems | no | no | **yes** |
+| Local-first, no server | varies | no | **yes** |
+| Built for agents (MCP, leases, idempotency) | no | varies | **yes** |
+
+OpenTasks doesn't replace your tracker — it connects them. See
+[What This Is Not](#what-this-is-not).
 
 ## Quick Start
 
