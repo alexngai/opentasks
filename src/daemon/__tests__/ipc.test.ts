@@ -6,7 +6,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { createIPCServer, createIPCClient, type IPCServer, type IPCClient } from '../ipc.js';
+import {
+  createIPCServer,
+  createIPCClient,
+  maxSocketPathBytes,
+  type IPCServer,
+  type IPCClient,
+} from '../ipc.js';
 import { registerLifecycleMethods } from '../methods/lifecycle.js';
 import type { DaemonStatus } from '../types.js';
 
@@ -42,6 +48,21 @@ describe('IPCServer', () => {
     } catch {
       // Ignore
     }
+  });
+
+  describe('socket path length guard', () => {
+    it('reflects per-platform sun_path limits', () => {
+      expect(maxSocketPathBytes('darwin')).toBe(103);
+      expect(maxSocketPathBytes('linux')).toBe(107);
+      expect(maxSocketPathBytes('win32')).toBe(Number.POSITIVE_INFINITY);
+    });
+
+    it('rejects an over-long socket path with a clear error, not a bogus EADDRINUSE', async () => {
+      // Well past the ~104-byte sun_path limit on every platform. The guard
+      // fires before bind(), so the path need not exist on disk.
+      const longServer = createIPCServer(path.join(tempDir, 'x'.repeat(160), 'daemon.sock'));
+      await expect(longServer.start()).rejects.toThrow(/socket path is \d+ bytes but .* allows at most/i);
+    });
   });
 
   describe('start/stop', () => {

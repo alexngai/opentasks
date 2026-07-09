@@ -118,6 +118,24 @@ export const JSON_RPC_ERRORS = {
 // ============================================================================
 
 /**
+ * Usable byte length of a Unix-domain socket path on this platform. The kernel's
+ * `sockaddr_un.sun_path` is a fixed-size buffer and the path must be
+ * NUL-terminated, so the usable length is one byte less than the buffer:
+ *   - macOS / *BSD: 104-byte buffer → 103 usable
+ *   - Linux:        108-byte buffer → 107 usable
+ *   - Windows:      named pipes, not sun_path → no comparable limit
+ *
+ * A path over the limit is silently truncated by the kernel on bind(), which
+ * collides otherwise-distinct daemons onto one socket file and surfaces as a
+ * bogus EADDRINUSE. Deeply-nested checkouts hit this on macOS in particular.
+ */
+export function maxSocketPathBytes(platform: NodeJS.Platform = process.platform): number {
+  if (platform === 'win32') return Number.POSITIVE_INFINITY;
+  if (platform === 'linux') return 107;
+  return 103;
+}
+
+/**
  * Create an IPC server
  *
  * @param socketPath - Path to Unix socket file
@@ -294,6 +312,20 @@ export function createIPCServer(socketPath: string): IPCServer {
     async start(): Promise<void> {
       if (server) {
         throw new DaemonError('IPC_ERROR', 'Server already started');
+      }
+
+      // Reject an unbindable socket path up front. Longer than the platform's
+      // sun_path buffer, the kernel truncates it on bind() — colliding daemons
+      // and raising a bogus EADDRINUSE. A clear error beats that mystery.
+      const socketPathBytes = Buffer.byteLength(socketPath, 'utf8');
+      const socketPathLimit = maxSocketPathBytes();
+      if (socketPathBytes > socketPathLimit) {
+        throw new DaemonError(
+          'IPC_ERROR',
+          `Daemon socket path is ${socketPathBytes} bytes but ${process.platform} allows at most ` +
+            `${socketPathLimit}; the OS truncates longer paths on bind() (a bogus EADDRINUSE). Use a ` +
+            `shorter task-graph or data-dir path. Path: ${socketPath}`,
+        );
       }
 
       // Remove existing socket file
