@@ -1,6 +1,6 @@
 {
   "name": "opentasks",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "Cross-system task graph that links Claude Tasks, Beads, and other task systems via a shared edge layer — with a CLI, a local daemon, and an MCP server.",
   "type": "module",
   "main": "./dist/index.js",
