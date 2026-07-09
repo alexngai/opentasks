@@ -32,7 +32,6 @@ const metadataTrailerRegex = new RegExp(`${MetadataTrailerKey}:\\s*(.+)`);
 const taskMetadataTrailerRegex = new RegExp(`${MetadataTaskTrailerKey}:\\s*(.+)`);
 const baseCommitTrailerRegex = new RegExp(`${BaseCommitTrailerKey}:\\s*([a-f0-9]{40})`);
 const condensationTrailerRegex = new RegExp(`${CondensationTrailerKey}:\\s*(.+)`);
-const sessionTrailerRegex = new RegExp(`${SessionTrailerKey}:\\s*(.+)`, 'g');
 const sessionTrailerRegexSingle = new RegExp(`${SessionTrailerKey}:\\s*(.+)`);
 const checkpointTrailerRegex = new RegExp(
   `${CheckpointTrailerKey}:\\s*([0-9a-f]{12})(?:\\s|$)`,

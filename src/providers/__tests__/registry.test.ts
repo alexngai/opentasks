@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createProviderRegistry } from '../registry.js';
-import type { Provider, ProviderRegistry, ProviderNode, ParsedUri } from '../types.js';
+import type { Provider, ProviderRegistry, ParsedUri } from '../types.js';
 
 describe('ProviderRegistry', () => {
   let registry: ProviderRegistry;

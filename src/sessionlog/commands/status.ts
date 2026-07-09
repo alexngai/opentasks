@@ -5,14 +5,14 @@
  * and configuration.
  */
 
-import { type SessionState, type SessionlogSettings, CHECKPOINTS_BRANCH } from '../types.js';
+import { type SessionlogSettings, CHECKPOINTS_BRANCH } from '../types.js';
 import {
   isGitRepository,
   getWorktreeRoot,
   getCurrentBranch,
   refExists,
 } from '../git-operations.js';
-import { loadSettings, loadProjectSettings, loadLocalSettings } from '../config.js';
+import { loadSettings } from '../config.js';
 import { createSessionStore } from '../store/session-store.js';
 import { areGitHooksInstalled } from '../hooks/git-hooks.js';
 import { detectAgents } from '../agent/registry.js';

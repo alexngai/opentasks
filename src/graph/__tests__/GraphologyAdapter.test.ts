@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import {
-  GraphologyAdapterImpl,
-  createGraphologyAdapter,
-  type GraphologyAdapter,
-} from '../GraphologyAdapter.js';
+import { createGraphologyAdapter, type GraphologyAdapter } from '../GraphologyAdapter.js';
 import type { StoredNode, StoredEdge } from '../../schema/storage.js';
 import type { Storage } from '../../storage/interface.js';
 
@@ -359,7 +355,7 @@ describe('GraphologyAdapter', () => {
     it('deduplicates edges', async () => {
       const mockStorage: Partial<Storage> = {
         queryNodes: vi.fn().mockResolvedValue([testContext, testTask]),
-        getEdgesFrom: vi.fn().mockImplementation((id: string) => {
+        getEdgesFrom: vi.fn().mockImplementation((_id: string) => {
           // Both nodes return the same edge (from different perspectives)
           return Promise.resolve([testEdge]);
         }),

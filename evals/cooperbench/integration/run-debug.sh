@@ -40,7 +40,7 @@ export OPENTASKS_DAEMON_IMAGE="${OPENTASKS_DAEMON_IMAGE:-opentasks-daemon:smoke}
 if [[ "$MODEL" == bedrock/* ]]; then
   export AWS_REGION_NAME="$REGION" AWS_DEFAULT_REGION="$REGION"
 elif [[ "$MODEL" == azure/* ]]; then
-  : "${AZURE_API_BASE:=https://staging-west-us3.openai.azure.com/}"
+  : "${AZURE_API_BASE:=https://<your-resource>.openai.azure.com/}"
   : "${AZURE_API_VERSION:=2025-04-01-preview}"
   export AZURE_API_BASE AZURE_API_VERSION
   if [ -z "${AZURE_API_KEY:-}" ]; then

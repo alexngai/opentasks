@@ -28,16 +28,21 @@ import { createDaemonWithStore, createMultiLocationDaemonFromGit, checkExistingD
 import { VERSION } from './version.js';
 
 const OPENTASKS_DIR = '.opentasks';
+const OPENSWARM_OPENTASKS_DIR = '.openswarm/opentasks';
 const SWARM_OPENTASKS_DIR = '.swarm/opentasks';
 const CONFIG_FILE = 'config.json';
 
 /**
  * Resolve the project-level opentasks directory.
- * Priority: OPENTASKS_PROJECT_DIR env var > .swarm/opentasks > .opentasks
+ * Priority: OPENTASKS_PROJECT_DIR env > .openswarm/opentasks > .swarm/opentasks
+ * (legacy) > .opentasks. The swarmkit namespace is migrating .swarm → .openswarm;
+ * both are honored so mixed-version repos keep working, preferring the new name.
  */
 function resolveProjectDir(baseDir: string = process.cwd()): string {
   const envDir = process.env.OPENTASKS_PROJECT_DIR;
   if (envDir) return path.resolve(baseDir, envDir);
+  const openswarmDir = path.resolve(baseDir, OPENSWARM_OPENTASKS_DIR);
+  if (fs.existsSync(openswarmDir)) return openswarmDir;
   const swarmDir = path.resolve(baseDir, SWARM_OPENTASKS_DIR);
   if (fs.existsSync(swarmDir)) return swarmDir;
   return path.resolve(baseDir, OPENTASKS_DIR);
@@ -551,6 +556,21 @@ function cliEntrypoint(): string {
 }
 
 /**
+ * Resolve the directory the daemon actually uses for its lock + socket.
+ *
+ * In a git repo the daemon runs in multi-location mode with its home at
+ * `<git-common-dir>/opentasks` (shared across worktrees); otherwise it's the
+ * location's own `.opentasks`. This must match `cmdDaemonStart`'s single-vs-multi
+ * decision, or the CLI's `checkExistingDaemon` probes look in the wrong place and
+ * never detect a running git-repo daemon (auto-start "times out", `daemon status`
+ * reports not_running, `daemon stop` no-ops — even though the daemon is up).
+ */
+export function daemonHomeFor(opentasksDir: string): string {
+  const gitCommonDir = getGitCommonDir(path.dirname(opentasksDir));
+  return gitCommonDir ? path.join(gitCommonDir, 'opentasks') : opentasksDir;
+}
+
+/**
  * Spawn a detached daemon process (`daemon start --foreground`) and let it
  * outlive this process. The child inherits cwd + env so it resolves the same
  * project as the parent.
@@ -572,9 +592,10 @@ function delay(ms: number): Promise<void> {
  * Poll until the daemon for `opentasksDir` reports running, or throw on timeout.
  */
 async function waitForDaemon(opentasksDir: string, timeoutMs = 10_000): Promise<void> {
+  const daemonHome = daemonHomeFor(opentasksDir);
   const start = Date.now();
   for (;;) {
-    const existing = await checkExistingDaemon(opentasksDir);
+    const existing = await checkExistingDaemon(daemonHome);
     if (existing.running) return;
     if (Date.now() - start >= timeoutMs) {
       throw new Error(`Daemon did not start within ${timeoutMs}ms`);
@@ -594,7 +615,8 @@ async function ensureDaemonRunning(
   opentasksDir: string,
   options: { autostart: boolean } = { autostart: true },
 ): Promise<void> {
-  const existing = await checkExistingDaemon(opentasksDir);
+  const daemonHome = daemonHomeFor(opentasksDir);
+  const existing = await checkExistingDaemon(daemonHome);
   if (existing.running) return;
   if (!options.autostart) return;
 
@@ -602,7 +624,7 @@ async function ensureDaemonRunning(
   spawnDetachedDaemon();
   try {
     await waitForDaemon(opentasksDir);
-    const started = await checkExistingDaemon(opentasksDir);
+    const started = await checkExistingDaemon(daemonHome);
     process.stderr.write(`opentasks: daemon started (pid ${started.pid ?? '?'})\n`);
   } catch (error) {
     process.stderr.write(
@@ -630,8 +652,9 @@ async function cmdDaemonStart(args: string[]): Promise<void> {
     }
   }
 
-  // Check if already running
-  const existing = await checkExistingDaemon(opentasksDir);
+  // Check if already running (probe the daemon's real home — .git/opentasks in a repo)
+  const daemonHome = daemonHomeFor(opentasksDir);
+  const existing = await checkExistingDaemon(daemonHome);
   if (existing.running) {
     console.log(JSON.stringify({
       status: 'already_running',
@@ -647,7 +670,7 @@ async function cmdDaemonStart(args: string[]): Promise<void> {
   if (!args.includes('--foreground')) {
     spawnDetachedDaemon();
     await waitForDaemon(opentasksDir);
-    const started = await checkExistingDaemon(opentasksDir);
+    const started = await checkExistingDaemon(daemonHome);
     console.log(JSON.stringify({
       status: 'started',
       detached: true,
@@ -703,7 +726,7 @@ async function cmdDaemonStart(args: string[]): Promise<void> {
 async function cmdDaemonStop(): Promise<void> {
   const opentasksDir = resolveProjectDir();
 
-  const existing = await checkExistingDaemon(opentasksDir);
+  const existing = await checkExistingDaemon(daemonHomeFor(opentasksDir));
   if (!existing.running) {
     console.log(JSON.stringify({ status: 'not_running' }));
     return;
@@ -715,7 +738,7 @@ async function cmdDaemonStop(): Promise<void> {
     const result = await client.call('shutdown', {});
     client.disconnect();
     console.log(JSON.stringify({ status: 'stopped', ...result as Record<string, unknown> }));
-  } catch (error) {
+  } catch (_error) {
     client.disconnect();
     // If the connection was refused or reset, the daemon may have already stopped
     console.log(JSON.stringify({ status: 'stopped', note: 'daemon may have already exited' }));
@@ -728,7 +751,7 @@ async function cmdDaemonStop(): Promise<void> {
 async function cmdDaemonStatus(): Promise<void> {
   const opentasksDir = resolveProjectDir();
 
-  const existing = await checkExistingDaemon(opentasksDir);
+  const existing = await checkExistingDaemon(daemonHomeFor(opentasksDir));
   if (!existing.running) {
     console.log(JSON.stringify({ status: 'not_running', locationPath: opentasksDir }));
     return;

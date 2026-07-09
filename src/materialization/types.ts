@@ -5,6 +5,9 @@
  * materialized external node snapshots to durable storage.
  */
 
+import type { GraphStore } from '../graph/store.js';
+import type { ExternalNode } from '../schema/nodes.js';
+
 // ============================================================================
 // Snapshot Types
 // ============================================================================
@@ -346,20 +349,20 @@ export interface MaterializationArchiver {
   onSessionEvent(
     eventType: string,
     sessionUri: string,
-    store: import('../graph/store.js').GraphStore,
+    store: GraphStore,
   ): Promise<ArchiveEventResult>;
 
   /** Manually archive a specific node by URI */
   archiveNode(
     uri: string,
-    store: import('../graph/store.js').GraphStore,
+    store: GraphStore,
   ): Promise<ArchiveEventResult>;
 
   /** Rematerialize a node from the archive into the graph */
-  rematerialize(uri: string, store: import('../graph/store.js').GraphStore): Promise<boolean>;
+  rematerialize(uri: string, store: GraphStore): Promise<boolean>;
 
   /** Rematerialize all missing nodes */
-  rematerializeAll(store: import('../graph/store.js').GraphStore): Promise<RematerializeAllResult>;
+  rematerializeAll(store: GraphStore): Promise<RematerializeAllResult>;
 
   /** List all archived sessions */
   listArchived(filter?: ArchiveFilter): Promise<ArchiveListEntry[]>;
@@ -379,7 +382,7 @@ export interface MaterializationArchiver {
  * Matches the materializeNode method on ProviderAwareStore.
  */
 export interface MaterializationProvider {
-  materializeNode(uri: string): Promise<import('../schema/nodes.js').ExternalNode>;
+  materializeNode(uri: string): Promise<ExternalNode>;
 }
 
 /**

@@ -275,7 +275,7 @@ describe('Git Graph Syncer', { timeout: 30_000 }, () => {
   // --------------------------------------------------------------------------
   describe('pull', () => {
     it('should pull new changes from remote successfully', async () => {
-      const { repoPath, opentasksPath, remotePath } = createRepoWithRemote(
+      const { opentasksPath, remotePath } = createRepoWithRemote(
         'repo-pull',
         'remote-pull.git',
       );

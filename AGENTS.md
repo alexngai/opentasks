@@ -1,18 +1,16 @@
 # Agent Instructions
 
-<!-- SWARMKIT-WIKI:START -->
-## SwarmKit Ecosystem Knowledge Base
+OpenTasks is a cross-system task graph: it links Claude Tasks, Beads, Jira, Linear, MAP,
+and other task systems via a shared edge layer, with a CLI, a local Unix-socket daemon,
+and an MCP server for agent access.
 
-This repository participates in the SwarmKit ecosystem. Before changing architecture, package boundaries, cross-repo integrations, protocols, task/dispatch behavior, memory/learning flows, workspace/git behavior, or agent orchestration semantics, query the shared knowledge base:
+## Working in this repo
 
-```sh
-node /Users/alexngai/GitHub/swarmkit-wiki/scripts/query-knowledge.mjs context --cwd "$PWD"
-node /Users/alexngai/GitHub/swarmkit-wiki/scripts/query-knowledge.mjs repo opentasks
-node /Users/alexngai/GitHub/swarmkit-wiki/scripts/query-knowledge.mjs interactions opentasks
-node /Users/alexngai/GitHub/swarmkit-wiki/scripts/query-knowledge.mjs search "<concept>"
-```
+- Build: `npm run build` (TypeScript compile; also serves as the type-check)
+- Test: `npm test` (single run), `npm run test:watch`, `npm run test:slow`, `npm run test:e2e`
+- Lint/format: `npm run lint`, `npm run lint:fix`, `npm run format`
+- Tests are co-located with the modules they cover under `src/` (`__tests__/` dirs).
+- Node >= 18 required.
 
-Canonical ecosystem memory lives at `/Users/alexngai/GitHub/swarmkit-wiki`.
-
-When this repo changes knowledge that should persist across agents, update the relevant wiki article, semantic model, raw snapshot, graph artifact, or cross-repo interaction data in `swarmkit-wiki`. Do not treat this repo's local `.understand-anything/` cache as canonical; graph artifacts are centralized in `swarmkit-wiki/.understand-anything/graphs/`.
-<!-- SWARMKIT-WIKI:END -->
+See [CLAUDE.md](./CLAUDE.md) for the full guide (project structure, key concepts, module-level
+context), and [README.md](./README.md) for usage.

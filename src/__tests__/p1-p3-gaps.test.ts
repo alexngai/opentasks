@@ -19,7 +19,7 @@ import * as os from 'node:os';
 // ============================================================================
 // Gap #6: Conditional redirect integration
 // ============================================================================
-import { resolveOperationRedirect, type RedirectRule } from '../core/redirects.js';
+import { resolveOperationRedirect } from '../core/redirects.js';
 import type { ConditionalRedirectRule, RedirectContext } from '../core/conditional-redirects.js';
 import type { Connection } from '../core/connections.js';
 import type { LocationIdentity } from '../core/location.js';
@@ -276,11 +276,10 @@ describe('Gap #15: Edge deduplication timestamp logic', () => {
 // ============================================================================
 // Gaps #2, #7, #8: Query expansion — follow-refs, crossLocationEdges, parallel
 // ============================================================================
-import { createQueryExpander, type ExpandedResult } from '../graph/expansion.js';
+import { createQueryExpander } from '../graph/expansion.js';
 import type { Storage } from '../storage/interface.js';
 import type { LocationProvider } from '../providers/location.js';
 import type { ProviderNode } from '../providers/types.js';
-import type { StoredNode } from '../schema/storage.js';
 
 function mockStorage(overrides?: Partial<Storage>): Storage {
   return {
@@ -511,7 +510,7 @@ describe('Gap #8: Parallel provider queries', () => {
 // ============================================================================
 // Gap #3: Discover command
 // ============================================================================
-import { discoverLocations, type DiscoveredLocation } from '../core/discover.js';
+import { discoverLocations } from '../core/discover.js';
 
 describe('Gap #3: discoverLocations', () => {
   let tmpDir: string;

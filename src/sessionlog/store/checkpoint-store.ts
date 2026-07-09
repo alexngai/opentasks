@@ -7,43 +7,8 @@
  */
 
 import * as crypto from 'node:crypto';
-import {
-  type CheckpointID,
-  type CheckpointSummary,
-  type CommittedMetadata,
-  type SessionFilePaths,
-  type WriteTemporaryOptions,
-  type WriteTemporaryResult,
-  type WriteCommittedOptions,
-  type TokenUsage,
-  type InitialAttribution,
-  type Summary,
-  CHECKPOINT_ID_LENGTH,
-  CHECKPOINTS_BRANCH,
-  SHADOW_BRANCH_PREFIX,
-  SHADOW_BRANCH_HASH_LENGTH,
-  checkpointIDPath,
-} from '../types.js';
-import {
-  git,
-  gitSafe,
-  getHead,
-  getShortHash,
-  getGitAuthor,
-  refExists,
-  getTreeHash,
-  lsTree,
-  listBranches,
-  hashObject,
-  mktree,
-  commitTree,
-  updateRef,
-  deleteBranch,
-  showFile,
-  catFile,
-  log,
-  type GitAuthor,
-} from '../git-operations.js';
+import { type CheckpointID, type CheckpointSummary, type CommittedMetadata, type WriteTemporaryOptions, type WriteTemporaryResult, type WriteCommittedOptions, CHECKPOINT_ID_LENGTH, CHECKPOINTS_BRANCH, SHADOW_BRANCH_PREFIX, SHADOW_BRANCH_HASH_LENGTH, checkpointIDPath } from '../types.js';
+import { git, getHead, getGitAuthor, refExists, getTreeHash, lsTree, listBranches, hashObject, mktree, commitTree, updateRef, deleteBranch, showFile, log, type GitAuthor } from '../git-operations.js';
 
 // ============================================================================
 // Checkpoint Store Interface

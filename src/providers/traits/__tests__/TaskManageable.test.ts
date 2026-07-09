@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  isTaskManageable,
-  type TaskManageable,
-  type TaskCapabilities,
-  type TaskAction,
-} from '../TaskManageable.js';
+import { isTaskManageable, type TaskManageable, type TaskAction } from '../TaskManageable.js';
 import type { Provider, ProviderNode } from '../../types.js';
 
 // Mock provider that doesn't implement TaskManageable
@@ -125,7 +120,7 @@ const mockTaskProvider: Provider & TaskManageable = {
     };
   },
 
-  validActions: async (id: string): Promise<TaskAction[]> => {
+  validActions: async (_id: string): Promise<TaskAction[]> => {
     // Simulate: open tasks can be started or closed
     return ['start', 'close'];
   },

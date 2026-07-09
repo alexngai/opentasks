@@ -143,3 +143,81 @@ EVAL_CELL=D EVAL_N=2 EVAL_M=8 EVAL_K=4 EVAL_REPEATS=5 npx tsx evals/swarmkit/syn
 **Validated:** `EVAL_FAKE` reproduces the full 2×2 incl. reset metrics with CIs; a real cell-B run
 (stock vs opentasks, N=2, M=3) reproduced it live — **stock doubleEmits 3.00 (every item raced), opentasks
 0.00 / exactly-once 3/3** — at ~3× the tokens (the coordination cost, visible on the Pareto frontier).
+
+---
+
+## RoadmapBench (`roadmap-run.ts`) — the long-horizon anchor
+
+`roadmap-run.ts` runs **RoadmapBench** (arXiv:2605.15846) — start on a source-version repo snapshot,
+implement the functionality of a *later* target version from a multi-target roadmap, ordering 3–12
+sub-goals yourself (median **3,700 LoC across 51 files**, **2h wall-clock cap**). This is the
+long-horizon/state regime the earlier evals lacked. Grading is **Harbor-owned and test-based**
+(`test.sh` → reward: Resolved Rate + weighted Completion Score) — ground truth, never graph state.
+
+**One substrate — Harbor** (`execution: "harbor"`), so every agent is directly comparable:
+- `claude-code` — Harbor built-in agent.
+- `openswarm` — via openswarm's **own** Harbor agent (`openswarm_harbor_agent:OpenswarmAgent`, a
+  `BaseInstalledAgent` Harbor loads by import path). Chosen over ACP because ACP loses token/cost
+  accounting and model routing. Multi-agent coordinator team via `--ak swarm=true`.
+
+The **model is pinned per arm** (Bedrock Anthropic / Bedrock-via-gateway / Azure-via-gateway) and each
+arm runs in its own `runEval`, so we get exactly the `(agent, model)` pairs — not the arm×model
+cross-product. Results merge into one report.
+
+```bash
+# zero-token substrate smoke (nop agent; local docker image auto-used). VALIDATED 2026-07-02:
+#   fal-1.3.0-roadmap | nop → status=failure reward=0.000 tokens=0 (~160s) — correct nop outcome.
+npx tsx evals/swarmkit/roadmap-run.ts
+
+# single real arm (needs the arm's creds — see below):
+ROADMAP_ARMS=claude-code-bedrock npx tsx evals/swarmkit/roadmap-run.ts
+
+# the full comparison on e2b:
+ROADMAP_ARMS=claude-code-bedrock,openswarm-bedrock,openswarm-azure \
+  ROADMAP_ENVIRONMENT=e2b npx tsx evals/swarmkit/roadmap-run.ts
+```
+
+### Arms (registry in `roadmap-run.ts`)
+
+| arm id | agent | model (env override) | needs |
+|---|---|---|---|
+| `nop` | `nop` | `nop/mock` | — (zero-token smoke) |
+| `claude-code-bedrock` | `claude-code` | `ROADMAP_CLAUDE_BEDROCK_MODEL` | AWS creds + `CLAUDE_CODE_USE_BEDROCK=1` |
+| `openswarm-bedrock` | `openswarm_harbor_agent:OpenswarmAgent` | `ROADMAP_OPENSWARM_BEDROCK_MODEL` | LiteLLM gateway (`ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`) |
+| `openswarm-azure` | `openswarm_harbor_agent:OpenswarmAgent` | `ROADMAP_OPENSWARM_AZURE_MODEL` | gateway (Azure route) |
+| `openswarm-bedrock-swarm` | same, `--ak swarm=true` | `ROADMAP_OPENSWARM_BEDROCK_MODEL` | gateway (multi-agent / E1) |
+
+### Env
+
+| var | default | meaning |
+|---|---|---|
+| `ROADMAP_DATA_DIR` | `evals/.roadmap-data` | dir of `<task>/task.toml` (gitignored; staged from the HF dataset) |
+| `ROADMAP_ARMS` | `nop` | comma list from the registry |
+| `ROADMAP_TASK_IDS` / `ROADMAP_TASK_LIMIT` | — / `1` | task subset / cap |
+| `ROADMAP_ENVIRONMENT` | `docker` | `docker` (proven, local image) or `e2b` |
+| `ROADMAP_SEEDS` | `1` | seeds per cell |
+| `ROADMAP_TIMEOUT_MS` | `5400000` | per-trial cap (90min, under the 2h benchmark cap) |
+| `ROADMAP_OPENSWARM_HARBOR_DIR` | `~/GitHub/openswarm/integrations/harbor` | PYTHONPATH for openswarm's Harbor agent |
+
+### Setup notes
+
+- **swarmkit-eval `roadmapBench` is only in 0.0.8** (opentasks pins `^0.0.7`, which predates it). For
+  now it's consumed via `npm link swarmkit-eval` against `~/GitHub/swarmkit/src/eval`. Publish 0.0.8 (or
+  bump the pin) before this runs on CI.
+- **The RoadmapBench task dir** (`task.toml` + `instruction.md` + sealed `tests/`/`solution/`) is staged
+  under `evals/.roadmap-data/` (gitignored). The `fal-1.3.0-roadmap` image (`znpt/roadmapbench-*`) is
+  auto-pulled by Harbor.
+- **openswarm** installs itself in-sandbox from npm (`openswarm@latest`, ≥0.3.7 has the engine fix). Its
+  Harbor agent + parser must be importable by the host Harbor process → the runner sets `PYTHONPATH` to
+  `ROADMAP_OPENSWARM_HARBOR_DIR` whenever an openswarm arm is selected.
+- **Creds ride in the ambient env** (forwarded into the Harbor process/sandbox, never baked into arm
+  content hashes): AWS_*/`CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` (gateway),
+  `E2B_API_KEY` (e2b).
+
+### OpenTasks arm — the one remaining piece
+
+Harbor agents install and run **inside the sandbox**, so an OpenTasks-MCP arm can't just pass a host
+`--mcp-config`: it needs `opentasks` installed + its daemon started **in-container**, and a
+`.mcp.json`/`.openswarm/mcp.json` pointing at the in-container MCP (the pattern `evals/tac/docker-adapter.ts`
+uses). That container-side wiring is the next step; the agent×model comparison above stands on its own
+(openswarm *is* the multi-agent/coordination story).

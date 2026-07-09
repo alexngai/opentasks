@@ -49,15 +49,7 @@ import { createBeadsProvider } from '../providers/beads.js';
 import { createSudocodeProvider } from '../providers/sudocode.js';
 import { createClaudeTasksProvider } from '../providers/claude-tasks.js';
 import { createGlobalProvider } from '../providers/global.js';
-import {
-  createLocationState,
-  destroyLocationState,
-  reloadLocationGitSyncer,
-  createSingleLocationResolver,
-  createMultiLocationResolver,
-  type LocationState,
-  type LocationResolver,
-} from './location-state.js';
+import { createLocationState, reloadLocationGitSyncer, createSingleLocationResolver, createMultiLocationResolver, type LocationState, type LocationResolver } from './location-state.js';
 import { readWorktreeRegistry, type WorktreeEntry } from '../core/worktree.js';
 
 // ============================================================================

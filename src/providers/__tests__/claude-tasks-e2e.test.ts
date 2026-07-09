@@ -21,7 +21,7 @@ import { createFilesystemTaskStore } from '../claude-tasks-fs.js';
 import { createClaudeTasksProvider } from '../claude-tasks.js';
 import { createNativeProvider } from '../native.js';
 import { createProviderRegistry } from '../registry.js';
-import { createProviderAwareStore, type ProviderAwareStore } from '../../graph/provider-store.js';
+import { createProviderAwareStore } from '../../graph/provider-store.js';
 import type { GraphStore } from '../../graph/store.js';
 import type { LocationResolver, LocationState } from '../../daemon/location-state.js';
 import type { ClaudeTask } from '../claude-tasks.js';
@@ -210,8 +210,8 @@ describe('Claude Tasks E2E: MCP → Daemon → Filesystem', () => {
   });
 
   afterEach(async () => {
-    try { await setup.ipcServer.stop(); } catch {}
-    try { fs.rmSync(setup.tempDir, { recursive: true, force: true }); } catch {}
+    try { await setup.ipcServer.stop(); } catch { /* ignore cleanup errors */ }
+    try { fs.rmSync(setup.tempDir, { recursive: true, force: true }); } catch { /* ignore cleanup errors */ }
   });
 
   // ==========================================================================
@@ -477,7 +477,7 @@ describe('Claude Tasks E2E: MCP → Daemon → Filesystem', () => {
     it('should return error for non-existent task', async () => {
       const client = await createClient(setup.socketPath);
 
-      const { parsed, isError } = await callTool(client, 'get_task', { id: 't-nonexistent-999' });
+      const { isError } = await callTool(client, 'get_task', { id: 't-nonexistent-999' });
       expect(isError).toBe(true);
     });
   });
@@ -541,8 +541,8 @@ describe('Claude Tasks E2E: ProviderAwareStore read bridge', () => {
   });
 
   afterEach(async () => {
-    try { await ipcServer.stop(); } catch {}
-    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    try { await ipcServer.stop(); } catch { /* ignore cleanup errors */ }
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore cleanup errors */ }
   });
 
   // ==========================================================================
@@ -804,8 +804,8 @@ describe('Claude Tasks E2E: Live MCP → claude:// URI resolution', () => {
   });
 
   afterEach(async () => {
-    try { await ipcServer.stop(); } catch {}
-    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    try { await ipcServer.stop(); } catch { /* ignore cleanup errors */ }
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore cleanup errors */ }
   });
 
   // ==========================================================================
@@ -1207,7 +1207,7 @@ describe('Claude Tasks E2E: Live MCP → claude:// URI resolution', () => {
       const graphId = task.id;
 
       // Transition using graph ID
-      const { parsed, isError } = await callTool(client, 'update_task', {
+      const { isError } = await callTool(client, 'update_task', {
         id: graphId,
         transition: 'start',
       });

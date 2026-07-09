@@ -571,13 +571,13 @@ describe('Tools Methods - tools.task', () => {
   afterEach(async () => {
     try {
       client.disconnect();
-    } catch {}
+    } catch { /* ignore cleanup errors */ }
     try {
       await server.stop();
-    } catch {}
+    } catch { /* ignore cleanup errors */ }
     try {
       await fs.rm(tempDir, { recursive: true, force: true });
-    } catch {}
+    } catch { /* ignore cleanup errors */ }
   });
 
   it('should transition a task', async () => {

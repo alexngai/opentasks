@@ -16,4 +16,4 @@ litellm_settings:
   drop_params: true
 
 general_settings:
-  master_key: sk-glm5-spike-master
+  master_key: glm5-local-master

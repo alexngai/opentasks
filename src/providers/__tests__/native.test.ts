@@ -4,9 +4,9 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createNativeProvider } from '../native.js';
-import type { Provider, ProviderNode } from '../types.js';
+import type { Provider } from '../types.js';
 import type { GraphStore } from '../../graph/index.js';
-import type { Node, Context, Task, Feedback, Edge } from '../../schema/index.js';
+import type { Context, Task, Feedback, Edge } from '../../schema/index.js';
 import type { RelationshipQueryable } from '../traits/RelationshipQueryable.js';
 import { isRelationshipQueryable } from '../traits/RelationshipQueryable.js';
 

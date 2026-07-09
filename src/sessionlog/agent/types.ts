@@ -6,7 +6,7 @@
  * interfaces to participate in the Entire session tracking lifecycle.
  */
 
-import type { AgentName, AgentType, HookInput, Event, SessionState, TokenUsage } from '../types.js';
+import type { AgentName, AgentType, HookInput, Event, TokenUsage } from '../types.js';
 
 // ============================================================================
 // Core Agent Interface

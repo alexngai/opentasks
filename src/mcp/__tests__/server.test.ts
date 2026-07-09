@@ -297,7 +297,7 @@ describe('MCP Server - Task Tools', () => {
     it('should add blockers via link', async () => {
       mockClient.link.mockResolvedValue({ success: true, edgeId: 'x-edge1' });
 
-      const { parsed } = await callTool(client, 'update_task', {
+      await callTool(client, 'update_task', {
         id: 't-abc1',
         addBlockedBy: ['t-blocker1', 't-blocker2'],
       });

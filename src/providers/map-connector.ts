@@ -115,7 +115,7 @@ export { METHODS as MAP_CONNECTOR_METHODS };
  * by routing them to the local daemon.
  */
 export function createMAPConnector(config: MAPConnectorConfig): MAPConnector {
-  const { client, send, agentId } = config;
+  const { client, send } = config;
   let active = true;
 
   async function handleQuery(requestId: string, query: QueryParams): Promise<void> {

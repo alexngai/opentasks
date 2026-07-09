@@ -2579,7 +2579,7 @@ export class TacDockerAdapter implements ExecutionAdapter {
       const host = out.TAC_GRADER_PROXY_HOST ?? '127.0.0.1';
       const port = out.TAC_GRADER_PROXY_PORT ?? '4000';
       const proxyModel = out.TAC_GRADER_PROXY_MODEL ?? 'tac-grader';
-      out.LITELLM_API_KEY ??= out.TAC_GRADER_PROXY_KEY ?? 'sk-tac-grader-local';
+      out.LITELLM_API_KEY ??= out.TAC_GRADER_PROXY_KEY ?? 'tac-grader-local';
       out.LITELLM_BASE_URL ??= `http://${host}:${port}/v1`;
       out.LITELLM_MODEL ??= openAiCompatibleLitellmModel(proxyModel);
     }

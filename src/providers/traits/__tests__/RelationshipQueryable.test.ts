@@ -1,14 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import {
-  isRelationshipQueryable,
-  filterEdgesByType,
-  filterEdgesByDirection,
-  getNeighborFromEdge,
-  type ProviderEdge,
-  type RelationshipQueryable,
-  type EdgeTypeSupport,
-} from '../RelationshipQueryable.js';
-import type { Provider, ProviderCapabilities, ProviderNode, ParsedUri } from '../../types.js';
+import { isRelationshipQueryable, filterEdgesByType, filterEdgesByDirection, getNeighborFromEdge, type ProviderEdge, type RelationshipQueryable } from '../RelationshipQueryable.js';
+import type { Provider, ProviderNode } from '../../types.js';
 
 // Mock provider that doesn't implement RelationshipQueryable
 const mockBasicProvider: Provider = {

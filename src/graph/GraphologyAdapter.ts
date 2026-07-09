@@ -7,7 +7,6 @@
 
 import { randomUUID } from 'node:crypto';
 import { MultiDirectedGraph } from 'graphology';
-import type { Attributes } from 'graphology-types';
 import type { StoredNode, StoredEdge } from '../schema/storage.js';
 import type { Storage } from '../storage/interface.js';
 

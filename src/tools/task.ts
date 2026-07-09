@@ -35,7 +35,7 @@ function toNodeSummary(node: Node): NodeSummary {
     id: node.id,
     type: node.type,
     title: node.title,
-    status: 'status' in node ? (node as any).status : undefined,
+    status: 'status' in node ? (node as { status?: string }).status : undefined,
     priority: node.priority,
     archived: node.archived ?? false,
   };

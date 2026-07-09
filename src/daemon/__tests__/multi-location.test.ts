@@ -13,16 +13,10 @@ import { createDaemon, type Daemon, type MultiLocationDaemonConfig } from '../li
 import { createIPCClient, type IPCClient } from '../ipc.js';
 import { DaemonError } from '../types.js';
 import type { LocationInfo } from '../types.js';
-import {
-  createSingleLocationResolver,
-  createMultiLocationResolver,
-  createLocationState,
-  destroyLocationState,
-  type LocationState,
-  type LocationResolver,
-} from '../location-state.js';
+import { createSingleLocationResolver, createMultiLocationResolver, type LocationState } from '../location-state.js';
 import type { GraphStore } from '../../graph/store.js';
 import type { DaemonFlushManager } from '../flush.js';
+import type * as LocationStateModule from '../location-state.js';
 import type { FileWatcher } from '../watcher.js';
 import type { Node, Edge } from '../../schema/index.js';
 
@@ -34,7 +28,7 @@ import type { Node, Edge } from '../../schema/index.js';
 // real SQLite/JSONL infrastructure. The real createSingleLocationResolver,
 // createMultiLocationResolver, and destroyLocationState are preserved.
 vi.mock('../location-state.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../location-state.js')>();
+  const actual = await importOriginal<LocationStateModule>();
   const { existsSync } = await import('node:fs');
   return {
     ...actual,

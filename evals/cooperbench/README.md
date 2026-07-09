@@ -1,9 +1,8 @@
 # CooperBench × OpenTasks harness
 
-The `opentasks` arm of the [E6 CooperBench coordination eval](../../docs/evaluations/2026-06-16-cooperbench-coordination-eval-design.md):
+The `opentasks` arm of the E6 CooperBench coordination eval:
 two agents in **separate containers** coordinate through **one shared OpenTasks
-daemon** (the sidecar topology, [§8](../../docs/evaluations/2026-06-16-cooperbench-coordination-eval-design.md)),
-instead of CooperBench's stock chat-only message bus.
+daemon** (the sidecar topology), instead of CooperBench's stock chat-only message bus.
 
 ## Status
 

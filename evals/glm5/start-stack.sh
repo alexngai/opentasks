@@ -39,4 +39,4 @@ fi
 
 echo "[glm5] stack up — LiteLLM http://127.0.0.1:$LITELLM_PORT  shim :$SHIM_PORT"
 echo "[glm5] run evals with:"
-echo "  EVAL_MODEL=glm-5 ANTHROPIC_BASE_URL=http://127.0.0.1:$LITELLM_PORT ANTHROPIC_API_KEY=sk-glm5-spike-master npx tsx evals/run.ts"
+echo "  EVAL_MODEL=glm-5 ANTHROPIC_BASE_URL=http://127.0.0.1:$LITELLM_PORT ANTHROPIC_API_KEY=glm5-local-master npx tsx evals/run.ts"

@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import {
-  FederatedGraphImpl,
-  createFederatedGraph,
-  type FederatedGraph,
-} from '../FederatedGraph.js';
+import { createFederatedGraph, type FederatedGraph } from '../FederatedGraph.js';
 import { createGraphologyAdapter, type GraphologyAdapter } from '../GraphologyAdapter.js';
 import type { StoredNode, StoredEdge } from '../../schema/storage.js';
 

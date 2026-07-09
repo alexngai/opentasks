@@ -1,8 +1,7 @@
 # OpenTasks Consistency & Sync Model
 
 The honest, as-built consistency model. For the broader status see
-[STATUS.md](./STATUS.md); for the hardening roadmap see
-[HARDENING-PLAN.md](./HARDENING-PLAN.md).
+[STATUS.md](./STATUS.md).
 
 ## TL;DR
 

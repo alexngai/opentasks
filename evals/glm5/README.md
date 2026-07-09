@@ -25,7 +25,7 @@ bash evals/glm5/start-stack.sh        # idempotent; builds .venv on first run
 ```bash
 EVAL_MODEL=glm-5 \
 ANTHROPIC_BASE_URL=http://127.0.0.1:4000 \
-ANTHROPIC_API_KEY=sk-glm5-spike-master \      # MUST equal litellm-config.yaml master_key
+ANTHROPIC_API_KEY=glm5-local-master \      # MUST equal litellm-config.yaml master_key
   npx tsx evals/run.ts
 ```
 
@@ -51,7 +51,7 @@ login can't leak through and override the key.
 - `litellm-config.yaml` — maps `glm-5` → `bedrock_mantle/zai.glm-5` via the shim.
 - `start-stack.sh` — idempotent launcher (venv + shim + LiteLLM).
 
-`master_key: sk-glm5-spike-master` in the config is a **local throwaway** key for
+`master_key: glm5-local-master` in the config is a **local throwaway** key for
 the local proxy only — not an AWS credential (those come from the environment).
 
 ## Status

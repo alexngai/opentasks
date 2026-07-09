@@ -5,17 +5,9 @@
  * Supports both shadow branch (temporary) and committed checkpoint rewind.
  */
 
-import type { RewindPoint, CheckpointID, CheckpointSummary } from '../types.js';
-import {
-  git,
-  gitSafe,
-  getHead,
-  getCurrentBranch,
-  hasUncommittedChanges,
-  refExists,
-} from '../git-operations.js';
-import { createCheckpointStore, type CheckpointStore } from '../store/checkpoint-store.js';
-import { createSessionStore, type SessionStore } from '../store/session-store.js';
+import type { RewindPoint } from '../types.js';
+import { git, hasUncommittedChanges } from '../git-operations.js';
+import { createCheckpointStore } from '../store/checkpoint-store.js';
 
 // ============================================================================
 // Types

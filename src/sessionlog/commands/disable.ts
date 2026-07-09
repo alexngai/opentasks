@@ -5,11 +5,10 @@
  * hooks and clean up all Entire data.
  */
 
-import { type AgentName, ENTIRE_DIR } from '../types.js';
 import { getWorktreeRoot, isGitRepository } from '../git-operations.js';
 import { saveProjectSettings, saveLocalSettings } from '../config.js';
 import { uninstallGitHooks } from '../hooks/git-hooks.js';
-import { getAgent, listAgentNames, detectAgents } from '../agent/registry.js';
+import { detectAgents } from '../agent/registry.js';
 import { hasHookSupport } from '../agent/types.js';
 
 // ============================================================================

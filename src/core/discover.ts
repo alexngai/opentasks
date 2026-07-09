@@ -54,10 +54,15 @@ function readLocationConfig(opentasksDir: string): { hash: string; name: string 
   }
 }
 
-/** Candidate directory names for opentasks config */
+/**
+ * Candidate directory names for opentasks config, in priority order. The
+ * swarmkit namespace is migrating `.swarm` → `.openswarm`; both are honored
+ * (new name first) so mixed-version repos discover the same location.
+ */
 const OPENTASKS_DIR = '.opentasks';
+const OPENSWARM_OPENTASKS_DIR = path.join('.openswarm', 'opentasks');
 const SWARM_OPENTASKS_DIR = path.join('.swarm', 'opentasks');
-const CANDIDATES = [SWARM_OPENTASKS_DIR, OPENTASKS_DIR];
+const CANDIDATES = [OPENSWARM_OPENTASKS_DIR, SWARM_OPENTASKS_DIR, OPENTASKS_DIR];
 
 /**
  * Walk upward from a directory looking for opentasks locations.

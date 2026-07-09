@@ -6,17 +6,27 @@ This document outlines the current state of testing in OpenTasks, identifies gap
 
 ### Test Coverage Summary
 
-| Layer | Test Files | Tests | Coverage Type |
-|-------|-----------|-------|---------------|
-| Core | 2 | 34 | Unit |
-| Schema | 1 | 24 | Unit |
-| Storage | 2 | 65 | Unit + File I/O |
-| Graph | 9 | 332 | Unit |
-| Daemon | 8 | 174 | Unit |
-| Tools | 3 | 59 | Unit |
-| Client | 1 | 23 | Unit |
-| Providers | 6 | 215 | Unit |
-| **Total** | **33** | **926** | **Primarily Unit** |
+Co-located test files by area (`src/**/*.test.ts`):
+
+| Layer | Test Files |
+|-------|-----------|
+| Daemon | 26 |
+| Graph | 21 |
+| Providers | 18 |
+| Sessionlog | 17 |
+| Core | 11 |
+| Materialization | 9 |
+| Client | 7 |
+| Config | 6 |
+| Storage | 5 |
+| Tools | 4 |
+| MCP | 3 |
+| Cross-cutting / tracking / context-files / schema | ~24 |
+
+As of 2026-07-02, the default `npm test` run executes **141 test files / 2,887 tests**
+(2,858 passing, 29 skipped). Additional integration and E2E suites under `tests/` are
+gated behind `RUN_SLOW_TESTS` / `RUN_FULL_AGENT_TESTS` (see [Tiered Testing Strategy](#tiered-testing-strategy) below).
+Run the suite for the authoritative live count.
 
 ### What's Tested
 
@@ -1027,9 +1037,9 @@ RUN_FULL_AGENT_TESTS=1 npx vitest run tests/e2e/workflows/provider-sync/
 
 | Tier | Target | Current |
 |------|--------|---------|
-| Unit | >90% | 926 tests ✅ |
-| Integration | >70% of external interfaces | 127 tests (Phases 1-4) ✅ |
-| E2E | >80% of documented workflows | 124 tests (Phases 5-7) ✅ |
+| Unit | >90% | 2,887 tests in the default `npm test` run (2,858 passing, 29 skipped) ✅ |
+| Integration | >70% of external interfaces | Gated behind `RUN_SLOW_TESTS` ✅ |
+| E2E | >80% of documented workflows | Gated behind `RUN_FULL_AGENT_TESTS` ✅ |
 
 ### Performance Baselines
 
@@ -1076,6 +1086,8 @@ The testing strategy prioritizes system-level tests (storage, daemon) first as t
 | Phase 6: Agent Workflows | ✅ Complete | 29 tests (context-driven, multi-agent, feedback-loop) |
 | Phase 7: Provider Sync | ✅ Complete | 56 tests (hydration, cross-provider, federated-ready, materialization, background-sync) |
 
-**Total Tests:** 1177 (926 unit + 127 integration + 124 E2E)
+**Total Tests:** the phase counts above are historical (as of initial buildout). The current
+default `npm test` run executes 2,887 tests across 141 files; integration/E2E suites under
+`tests/` add more behind `RUN_SLOW_TESTS` / `RUN_FULL_AGENT_TESTS`.
 
 **Note:** Provider sync tests require `bd` CLI and skip gracefully if unavailable. Run with `RUN_FULL_AGENT_TESTS=1`.

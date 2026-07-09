@@ -442,7 +442,7 @@ describe('ValidationService', () => {
     });
 
     it('warns when implements edge has non-context target', async () => {
-      const input: CreateEdgeInput = {
+      const _input: CreateEdgeInput = {
         from_id: 't-task1',
         to_id: 't-task1',
         type: 'implements',

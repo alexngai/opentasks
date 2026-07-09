@@ -7,26 +7,26 @@ Full lifecycle: create a context, break into issues, set up dependencies, track 
 ### 1. Create context
 
 ```bash
-opentasks create --type spec \
+opentasks create --type context \
   --title "OAuth2 authentication for API" \
   --content "## Requirements\n\n- Google OAuth2 with PKCE\n- GitHub OAuth2\n- Token refresh\n- Session management" \
   --status active --tags auth --priority 1
 # → { id: "c-a2b3" }
 ```
 
-### 2. Create issues
+### 2. Create tasks
 
 ```bash
-opentasks create --type issue --title "Set up OAuth provider config" --status open --tags auth --priority 1
+opentasks create --type task --title "Set up OAuth provider config" --status open --tags auth --priority 1
 # → t-x7k9
 
-opentasks create --type issue --title "Implement Google OAuth login" --status open --tags auth --priority 1
+opentasks create --type task --title "Implement Google OAuth login" --status open --tags auth --priority 1
 # → t-m4n5
 
-opentasks create --type issue --title "Implement GitHub OAuth login" --status open --tags auth --priority 2
+opentasks create --type task --title "Implement GitHub OAuth login" --status open --tags auth --priority 2
 # → t-p6q7
 
-opentasks create --type issue --title "Token refresh and sessions" --status open --tags auth --priority 2
+opentasks create --type task --title "Token refresh and sessions" --status open --tags auth --priority 2
 # → t-r8s9
 ```
 

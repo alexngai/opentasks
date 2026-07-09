@@ -6,13 +6,7 @@
  * accurate detection of the "reverted and replaced" scenario.
  */
 
-import {
-  git,
-  gitSafe,
-  showFile,
-  lsTree,
-  diffNameOnly,
-} from '../git-operations.js';
+import { gitSafe } from '../git-operations.js';
 
 // ============================================================================
 // Content Overlap

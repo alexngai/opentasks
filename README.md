@@ -1,16 +1,55 @@
 # OpenTasks
 
-Cross-system graph for tasks and specs. Link Claude Tasks, Beads issues, and native tasks today — Jira, Linear, and other remote trackers are on the roadmap ([docs/STATUS.md](docs/STATUS.md)). Query blockers and ready work across all of them.
+[![CI](https://github.com/alexngai/opentasks/actions/workflows/ci.yml/badge.svg)](https://github.com/alexngai/opentasks/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/opentasks.svg)](https://www.npmjs.com/package/opentasks)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Node >= 18](https://img.shields.io/node/v/opentasks.svg)](https://nodejs.org)
+
+**One dependency graph across every task system you already use.** OpenTasks is a
+local-first graph layer that links Claude Tasks, Beads, and native tasks — with
+Jira, Linear, and other trackers on the roadmap ([docs/STATUS.md](docs/STATUS.md)) —
+so you can ask *what's blocked* and *what's ready* across all of them at once.
 
 ```
 npm install opentasks
 ```
 
+## Why OpenTasks
+
+- **It's the relationship layer, not another tracker.** Keep using Beads, Jira, or
+  Claude Tasks. OpenTasks adds typed edges (`blocks`, `depends-on`, `implements`,
+  `verifies`, …) *between* items that live in different systems — the layer none of
+  them have.
+- **Cross-system `ready` / `blocked` in one query.** Surface unblocked work, or the
+  chain holding something up, spanning every connected provider at once.
+- **Local-first, no server to run.** A tiny Unix-socket daemon auto-starts on first
+  use. `graph.jsonl` is the git-tracked source of truth; SQLite is a rebuildable
+  cache. Nothing to host, nothing to sign up for.
+- **Agent-native.** Ships an MCP server (22 tools across 5 scopes) and is built for
+  multi-agent work: collision-resistant IDs, task leases/claims, idempotent writes,
+  change events, and a git merge driver so concurrent worktrees don't clobber the graph.
+- **Federated and offline-tolerant.** Providers own their content; remote items
+  resolve on demand and disappear cleanly when a backend is unreachable — no stale data.
+
+### How it compares
+
+|  | Task trackers (Beads / Jira / Linear / Claude Tasks) | Orchestration engines | **OpenTasks** |
+|--|:--:|:--:|:--:|
+| Stores task content | yes | sometimes | no — delegates to providers |
+| Typed edges *across* systems | no | no | **yes** |
+| `ready` / `blocked` across systems | no | no | **yes** |
+| Local-first, no server | varies | no | **yes** |
+| Built for agents (MCP, leases, idempotency) | no | varies | **yes** |
+
+OpenTasks doesn't replace your tracker — it connects them. See
+[What This Is Not](#what-this-is-not).
+
 ## Quick Start
 
 OpenTasks runs as a small daemon that the CLI, the MCP server, and the client all
 talk to over a Unix socket. **You don't manage it** — the first command that needs
-it starts one automatically (opt out with `--no-autostart`).
+it starts one automatically (opt out with `--no-autostart`). If it ever misbehaves,
+see [docs/TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md).
 
 ### CLI
 
@@ -48,9 +87,9 @@ claude mcp add opentasks -- npx opentasks mcp --scope all
 }
 ```
 
-Scopes are `tasks` (default), `graph`, `annotate`, `context`; `--scope all` enables
-everything. The agent gets `create_task`, `claim_task`, `query`, `events_since`, and
-the rest.
+Scopes are `tasks` (default), `graph`, `annotate`, `context`, `attempts`; `--scope all`
+enables everything. The agent gets `create_task`, `claim_task`, `query`, `events_since`,
+and the rest.
 
 ### Programmatic (embedders)
 
@@ -131,7 +170,7 @@ await link({ fromId: 't-setup', toId: 't-impl', type: 'blocks' })
 await link({ fromId: 't-setup', toId: 't-impl', type: 'blocks', remove: true })
 ```
 
-Edge types: `blocks` (cycle-checked), `implements`, `references`, `related`, `parent-of`, `depends-on`, `discovered-from`, `duplicates`, `supersedes`. Add custom types as strings.
+Edge types: `blocks` (cycle-checked), `implements`, `references`, `related`, `parent-of`, `child-of`, `depends-on`, `discovered-from`, `duplicates`, `supersedes`, `verifies`, `reproduces`. Add custom types as strings.
 
 ### query()
 
@@ -168,7 +207,7 @@ Types: `comment`, `suggestion`, `request`. Each can be resolved, dismissed, or r
 
 ## Nodes
 
-Four types, all stored in `.opentasks/graph.jsonl`:
+Five types, all stored in `.opentasks/graph.jsonl`:
 
 | Type | Prefix | Purpose |
 |------|--------|---------|
@@ -176,6 +215,7 @@ Four types, all stored in `.opentasks/graph.jsonl`:
 | Task | t- | Actionable work with status (open / in_progress / blocked / closed) |
 | Feedback | f- | Anchored comments on nodes, with threading |
 | ExternalNode | e- | References to Beads — and (planned) Jira, Linear, GitHub |
+| Attempt | a- | Records of work attempts, with `verifies` / `reproduces` edges |
 
 Edges carry an `x-` prefix.
 
@@ -185,7 +225,7 @@ A typical feature graph looks like this:
 graph LR
     S["c-a2b3<br/>Auth Spec"]
     I1["t-x7k9<br/>Implement OAuth"]
-    I2["i-m4n5<br/>Add rate limiting"]
+    I2["t-m4n5<br/>Add rate limiting"]
     F["f-p8q9<br/>suggestion"]
     EXT["e-jira<br/>PROJ-123"]
 
@@ -253,47 +293,50 @@ File-backed contexts never duplicate file content into the graph store. They rec
 Expose the full tool interface via [Model Context Protocol](https://modelcontextprotocol.io):
 
 ```bash
-opentasks mcp --scope tasks,graph,annotate,context
+opentasks mcp --scope tasks,graph,annotate,context,attempts
 ```
 
 Register with Claude Code (the MCP server auto-starts the daemon on first use):
 
 ```bash
-claude mcp add opentasks -- npx opentasks mcp --scope tasks,graph,annotate,context
+claude mcp add opentasks -- npx opentasks mcp --scope all
 ```
 
-20 tools across 4 scopes: `tasks` (CRUD + lifecycle + atomic claiming: `claim_task`, `claim_next`, `release_task`, `renew_claim`), `graph` (edges, queries, context summary, `events_since` change polling), `annotate` (feedback), `context` (context CRUD with file/snippet/inline sources).
+22 tools across 5 scopes: `tasks` (CRUD + lifecycle + atomic claiming: `claim_task`, `claim_next`, `release_task`, `renew_claim`), `graph` (edges, queries, context summary, `events_since` change polling), `annotate` (feedback), `context` (context CRUD with file/snippet/inline sources), `attempts` (`record_attempt`, `list_attempts` with `verifies` edges).
 
 ## Programmatic API
 
-For direct graph manipulation without the daemon:
+For direct graph manipulation without the daemon. `createStoreForLocation` wires
+the SQLite cache and JSONL persister for a `.opentasks/` directory and initializes
+the store:
 
 ```typescript
-import { createGraphStore, createJSONLPersister } from 'opentasks'
+import { createStoreForLocation } from 'opentasks'
 
-const persister = createJSONLPersister({ path: '.opentasks/graph.jsonl' })
-const store = createGraphStore({ storage: persister })
+const store = await createStoreForLocation('.opentasks')
 
-const spec = await store.create({
+const spec = await store.createNode({
   type: 'context',
   title: 'OAuth2 authentication',
   content: 'Users authenticate via OAuth2 with PKCE...',
 })
 
-const issue = await store.create({
+const task = await store.createNode({
   type: 'task',
   title: 'Implement OAuth2 flow',
   status: 'open',
 })
 
 await store.createEdge({
-  from_id: issue.id,
+  from_id: task.id,
   to_id: spec.id,
   type: 'implements',
 })
 
-const ready = await store.ready()
-const blockers = await store.blockers(issue.id)
+const ready = await store.query.ready()
+const blockers = await store.query.blockers(task.id)
+
+await store.close() // flush pending changes to graph.jsonl
 ```
 
 ## Client Library
@@ -339,9 +382,19 @@ graph TB
 
 JSONL is the source of truth (git-tracked). The daemon writes it as a full-file snapshot on a debounced flush (not literally append-only). SQLite is the query cache (gitignored, rebuilt on startup). Markdown is optional human-readable expansion.
 
+## Configuration
+
+Everything lives in `.opentasks/config.json` (created by `opentasks init`); every
+field is optional. Precedence is **defaults < `config.json` < `OPENTASKS_*` env
+vars**. See the full reference — storage, daemon, providers, sync, reconciliation,
+logging, and env-var overrides — in [docs/CONFIGURATION.md](./docs/CONFIGURATION.md).
+
+Daemon acting up (socket not found, hangs, stale lock, `NODE_MODULE_VERSION`)?
+See [docs/TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md).
+
 ## Providers
 
-OpenTasks owns the graph. Providers own node content. Three patterns:
+OpenTasks owns the graph. Providers own node content. Four patterns:
 
 | Pattern | Use | Example |
 |---------|-----|---------|
@@ -593,6 +646,19 @@ The bridge accepts either a raw `send` function or a shared `MAPConnection` obje
 OpenTasks is not a replacement for Claude Tasks, Beads, Jira, or any existing tool. It is not a unified CRUD API. It is not a project management tool. It is not an orchestration platform.
 
 It adds the relationship layer these tools lack.
+
+## Documentation
+
+| Doc | What's in it |
+|-----|--------------|
+| [CONFIGURATION.md](./docs/CONFIGURATION.md) | Full `config.json` reference + env overrides |
+| [TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md) | Daemon issues, socket resolution, recovery |
+| [ARCHITECTURE.md](./docs/ARCHITECTURE.md) | System design and layering |
+| [PROVIDERS.md](./docs/PROVIDERS.md) | Provider patterns, MAP, reconciliation |
+| [SYNC.md](./docs/SYNC.md) | Git sync model and consistency |
+| [PERSISTENCE.md](./docs/PERSISTENCE.md) | Storage, JSONL/SQLite, archiving |
+| [SCHEMA.md](./docs/SCHEMA.md) | Node and edge schema |
+| [STATUS.md](./docs/STATUS.md) | As-built implementation status |
 
 ## Development
 

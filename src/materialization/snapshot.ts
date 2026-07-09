@@ -15,13 +15,7 @@ import type {
   EdgeSnapshot,
   SnapshotProvenance,
 } from './types.js';
-import {
-  resolveGraphId,
-  resolveGitDir,
-  getGitRemoteUrl,
-  getGitBranch,
-  getGitHead,
-} from './graph-id.js';
+import { resolveGitDir, getGitRemoteUrl, getGitBranch, getGitHead } from './graph-id.js';
 
 // ============================================================================
 // Provenance Resolution

@@ -9,13 +9,8 @@ import { randomUUID } from 'node:crypto';
 import type { StoredNode, StoredEdge } from '../schema/storage.js';
 import type { Storage } from '../storage/interface.js';
 import type { ProviderRegistry, Provider, ProviderNode } from '../providers/types.js';
-import type { GraphologyAdapter, NodeURI, GraphNodeAttributes } from './GraphologyAdapter.js';
-import type {
-  FederatedGraph,
-  RelatedOptions,
-  ReachableOptions,
-  ShortestPathOptions,
-} from './FederatedGraph.js';
+import type { GraphologyAdapter, NodeURI } from './GraphologyAdapter.js';
+import type { FederatedGraph } from './FederatedGraph.js';
 import { FederatedGraphImpl } from './FederatedGraph.js';
 import {
   isRelationshipQueryable,
@@ -274,7 +269,7 @@ export class HydratingFederatedGraphImpl
     const providerName = provider?.name ?? 'unknown';
 
     // Get edges
-    const edges = this.adapter.getEdges(uri, 'both');
+    const _edges = this.adapter.getEdges(uri, 'both');
     const incoming: StoredEdge[] = [];
     const outgoing: StoredEdge[] = [];
 

@@ -9,7 +9,7 @@
  * calls are expensive. Local filesystem providers are unlikely to need this.
  */
 
-import type { Provider, ProviderNode, ProviderOperationContext } from '../types.js';
+import type { Provider, ProviderOperationContext } from '../types.js';
 
 /**
  * A lightweight node summary with content hash for fast diffing.

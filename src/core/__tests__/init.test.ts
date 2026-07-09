@@ -5,7 +5,7 @@ import * as os from 'node:os';
 
 // Mock os.homedir to point to temp directory
 vi.mock('node:os', async (importOriginal) => {
-  const actual = (await importOriginal()) as typeof import('node:os');
+  const actual = (await importOriginal()) as typeof os;
   return {
     ...actual,
     homedir: vi.fn(() => actual.homedir()),

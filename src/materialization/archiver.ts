@@ -16,6 +16,8 @@ import type {
   ArchiveFilter,
   ArchiveListEntry,
   RematerializeAllResult,
+  MaterializationSnapshot,
+  MaterializationProvider,
 } from './types.js';
 import { buildSnapshot, buildProvenance } from './snapshot.js';
 
@@ -60,7 +62,7 @@ export function createMaterializationArchiver(
    * Fan out a snapshot to all enabled stores
    */
   async function fanOut(
-    snapshot: import('./types.js').MaterializationSnapshot,
+    snapshot: MaterializationSnapshot,
     eventType?: string,
   ): Promise<ArchiveEventResult> {
     const allStores: Array<MaterializationStore | RemoteStore> = [gitStore];
@@ -251,7 +253,7 @@ export function createMaterializationArchiver(
       });
     },
 
-    setMaterializationProvider(provider: import('./types.js').MaterializationProvider): void {
+    setMaterializationProvider(provider: MaterializationProvider): void {
       materializationProvider = provider;
     },
 
@@ -289,7 +291,7 @@ export function createMaterializationArchiver(
  * Reconstruct an ExternalNode in the GraphStore from a snapshot
  */
 async function reconstructNode(
-  snapshot: import('./types.js').MaterializationSnapshot,
+  snapshot: MaterializationSnapshot,
   store: GraphStore,
 ): Promise<boolean> {
   try {

@@ -115,7 +115,7 @@ Real-run configuration:
 | `TAC_GRADER_PROXY` | Set `bedrock` in EC2 pool runs to start a worker-local LiteLLM proxy for TAC LLM graders and default `LITELLM_*` to that proxy |
 | `TAC_GRADER_BEDROCK_MODEL` | Bedrock model routed behind the proxy alias; default `bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0` |
 | `TAC_GRADER_BEDROCK_REGION` | Bedrock region for the proxy; default `AWS_REGION` or `us-west-2` |
-| `TAC_GRADER_PROXY_MODEL` / `TAC_GRADER_PROXY_PORT` / `TAC_GRADER_PROXY_KEY` | Proxy alias, port, and local bearer key; defaults `tac-grader`, `4000`, and `sk-tac-grader-local`; TAC's LiteLLM client defaults to `openai/<alias>` against the proxy |
+| `TAC_GRADER_PROXY_MODEL` / `TAC_GRADER_PROXY_PORT` / `TAC_GRADER_PROXY_KEY` | Proxy alias, port, and local bearer key; defaults `tac-grader`, `4000`, and `tac-grader-local`; TAC's LiteLLM client defaults to `openai/<alias>` against the proxy |
 | `TAC_GITLAB_WIKI_TARGET_SMOKE_PROJECT` | Optional target project path such as `root/sotopia`; only valid with `TAC_PREFLIGHT_ONLY=1` because it writes and cleans up target wiki pages |
 | `TAC_PREFLIGHT_ONLY` | Set `1` to stop after TAC init/token/env/wiki preflights and return a self-scored diagnostic success without invoking an agent |
 | `TAC_STRICT_MCP_CONFIG` | Set `0` to omit `--strict-mcp-config` for Claude MCP isolation runs |
@@ -210,8 +210,7 @@ helper evidence, and cleanup all work, but observed live runs still reported
 zero inbox assignment/reply counters. Do not add `swarm-dispatch` or larger
 multi-seed protocol runs until either `teamProtocolPassed=1` is observed or a
 local dispatch fixture proves explicit assignment/reply events with durable
-OpenTasks record ids. See
-`docs/evaluations/2026-06-29-tac-dispatch-carrier-follow-up.md`.
+OpenTasks record ids.
 
 Helper-assisted handoff experiment:
 
@@ -266,8 +265,8 @@ EC2 worker pool:
 
 ```bash
 TAC_POOL_WORKER_COUNT=4 \
-TAC_POOL_PUBLIC_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool.pub \
-TAC_POOL_SSH_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool \
+TAC_POOL_PUBLIC_KEY_PATH=~/.ssh/opentasks-tac-pool.pub \
+TAC_POOL_SSH_KEY_PATH=~/.ssh/opentasks-tac-pool \
 CLAUDE_CODE_USE_BEDROCK=1 AWS_REGION=us-west-2 \
 EVAL_MODEL=haiku EVAL_ARMS=stock,notes,opentasks \
 TAC_ROLE=sde TAC_DEPS=gitlab EVAL_TASK_LIMIT=12 \
@@ -282,14 +281,14 @@ set `TAC_POOL_VERIFY_DESTROY=0` only when AWS CLI verification is unavailable.
 For faster repeated runs, bake a TAC worker AMI once, then reuse it:
 
 ```bash
-TAC_POOL_PUBLIC_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool.pub \
-TAC_POOL_SSH_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool \
+TAC_POOL_PUBLIC_KEY_PATH=~/.ssh/opentasks-tac-pool.pub \
+TAC_POOL_SSH_KEY_PATH=~/.ssh/opentasks-tac-pool \
 npm run eval:tac:pool:bake-ami
 
 TAC_POOL_AMI_ID=ami-... TAC_POOL_BOOTSTRAP_TAC=false \
 TAC_POOL_WORKER_COUNT=4 \
-TAC_POOL_PUBLIC_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool.pub \
-TAC_POOL_SSH_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool \
+TAC_POOL_PUBLIC_KEY_PATH=~/.ssh/opentasks-tac-pool.pub \
+TAC_POOL_SSH_KEY_PATH=~/.ssh/opentasks-tac-pool \
 evals/tac/scripts/run-ec2-pool.sh
 ```
 
@@ -297,8 +296,8 @@ The root-AMI path is useful but can be slow when the root volume is large. For
 repeated TAC rounds, prefer the two-volume Docker cache path:
 
 ```bash
-TAC_POOL_PUBLIC_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool.pub \
-TAC_POOL_SSH_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool \
+TAC_POOL_PUBLIC_KEY_PATH=~/.ssh/opentasks-tac-pool.pub \
+TAC_POOL_SSH_KEY_PATH=~/.ssh/opentasks-tac-pool \
 npm run eval:tac:pool:bake-docker-snapshot
 
 TAC_POOL_DOCKER_VOLUME_ENABLED=1 \
@@ -374,18 +373,18 @@ Manual pool operation:
 terraform -chdir=infra/tac-ec2-pool init
 terraform -chdir=infra/tac-ec2-pool apply \
   -var 'worker_count=4' \
-  -var 'public_key_path=/Users/alexngai/.ssh/opentasks-tac-pool.pub' \
+  -var 'public_key_path=~/.ssh/opentasks-tac-pool.pub' \
   -var 'allowed_cidr_blocks=["<your-ip>/32"]' \
   -var 'delete_after=2026-06-20'
 
 terraform -chdir=infra/tac-ec2-pool output -json runner_manifest > /tmp/tac-pool-manifest.json
 
 for ip in $(jq -r '.workers[].public_ip' /tmp/tac-pool-manifest.json); do
-  evals/tac/scripts/sync-opentasks-ec2.sh "$ip" /Users/alexngai/.ssh/opentasks-tac-pool
+  evals/tac/scripts/sync-opentasks-ec2.sh "$ip" ~/.ssh/opentasks-tac-pool
 done
 
 TAC_POOL_MANIFEST=/tmp/tac-pool-manifest.json \
-EC2_SSH_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool \
+EC2_SSH_KEY_PATH=~/.ssh/opentasks-tac-pool \
 CLAUDE_CODE_USE_BEDROCK=1 AWS_REGION=us-west-2 \
 EVAL_MODEL=haiku EVAL_ARMS=stock,notes,opentasks \
 TAC_ROLE=sde TAC_DEPS=gitlab EVAL_TASK_LIMIT=12 \
@@ -456,8 +455,8 @@ Current E2B gate status:
 - The template can pull/run a TAC task image and read `/instruction/task.md`.
 - Starting TAC GitLab inside the sandbox currently fails with `no space left on
   device` while extracting `ghcr.io/theagentcompany/servers-gitlab:1.0.0`.
-- A larger existing team template, `e2b_gym_server_staging`, reports about 35 GB
-  mounted at `/`, has Docker available via `sudo docker`, can pull
+- A larger Docker-enabled sandbox template (~35 GB mounted at `/`) works: it has
+  Docker available via `sudo docker`, can pull
   `ghcr.io/theagentcompany/servers-gitlab:1.0.0`, and can boot the GitLab
   container to healthy status on `localhost:8929`.
 - After GitLab is healthy on that larger template, only about 2.8 GB remains

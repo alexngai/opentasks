@@ -76,7 +76,7 @@ export async function enable(options: EnableOptions = {}): Promise<EnableResult>
   const root = await getWorktreeRoot(cwd);
 
   // Detect or resolve agent
-  let agent = options.agent ? getAgent(options.agent) : await detectAgent(cwd);
+  const agent = options.agent ? getAgent(options.agent) : await detectAgent(cwd);
 
   if (!agent) {
     errors.push(

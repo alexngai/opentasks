@@ -7,13 +7,7 @@
  * Ported from Go: strategy/manual_commit_rewind.go
  */
 
-import {
-  git,
-  gitSafe,
-  getHead,
-  lsTree,
-  getUntrackedFiles,
-} from '../git-operations.js';
+import { getHead, lsTree, getUntrackedFiles } from '../git-operations.js';
 import { isInfrastructurePath } from './paths.js';
 
 export interface RewindPreview {

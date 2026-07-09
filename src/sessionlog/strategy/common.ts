@@ -7,28 +7,8 @@
  * Ported from Go: strategy/common.go
  */
 
-import {
-  git,
-  gitSafe,
-  refExists,
-  isGitRepository,
-  getWorktreeRoot,
-  getHead,
-  lsTree,
-  showFile,
-  commitTree,
-  mktree,
-  hashObject,
-  getGitAuthor,
-} from '../git-operations.js';
-import {
-  CHECKPOINTS_BRANCH,
-  ENTIRE_DIR,
-  type CheckpointID,
-  type CommittedMetadata,
-  type CheckpointSummary,
-  checkpointIDPath,
-} from '../types.js';
+import { git, gitSafe, refExists, isGitRepository, getWorktreeRoot, getHead, showFile, commitTree, mktree, getGitAuthor } from '../git-operations.js';
+import { CHECKPOINTS_BRANCH, type CheckpointID, type CommittedMetadata, checkpointIDPath } from '../types.js';
 import { ensureGitignore } from '../config.js';
 
 // ============================================================================
@@ -78,7 +58,7 @@ export async function isEmptyRepository(cwd?: string): Promise<boolean> {
 export async function isAncestorOf(
   ancestor: string,
   descendant: string,
-  maxDepth: number = 1000,
+  _maxDepth: number = 1000,
   cwd?: string,
 ): Promise<boolean> {
   const result = await gitSafe(

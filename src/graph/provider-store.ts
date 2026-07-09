@@ -32,6 +32,7 @@ import {
   isTaskManageable,
   type TaskAction,
   type ReadyTaskOptions,
+  type TaskManageable,
 } from '../providers/traits/TaskManageable.js';
 import { isReconcilable } from '../providers/traits/Reconcilable.js';
 
@@ -431,14 +432,6 @@ const LOCAL_ID_PATTERN = /^[ctfexa]-[a-z0-9]+$/;
  */
 function isLocalId(idOrUri: string): boolean {
   return LOCAL_ID_PATTERN.test(idOrUri);
-}
-
-/**
- * Check if a node is backed by an external provider (either type:'external'
- * or a local-provider node with metadata.provider_uri).
- */
-function isProviderBacked(node: Node): boolean {
-  return node.type === 'external' || typeof node.metadata?.provider_uri === 'string';
 }
 
 /**
@@ -1619,7 +1612,7 @@ export function createProviderAwareStore(
   // ===========================================================================
 
   async function resolveTaskProvider(idOrUri: string): Promise<{
-    provider: Provider & import('../providers/traits/TaskManageable.js').TaskManageable;
+    provider: Provider & TaskManageable;
     providerId: string;
   }> {
     // If it's a local ID, check if it's a provider-backed node
@@ -1660,8 +1653,7 @@ export function createProviderAwareStore(
         );
       }
       return {
-        provider: nativeProvider as Provider &
-          import('../providers/traits/TaskManageable.js').TaskManageable,
+        provider: nativeProvider as Provider & TaskManageable,
         providerId: idOrUri,
       };
     }

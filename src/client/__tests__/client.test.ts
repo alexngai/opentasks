@@ -11,7 +11,6 @@ import { createIPCServer, type IPCServer } from '../../daemon/ipc.js';
 import { registerToolsMethods } from '../../daemon/methods/tools.js';
 import { createDaemonFlushManager, type DaemonFlushManager } from '../../daemon/flush.js';
 import type { GraphStore } from '../../graph/store.js';
-import type { LinkResult, QueryResult, AnnotateResult, TaskResult } from '../../tools/types.js';
 import type { LocationResolver, LocationState } from '../../daemon/location-state.js';
 import type { ProviderAwareStore } from '../../graph/provider-store.js';
 
@@ -556,10 +555,10 @@ describe('OpenTasksClient - task methods', () => {
   afterEach(async () => {
     try {
       await server.stop();
-    } catch {}
+    } catch { /* ignore cleanup errors */ }
     try {
       await fs.rm(tempDir, { recursive: true, force: true });
-    } catch {}
+    } catch { /* ignore cleanup errors */ }
   });
 
   describe('task()', () => {

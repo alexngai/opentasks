@@ -7,8 +7,8 @@
  */
 
 import type { SessionState } from '../types.js';
-import { createSessionStore, type SessionStore } from '../store/session-store.js';
-import { createCheckpointStore, type CheckpointStore } from '../store/checkpoint-store.js';
+import { createSessionStore } from '../store/session-store.js';
+import { createCheckpointStore } from '../store/checkpoint-store.js';
 
 // ============================================================================
 // Types
@@ -131,7 +131,7 @@ export async function discardSession(
 export async function doctor(options: DoctorOptions = {}): Promise<DoctorResult> {
   const stuck = await diagnose(options);
   const errors: string[] = [];
-  let fixedCount = 0;
+  const fixedCount = 0;
   let discardedCount = 0;
 
   if (options.force) {

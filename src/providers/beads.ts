@@ -8,19 +8,7 @@
 import { exec as execCallback } from 'child_process';
 import { promisify } from 'util';
 import chokidar, { type FSWatcher } from 'chokidar';
-import type {
-  Provider,
-  ProviderCapabilities,
-  ProviderNode,
-  ProviderCreateInput,
-  ProviderUpdateInput,
-  ProviderFilter,
-  ProviderOperationContext,
-  ParsedUri,
-  UriOptions,
-  SearchOptions,
-  ProviderError,
-} from './types.js';
+import type { Provider, ProviderCapabilities, ProviderNode, ProviderCreateInput, ProviderUpdateInput, ProviderFilter, ProviderOperationContext, ParsedUri, UriOptions, SearchOptions } from './types.js';
 import { ProviderError as ProviderErrorClass, createIsAvailable } from './types.js';
 import type {
   RelationshipQueryable,

@@ -10,18 +10,11 @@ import type { StoredNode, StoredEdge } from '../schema/storage.js';
 import type { Node, Edge } from '../schema/index.js';
 import { parseNode } from '../schema/validation.js';
 import { generateId } from '../core/id.js';
-import type {
-  CreateNodeInput,
-  UpdateNodeInput,
-  DeleteOptions,
-  CreateEdgeInput,
-  GraphStoreConfig,
-  GraphErrorCode,
-} from './types.js';
+import type { CreateNodeInput, UpdateNodeInput, DeleteOptions, CreateEdgeInput, GraphStoreConfig } from './types.js';
 import { GraphError } from './types.js';
 import type { ValidationService } from './validation.js';
 import { createValidationService } from './validation.js';
-import type { QueryEngine } from './query.js';
+import type { QueryEngine, NodeResolver } from './query.js';
 import { createQueryEngine } from './query.js';
 import type { SyncManager, SyncConfig } from './sync.js';
 import { createSyncManager, DEFAULT_SYNC_CONFIG } from './sync.js';
@@ -114,7 +107,7 @@ export interface GraphStore {
   // === Node Resolver ===
 
   /** Set a node resolver for cross-provider query support */
-  setNodeResolver(resolver: import('./query.js').NodeResolver): void;
+  setNodeResolver(resolver: NodeResolver): void;
 
   // === Coordination (atomic claiming) ===
 
@@ -795,7 +788,7 @@ export function createGraphStore(
     // Node Resolver
     // =========================================================================
 
-    setNodeResolver(resolver: import('./query.js').NodeResolver): void {
+    setNodeResolver(resolver: NodeResolver): void {
       queryEngine = createQueryEngine({ storage, nodeResolver: resolver });
     },
 

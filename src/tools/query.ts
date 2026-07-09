@@ -40,7 +40,7 @@ function toNodeSummary(node: Node): NodeSummary {
     id: node.id,
     type: node.type,
     title: node.title,
-    status: 'status' in node ? (node as any).status : undefined,
+    status: 'status' in node ? (node as { status?: string }).status : undefined,
     priority: node.priority,
     archived: node.archived ?? false,
   };
@@ -98,23 +98,6 @@ function countQueryTypes(params: QueryParams): number {
   if (params.context !== undefined) count++;
   if (params.contextSummary !== undefined) count++;
   return count;
-}
-
-/**
- * Get the active query type name
- */
-function getQueryTypeName(params: QueryParams): string {
-  if (params.nodes !== undefined) return 'nodes';
-  if (params.edges !== undefined) return 'edges';
-  if (params.ready !== undefined) return 'ready';
-  if (params.blockers !== undefined) return 'blockers';
-  if (params.blocking !== undefined) return 'blocking';
-  if (params.feedback !== undefined) return 'feedback';
-  if (params.unresolvedFeedback !== undefined) return 'unresolvedFeedback';
-  if (params.tasks !== undefined) return 'tasks';
-  if (params.context !== undefined) return 'context';
-  if (params.contextSummary !== undefined) return 'contextSummary';
-  return 'unknown';
 }
 
 // ============================================================================
@@ -510,7 +493,7 @@ function toBreadcrumb(node: Node, relevance: string): Breadcrumb {
     id: node.id,
     type: node.type,
     title: node.title,
-    status: 'status' in node ? (node as any).status : undefined,
+    status: 'status' in node ? (node as { status?: string }).status : undefined,
     priority: node.priority,
     relevance,
     contentPreview: preview,

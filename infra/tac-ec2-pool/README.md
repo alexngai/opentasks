@@ -15,8 +15,8 @@ destroys the EC2 pool on exit.
 
 ```bash
 TAC_POOL_WORKER_COUNT=4 \
-TAC_POOL_PUBLIC_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool.pub \
-TAC_POOL_SSH_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool \
+TAC_POOL_PUBLIC_KEY_PATH=~/.ssh/opentasks-tac-pool.pub \
+TAC_POOL_SSH_KEY_PATH=~/.ssh/opentasks-tac-pool \
 CLAUDE_CODE_USE_BEDROCK=1 AWS_REGION=us-west-2 \
 EVAL_MODEL=haiku EVAL_ARMS=stock,notes,opentasks \
 TAC_ROLE=sde TAC_DEPS=gitlab EVAL_TASK_LIMIT=12 \
@@ -46,8 +46,8 @@ The default Terraform path starts from Ubuntu and runs the full TAC bootstrap in
 cloud-init. For repeated benchmark rounds, bake that once:
 
 ```bash
-TAC_POOL_PUBLIC_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool.pub \
-TAC_POOL_SSH_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool \
+TAC_POOL_PUBLIC_KEY_PATH=~/.ssh/opentasks-tac-pool.pub \
+TAC_POOL_SSH_KEY_PATH=~/.ssh/opentasks-tac-pool \
 npm run eval:tac:pool:bake-ami
 ```
 
@@ -84,8 +84,8 @@ not as a runnable checkpoint of already-started TAC services.
 Bake a reusable Docker cache snapshot:
 
 ```bash
-TAC_POOL_PUBLIC_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool.pub \
-TAC_POOL_SSH_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool \
+TAC_POOL_PUBLIC_KEY_PATH=~/.ssh/opentasks-tac-pool.pub \
+TAC_POOL_SSH_KEY_PATH=~/.ssh/opentasks-tac-pool \
 npm run eval:tac:pool:bake-docker-snapshot
 ```
 
@@ -156,7 +156,7 @@ terraform apply \
   -var 'docker_volume_gb=200' \
   -var 'docker_volume_iops=16000' \
   -var 'docker_volume_throughput=1000' \
-  -var 'public_key_path=/Users/alexngai/.ssh/opentasks-tac-pool.pub' \
+  -var 'public_key_path=~/.ssh/opentasks-tac-pool.pub' \
   -var 'allowed_cidr_blocks=["<your-ip>/32"]' \
   -var 'delete_after=2026-06-20'
 ```
@@ -181,7 +181,7 @@ container. Sync it to every worker before a run:
 
 ```bash
 for ip in $(jq -r '.workers[].public_ip' /tmp/tac-pool-manifest.json); do
-  evals/tac/scripts/sync-opentasks-ec2.sh "$ip" /Users/alexngai/.ssh/opentasks-tac-pool
+  evals/tac/scripts/sync-opentasks-ec2.sh "$ip" ~/.ssh/opentasks-tac-pool
 done
 ```
 
@@ -189,7 +189,7 @@ done
 
 ```bash
 TAC_POOL_MANIFEST=/tmp/tac-pool-manifest.json \
-EC2_SSH_KEY_PATH=/Users/alexngai/.ssh/opentasks-tac-pool \
+EC2_SSH_KEY_PATH=~/.ssh/opentasks-tac-pool \
 CLAUDE_CODE_USE_BEDROCK=1 AWS_REGION=us-west-2 \
 EVAL_MODEL=haiku EVAL_ARMS=stock,notes,opentasks \
 TAC_ROLE=sde TAC_DEPS=gitlab EVAL_TASK_LIMIT=12 \
@@ -217,7 +217,7 @@ terraform destroy \
   -var 'name=opentasks-tac-pool' \
   -var 'worker_count=4' \
   -var 'instance_type=m7i.2xlarge' \
-  -var 'public_key_path=/Users/alexngai/.ssh/opentasks-tac-pool.pub' \
+  -var 'public_key_path=~/.ssh/opentasks-tac-pool.pub' \
   -var 'allowed_cidr_blocks=["<your-ip>/32"]' \
   -var 'delete_after=2026-06-20'
 ```

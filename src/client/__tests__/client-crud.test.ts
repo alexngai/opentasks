@@ -22,7 +22,7 @@ describe('OpenTasksClient CRUD', () => {
   let mockStore: GraphStore;
   let flushManager: DaemonFlushManager;
   let nodes: Map<string, any>;
-  let edges: Map<string, any>;
+  let _edges: Map<string, any>;
   let nodeCounter: number;
 
   const sampleContext = {
@@ -60,7 +60,7 @@ describe('OpenTasksClient CRUD', () => {
     nodes.set(sampleContext.id, { ...sampleContext });
     nodes.set(sampleTask.id, { ...sampleTask });
 
-    edges = new Map<string, any>();
+    _edges = new Map<string, any>();
 
     mockStore = {
       getNode: vi.fn().mockImplementation(async (id: string) => {

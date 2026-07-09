@@ -4,7 +4,7 @@ set -euo pipefail
 host="${TAC_GRADER_PROXY_HOST:-127.0.0.1}"
 port="${TAC_GRADER_PROXY_PORT:-4000}"
 alias_name="${TAC_GRADER_PROXY_MODEL:-tac-grader}"
-proxy_key="${TAC_GRADER_PROXY_KEY:-${LITELLM_API_KEY:-sk-tac-grader-local}}"
+proxy_key="${TAC_GRADER_PROXY_KEY:-${LITELLM_API_KEY:-tac-grader-local}}"
 bedrock_model="${TAC_GRADER_BEDROCK_MODEL:-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0}"
 bedrock_region="${TAC_GRADER_BEDROCK_REGION:-${AWS_REGION:-us-west-2}}"
 state_dir="${TAC_GRADER_PROXY_STATE_DIR:-$HOME/.cache/opentasks-tac-grader-proxy}"

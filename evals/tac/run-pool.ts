@@ -358,7 +358,7 @@ function graderProxyEnv(): NodeJS.ProcessEnv {
   const port = process.env.TAC_GRADER_PROXY_PORT ?? '4000';
   const host = process.env.TAC_GRADER_PROXY_HOST ?? '127.0.0.1';
   const model = process.env.TAC_GRADER_PROXY_MODEL ?? 'tac-grader';
-  const key = process.env.TAC_GRADER_PROXY_KEY ?? process.env.LITELLM_API_KEY ?? 'sk-tac-grader-local';
+  const key = process.env.TAC_GRADER_PROXY_KEY ?? process.env.LITELLM_API_KEY ?? 'tac-grader-local';
   return {
     TAC_GRADER_PROXY: 'bedrock',
     TAC_GRADER_PROXY_HOST: host,

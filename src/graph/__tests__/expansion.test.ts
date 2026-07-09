@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createQueryExpander, type ExpansionMode } from '../expansion.js';
+import { createQueryExpander } from '../expansion.js';
 import type { Storage } from '../../storage/interface.js';
 import type { LocationProvider } from '../../providers/location.js';
 import type { ProviderNode } from '../../providers/types.js';

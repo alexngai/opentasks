@@ -27,7 +27,7 @@ key instead:
 
 ```bash
 terraform apply \
-  -var 'public_key_path=/Users/alexngai/.ssh/id_rsa.pub' \
+  -var 'public_key_path=~/.ssh/id_rsa.pub' \
   -var 'allowed_cidr_blocks=["<your-ip>/32"]'
 ```
 
