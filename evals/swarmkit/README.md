@@ -221,3 +221,50 @@ Harbor agents install and run **inside the sandbox**, so an OpenTasks-MCP arm ca
 `.mcp.json`/`.openswarm/mcp.json` pointing at the in-container MCP (the pattern `evals/tac/docker-adapter.ts`
 uses). That container-side wiring is the next step; the agent×model comparison above stands on its own
 (openswarm *is* the multi-agent/coordination story).
+
+## WorkBench × OpenTasks (`workbench-run.ts` · `npm run eval:workbench`)
+
+Benchmark OpenTasks — as a *planning/coordination scaffold* — on **WorkBench** (olly-styles/WorkBench
+"Revisited": 690 outcome-graded workplace-agent tasks over calendar/email/analytics/CRM/project-board;
+graded by replaying the agent's recorded side-effecting tool calls against a fresh sandbox, plus a
+**harmful-action** flag).
+
+**Where the code lives.** Everything WorkBench-specific is in `swarmkit-eval`, not here: the tool bridge
+(`wb_mcp.py`, WorkBench's 26 tools over MCP), the faithful `{kind:"workbench"}` grader (`wb_grade.py`,
+WorkBench's own `is_correct`/`has_side_effects`), and the benchmark (`workbenchNativeBenchmark`). This
+entrypoint only **composes** them with OpenTasks arms — no WorkBench knowledge here, and **no change to
+OpenTasks core**.
+
+**Arms** (same model, same tasks; only the scaffold varies):
+
+| arm | scaffold |
+|-----|----------|
+| `stock` | WorkBench tools only (`mcp__workbench__*`) |
+| `notes` | + a NOTES.md durable-log nudge |
+| `opentasks` | + the OpenTasks MCP graph (`mcp__opentasks__*`) as a planning/decomposition scaffold |
+
+**Base OpenTasks functionality only — no daemon changes required:**
+- **Isolation** is a relative `OPENTASKS_PROJECT_DIR=.opentasks` in the opentasks-MCP env → resolves
+  against each cell's workspace cwd → every cell gets its own `.opentasks/` + daemon.
+- **Teardown**: after the run the entrypoint reaps **only** opentasks daemons started from *this build's*
+  `dist/cli.js` that appeared during the run (path-scoped + new-PID — never touches another project's
+  daemon). Optionally set `OPENTASKS_DAEMON_IDLE_TIMEOUT` to let them self-reap (a no-op on builds that
+  don't support it).
+
+**Setup:** `git clone …/WorkBench ~/GitHub/WorkBench && cd ~/GitHub/WorkBench && uv sync && uv pip install mcp`,
+then `npm run build` here so the opentasks arm's MCP server (`dist/cli.js`) exists.
+
+```sh
+# via the LiteLLM gateway (Bedrock, no local model); or drop WB_GATEWAY_BASE_URL for ambient Max-plan auth
+WB_GATEWAY_BASE_URL=http://127.0.0.1:4000 WORKBENCH_LLM_API_KEY=sk-… AWS_REGION=us-east-1 \
+  EVAL_ARMS=stock,opentasks EVAL_DOMAIN=multi_domain EVAL_TASK_LIMIT=20 EVAL_REPEATS=3 \
+  npm run eval:workbench
+```
+
+The report (→ `evals/.swarmkit-workbench/report.md`) gives per-arm **completion** + **harmful-action**
+rates with 95% CIs and a paired stock-vs-opentasks Δ. A first live smoke (3 email tasks, claude-haiku via
+Bedrock) ran clean end-to-end: stock 0.33 vs opentasks 1.00 completion, 0 harmful, 0 env-errors — not
+significant at n=3 (that's the point of the CIs). **Arena note:** single-domain tasks are 1–4 tool calls —
+too short for a planning scaffold to move the needle; the real signal is on the `multi_domain` tasks and,
+ultimately, multi-agent (Tier 2), where a duplicate side effect from two agents = a WorkBench harmful
+action = the coordination payoff.
