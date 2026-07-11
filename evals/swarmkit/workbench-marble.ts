@@ -102,6 +102,11 @@ export interface WorkbenchMarbleOpts {
   python: string;
   domain?: Parameters<typeof workbenchNativeBenchmark>[0]['domain'];
   taskLimit?: number;
+  /** Restrict the run to these exact task ids (`wb-<domain>-<sha1(task)[:12]>`). Used to oversample a
+   *  curated slice — e.g. single-action side-effect tasks where duplication is the binding constraint —
+   *  instead of the first-N-in-file-order the plain limit gives. When set, the full CSV is loaded and
+   *  filtered to these ids (taskLimit still caps the count after filtering). */
+  taskIds?: string[];
 }
 
 /** Parse the public `domains` cell ("['email', 'calendar']") into a string[]. */
@@ -265,10 +270,16 @@ export function workbenchMarbleBenchmark(opts: WorkbenchMarbleOpts): MarbleBench
     async load(o: LoadOpts): Promise<EvalTask[]> {
       // Reuse the Tier-1 loader (sealed outcome + public domain), then surface the raw instruction to the
       // per-agent prompt via publicMetadata (the agent sees the task anyway; the OUTCOME stays sealed).
-      // NB: o.limit (from config.taskLimit) wins if set; else the benchmark's opts.taskLimit. Spread o
-      // FIRST so an unset config.taskLimit (undefined) can't clobber opts.taskLimit.
-      const tasks = await native.load({ ...o, limit: o.limit ?? opts.taskLimit });
-      return tasks.map((t) => ({ ...t, publicMetadata: { ...t.publicMetadata, instruction: t.prompt } }));
+      const wantIds = opts.taskIds?.length ? new Set(opts.taskIds) : null;
+      // When oversampling specific ids, load the FULL CSV (no limit) then filter; otherwise honor limit
+      // (o.limit from config.taskLimit wins if set, else opts.taskLimit — spread o first so an unset
+      // config.taskLimit can't clobber opts.taskLimit).
+      const tasks = await native.load({ ...o, limit: wantIds ? undefined : (o.limit ?? opts.taskLimit) });
+      const mapped = tasks
+        .filter((t) => !wantIds || wantIds.has(t.id))
+        .map((t) => ({ ...t, publicMetadata: { ...t.publicMetadata, instruction: t.prompt } }));
+      // With an id filter, the plain limit didn't slice — cap the filtered set by taskLimit here.
+      return wantIds && opts.taskLimit != null ? mapped.slice(0, opts.taskLimit) : mapped;
     },
 
     async score(raw: MultiAgentRawRun, task: EvalTask): Promise<Score> {

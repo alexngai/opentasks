@@ -48,7 +48,10 @@ const MODEL = process.env.EVAL_MODEL ?? (GATEWAY_BASE ? 'claude-haiku' : 'haiku'
 const ARM_IDS = (process.env.EVAL_ARMS ?? 'stock,opentasks').split(',').map((s) => s.trim());
 const N = Number(process.env.EVAL_N ?? 2);
 const DOMAIN = (process.env.EVAL_DOMAIN ?? 'multi_domain') as Parameters<typeof workbenchMarbleBenchmark>[0]['domain'];
-const TASK_LIMIT = Number(process.env.EVAL_TASK_LIMIT ?? 5);
+// EVAL_TASK_IDS: oversample an exact set of `wb-*` ids (else first-N-in-file-order via EVAL_TASK_LIMIT).
+const TASK_IDS = (process.env.EVAL_TASK_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+// When ids are pinned, run all of them (cap defaults to their count) unless a smaller limit is set.
+const TASK_LIMIT = Number(process.env.EVAL_TASK_LIMIT ?? (TASK_IDS.length || 5));
 const CONCURRENCY = Number(process.env.EVAL_CONCURRENCY ?? 1);
 const TIMEOUT = Number(process.env.EVAL_TIMEOUT ?? 300_000);
 const OUT_DIR = path.resolve(process.cwd(), 'evals/.swarmkit-workbench-marble');
@@ -98,7 +101,7 @@ function opentasksDaemonPids(): Set<number> {
 }
 
 async function main(): Promise<void> {
-  const benchmark = workbenchMarbleBenchmark({ n: N, repoDir: WB_REPO, python: WB_PYTHON, domain: DOMAIN, taskLimit: TASK_LIMIT });
+  const benchmark = workbenchMarbleBenchmark({ n: N, repoDir: WB_REPO, python: WB_PYTHON, domain: DOMAIN, taskLimit: TASK_LIMIT, ...(TASK_IDS.length ? { taskIds: TASK_IDS } : {}) });
   const wbMcp = workbenchMcpServer({ python: WB_PYTHON, repoDir: WB_REPO });
   // Marble arms: coordination lives in the phase prompt, so arms just carry the MCP servers + allow-list.
   const arms = workbenchNativeArms(wbMcp, [
