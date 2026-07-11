@@ -17,6 +17,7 @@
 
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   workbenchNativeBenchmark,
@@ -35,9 +36,55 @@ import {
   type LoadOpts,
 } from 'swarmkit-eval';
 import { ARMS } from '../arms.js';
-import { stopOpentasksDaemon } from '../runner.js';
 
 const OPENTASKS_CLI = ARMS.opentasks.mcp?.args?.[0];
+
+/**
+ * Resolve a node binary whose ABI matches opentasks' native `better-sqlite3`. The eval runs under
+ * `npx tsx`, whose `process.execPath` can be a DIFFERENT node than the one that `npm install`'d opentasks
+ * (e.g. homebrew node 23 / MODULE_VERSION 131 vs the nvm node 22 / 127 the module was built against). A
+ * mismatched node makes the spawned daemon crash on `require('better-sqlite3')` (ERR_DLOPEN_FAILED) before
+ * it ever binds its socket — silently disabling ALL coordination. So probe candidates and pick the first
+ * that can actually load the module; every opentasks subprocess (daemon/seed/list AND the agents' MCP)
+ * must use it, not `process.execPath`. Memoized. Throws with a clear message if none work.
+ */
+let _otNode: string | undefined;
+
+/** Candidate node binaries, most-likely-correct first. Under `npx tsx`, process.execPath AND PATH `node`
+ *  can BOTH be the wrong (homebrew) node, while the module was built by a versioned nvm/fnm node — so we
+ *  also sweep those install roots (newest first) as fallbacks. */
+function nodeCandidates(): string[] {
+  const out: string[] = [];
+  const add = (p?: string): void => { if (p && !out.includes(p)) out.push(p); };
+  add(process.env.npm_node_execpath); // the node `npm run` used to launch us
+  add(process.execPath); // the tsx host node
+  add('node'); // PATH
+  if (process.env.NVM_BIN) add(path.join(process.env.NVM_BIN, 'node'));
+  for (const root of [path.join(os.homedir(), '.nvm', 'versions', 'node'), path.join(os.homedir(), '.fnm', 'node-versions')]) {
+    try { for (const v of fs.readdirSync(root).sort().reverse()) { add(path.join(root, v, 'bin', 'node')); add(path.join(root, v, 'installation', 'bin', 'node')); } } catch { /* no such manager */ }
+  }
+  return out;
+}
+
+export function resolveOpentasksNode(): string {
+  if (_otNode) return _otNode;
+  // Must INSTANTIATE a Database — `require` only loads the JS wrapper; the native .node is dlopen'd lazily
+  // on `new Database()`, which is where the ABI (NODE_MODULE_VERSION) mismatch actually throws.
+  const probe = "new (require('better-sqlite3'))(':memory:').close()";
+  // Resolve better-sqlite3 from the opentasks repo's node_modules (OPENTASKS_CLI = <root>/dist/cli.js).
+  const repoRoot = OPENTASKS_CLI ? path.dirname(path.dirname(OPENTASKS_CLI)) : process.cwd();
+  for (const cand of nodeCandidates()) {
+    try {
+      execFileSync(cand, ['-e', probe], { cwd: repoRoot, stdio: 'ignore', timeout: 15_000 });
+      _otNode = cand;
+      return cand;
+    } catch { /* ABI mismatch or not found → try next */ }
+  }
+  throw new Error(
+    'No node binary can load opentasks\' better-sqlite3 (ABI/NODE_MODULE_VERSION mismatch on every candidate). ' +
+      'Run the eval under the node that built opentasks, or `npm rebuild better-sqlite3`.',
+  );
+}
 
 /** The 14 side-effecting WorkBench tools (sanitized MCP names) — the graded, redundancy-tracked actions. */
 const WB_SIDE_EFFECT = new Set([
@@ -80,17 +127,24 @@ function workbenchService(): ServiceSpec {
       const armId = ctx.armId;
       const instruction = String(ctx.publicMetadata?.instruction ?? '');
       const domains = parseDomains(ctx.publicMetadata?.domains);
-      const otEnv = { ...process.env, OPENTASKS_PROJECT_DIR: '.opentasks' } as NodeJS.ProcessEnv;
 
-      if (armId === 'opentasks' && OPENTASKS_CLI && domains.length) {
-        // Seed one claimable subtask per domain (auto-starts the shared daemon in ws.root/.opentasks).
+      // opentasks arm: run ONE daemon on a SHORT socket path (under /tmp, NOT the deep in-process
+      // workspace — a socket nested under ws.root exceeds macOS's 103-byte sun_path limit and silently
+      // fails to bind, which was disabling coordination entirely). Publish the socket to ws.root/.ot_sock
+      // so each agent's MCP wrapper connects via `--socket` (the CooperBench pattern) instead of a fragile
+      // relative-path autostart. Seed one claimable subtask per public domain into that daemon.
+      let otHome: string | undefined;
+      const otEnvFor = (home: string): NodeJS.ProcessEnv => ({ ...process.env, OPENTASKS_PROJECT_DIR: home });
+      if (armId === 'opentasks' && OPENTASKS_CLI) {
+        otHome = fs.mkdtempSync('/tmp/ote-'); // short → socket ≈35 bytes, well under the 103-byte limit
+        try {
+          execFileSync(resolveOpentasksNode(), [OPENTASKS_CLI, 'daemon', 'start'], { env: otEnvFor(otHome), stdio: 'ignore', timeout: 20_000 });
+        } catch { /* the seed below also auto-starts it */ }
+        try { fs.writeFileSync(path.join(ctx.workspaceRoot, '.ot_sock'), path.join(otHome, 'daemon.sock')); } catch { /* agents can't find it → fall back */ }
         for (const d of domains) {
           try {
-            execFileSync(
-              process.execPath,
-              [OPENTASKS_CLI, 'create', '--type', 'task', '--title', `handle the "${d}" part of the task`, '--status', 'open'],
-              { cwd: ctx.workspaceRoot, env: otEnv, stdio: 'ignore', timeout: 20_000 },
-            );
+            execFileSync(resolveOpentasksNode(), [OPENTASKS_CLI, 'create', '--type', 'task', '--title', `handle the "${d}" part of the task`, '--status', 'open'],
+              { env: otEnvFor(otHome), stdio: 'ignore', timeout: 20_000 });
           } catch { /* seed best-effort; a missing subtask just means less to claim */ }
         }
       }
@@ -99,15 +153,27 @@ function workbenchService(): ServiceSpec {
       const handle: ServiceHandle = {
         // Exposed to phase.prompt(args.services) so each agent gets the actual task text.
         env: { WB_INSTRUCTION: instruction, WB_DOMAINS: domains.join(', ') },
-        async readState(): Promise<{ actions: string[] }> {
+        async readState(): Promise<{ actions: string[]; graph: string[]; seededDomains: string[]; daemonList: string }> {
           let actions: string[] = [];
           try {
             actions = fs.readFileSync(actionLogPath, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean);
           } catch { /* no side effects taken → empty union */ }
-          return { actions };
+          let graph: string[] = [];
+          let daemonList = '';
+          if (otHome) {
+            try { graph = fs.readFileSync(path.join(otHome, 'graph.jsonl'), 'utf8').split('\n').map((l) => l.trim()).filter(Boolean); } catch { /* unflushed */ }
+            // Query the LIVE daemon (ground truth) — what tasks exist + who claimed them.
+            try {
+              daemonList = execFileSync(resolveOpentasksNode(), [OPENTASKS_CLI!, 'list', '--all', '--json'], { env: otEnvFor(otHome), timeout: 15_000 }).toString().slice(0, 4000);
+            } catch (e) { daemonList = `list-error: ${(e as Error).message.slice(0, 150)}`; }
+          }
+          return { actions, graph, seededDomains: domains, daemonList };
         },
         async stop(): Promise<void> {
-          if (armId === 'opentasks') stopOpentasksDaemon(ctx.workspaceRoot, { OPENTASKS_PROJECT_DIR: '.opentasks' });
+          if (otHome) {
+            try { execFileSync(resolveOpentasksNode(), [OPENTASKS_CLI!, 'daemon', 'stop'], { env: otEnvFor(otHome), stdio: 'ignore', timeout: 10_000 }); } catch { /* already gone */ }
+            try { fs.rmSync(otHome, { recursive: true, force: true }); } catch { /* leaves a tiny /tmp dir */ }
+          }
         },
       };
       return handle;
@@ -206,7 +272,9 @@ export function workbenchMarbleBenchmark(opts: WorkbenchMarbleOpts): MarbleBench
     },
 
     async score(raw: MultiAgentRawRun, task: EvalTask): Promise<Score> {
-      const st = (raw.services.workbench ?? { actions: [] }) as { actions: string[] };
+      const st = (raw.services.workbench ?? { actions: [], graph: [], seededDomains: [], daemonList: '' }) as {
+        actions: string[]; graph: string[]; seededDomains: string[]; daemonList: string;
+      };
       const unionText = st.actions.join('\n') + (st.actions.length ? '\n' : '');
       // Reuse WorkbenchGrader by feeding the UNION log through a minimal Workspace.
       const ws = {
@@ -222,6 +290,27 @@ export function workbenchMarbleBenchmark(opts: WorkbenchMarbleOpts): MarbleBench
       // the engine from the coordination classifier below).
       const workActions = st.actions.length;
       score.metrics = { ...score.metrics, numAgents: opts.n, unionSideEffects: workActions };
+
+      // EVAL_DEBUG_DIR: dump per-agent tool sequences + the opentasks graph (who claimed what) + union
+      // actions, so the coordination surface can be inspected. Off unless the env is set.
+      if (process.env.EVAL_DEBUG_DIR) {
+        try {
+          const agents = (raw.agents ?? []).map((a) => ({
+            agentId: a.agentId,
+            role: a.role,
+            tools: (a.trajectory ?? [])
+              .filter((e): e is Extract<typeof e, { type: 'tool' }> => e.type === 'tool')
+              .map((e) => ({ name: e.name, input: e.input })),
+          }));
+          const dbg = {
+            taskId: task.id, seededDomains: st.seededDomains, completion: score.metrics?.completion,
+            harmful: score.metrics?.harmful, daemonList: st.daemonList, unionActions: st.actions, graph: st.graph,
+            agents, messages: raw.messages,
+          };
+          fs.mkdirSync(process.env.EVAL_DEBUG_DIR, { recursive: true });
+          fs.writeFileSync(path.join(process.env.EVAL_DEBUG_DIR, `${task.id}.json`), JSON.stringify(dbg, null, 2));
+        } catch { /* debug best-effort */ }
+      }
       return score;
     },
 

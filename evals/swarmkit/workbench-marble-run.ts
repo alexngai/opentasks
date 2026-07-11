@@ -6,9 +6,11 @@
  * harmful actions. OpenTasks' claim_next is meant to prevent exactly that. stock vs opentasks (+ notes)
  * with per-arm completion + harmful + coordination KPIs (R/O/c/E_c, and A_e with EVAL_SOLO).
  *
- * Base OpenTasks functionality only: per-cell isolation via a relative OPENTASKS_PROJECT_DIR; the shared
- * per-cell daemon is started by the domain seed + reaped by the service's stop() (belt-and-suspenders reap
- * after the run). No OpenTasks core change; all WorkBench machinery is in swarmkit-eval.
+ * Base OpenTasks functionality only: the service starts ONE per-cell daemon on a SHORT /tmp socket (dodging
+ * the macOS 103-byte sun_path limit that a deep-workspace socket hits), publishes it to ws.root/.ot_sock,
+ * and every agent connects as a thin `mcp --socket` client (CooperBench pattern). The daemon is reaped by
+ * the service's stop() (belt-and-suspenders path-scoped reap after the run). No OpenTasks core change; all
+ * WorkBench machinery is in swarmkit-eval.
  *
  * Env: WORKBENCH_REPO · EVAL_MODEL · EVAL_ARMS(stock,opentasks) · EVAL_N(2) · EVAL_DOMAIN(multi_domain) ·
  *      EVAL_TASK_LIMIT(5) · EVAL_CONCURRENCY(1) · EVAL_TIMEOUT(300000) · EVAL_SOLO=1 (A_e) ·
@@ -36,7 +38,7 @@ import {
   type McpServerSpec,
   type ExecutionAdapter,
 } from 'swarmkit-eval';
-import { workbenchMarbleBenchmark } from './workbench-marble.js';
+import { workbenchMarbleBenchmark, resolveOpentasksNode } from './workbench-marble.js';
 import { ARMS } from '../arms.js';
 
 const WB_REPO = process.env.WORKBENCH_REPO ?? path.join(process.env.HOME ?? '', 'GitHub', 'WorkBench');
@@ -63,8 +65,19 @@ const OT_COORD_TOOLS = [
 ];
 
 function opentasksMcpServer(): McpServerSpec {
-  const src = ARMS.opentasks.mcp!;
-  return { name: src.name, command: src.command, args: src.args, env: { OPENTASKS_PROJECT_DIR: '.opentasks' } };
+  const cli = OPENTASKS_CLI!;
+  // Each agent connects to the ONE per-cell daemon over the SHORT socket the service published to
+  // ws.root/.ot_sock (CooperBench pattern) — NOT a deep-path autostart, which silently fails the macOS
+  // 103-byte sun_path limit. cwd is the agent's cell (ws.root — confirmed by the WorkBench MCP action log
+  // landing there), so `cat .ot_sock` resolves the socket. NO_AUTOSTART keeps every agent a thin client.
+  // ABI-matched node (NOT the tsx process.execPath, which can't load opentasks' native better-sqlite3).
+  const node = resolveOpentasksNode();
+  return {
+    name: 'opentasks',
+    command: 'sh',
+    args: ['-c', `exec "${node}" "${cli}" mcp --socket "$(cat .ot_sock)" --scope all`],
+    env: { OPENTASKS_NO_AUTOSTART: '1' },
+  };
 }
 
 /** PIDs of opentasks daemons started from THIS build's CLI (path-scoped reap — never another project's). */
