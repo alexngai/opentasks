@@ -221,3 +221,123 @@ Harbor agents install and run **inside the sandbox**, so an OpenTasks-MCP arm ca
 `.mcp.json`/`.openswarm/mcp.json` pointing at the in-container MCP (the pattern `evals/tac/docker-adapter.ts`
 uses). That container-side wiring is the next step; the agent×model comparison above stands on its own
 (openswarm *is* the multi-agent/coordination story).
+
+## WorkBench × OpenTasks (`workbench-run.ts` · `npm run eval:workbench`)
+
+Benchmark OpenTasks — as a *planning/coordination scaffold* — on **WorkBench** (olly-styles/WorkBench
+"Revisited": 690 outcome-graded workplace-agent tasks over calendar/email/analytics/CRM/project-board;
+graded by replaying the agent's recorded side-effecting tool calls against a fresh sandbox, plus a
+**harmful-action** flag).
+
+**Where the code lives.** Everything WorkBench-specific is in `swarmkit-eval`, not here: the tool bridge
+(`wb_mcp.py`, WorkBench's 26 tools over MCP), the faithful `{kind:"workbench"}` grader (`wb_grade.py`,
+WorkBench's own `is_correct`/`has_side_effects`), and the benchmark (`workbenchNativeBenchmark`). This
+entrypoint only **composes** them with OpenTasks arms — no WorkBench knowledge here, and **no change to
+OpenTasks core**.
+
+**Arms** (same model, same tasks; only the scaffold varies):
+
+| arm | scaffold |
+|-----|----------|
+| `stock` | WorkBench tools only (`mcp__workbench__*`) |
+| `notes` | + a NOTES.md durable-log nudge |
+| `opentasks` | + the OpenTasks MCP graph (`mcp__opentasks__*`) as a planning/decomposition scaffold |
+
+**Base OpenTasks functionality only — no daemon changes required:**
+- **Isolation** is a relative `OPENTASKS_PROJECT_DIR=.opentasks` in the opentasks-MCP env → resolves
+  against each cell's workspace cwd → every cell gets its own `.opentasks/` + daemon.
+- **Teardown**: after the run the entrypoint reaps **only** opentasks daemons started from *this build's*
+  `dist/cli.js` that appeared during the run (path-scoped + new-PID — never touches another project's
+  daemon). Optionally set `OPENTASKS_DAEMON_IDLE_TIMEOUT` to let them self-reap (a no-op on builds that
+  don't support it).
+
+**Setup:** `git clone …/WorkBench ~/GitHub/WorkBench && cd ~/GitHub/WorkBench && uv sync && uv pip install mcp`,
+then `npm run build` here so the opentasks arm's MCP server (`dist/cli.js`) exists.
+
+```sh
+# via the LiteLLM gateway (Bedrock, no local model); or drop WB_GATEWAY_BASE_URL for ambient Max-plan auth
+WB_GATEWAY_BASE_URL=http://127.0.0.1:4000 WORKBENCH_LLM_API_KEY=sk-… AWS_REGION=us-east-1 \
+  EVAL_ARMS=stock,opentasks EVAL_DOMAIN=multi_domain EVAL_TASK_LIMIT=20 EVAL_REPEATS=3 \
+  npm run eval:workbench
+```
+
+The report (→ `evals/.swarmkit-workbench/report.md`) gives per-arm **completion** + **harmful-action**
+rates with 95% CIs and a paired stock-vs-opentasks Δ. A first live smoke (3 email tasks, claude-haiku via
+Bedrock) ran clean end-to-end: stock 0.33 vs opentasks 1.00 completion, 0 harmful, 0 env-errors — not
+significant at n=3 (that's the point of the CIs). **Arena note:** single-domain tasks are 1–4 tool calls —
+too short for a planning scaffold to move the needle; the real signal is on the `multi_domain` tasks and,
+ultimately, multi-agent (Tier 2), where a duplicate side effect from two agents = a WorkBench harmful
+action = the coordination payoff.
+
+## WorkBench × OpenTasks — Tier 2: multi-agent coordination (`workbench-marble-run.ts` · `npm run eval:workbench:marble`)
+
+Tier 1 puts WorkBench *behind* one OpenTasks-scaffolded agent; **Tier 2** puts N agents on ONE WorkBench
+`multi_domain` task, sharing one sandbox + workspace, coordinating through OpenTasks' `claim_next`. Grading
+replays the **union** of all agents' side-effecting tool calls — so a *duplicate* side effect (two agents
+both send the same email) becomes a WorkBench **harmful action**. That duplication is exactly what
+`claim_next` is meant to prevent → the coordination payoff, on realistic outcome-graded work.
+
+Runs on swarmkit-eval's native `marble` engine (`execution: 'marble'`): the WorkBench substrate is a
+first-class *service* (`workbench-marble.ts`) that seeds one claimable subtask per public domain, and each
+agent's prompt says claim → do that domain's WorkBench actions → close. Arms: `stock` (no channel),
+`notes` (claims.txt), `opentasks` (`claim_next`). All WorkBench machinery stays in swarmkit-eval; the
+marble adapter only composes. **No OpenTasks core change.**
+
+### Two gotchas that silently disabled coordination (both fixed)
+
+Symptom of either: `Daemon did not start within 10000ms` / `no daemon running`, both agents duplicate → a
+false Δ=0. Isolation tests pass while the eval fails, because the login shell hides both.
+
+1. **Daemon socket path.** One daemon per cell on a SHORT `/tmp/ote-XXXXXX/daemon.sock` — a socket nested
+   under the deep in-process workspace exceeds macOS's 103-byte `sun_path` limit and silently fails to
+   bind. The path is published to `ws.root/.ot_sock`; each agent attaches as a thin `mcp --socket` client
+   (`OPENTASKS_NO_AUTOSTART=1`, the CooperBench pattern).
+2. **Native-module ABI.** The eval runs under `npx tsx`, whose node can differ from the one that built
+   OpenTasks' `better-sqlite3` (e.g. homebrew 23 / `MODULE_VERSION` 131 vs nvm 22 / 127). Spawning the
+   daemon with `process.execPath` crashes it on `new Database()` (`ERR_DLOPEN_FAILED`) before it binds.
+   `resolveOpentasksNode()` probes candidate nodes (incl. nvm/fnm sweeps) by *instantiating* a DB and uses
+   the ABI-matched one for the daemon, seed/list, AND the agents' MCP wrapper.
+
+### Results — coordination decisively helps, but only on the right task class
+
+WorkBench's `harmful` flag is duplication-COUNT-insensitive (1 wrong action and 2 duplicate wrong actions
+both = harmful), so coordination only moves the score on tasks where the required action is (a)
+side-effecting AND (b) single-agent-CORRECT — there a duplicate flips pass→fail. The default first-N
+sample buries those under pure-query tasks (both pass) and hard-accuracy tasks (both fail), reading Δ≈0.
+
+**Oversampling** (`EVAL_TASK_IDS`, id = `wb-multi_domain-sha1(task)[:12]`) targets that class. Of 210
+`multi_domain` tasks, 123 are single-action side-effecting; an N=1 scan finds which the model does
+correctly *solo* (sonnet: send_email 10/10, create_task 7/7, add_customer 1/3, create_event 0/4 — the
+time-computation trap fails). Running N=2 stock-vs-opentasks on those:
+
+| sample | n | opentasks compl | stock compl | Δ (paired) | opentasks harmful | stock harmful | redundancy R (ot/stock) |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| first-6 (mixed) | 6 | 0.50 | 0.50 | **+0.000** | 0.50 | 0.50 | 0.00 / 0.25 |
+| single-action-correct | 12 | 0.92 | 0.08 | +0.833 ✓ (CI 0.58–1.00) | 0.00 | 0.92 | 0.00 / 0.40 |
+| single-action-correct (widened) | **18** | **0.94** | **0.06** | **+0.889** ✓ (CI 0.72–1.00) | 0.00 | 0.94 | 0.00 / 0.43 |
+
+_(sonnet via Bedrock gateway; the paired Δ CI excludes 0 on the targeted set, and tightens as it widens.)_
+
+Mechanism (17/18 in the widened targeted set): stock's two agents BOTH perform the one action (union
+side-effects ≈ 2) → the duplicate is harmful → fail; opentasks claims distinct domains → 1 action →
+correct → pass (redundancy R 0.00 vs 0.43). The lone opentasks miss is an `add_customer` task whose domain
+split (crm / project_management) didn't match the single required action — both agents updated the same
+customer. Cost: opentasks ~2.4× tokens for the claim/close overhead. **Takeaway: to measure coordination,
+oversample single-action-correct side-effect tasks; the mixed default sample hides the effect.**
+
+### Env (beyond the Tier-1 vars)
+
+| var | default | meaning |
+|---|---|---|
+| `EVAL_N` | `2` | agents per task |
+| `EVAL_TASK_IDS` | — | comma list of exact `wb-*` ids to oversample (else first-N via `EVAL_TASK_LIMIT`) |
+| `EVAL_SOLO` | — | `1` → also run an N=1 baseline for the A_e error-amplification KPI |
+| `EVAL_DEBUG_DIR` | — | per-task dump: each agent's tool sequence + who-claimed-what + union actions |
+
+```sh
+# targeted oversample — the run that shows the payoff (sonnet via Bedrock gateway):
+WB_GATEWAY_BASE_URL=http://127.0.0.1:4000 WORKBENCH_LLM_API_KEY=sk-… AWS_REGION=us-east-1 \
+  EVAL_MODEL=claude-sonnet EVAL_ARMS=stock,opentasks EVAL_N=2 \
+  EVAL_TASK_IDS=wb-multi_domain-78b0f2e1b29a,wb-multi_domain-cc223e5fe99f,… \
+  npm run eval:workbench:marble
+```
