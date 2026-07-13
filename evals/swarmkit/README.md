@@ -358,6 +358,21 @@ Mechanism confirmed in every cell via `EVAL_DEBUG_DIR`: exactly one agent acts; 
 performs ZERO side effects (`claim_next` → `claimed:false` → stop). _(Bedrock gateway; run under node@22 —
 see the ABI gotcha above; the system node drifted to v26, whose better-sqlite3 prebuild doesn't match.)_
 
+**Scaling to N=4 (haiku)** sharpens the point — 1a is the *only* mode robust to agent count (`completion / R / union side-effects`):
+
+| mode | N=2 | N=4 |
+|---|---|---|
+| stock | 0.13 / 0.38 / 1.88 | 0.00 / 0.71 / 3.88 |
+| opentasks per-domain | 0.25 / 0.38 / 1.75 | 0.00 / 0.66 / 3.38 |
+| **opentasks single (1a)** | **1.00 / 0.00 / 1.00** | **0.75 / 0.00 / 0.88** |
+
+Stock and per-domain both **collapse to 0.00 as N grows** — duplication scales with agent count (union → ~4,
+R → ~0.7). Per-domain fails to cap it because haiku ignores *both* forms of self-restraint it needs: at N=4
+only 2 domains are claimable, yet 3–4 of the 4 agents fire the side effect anyway (the `claimed:false` agents
+don't stop). Single-writer holds at **R=0.00** (never a duplicate, any N); its N=4 completion (0.75) is
+haiku's *solo* ceiling ± n=8 noise — the two misses are the lone writer failing the task, not coordination.
+1a vs stock at N=4: Δ +0.75 (significant).
+
 ### Env (beyond the Tier-1 vars)
 
 | var | default | meaning |
