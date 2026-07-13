@@ -54,7 +54,15 @@ const TASK_IDS = (process.env.EVAL_TASK_IDS ?? '').split(',').map((s) => s.trim(
 const TASK_LIMIT = Number(process.env.EVAL_TASK_LIMIT ?? (TASK_IDS.length || 5));
 const CONCURRENCY = Number(process.env.EVAL_CONCURRENCY ?? 1);
 const TIMEOUT = Number(process.env.EVAL_TIMEOUT ?? 300_000);
-const OUT_DIR = path.resolve(process.cwd(), 'evals/.swarmkit-workbench-marble');
+// WB_SEED_MODE changes ONLY the opentasks arm (single-writer vs per-domain seeding+prompt), so single and
+// per-domain are DISTINCT experiments. Fold it into runId: the marble store resumes cached cells by
+// runId+arm+task, so without this a mode switch on the same ids silently reuses the other mode's stale
+// results. Mirrors SEED_MODE in workbench-marble.ts.
+const SEED_MODE = process.env.WB_SEED_MODE === 'single' ? 'single' : 'per-domain';
+// Per-seed-mode store: the marble cache keys cells by benchmark/task/arm/model/seed (NOT runId or seed
+// mode), so single and per-domain opentasks cells would otherwise collide and silently reuse each other's
+// cached results. A separate store dir per mode keeps each experiment isolated and independently resumable.
+const OUT_DIR = path.resolve(process.cwd(), `evals/.swarmkit-workbench-marble-${SEED_MODE}`);
 
 const OPENTASKS_CLI = ARMS.opentasks.mcp?.args?.[0];
 
@@ -115,7 +123,7 @@ async function main(): Promise<void> {
   for (const k of ['AWS_REGION', 'AWS_PROFILE']) if (process.env[k]) passEnv[k] = process.env[k]!;
 
   const config: EvalConfig = {
-    runId: `workbench-marble-${DOMAIN}-${MODEL}-N${N}`,
+    runId: `workbench-marble-${DOMAIN}-${MODEL}-N${N}-${SEED_MODE}`,
     configVersion: 'v1',
     benchmark: benchmark.id,
     arms,
