@@ -325,11 +325,60 @@ split (crm / project_management) didn't match the single required action — bot
 customer. Cost: opentasks ~2.4× tokens for the claim/close overhead. **Takeaway: to measure coordination,
 oversample single-action-correct side-effect tasks; the mixed default sample hides the effect.**
 
+### Capability-gating and Option 1a — single-writer seeding (`WB_SEED_MODE=single`)
+
+The per-domain split above is **capability-gated**: it only prevents duplication if each agent *stands
+down* on a domain whose action it didn't claim. Weak models don't — a haiku agent that claims a read-only
+domain (`analytics`) still fires the task's one side effect, so the union stays ≈2 and the duplicate is
+harmful. And when the domain split doesn't cleanly isolate the single action (a `send_email` task tagged
+`[email, calendar]`, or `create_task` tagged `[analytics, project_management]`), **even sonnet duplicates**.
+
+**Option 1a (`WB_SEED_MODE=single`)** removes the reliance on self-restraint: seed exactly ONE claimable
+"do the whole task" unit instead of one-per-domain. Atomic `claim_next` gives it to exactly one agent; every
+other agent gets `claimed:false` and STOPS. Duplication becomes structurally impossible regardless of model
+capability, and it also fixes the domain-split≠action-split miss. Default stays `per-domain` (the results
+above reproduce with it). Trade-off: 1 effective worker (no parallelism) — optimal for single-action tasks,
+and single-writer = solo-equivalent, so it can never regress below the model's solo ceiling.
+
+Validated N=2 on 8 single-action-correct `multi_domain` tasks (4 `send_email` + 4 `create_task`; each
+solo-correct, so the solo ceiling is 1.00):
+
+| model | arm / mode | completion | harmful | union side-effects | redundancy R |
+|---|---|--:|--:|--:|--:|
+| haiku-4.5 | stock | 0.13 | 0.88 | 1.88 | 0.38 |
+| haiku-4.5 | opentasks per-domain | 0.25 | 0.75 | 1.75 | 0.38 |
+| haiku-4.5 | **opentasks single (1a)** | **1.00** | **0.00** | **1.00** | **0.00** |
+| sonnet-4.6 | stock | 0.00 | 1.00 | 2.00 | 0.50 |
+| sonnet-4.6 | opentasks per-domain | 0.13 | 0.88 | 1.88 | 0.38 |
+| sonnet-4.6 | **opentasks single (1a)** | **1.00** | **0.00** | **1.00** | **0.00** |
+
+Per-domain collapses to 0.13–0.25 for **both** models (both agents duplicate → harmful). Single-writer
+recovers the **full solo ceiling** (1.00, harmful 0.00, union→1, R→0) for both — **capability-independent**.
+Mechanism confirmed in every cell via `EVAL_DEBUG_DIR`: exactly one agent acts; the non-claiming agent
+performs ZERO side effects (`claim_next` → `claimed:false` → stop). _(Bedrock gateway; run under node@22 —
+see the ABI gotcha above; the system node drifted to v26, whose better-sqlite3 prebuild doesn't match.)_
+
+**Scaling to N=4 (haiku)** sharpens the point — 1a is the *only* mode robust to agent count (`completion / R / union side-effects`):
+
+| mode | N=2 | N=4 |
+|---|---|---|
+| stock | 0.13 / 0.38 / 1.88 | 0.00 / 0.71 / 3.88 |
+| opentasks per-domain | 0.25 / 0.38 / 1.75 | 0.00 / 0.66 / 3.38 |
+| **opentasks single (1a)** | **1.00 / 0.00 / 1.00** | **0.75 / 0.00 / 0.88** |
+
+Stock and per-domain both **collapse to 0.00 as N grows** — duplication scales with agent count (union → ~4,
+R → ~0.7). Per-domain fails to cap it because haiku ignores *both* forms of self-restraint it needs: at N=4
+only 2 domains are claimable, yet 3–4 of the 4 agents fire the side effect anyway (the `claimed:false` agents
+don't stop). Single-writer holds at **R=0.00** (never a duplicate, any N); its N=4 completion (0.75) is
+haiku's *solo* ceiling ± n=8 noise — the two misses are the lone writer failing the task, not coordination.
+1a vs stock at N=4: Δ +0.75 (significant).
+
 ### Env (beyond the Tier-1 vars)
 
 | var | default | meaning |
 |---|---|---|
 | `EVAL_N` | `2` | agents per task |
+| `WB_SEED_MODE` | `per-domain` | opentasks arm seeding: `per-domain` (one claimable subtask per domain) or `single` (Option 1a — one "whole task" unit; single writer). Folded into `runId` + store dir so modes don't share cache. |
 | `EVAL_TASK_IDS` | — | comma list of exact `wb-*` ids to oversample (else first-N via `EVAL_TASK_LIMIT`) |
 | `EVAL_SOLO` | — | `1` → also run an N=1 baseline for the A_e error-amplification KPI |
 | `EVAL_DEBUG_DIR` | — | per-task dump: each agent's tool sequence + who-claimed-what + union actions |

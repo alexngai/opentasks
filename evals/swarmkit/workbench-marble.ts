@@ -96,6 +96,21 @@ const WB_SIDE_EFFECT = new Set([
   'customer_relationship_manager_delete_customer',
 ]);
 
+/**
+ * Seeding mode for the opentasks arm (Option 1a — capability-independent coordination).
+ *
+ * - `per-domain` (default): seed one claimable subtask per public domain; each agent claims a domain and
+ *   does that domain's actions. This is CAPABILITY-GATED — a weak model that claims a read-only domain
+ *   (e.g. `analytics`) can still fire a side effect anyway, so the duplication guarantee leans on agent
+ *   self-restraint. Reproduces the documented Tier-2 sonnet/haiku findings.
+ * - `single` (`WB_SEED_MODE=single`): seed exactly ONE claimable "do the whole task" unit. Atomic
+ *   `claim_next` hands it to exactly one agent; every other agent gets `claimed:false` and STOPS. A
+ *   duplicate side effect becomes impossible regardless of model capability — no reliance on self-restraint,
+ *   and it fixes the domain-split≠action-split miss. Trade-off: 1 effective worker per task (fine for
+ *   single-action tasks, and multi_domain tasks are mostly one unit of dependent work anyway).
+ */
+const SEED_MODE: 'single' | 'per-domain' = process.env.WB_SEED_MODE === 'single' ? 'single' : 'per-domain';
+
 export interface WorkbenchMarbleOpts {
   n: number;
   repoDir: string;
@@ -137,7 +152,7 @@ function workbenchService(): ServiceSpec {
       // workspace — a socket nested under ws.root exceeds macOS's 103-byte sun_path limit and silently
       // fails to bind, which was disabling coordination entirely). Publish the socket to ws.root/.ot_sock
       // so each agent's MCP wrapper connects via `--socket` (the CooperBench pattern) instead of a fragile
-      // relative-path autostart. Seed one claimable subtask per public domain into that daemon.
+      // relative-path autostart. Seed the claimable work into that daemon per SEED_MODE (below).
       let otHome: string | undefined;
       const otEnvFor = (home: string): NodeJS.ProcessEnv => ({ ...process.env, OPENTASKS_PROJECT_DIR: home });
       if (armId === 'opentasks' && OPENTASKS_CLI) {
@@ -146,9 +161,16 @@ function workbenchService(): ServiceSpec {
           execFileSync(resolveOpentasksNode(), [OPENTASKS_CLI, 'daemon', 'start'], { env: otEnvFor(otHome), stdio: 'ignore', timeout: 20_000 });
         } catch { /* the seed below also auto-starts it */ }
         try { fs.writeFileSync(path.join(ctx.workspaceRoot, '.ot_sock'), path.join(otHome, 'daemon.sock')); } catch { /* agents can't find it → fall back */ }
-        for (const d of domains) {
+        // Seed the claimable work. `single` (Option 1a) seeds ONE "do the whole task" unit so exactly one
+        // agent works and the rest stand down; `per-domain` seeds one unit per public domain (the original
+        // split). See SEED_MODE above; the opentasks prompt in buildMarblePrompt mirrors this choice.
+        const seedTitles =
+          SEED_MODE === 'single'
+            ? ['execute the entire task (every domain) yourself']
+            : domains.map((d) => `handle the "${d}" part of the task`);
+        for (const title of seedTitles) {
           try {
-            execFileSync(resolveOpentasksNode(), [OPENTASKS_CLI, 'create', '--type', 'task', '--title', `handle the "${d}" part of the task`, '--status', 'open'],
+            execFileSync(resolveOpentasksNode(), [OPENTASKS_CLI, 'create', '--type', 'task', '--title', title, '--status', 'open'],
               { env: otEnvFor(otHome), stdio: 'ignore', timeout: 20_000 });
           } catch { /* seed best-effort; a missing subtask just means less to claim */ }
         }
@@ -200,6 +222,30 @@ function buildMarblePrompt(armId: string, agentId: string, width: number, instru
   ];
 
   if (armId === 'opentasks') {
+    if (SEED_MODE === 'single') {
+      // Option 1a — single writer. Exactly ONE claimable unit exists; one agent wins it and does the whole
+      // task, everyone else stands down. Duplication is impossible without relying on the agent to restrain
+      // itself on a domain it "shouldn't" act on — the guarantee is structural.
+      return [
+        ...common,
+        'There is exactly ONE claimable work unit for this task in the OpenTasks graph, and only one agent',
+        'can win it. Get your assignment by claiming — do NOT touch any mcp__workbench__ tool before you do:',
+        `  1. Call mcp__opentasks__claim_next with agentId "${agentId}" to ATOMICALLY try to claim the work.`,
+        '     It returns {claimed, nodeId, ...}.',
+        '  2. If claimed is FALSE: another agent already owns the work. Perform ZERO workplace actions — do',
+        '     NOT call any mcp__workbench__ tool at all — and STOP immediately. You are done.',
+        '  3. If claimed is TRUE: YOU are the single writer. Do the ENTIRE task yourself — every domain, every',
+        '     required create / update / delete / send — via mcp__workbench__* tools. Ignore any instinct to',
+        '     split by domain; the other agents are standing down, so nothing happens unless you do it.',
+        '  4. When the whole task is complete, mark it done: mcp__opentasks__update_task(id: nodeId,',
+        '     status: "closed").',
+        'The claim is race-free: at most one agent ever sees claimed:true, so no side effect can be performed',
+        'twice — no matter how the work splits across domains.',
+        '',
+        'The task:',
+        instruction,
+      ].join('\n');
+    }
     return [
       ...common,
       'The task has been split into per-domain subtasks in the OpenTasks graph. Get your work ONLY by claiming:',
@@ -314,7 +360,7 @@ export function workbenchMarbleBenchmark(opts: WorkbenchMarbleOpts): MarbleBench
               .map((e) => ({ name: e.name, input: e.input })),
           }));
           const dbg = {
-            taskId: task.id, seededDomains: st.seededDomains, completion: score.metrics?.completion,
+            taskId: task.id, seedMode: SEED_MODE, seededDomains: st.seededDomains, completion: score.metrics?.completion,
             harmful: score.metrics?.harmful, daemonList: st.daemonList, unionActions: st.actions, graph: st.graph,
             agents, messages: raw.messages,
           };
