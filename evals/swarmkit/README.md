@@ -34,20 +34,23 @@ field-rename, not a rewrite:
 (pipeline) and a real `EVAL_ARMS=stock,notes` run (live `claude -p` via the
 Max-plan keychain, 0 env errors) both produce the full CI + Pareto report.
 
-**Dependency (pinned `^0.0.3`, 2026-06-17).** `swarmkit-eval` is published and
+**Dependency (pinned `^0.1.0` in `package.json`).** `swarmkit-eval` is published and
 pinned here as a devDependency — no symlink, no sibling-repo requirement,
-reproducible on CI:
-
-```bash
-npm i -D swarmkit-eval@0.0.3
-```
+reproducible on CI. The WorkBench Tier-2 exports (`workbenchNativeBenchmark`,
+`WorkbenchGrader`, the `marble` engine) require ≥ 0.1.0.
 
 Validated against the **published** package: `EVAL_MOCK=1 run.ts` (the E2′
 pipeline), `EVAL_FAKE=1 EVAL_CELL=D synth-run.ts` (the synthetic 2×2 metric
 aggregation: `doubleEmits`/`p2ReEmits`/`exactlyOnce` → per-arm CIs), and
-`bench-check.ts` (the `metricsOf` diagnostics hook new in 0.0.3) are all green.
+`bench-check.ts` (the `metricsOf` diagnostics hook, added in 0.0.3) are all green.
 Bump the pin as swarmkit-eval evolves; for live co-dev of the package,
 `npm link swarmkit-eval` against a local checkout.
+
+> **Note:** `evals/` is outside the `tsconfig.json` `include` (which is `src/**/*`),
+> so `npm run build` does **not** typecheck these adapters. To check them:
+> `npx tsc --noEmit -p <a tsconfig extending the root one with `include: ["evals/**/*.ts"]`>`.
+> `evals/tac/` and `synth-marble.ts` currently carry pre-existing type errors under
+> that check; the WorkBench entrypoints are clean.
 
 ## Run
 
@@ -201,9 +204,9 @@ ROADMAP_ARMS=claude-code-bedrock,openswarm-bedrock,openswarm-azure \
 
 ### Setup notes
 
-- **swarmkit-eval `roadmapBench` is only in 0.0.8** (opentasks pins `^0.0.7`, which predates it). For
-  now it's consumed via `npm link swarmkit-eval` against `~/GitHub/swarmkit/src/eval`. Publish 0.0.8 (or
-  bump the pin) before this runs on CI.
+- **`roadmapBench` now ships in the pinned dependency.** This note previously said it was
+  `npm link`-only; the pin has since moved to `^0.1.0` (installed: 0.1.0), which exports
+  `roadmapBench` / `roadmapBenchArms`. No symlink needed.
 - **The RoadmapBench task dir** (`task.toml` + `instruction.md` + sealed `tests/`/`solution/`) is staged
   under `evals/.roadmap-data/` (gitignored). The `fal-1.3.0-roadmap` image (`znpt/roadmapbench-*`) is
   auto-pulled by Harbor.
@@ -300,6 +303,11 @@ false Δ=0. Isolation tests pass while the eval fails, because the login shell h
 
 ### Results — coordination decisively helps, but only on the right task class
 
+> The citable write-up of everything below (with the caveats and the "what this does not
+> show" section) is
+> [`../results/2026-07-31-workbench-tier2-coordination.md`](../results/2026-07-31-workbench-tier2-coordination.md).
+> What follows is the operator's summary.
+
 WorkBench's `harmful` flag is duplication-COUNT-insensitive (1 wrong action and 2 duplicate wrong actions
 both = harmful), so coordination only moves the score on tasks where the required action is (a)
 side-effecting AND (b) single-agent-CORRECT — there a duplicate flips pass→fail. The default first-N
@@ -373,11 +381,39 @@ don't stop). Single-writer holds at **R=0.00** (never a duplicate, any N); its N
 haiku's *solo* ceiling ± n=8 noise — the two misses are the lone writer failing the task, not coordination.
 1a vs stock at N=4: Δ +0.75 (significant).
 
+### The standing limitation → Tier 3
+
+Option 1a wins by being **single-writer**: one agent works, the rest stand down. That
+makes duplication structurally impossible — and also caps the swarm at the model's *solo*
+ceiling. Every result above is therefore **harm avoidance**, not throughput. Every task in
+the stratum needs exactly ONE side effect, so parallelism is impossible by construction and
+no arm could have shown a speedup.
+
+**Tier 3** ([`../TIER3-THROUGHPUT.md`](../TIER3-THROUGHPUT.md)) is the pre-registered design
+that tests the other half: multi-action tasks where splitting can actually pay, with H1–H4
+declared up front so a null is as reportable as a win. Two pieces already landed here:
+
+- `npm run eval:workbench:classify` — stratifies the WorkBench CSV by ground-truth action
+  structure (`t3-ideal` / `t3-multi` / `t3-serial` / `single` / `query-only`) and emits
+  paste-ready `EVAL_TASK_IDS`. Replaces the ad-hoc scan behind the Tier-2 stratum, so the
+  selection is reproducible and auditable. Needs a WorkBench checkout.
+- **Throughput metrics** on every marble cell: `criticalPathCalls` (longest per-agent
+  tool-call chain — the hardware-independent speedup measure), `activeAgents`,
+  `distinctSideEffects`, `maxAgentShare`, `makespanMs`, `agentOverlap`. `maxAgentShare` and
+  `activeAgents` are the falsification guards: a per-domain cell that has quietly degenerated
+  into single-writer scores identical completion and is otherwise invisible.
+
+The runner also warns when `agentOverlap < 0.2` across every multi-agent cell — the agents
+ran serially, so any speedup reading is invalid. The usual cause is the model connection
+pool: it now defaults to `EVAL_CONCURRENCY × EVAL_N` (override with `EVAL_MODEL_CONNECTIONS`)
+rather than `EVAL_CONCURRENCY`, which under-provisioned it whenever N > 1.
+
 ### Env (beyond the Tier-1 vars)
 
 | var | default | meaning |
 |---|---|---|
 | `EVAL_N` | `2` | agents per task |
+| `EVAL_MODEL_CONNECTIONS` | `EVAL_CONCURRENCY × EVAL_N` | model connection pool; must be ≥ N or the cell's agents serialize |
 | `WB_SEED_MODE` | `per-domain` | opentasks arm seeding: `per-domain` (one claimable subtask per domain) or `single` (Option 1a — one "whole task" unit; single writer). Folded into `runId` + store dir so modes don't share cache. |
 | `EVAL_TASK_IDS` | — | comma list of exact `wb-*` ids to oversample (else first-N via `EVAL_TASK_LIMIT`) |
 | `EVAL_SOLO` | — | `1` → also run an N=1 baseline for the A_e error-amplification KPI |

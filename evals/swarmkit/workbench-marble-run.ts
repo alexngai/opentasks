@@ -53,6 +53,11 @@ const TASK_IDS = (process.env.EVAL_TASK_IDS ?? '').split(',').map((s) => s.trim(
 // When ids are pinned, run all of them (cap defaults to their count) unless a smaller limit is set.
 const TASK_LIMIT = Number(process.env.EVAL_TASK_LIMIT ?? (TASK_IDS.length || 5));
 const CONCURRENCY = Number(process.env.EVAL_CONCURRENCY ?? 1);
+// A cell runs N agents concurrently (the marble engine drives a phase's agents under Promise.all), so the
+// model connection pool needs CONCURRENCY × N slots — not CONCURRENCY. Under-provisioning it silently
+// serializes the agents, which is invisible in completion/harmful and invalidates any throughput reading
+// (see the agentOverlap check below and ../TIER3-THROUGHPUT.md).
+const MODEL_CONNECTIONS = Number(process.env.EVAL_MODEL_CONNECTIONS ?? CONCURRENCY * N);
 const TIMEOUT = Number(process.env.EVAL_TIMEOUT ?? 300_000);
 // WB_SEED_MODE changes ONLY the opentasks arm (single-writer vs per-domain seeding+prompt), so single and
 // per-domain are DISTINCT experiments. Fold it into runId: the marble store resumes cached cells by
@@ -130,7 +135,7 @@ async function main(): Promise<void> {
     models: [{ name: MODEL, ...(gateway ? { dialect: 'anthropic' as const } : {}) }],
     seeds: [1],
     backend: 'in-process',
-    concurrency: { cells: CONCURRENCY, modelConnections: CONCURRENCY },
+    concurrency: { cells: CONCURRENCY, modelConnections: MODEL_CONNECTIONS },
     taskLimit: TASK_LIMIT,
     output: { dir: OUT_DIR, trace: false },
   };
@@ -170,8 +175,27 @@ async function main(): Promise<void> {
     console.log(
       `  ${r.armId.padEnd(9)} ${r.taskId}: status=${r.status} completion=${m.completion ?? '-'} harmful=${m.harmful ?? '-'} ` +
         `unionSideEffects=${m.unionSideEffects ?? '-'} R=${m.R !== undefined ? (m.R as number).toFixed(2) : '-'} ` +
+        `cpCalls=${m.criticalPathCalls ?? '-'} active=${m.activeAgents ?? '-'}/${N} ` +
+        `overlap=${m.agentOverlap !== undefined ? (m.agentOverlap as number).toFixed(2) : '-'} ` +
         `tokens=${r.usage.totalTokens} ${Math.round(r.durationMs / 1000)}s${r.status === 'env_error' ? ` ENV:${r.envError?.kind}` : ''}`,
     );
+  }
+
+  // Tier-3 substrate check. The marble engine runs a phase's agents under `Promise.all`, but a model
+  // connection pool smaller than N serializes them anyway — which makes a real throughput effect read as
+  // a null (H3 in ../TIER3-THROUGHPUT.md) with nothing in completion/harmful to reveal it. Warn loudly
+  // rather than fail: at N=1, or on cells where only one agent ever acts (single-writer by design), low
+  // overlap is CORRECT, so this can't be a hard assertion.
+  if (N > 1) {
+    const multiAgentCells = results.filter((r) => ((r.score?.metrics?.activeAgents as number | undefined) ?? 0) > 1);
+    const serialized = multiAgentCells.filter((r) => ((r.score?.metrics?.agentOverlap as number | undefined) ?? 0) < 0.2);
+    if (multiAgentCells.length > 0 && serialized.length === multiAgentCells.length) {
+      console.warn(
+        `\n⚠️  agentOverlap < 0.2 in ALL ${multiAgentCells.length} cells where >1 agent acted — the agents ran ` +
+          `effectively SERIALLY.\n    Any throughput (speedup) reading from this run is invalid. Raise the ` +
+          `connection pool: EVAL_CONCURRENCY controls concurrency.modelConnections, which must be ≥ N (${N}).`,
+      );
+    }
   }
 
   // A_e (error amplification) needs an N=1 solo baseline of the same arms (EVAL_SOLO=1).

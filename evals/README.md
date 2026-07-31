@@ -107,20 +107,39 @@ MCP into the stock/notes arms and break the ablation. OMC is disabled via
 `CLAUDE.md` is a constant across arms, not a differential confound — is a future
 hardening item.)
 
-## Status (2026-06-15)
+## Status (2026-07-31)
 
 **Stage 1 (synthetic 2×2) — done, robust.** On GLM-5: two informative nulls
 (single-session; reset-with-file-recoverable-state), then the 2×2 — cell B
 (concurrency, k=4) opentasks 4/4 & cheapest-correct; cell C (continuity, n=1)
 opentasks ties disciplined-notes; **cell D (both, k=5) opentasks is the only
 race-clean arm** (0 races in all 5; notes 0/5, stock 0/5). Super-additivity
-confirmed. Full write-ups in `results/`.
+confirmed. Write-ups: `results/2026-06-15-*`.
+
+**Stage 2 (standard benchmark host) — done on WorkBench.** The synthetic result
+reproduces on a benchmark we did not author, with its own outcome grader: N agents
+on one WorkBench `multi_domain` task, graded on the **union** of their side effects,
+so a duplicate = a WorkBench *harmful action*. Paired Δ **+0.889 (CI 0.72–1.00)** at
+n=18 on the stratum where duplication binds; single-writer seeding (`WB_SEED_MODE=single`)
+recovers the full solo ceiling for both haiku-4.5 and sonnet-4.6 and is the only mode
+robust to agent count. Full write-up:
+[`results/2026-07-31-workbench-tier2-coordination.md`](./results/2026-07-31-workbench-tier2-coordination.md).
+
+**The standing limitation.** Every result so far is *harm avoidance*. The winning
+configuration is single-writer by construction, so it cannot beat one careful agent —
+only match it. OpenTasks has not yet been shown to buy **throughput**.
 
 **Open / next:**
-- **Eval-infra (blocking):** the GLM-5 proxy (`glm5/`) has no retry/backoff and
-  falls over under sustained load — it crashed the cell-C k=5 repeat. Harden it
-  (retry+backoff, concurrency cap) before scaling runs.
-- Clean cell-C k≥5 + contention sweep (N∈{2,8}) + a second model.
-- **Stage 2:** the TheAgentCompany GitLab-only host as a `swarmkit-eval`
-  benchmark adapter (TAC-native `S_partial`, stock/notes/opentasks arms, reset
-  and width variants after the pilot).
+- **Stage 3 (throughput) — designed, not run.** Pre-registered in
+  [`TIER3-THROUGHPUT.md`](./TIER3-THROUGHPUT.md): multi-action tasks where parallelism
+  can actually pay, with `criticalPathCalls` / `activeAgents` / `agentOverlap` as the
+  measures and H1–H4 declared in advance so a null is reportable. Harness steps 2–3
+  (parallelism check, metrics) are **done**; step 1 (`npm run eval:workbench:classify`)
+  needs a WorkBench checkout; the runs need the gateway.
+- **Eval-infra:** the GLM-5 proxy (`glm5/`) has no retry/backoff and falls over under
+  sustained load — it crashed the cell-C k=5 repeat. Harden it (retry+backoff,
+  concurrency cap) before scaling GLM-5 runs.
+- Clean cell-C k≥5 + contention sweep (N∈{2,8}) on a hardened proxy.
+- **Long-horizon anchor:** RoadmapBench's OpenTasks arm needs in-container daemon +
+  `.mcp.json` wiring (the `tac/docker-adapter.ts` pattern). TAC has an adapter and
+  smokes but no real arm results.

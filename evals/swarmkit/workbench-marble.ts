@@ -111,6 +111,73 @@ const WB_SIDE_EFFECT = new Set([
  */
 const SEED_MODE: 'single' | 'per-domain' = process.env.WB_SEED_MODE === 'single' ? 'single' : 'per-domain';
 
+/**
+ * Tier-3 (throughput) diagnostics, derived from the per-agent trajectories. Tier 2 measured whether
+ * coordination prevents duplicate side effects; these measure whether it buys any PARALLELISM — the open
+ * question single-writer seeding cannot answer by construction. See `../TIER3-THROUGHPUT.md`.
+ *
+ * Wall clock on a shared box behind a rate-limited gateway is too noisy to headline, so the primary
+ * measure is `criticalPathCalls` (the longest per-agent tool-call chain) — hardware-independent, and the
+ * denominator for speedup against an N=1 solo cell. The timing fields come from `TraceEvent.ts`, which
+ * every event carries, and exist to CHECK the substrate rather than to score it: the marble engine runs a
+ * phase's agents under `Promise.all`, but a `modelConnections` pool smaller than N silently serializes
+ * them, which would turn a real throughput effect into a null. `agentOverlap` makes that visible.
+ */
+function throughputMetrics(agents: MultiAgentRawRun['agents']): Record<string, number> {
+  type ToolEvent = { type: 'tool'; ts: number; name: string; input?: unknown };
+  const isTool = (e: { type: string }): e is ToolEvent => e.type === 'tool';
+
+  let criticalPathCalls = 0;
+  let totalCalls = 0;
+  let activeAgents = 0;
+  let maxAgentActions = 0;
+  let totalActions = 0;
+  let spanSumMs = 0;
+  let firstTs = Infinity;
+  let lastTs = -Infinity;
+  const distinct = new Set<string>();
+
+  for (const agent of agents ?? []) {
+    const tools = (agent.trajectory ?? []).filter(isTool);
+    criticalPathCalls = Math.max(criticalPathCalls, tools.length);
+    totalCalls += tools.length;
+
+    // Productive = a SIDE-EFFECTING workbench call. Reads (search/get) are not work; counting them would
+    // let a swarm that only searches in parallel look like it split the work.
+    const actions = tools.filter((t) => t.name.startsWith('mcp__workbench__') && WB_SIDE_EFFECT.has(t.name.slice('mcp__workbench__'.length)));
+    for (const a of actions) distinct.add(`${a.name.slice('mcp__workbench__'.length)}:${JSON.stringify(a.input ?? {})}`);
+    if (actions.length > 0) activeAgents++;
+    maxAgentActions = Math.max(maxAgentActions, actions.length);
+    totalActions += actions.length;
+
+    // Per-agent span from the trajectory timestamps; agents with <2 events contribute no measurable span.
+    if (tools.length > 0) {
+      const ts = tools.map((t) => t.ts);
+      const start = Math.min(...ts);
+      const end = Math.max(...ts);
+      spanSumMs += end - start;
+      firstTs = Math.min(firstTs, start);
+      lastTs = Math.max(lastTs, end);
+    }
+  }
+
+  const makespanMs = Number.isFinite(firstTs) ? lastTs - firstTs : 0;
+  return {
+    criticalPathCalls,
+    totalCalls,
+    activeAgents,
+    distinctSideEffects: distinct.size,
+    // "One agent silently did everything" — a per-domain cell that degenerates into single-writer scores
+    // the same completion as real coordination, and is only distinguishable here.
+    maxAgentShare: totalActions > 0 ? maxAgentActions / totalActions : 0,
+    makespanMs,
+    // Realized concurrency: 0 = perfectly serialized (makespan == sum of spans), →1 = fully overlapped.
+    // A per-domain cell reading ~0 means the agents (or the connection pool) serialized, NOT that
+    // coordination failed — the two look identical in completion alone.
+    agentOverlap: makespanMs > 0 ? Math.max(0, 1 - makespanMs / Math.max(spanSumMs, 1)) : 0,
+  };
+}
+
 export interface WorkbenchMarbleOpts {
   n: number;
   repoDir: string;
@@ -346,7 +413,12 @@ export function workbenchMarbleBenchmark(opts: WorkbenchMarbleOpts): MarbleBench
       // Multi-agent diagnostics on top of completion/harmful (coordination KPIs R/O/c/E_c are folded in by
       // the engine from the coordination classifier below).
       const workActions = st.actions.length;
-      score.metrics = { ...score.metrics, numAgents: opts.n, unionSideEffects: workActions };
+      score.metrics = {
+        ...score.metrics,
+        numAgents: opts.n,
+        unionSideEffects: workActions,
+        ...throughputMetrics(raw.agents),
+      };
 
       // EVAL_DEBUG_DIR: dump per-agent tool sequences + the opentasks graph (who claimed what) + union
       // actions, so the coordination surface can be inspected. Off unless the env is set.
@@ -361,7 +433,7 @@ export function workbenchMarbleBenchmark(opts: WorkbenchMarbleOpts): MarbleBench
           }));
           const dbg = {
             taskId: task.id, seedMode: SEED_MODE, seededDomains: st.seededDomains, completion: score.metrics?.completion,
-            harmful: score.metrics?.harmful, daemonList: st.daemonList, unionActions: st.actions, graph: st.graph,
+            harmful: score.metrics?.harmful, metrics: score.metrics, daemonList: st.daemonList, unionActions: st.actions, graph: st.graph,
             agents, messages: raw.messages,
           };
           fs.mkdirSync(process.env.EVAL_DEBUG_DIR, { recursive: true });
