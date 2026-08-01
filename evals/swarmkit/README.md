@@ -408,12 +408,40 @@ ran serially, so any speedup reading is invalid. The usual cause is the model co
 pool: it now defaults to `EVAL_CONCURRENCY × EVAL_N` (override with `EVAL_MODEL_CONNECTIONS`)
 rather than `EVAL_CONCURRENCY`, which under-provisioned it whenever N > 1.
 
+### The `manager` arm — the orchestrator-worker baseline
+
+`stock` (no channel) and `notes` (a racy shared file) are both strawmen: nobody deploys
+uncoordinated agents. The realistic alternative to an atomic claim is a **planner that assigns
+work** — what AutoGen/CrewAI/LangGraph hierarchical modes do. `EVAL_ARMS=manager` adds it.
+
+Shape: a width-1 `plan` phase (`role: orchestrator`) sequenced before the width-N `work` phase —
+the engine runs phases in order and agents within a phase concurrently, so this is
+`topology: 'orchestrator-worker'`. The manager may use read-only WorkBench tools, is told to
+delegate and NOT act, and writes one line per worker to `assignments.md`. Workers start with a
+**fresh context** (`reset` defaults true past phase 0), so the assignment must survive through the
+substrate rather than a shared conversation — the honest version of the baseline.
+
+It is also a test of the paper's axis rather than only a baseline: delegation is *instructed* and
+has TWO compliance points (the manager must partition correctly; each worker must obey its line)
+plus a single point of failure, so the structural/instructed hypothesis predicts it degrades with
+capability and with N exactly as per-domain claiming does — while single-writer `claim_next`, with
+zero compliance points, does not.
+
+- **Runs alone.** Phases belong to the benchmark, not the arm, so enabling the plan phase would
+  charge every other arm a wasted planning agent and invalidate their cached Tier-2 cells. The
+  runner throws if `manager` is combined with another arm; compare by pairing on task id.
+- **Charged fairly.** `criticalPathCalls` sums the per-phase maximum across phases (phases are
+  sequential), so the planning stage counts against the manager rather than being free.
+- **`plannerSideEffects`** counts side effects by the orchestrator: a manager that performs the
+  action *and* assigns it duplicates by itself — an instructed failure invisible in completion.
+
 ### Env (beyond the Tier-1 vars)
 
 | var | default | meaning |
 |---|---|---|
 | `EVAL_N` | `2` | agents per task |
 | `EVAL_MODEL_CONNECTIONS` | `EVAL_CONCURRENCY × EVAL_N` | model connection pool; must be ≥ N or the cell's agents serialize |
+| `EVAL_ARMS=manager` | — | the orchestrator-worker baseline (below). Must run ALONE — the runner errors otherwise |
 | `WB_SEED_MODE` | `per-domain` | opentasks arm seeding: `per-domain` (one claimable subtask per domain) or `single` (Option 1a — one "whole task" unit; single writer). Folded into `runId` + store dir so modes don't share cache. |
 | `EVAL_TASK_IDS` | — | comma list of exact `wb-*` ids to oversample (else first-N via `EVAL_TASK_LIMIT`) |
 | `EVAL_SOLO` | — | `1` → also run an N=1 baseline for the A_e error-amplification KPI |

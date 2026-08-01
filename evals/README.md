@@ -131,7 +131,8 @@ only match it. OpenTasks has not yet been shown to buy **throughput**.
 
 **Write-up target.** One paper, research-question-first, with OpenTasks as the instrument
 rather than the contribution — claim, contributions, section structure, and the exhibit →
-run mapping are in [`PAPER-PLAN.md`](./PAPER-PLAN.md).
+run mapping are in [`PAPER-PLAN.md`](./PAPER-PLAN.md); the run order, costs, and decision gates are in
+[`EXPERIMENT-PLAN.md`](./EXPERIMENT-PLAN.md).
 
 **Open / next:**
 - **Stage 3 (throughput) — designed, not run.** Pre-registered in

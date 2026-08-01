@@ -119,7 +119,7 @@ Each exhibit maps to a run. This is the actual work list.
 | **F2** | Stratum census of WorkBench — fraction of tasks that can register safety vs. throughput effects | C1 | **needs classifier run** (checkout only, no spend) |
 | **T1** | Capability-gating: model × {stock, instructed, structural} × completion/harmful/R | C3 | **have** (n=8, haiku + sonnet) |
 | **F3** | Error amplification A(N) = harm(N)/harm(1) vs N, per arm | C3 | **partial** — have N ∈ {2,4} haiku; need N=1 solo + sonnet N=4 |
-| **T2** | Baselines incl. **manager/orchestrator agent** | C3 | **missing — gating** |
+| **T2** | Baselines incl. **manager/orchestrator agent** | C3 | **arm implemented** (`EVAL_ARMS=manager`); run E1 |
 | **F4** | Throughput Pareto: `criticalPathCalls` × completion × tokens | C5 | needs Tier 3 |
 | **T3** | Replication on a second host | C1/C3 | missing |
 | **F5** | Synthetic 2×2 super-additivity | §8 | **have** |
@@ -129,6 +129,9 @@ without coordination (union side-effects 1.88 → 3.88), and is flat with it. It
 figure most likely to be remembered, and it directly contradicts the prevailing
 more-agents-is-better framing.
 
+Execution order, cost, and the decision gate after each run are in
+[`EXPERIMENT-PLAN.md`](./EXPERIMENT-PLAN.md).
+
 ## Gating work, ranked
 
 1. **Manager/orchestrator baseline (T2).** Without it the comparison set is two strawmen —
@@ -137,7 +140,9 @@ more-agents-is-better framing.
    a manager agent, the framing must change; better to learn that now. *Design note:* the
    manager is an **instructed** mechanism with a single point of failure, so the paper's
    structural/instructed axis predicts it degrades with model capability too — which makes
-   it a genuine test of C3, not just a baseline.
+   it a genuine test of C3, not just a baseline. **Implemented** — a width-1 `plan` phase before the
+   width-N `work` phase, charged on the critical path, with `plannerSideEffects` catching a manager
+   that acts as well as assigns. E1a in `EXPERIMENT-PLAN.md` is the 48-agent-run decision gate.
 2. **Second host (T3).** Adapters exist for TAC and CooperBench. One benchmark is not
    generality; this is what separates a workshop paper from main track.
 3. **Non-Anthropic model.** Capability-gating across two Anthropic tiers invites "artefact

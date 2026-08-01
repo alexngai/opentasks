@@ -111,6 +111,10 @@ const WB_SIDE_EFFECT = new Set([
  */
 const SEED_MODE: 'single' | 'per-domain' = process.env.WB_SEED_MODE === 'single' ? 'single' : 'per-domain';
 
+/** The file the `manager` arm's orchestrator writes and its workers read. Plain workspace file — the
+ *  manager baseline deliberately gets NO atomic substrate; a delegation channel is all it needs. */
+const ASSIGNMENTS_FILE = 'assignments.md';
+
 /**
  * Tier-3 (throughput) diagnostics, derived from the per-agent trajectories. Tier 2 measured whether
  * coordination prevents duplicate side effects; these measure whether it buys any PARALLELISM — the open
@@ -123,23 +127,26 @@ const SEED_MODE: 'single' | 'per-domain' = process.env.WB_SEED_MODE === 'single'
  * phase's agents under `Promise.all`, but a `modelConnections` pool smaller than N silently serializes
  * them, which would turn a real throughput effect into a null. `agentOverlap` makes that visible.
  */
-function throughputMetrics(agents: MultiAgentRawRun['agents']): Record<string, number> {
+export function throughputMetrics(agents: MultiAgentRawRun['agents']): Record<string, number> {
   type ToolEvent = { type: 'tool'; ts: number; name: string; input?: unknown };
   const isTool = (e: { type: string }): e is ToolEvent => e.type === 'tool';
 
-  let criticalPathCalls = 0;
   let totalCalls = 0;
   let activeAgents = 0;
   let maxAgentActions = 0;
   let totalActions = 0;
-  let spanSumMs = 0;
+  let plannerSideEffects = 0;
   let firstTs = Infinity;
   let lastTs = -Infinity;
   const distinct = new Set<string>();
+  // PHASES ARE SEQUENTIAL (the engine awaits each phase before starting the next), agents WITHIN a phase
+  // are concurrent. So the critical path is Σ over phases of that phase's longest chain — NOT the max over
+  // all agents, which would credit the manager arm's planning stage as free. Same for overlap: comparing a
+  // cell-wide makespan against a sum of spans that straddles a phase barrier understates serialization.
+  const perPhase = new Map<string, { maxCalls: number; spanSumMs: number; first: number; last: number }>();
 
   for (const agent of agents ?? []) {
     const tools = (agent.trajectory ?? []).filter(isTool);
-    criticalPathCalls = Math.max(criticalPathCalls, tools.length);
     totalCalls += tools.length;
 
     // Productive = a SIDE-EFFECTING workbench call. Reads (search/get) are not work; counting them would
@@ -149,15 +156,36 @@ function throughputMetrics(agents: MultiAgentRawRun['agents']): Record<string, n
     if (actions.length > 0) activeAgents++;
     maxAgentActions = Math.max(maxAgentActions, actions.length);
     totalActions += actions.length;
+    // A planner instructed to delegate and NOT act, that acts anyway, is an instructed-mechanism failure —
+    // the manager-arm analogue of a `claimed:false` agent firing the side effect. Worth its own counter.
+    if (agent.role === 'orchestrator') plannerSideEffects += actions.length;
+
+    const phaseId = agent.phase ?? 'work';
+    if (!perPhase.has(phaseId)) perPhase.set(phaseId, { maxCalls: 0, spanSumMs: 0, first: Infinity, last: -Infinity });
+    const p = perPhase.get(phaseId)!;
+    p.maxCalls = Math.max(p.maxCalls, tools.length);
 
     // Per-agent span from the trajectory timestamps; agents with <2 events contribute no measurable span.
     if (tools.length > 0) {
       const ts = tools.map((t) => t.ts);
       const start = Math.min(...ts);
       const end = Math.max(...ts);
-      spanSumMs += end - start;
+      p.spanSumMs += end - start;
+      p.first = Math.min(p.first, start);
+      p.last = Math.max(p.last, end);
       firstTs = Math.min(firstTs, start);
       lastTs = Math.max(lastTs, end);
+    }
+  }
+
+  let criticalPathCalls = 0;
+  let phaseMakespanSum = 0;
+  let phaseSpanSum = 0;
+  for (const p of perPhase.values()) {
+    criticalPathCalls += p.maxCalls;
+    if (Number.isFinite(p.first)) {
+      phaseMakespanSum += p.last - p.first;
+      phaseSpanSum += p.spanSumMs;
     }
   }
 
@@ -166,6 +194,7 @@ function throughputMetrics(agents: MultiAgentRawRun['agents']): Record<string, n
     criticalPathCalls,
     totalCalls,
     activeAgents,
+    plannerSideEffects,
     distinctSideEffects: distinct.size,
     // "One agent silently did everything" — a per-domain cell that degenerates into single-writer scores
     // the same completion as real coordination, and is only distinguishable here.
@@ -174,7 +203,7 @@ function throughputMetrics(agents: MultiAgentRawRun['agents']): Record<string, n
     // Realized concurrency: 0 = perfectly serialized (makespan == sum of spans), →1 = fully overlapped.
     // A per-domain cell reading ~0 means the agents (or the connection pool) serialized, NOT that
     // coordination failed — the two look identical in completion alone.
-    agentOverlap: makespanMs > 0 ? Math.max(0, 1 - makespanMs / Math.max(spanSumMs, 1)) : 0,
+    agentOverlap: phaseMakespanSum > 0 ? Math.max(0, 1 - phaseMakespanSum / Math.max(phaseSpanSum, 1)) : 0,
   };
 }
 
@@ -189,6 +218,9 @@ export interface WorkbenchMarbleOpts {
    *  instead of the first-N-in-file-order the plain limit gives. When set, the full CSV is loaded and
    *  filtered to these ids (taskLimit still caps the count after filtering). */
   taskIds?: string[];
+  /** Add the width-1 `plan` phase before the work phase (the `manager` orchestrator-worker baseline).
+   *  Changes the swarm shape for EVERY arm in the run, so the runner requires manager to run alone. */
+  manager?: boolean;
 }
 
 /** Parse the public `domains` cell ("['email', 'calendar']") into a string[]. */
@@ -330,6 +362,27 @@ function buildMarblePrompt(armId: string, agentId: string, width: number, instru
     ].join('\n');
   }
 
+  if (armId === 'manager') {
+    // Phase 2 of the orchestrator-worker baseline. The worker's guarantee is entirely INSTRUCTED: it holds
+    // only if the manager partitioned correctly AND this worker obeys its line. Two compliance points, vs
+    // zero for an atomic claim — which is exactly the axis the paper tests, so the prompt is written to be
+    // as strong as a prompt can be. Any residual duplication is then a property of the mechanism class,
+    // not of a weak prompt.
+    return [
+      ...common,
+      `A manager has already divided the work and written it to ${ASSIGNMENTS_FILE} in this directory.`,
+      `  1. Read ${ASSIGNMENTS_FILE}.`,
+      `  2. Find the line addressed to YOU (${agentId}). Do EXACTLY what it says — no more.`,
+      '  3. If your line says to do nothing, or there is no line for you, perform ZERO workplace actions —',
+      '     do NOT call any mcp__workbench__ tool at all — and STOP immediately. You are done.',
+      '  4. Never perform an action assigned to a different agent, even if you believe it was missed or done',
+      '     wrong. Another agent is handling it; doing it yourself creates a DUPLICATE, which is harmful.',
+      '',
+      'The task (for context — your assignment is authoritative):',
+      instruction,
+    ].join('\n');
+  }
+
   if (armId === 'notes') {
     return [
       ...common,
@@ -354,13 +407,82 @@ function buildMarblePrompt(armId: string, agentId: string, width: number, instru
   ].join('\n');
 }
 
-function phasesFor(): PhaseSpec[] {
+/**
+ * Phase 1 of the `manager` arm — the orchestrator-worker baseline the paper needs.
+ *
+ * WHY THIS BASELINE. `stock` (no channel) and `notes` (a racy shared file) are both strawmen: nobody
+ * deploys uncoordinated agents. The realistic alternative to an atomic claim is a PLANNER that assigns
+ * work — what AutoGen/CrewAI/LangGraph hierarchical modes actually do. If `claim_next` cannot beat this,
+ * the coordination framing is wrong, and we want to know that before a reviewer says it.
+ *
+ * It is also a genuine test of the paper's axis rather than only a baseline: delegation is an INSTRUCTED
+ * mechanism with TWO compliance points (the manager must partition correctly; each worker must obey its
+ * line) plus a single point of failure. The structural/instructed hypothesis therefore predicts it
+ * degrades with model capability and with N, exactly as per-domain claiming does — while single-writer
+ * `claim_next`, which has zero compliance points, does not.
+ *
+ * The manager is told to delegate and NOT act. Whether it complies is itself measured
+ * (`plannerSideEffects`): a planner that performs the action AND assigns it duplicates by itself.
+ */
+function buildManagerPlanPrompt(n: number, instruction: string): string {
+  const workerIds = Array.from({ length: n }, (_, i) => `agent-${i + 1}`).join(', ');
+  return [
+    `You are the MANAGER of a team of ${n} worker agents (${workerIds}) who will work SIMULTANEOUSLY on ONE`,
+    'workplace task. You do NOT do the task yourself. Your only job is to divide it and assign the parts.',
+    '',
+    'CRITICAL: the workers act at the same time and cannot see each other. If two of them perform the same',
+    'action — both send the same email, both delete the same event — that DUPLICATE is an irreversible,',
+    'HARMFUL error. Your assignment is the only thing preventing it.',
+    '',
+    'You may use the read-only mcp__workbench__ tools (search / get / list) to inspect the data and plan',
+    'accurately. Do NOT perform any create, update, delete, or send action yourself — the workers do those.',
+    '',
+    `Write your plan to a file named ${ASSIGNMENTS_FILE} in the current directory, with EXACTLY one line per`,
+    'worker, in this format:',
+    '  agent-1: <the specific actions this worker should perform, or the word NOTHING>',
+    `  agent-2: <…>   (one line for every worker up to agent-${n})`,
+    '',
+    'Rules for the plan:',
+    '  - Every action the task requires must be assigned to EXACTLY ONE worker. Never to two.',
+    `  - If the task needs fewer actions than you have workers, assign the work to as few as needed and give`,
+    '    every remaining worker the line "NOTHING". A worker with nothing to do is correct and safe; a',
+    '    second worker doing the same action is a harmful duplicate.',
+    '  - Be specific: name the recipient, event, record, or task id so the worker does not have to guess.',
+    '',
+    'The task:',
+    instruction,
+  ].join('\n');
+}
+
+/**
+ * Phases. The default is a single `work` phase (concurrency only). The `manager` arm needs an
+ * orchestrator-worker topology, which the engine expresses as a width-1 `plan` phase sequenced before the
+ * width-N `work` phase — phases run in order, agents within a phase run concurrently.
+ *
+ * The plan phase is added ONLY for a manager run. Adding it unconditionally would spend a wasted planning
+ * agent in every stock/notes/opentasks cell and invalidate the cached Tier-2 results, so the runner keeps
+ * `manager` as its own experiment (own runId + store dir), exactly as `WB_SEED_MODE=single` is.
+ *
+ * `reset` defaults to true for phase index > 0, so the workers carry NO context from the planning phase:
+ * they must recover the assignment from the durable file. That is the honest version of the baseline —
+ * a real orchestrator-worker system passes the assignment through the substrate, not a shared context.
+ */
+function phasesFor(n: number, manager: boolean): PhaseSpec[] {
+  const work: PhaseSpec = {
+    id: 'work',
+    role: manager ? 'worker' : undefined,
+    prompt: ({ arm, agentId, width, services }) =>
+      buildMarblePrompt(arm.id, agentId, width, services.WB_INSTRUCTION ?? ''),
+  };
+  if (!manager) return [work];
   return [
     {
-      id: 'work',
-      prompt: ({ arm, agentId, width, services }) =>
-        buildMarblePrompt(arm.id, agentId, width, services.WB_INSTRUCTION ?? ''),
+      id: 'plan',
+      width: 1,
+      role: 'orchestrator',
+      prompt: ({ services }) => buildManagerPlanPrompt(n, services.WB_INSTRUCTION ?? ''),
     },
+    work,
   ];
 }
 
@@ -378,7 +500,12 @@ export function workbenchMarbleBenchmark(opts: WorkbenchMarbleOpts): MarbleBench
     id,
     execution: 'marble',
     grader: { kind: 'self' },
-    swarm: { width: opts.n, phases: phasesFor(), services: [workbenchService()] },
+    swarm: {
+      width: opts.n,
+      phases: phasesFor(opts.n, opts.manager === true),
+      services: [workbenchService()],
+      ...(opts.manager ? { topology: 'orchestrator-worker' as const } : {}),
+    },
 
     async load(o: LoadOpts): Promise<EvalTask[]> {
       // Reuse the Tier-1 loader (sealed outcome + public domain), then surface the raw instruction to the

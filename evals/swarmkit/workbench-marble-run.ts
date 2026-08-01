@@ -64,10 +64,26 @@ const TIMEOUT = Number(process.env.EVAL_TIMEOUT ?? 300_000);
 // runId+arm+task, so without this a mode switch on the same ids silently reuses the other mode's stale
 // results. Mirrors SEED_MODE in workbench-marble.ts.
 const SEED_MODE = process.env.WB_SEED_MODE === 'single' ? 'single' : 'per-domain';
+// The `manager` arm (orchestrator-worker baseline) prepends a width-1 `plan` phase to the swarm. Phases
+// are a property of the BENCHMARK, not the arm, so enabling it would also spend a wasted planning agent in
+// every stock/notes/opentasks cell and invalidate their cached Tier-2 cells. Manager therefore runs as its
+// own experiment — own runId, own store dir — and is compared against the others by pairing on task id,
+// the same way WB_SEED_MODE=single is compared against per-domain.
+const MANAGER = ARM_IDS.includes('manager');
+if (MANAGER && ARM_IDS.length > 1) {
+  throw new Error(
+    `EVAL_ARMS=manager must run ALONE (got: ${ARM_IDS.join(',')}).\n` +
+      'The manager arm changes the swarm shape (adds a width-1 plan phase) for every arm in the run, which\n' +
+      'would charge the other arms a wasted planning agent and invalidate their cached cells.\n' +
+      'Run it separately and pair on task id: EVAL_ARMS=manager EVAL_TASK_IDS=<same ids>',
+  );
+}
 // Per-seed-mode store: the marble cache keys cells by benchmark/task/arm/model/seed (NOT runId or seed
 // mode), so single and per-domain opentasks cells would otherwise collide and silently reuse each other's
 // cached results. A separate store dir per mode keeps each experiment isolated and independently resumable.
-const OUT_DIR = path.resolve(process.cwd(), `evals/.swarmkit-workbench-marble-${SEED_MODE}`);
+// Manager gets its own store dir too: its cells have a different swarm shape (extra plan phase), so they
+// must never resume from, or be resumed by, a single-phase cell with the same benchmark/task/arm key.
+const OUT_DIR = path.resolve(process.cwd(), `evals/.swarmkit-workbench-marble-${MANAGER ? 'manager' : SEED_MODE}`);
 
 const OPENTASKS_CLI = ARMS.opentasks.mcp?.args?.[0];
 
@@ -114,11 +130,12 @@ function opentasksDaemonPids(): Set<number> {
 }
 
 async function main(): Promise<void> {
-  const benchmark = workbenchMarbleBenchmark({ n: N, repoDir: WB_REPO, python: WB_PYTHON, domain: DOMAIN, taskLimit: TASK_LIMIT, ...(TASK_IDS.length ? { taskIds: TASK_IDS } : {}) });
+  const benchmark = workbenchMarbleBenchmark({ n: N, repoDir: WB_REPO, python: WB_PYTHON, domain: DOMAIN, taskLimit: TASK_LIMIT, ...(TASK_IDS.length ? { taskIds: TASK_IDS } : {}), ...(MANAGER ? { manager: true } : {}) });
   const wbMcp = workbenchMcpServer({ python: WB_PYTHON, repoDir: WB_REPO });
   // Marble arms: coordination lives in the phase prompt, so arms just carry the MCP servers + allow-list.
   const arms = workbenchNativeArms(wbMcp, [
     { id: 'notes', label: 'notes (claims.txt)' },
+    { id: 'manager', label: 'manager (orchestrator assigns)' },
     { id: 'opentasks', label: 'opentasks (claim_next)', mcpServers: [opentasksMcpServer()], extraTools: OT_COORD_TOOLS },
   ]).filter((a) => ARM_IDS.includes(a.id));
   if (!arms.length) throw new Error(`No arms matched EVAL_ARMS=${ARM_IDS.join(',')} (have stock,notes,opentasks)`);
@@ -128,7 +145,7 @@ async function main(): Promise<void> {
   for (const k of ['AWS_REGION', 'AWS_PROFILE']) if (process.env[k]) passEnv[k] = process.env[k]!;
 
   const config: EvalConfig = {
-    runId: `workbench-marble-${DOMAIN}-${MODEL}-N${N}-${SEED_MODE}`,
+    runId: `workbench-marble-${DOMAIN}-${MODEL}-N${N}-${MANAGER ? 'manager' : SEED_MODE}`,
     configVersion: 'v1',
     benchmark: benchmark.id,
     arms,
