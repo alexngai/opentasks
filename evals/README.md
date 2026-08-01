@@ -143,7 +143,9 @@ run mapping are in [`PAPER-PLAN.md`](./PAPER-PLAN.md); the run order, costs, and
   needs a WorkBench checkout; the runs need the gateway.
 - **Eval-infra:** the GLM-5 proxy (`glm5/`) has no retry/backoff and falls over under
   sustained load — it crashed the cell-C k=5 repeat. Harden it (retry+backoff,
-  concurrency cap) before scaling GLM-5 runs.
+  concurrency cap) before scaling GLM-5 runs. Note this affects **only** the homegrown
+  GLM-5 stack: a second model family for the WorkBench runs goes through the working
+  Bedrock/Azure LiteLLM gateway and needs no code change (see `EXPERIMENT-PLAN.md` §E2).
 - Clean cell-C k≥5 + contention sweep (N∈{2,8}) on a hardened proxy.
 - **Long-horizon anchor:** RoadmapBench's OpenTasks arm needs in-container daemon +
   `.mcp.json` wiring (the `tac/docker-adapter.ts` pattern). TAC has an adapter and

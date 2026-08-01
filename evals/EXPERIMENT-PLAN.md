@@ -92,10 +92,45 @@ Current counts are n = 8 (1a matrix) and n = 18 (widest). Both are thin at `seed
    solo-correct stratum, not the 24 scanned so far.
 2. Re-run {stock, per-domain, single, manager} at N=2 over that stratum, `EVAL_REPEATS=3`.
 3. **Non-Anthropic model.** Capability-gating shown only across two Anthropic tiers invites
-   "artefact of one family." Blocked on the GLM-5 proxy hardening (no retry/backoff — it
-   crashed the cell-C k=5 repeat in June). **Harden the proxy before this run, not during.**
+   "artefact of one family." **This needs no code change here** and is *not* blocked on the
+   GLM-5 stack — see below.
 
 **Cost:** the dominant run in the paper; size it after E0 reports the true stratum size.
+
+### Adding a model family — what it actually takes
+
+`NativeCliAdapter` routes via `routeModel(gateway, cell.model)`, which for the `anthropic`
+dialect sets `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` at the LiteLLM gateway. LiteLLM
+resolves the friendly model name against its `model_list` and translates to whatever backend
+serves it. So the runner needs only `EVAL_MODEL=<friendly-name>` through the existing
+`WB_GATEWAY_BASE_URL` — all the work is in the gateway config, and swarmkit-eval already
+exports the builders:
+
+| path | builder | notes |
+|---|---|---|
+| **Bedrock non-Anthropic** (Nova, Llama, DeepSeek, Qwen, Mistral) | `bedrockDeployment` | **lowest friction** — same gateway, same AWS creds the sonnet/haiku runs already used. No new credentials. |
+| **Azure OpenAI** (GPT-class) | `azureOpenAIDeployment` | needs `api_base` / `api_version` / a key env; the RoadmapBench runner already has an Azure-via-gateway arm as precedent |
+| **Open-weight, self-served** | `openaiCompatDeployment` | any `/v1/chat/completions` server (vLLM, Together) |
+
+**Do not confuse this with `evals/glm5/`.** That is a separate homegrown stack (LiteLLM plus a
+hand-rolled sigv4 shim) with no retry/backoff, and it is the thing that fell over in June. The
+Bedrock gateway the WorkBench Tier-2 runs used is a different, working path. GLM-5 is one
+option among several, not the only route to a second family — prefer a Bedrock-native
+non-Anthropic model, which reuses infrastructure already proven on these exact runs.
+
+> **Validity threat — the scaffold is Claude Code.** The agent is `claude -p`, whose system
+> prompt and tool-calling conventions are tuned for Claude, and a non-Anthropic model reaches it
+> through LiteLLM's Anthropic-dialect translation. Absolute completion for a GPT- or Llama-class
+> model is therefore confounded by scaffold fit, and the paper **must not** claim "model X is
+> worse at coordination than sonnet."
+>
+> The C3 claim survives intact, because it is comparative *within* a model: the question is
+> whether the instructed→structural gap widens as effective capability falls, and a
+> scaffold-handicapped model is simply a lower point on that curve. Frame every cross-family
+> number as **effective capability within a fixed scaffold**, hold the scaffold constant across
+> all arms and models, and state the confound in Limitations. Sanity check before trusting a new
+> family: confirm its N=1 solo completion is non-trivial — if the model cannot do the task alone
+> in this scaffold, its multi-agent cells measure scaffold fit, not coordination.
 
 ---
 
