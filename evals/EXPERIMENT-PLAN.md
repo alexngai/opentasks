@@ -9,6 +9,10 @@ Sequencing principle: **cheapest falsification first.** E1 can invalidate the pa
 framing for the price of 48 agent-runs; Tier 3 cannot change the framing at all. So E1
 runs before anything gets widened.
 
+Order: **E0 → E1a → E6 → (E1b, E2, E3) → E4 → E5.** E6 is pulled forward because it is the
+only experiment that can turn the paper's standing limitation (safety, not throughput) into
+a result, and because it needs E0's multi-action stratum but nothing else.
+
 ## Cost unit
 
 Cells × agents-per-cell = **agent-runs**, the thing that actually costs tokens and wall
@@ -166,6 +170,50 @@ E1/E2 need. Prerequisites: E0 (stratum exists and is large enough) and the paral
 check — the runner now warns when `agentOverlap < 0.2` across all multi-agent cells, and
 `EVAL_MODEL_CONNECTIONS` defaults to `EVAL_CONCURRENCY × EVAL_N` so the pool cannot
 silently serialize the agents.
+
+---
+
+## E6 · Advisory vs enforced — **the outperformance run**
+
+**Feeds:** T4, C6. **This is the only experiment that can show a swarm beating a solo agent.**
+
+Everything measured so far is advisory: instructed stand-down, per-domain claiming, and manager
+delegation all trust the agent to honour a partition. `opentasks-gated` validates the claim at the
+resource — a side-effecting tool call from an agent holding no live claim is refused before it reaches
+WorkBench. That keeps per-domain's parallelism while removing its dependence on compliance.
+
+Run it on the **multi-action** stratum from E0 (`t3-ideal`), not the single-action one: with k=1 there is
+nothing to parallelise and gating can only match single-writer.
+
+```sh
+WB_GATEWAY_BASE_URL=… WORKBENCH_LLM_API_KEY=… AWS_REGION=us-east-1 \
+  EVAL_MODEL=<model> EVAL_ARMS=opentasks-gated EVAL_N=<2|4> \
+  EVAL_TASK_IDS=<t3-ideal ids> EVAL_DEBUG_DIR=evals/.wb-debug-gated \
+  npm run eval:workbench:marble
+```
+
+**Preflight — do this first, on ONE cell.** The gate fails closed, so if `AGENT_ID` does not reach the
+MCP child every side effect is refused and the cell scores 0.00 with zero duplicates, which reads as
+flawless coordination. Check `gateBroken` (the runner warns) and `.wb_gate.jsonl` in the cell workspace:
+denials of `no-claim`/`claim-expired` are the mechanism working; `no-agent-id`/`claim-lookup-failed` mean
+the gate is broken and the cell is invalid. The fix for `no-agent-id` is upstream — swarmkit-eval's
+`native-cli` adapter should add `AGENT_ID` to each `mcpServers[...].env` when it writes the MCP config.
+
+**Compare against**, on the same task ids: `opentasks` per-domain (same parallelism, advisory only),
+`opentasks` single-writer (safe, one worker), and the **N=1 solo** cell (the ceiling to beat).
+
+**What each outcome means:**
+
+| outcome | reading |
+|---|---|
+| completion ≥ single-writer, `activeAgents` > 1, `criticalPathCalls` < solo | **the result** — parallel *and* safe. C5 flips from limitation to finding; C6 is demonstrated |
+| completion ≥ single-writer but `criticalPathCalls` ≈ solo | enforcement gives safety without speed — agents serialize anyway. Still a C6 result (advisory → enforced closes the per-domain collapse), but not an outperformance claim |
+| `gateDenied` high and completion low | agents spend their turns bouncing off the gate. Mechanism is sound but the protocol is expensive — report the cost and revisit the prompt, not the gate |
+| completion ≈ per-domain (still collapsing) | duplication is coming from somewhere the gate does not cover. Inspect the union log: two DISTINCT claims whose actions overlap means the partition, not the enforcement, is wrong |
+
+The last row is the honest risk: gating guarantees at most one agent acts *per claim*, not that the
+partition carves the required actions cleanly. On `t3-ideal` tasks the public domain split coincides with
+the action split by construction, which is exactly why E0's stratification comes first.
 
 ---
 

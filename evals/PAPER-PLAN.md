@@ -43,7 +43,16 @@ mechanism half ends up carrying the paper.
 | **C2** | Demonstration that violating any condition yields a **false null** — Δ 0.000 vs +0.889, same mechanism | empirical | **have** (n=6 vs n=18) |
 | **C3** | Instructed coordination is capability-gated and N-fragile; structural coordination is invariant | empirical | **have** at n=8, 2 models, N ∈ {2,4}; needs widening |
 | **C4** | Released harness: stratifier, union-grading multi-agent adapter, coordination metrics | artifact | **have**, needs packaging |
-| **C5** | Structural coordination buys **safety, not throughput** — the honest limit | empirical | Tier 3, not yet run |
+| **C5** | Structural coordination buys **safety, not throughput** *unless the claim is validated at the resource* | empirical | Tier 3 + the gated arm, not yet run |
+| **C6** | Agent frameworks issue **advisory** claims: nothing validates them at the point of effect. Validating turns an advisory lock into a real one — and is what lets a swarm be parallel *and* safe | conceptual + empirical | mechanism implemented (`opentasks-gated`); unrun |
+
+C6 is the strongest engineering claim available and the one that can flip C5 from a limitation into a
+result. Every mechanism measured so far — instructed stand-down, per-domain claiming, manager delegation —
+is *advisory*: the agent is trusted to honour a partition. Moving the check to the resource (the tool
+layer refuses a side effect from an agent holding no claim) is the standard distributed-systems answer,
+is absent from current agent frameworks, and is the only design that need not trade parallelism for
+safety. If it holds, the paper's mechanism half gains a third rung: instructed → structural-but-advisory →
+structural-and-enforced.
 
 C5 is deliberately in the contribution list rather than the limitations section. Reviewers
 reward a paper that reports the boundary of its own result, and the paper does not depend
@@ -71,11 +80,12 @@ you evaluate. `npm run eval:workbench:classify` produces this table.
 
 This is the section that justifies describing the system at all. Keep it to ~1 page.
 
-| | instructed | structural |
-|---|---|---|
-| mechanism | the prompt tells each agent to claim a domain and stand down elsewhere | exactly one claimable unit; `claim_next` is a conditional UPDATE, so at most one agent ever observes `claimed:true` |
-| failure mode | agent ignores the instruction — a weak model fires the side effect on a domain it did not claim | none available: the losing agent has nothing to act on |
-| evidence | collapses 1.00 → 0.25 (haiku) and → 0.13 (sonnet); → 0.00 at N=4 | 1.00 at N=2 both models; R = 0.00 at every N |
+| | instructed | structural (advisory) | structural (enforced) |
+|---|---|---|---|
+| mechanism | the prompt tells each agent to claim a domain and stand down elsewhere | exactly one claimable unit; `claim_next` is a conditional UPDATE, so at most one agent observes `claimed:true` | N claimable units; the tool layer refuses any side effect from an agent holding no live claim |
+| failure mode | agent ignores the instruction — a weak model fires the side effect on a domain it did not claim | none, but only because there is nothing else to act on: one effective worker | none: the call is refused before it reaches the resource |
+| parallelism | N workers | **1 worker** — caps at the solo ceiling | N workers |
+| evidence | collapses 1.00 → 0.25 (haiku), → 0.13 (sonnet); → 0.00 at N=4 | 1.00 at N=2 both models; R = 0.00 at every N | **unrun** |
 
 The system content worth including, all of it in service of this distinction: atomic claim
 with **lease + fence token + reaper** (the cell-B result is the motivation — `notes`
@@ -122,6 +132,7 @@ Each exhibit maps to a run. This is the actual work list.
 | **T2** | Baselines incl. **manager/orchestrator agent** | C3 | **arm implemented** (`EVAL_ARMS=manager`); run E1 |
 | **F4** | Throughput Pareto: `criticalPathCalls` × completion × tokens | C5 | needs Tier 3 |
 | **T3** | Replication on a second host | C1/C3 | missing |
+| **T4** | Advisory vs enforced: gated arm vs per-domain vs single-writer, at N ∈ {2,4} | C6 | **mechanism implemented**; run E6 |
 | **F5** | Synthetic 2×2 super-additivity | §8 | **have** |
 
 F3 is worth building deliberately: `A(N)` is one number, rises roughly linearly in N

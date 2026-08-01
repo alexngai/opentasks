@@ -78,6 +78,16 @@ if (MANAGER && ARM_IDS.length > 1) {
       'Run it separately and pair on task id: EVAL_ARMS=manager EVAL_TASK_IDS=<same ids>',
   );
 }
+// The gated arm is per-domain BY DESIGN (its point is keeping the parallelism single-writer gives up), so
+// WB_SEED_MODE=single would be silently ignored for it while still choosing the store dir — two identical
+// experiments filed under different directories. Refuse the combination instead.
+if (ARM_IDS.includes('opentasks-gated') && SEED_MODE === 'single') {
+  throw new Error(
+    'EVAL_ARMS=opentasks-gated is per-domain by design and ignores WB_SEED_MODE=single.\n' +
+      'Drop WB_SEED_MODE (or set it to per-domain) — the gate supplies the safety that single-writer\n' +
+      'buys by giving up parallelism, so combining them just discards the parallelism again.',
+  );
+}
 // Per-seed-mode store: the marble cache keys cells by benchmark/task/arm/model/seed (NOT runId or seed
 // mode), so single and per-domain opentasks cells would otherwise collide and silently reuse each other's
 // cached results. A separate store dir per mode keeps each experiment isolated and independently resumable.
@@ -95,6 +105,34 @@ const OT_COORD_TOOLS = [
   'mcp__opentasks__list_tasks',
   'mcp__opentasks__release_task',
 ];
+
+/**
+ * The WorkBench tool server wrapped in the claim gate (`wb-claim-gate.ts`), which forwards read-only calls
+ * and refuses side-effecting ones from an agent holding no live claim — enforcement at the resource rather
+ * than in the prompt. The real server spec rides in `WB_GATE_CHILD` and is spawned by the gate as a child.
+ *
+ * `AGENT_ID` is NOT set here: it is per-agent, and an arm's MCP spec is shared by every agent in the cell.
+ * The gate reads it from the environment the marble engine sets per agent and NativeCliAdapter merges into
+ * the spawned CLI, which the MCP child inherits. **Confirm that inheritance with the preflight before
+ * spending tokens** — the gate fails closed, so if `AGENT_ID` does not arrive, every cell scores 0.00 with
+ * zero duplicates and looks superficially like flawless coordination. `gateBroken` in the metrics is what
+ * distinguishes the two; a non-zero value invalidates the cell.
+ */
+function gatedWorkbenchMcpServer(wbMcp: McpServerSpec): McpServerSpec {
+  return {
+    name: 'workbench',
+    command: 'npx',
+    args: ['tsx', path.resolve(process.cwd(), 'evals/swarmkit/wb-claim-gate.ts')],
+    env: {
+      WB_GATE_CHILD: JSON.stringify({ command: wbMcp.command, args: wbMcp.args ?? [], env: wbMcp.env ?? {} }),
+      WB_GATE_OT_CLI: OPENTASKS_CLI ?? '',
+      WB_GATE_OT_NODE: resolveOpentasksNode(),
+      // Relative → resolves against the agent's cell cwd, so the audit log is per-cell for free (the same
+      // convention the WorkBench action log uses).
+      WB_GATE_LOG: '.wb_gate.jsonl',
+    },
+  };
+}
 
 function opentasksMcpServer(): McpServerSpec {
   const cli = OPENTASKS_CLI!;
@@ -136,8 +174,15 @@ async function main(): Promise<void> {
   const arms = workbenchNativeArms(wbMcp, [
     { id: 'notes', label: 'notes (claims.txt)' },
     { id: 'manager', label: 'manager (orchestrator assigns)' },
+    { id: 'opentasks-gated', label: 'opentasks (claim_next + resource-side gate)', mcpServers: [opentasksMcpServer()], extraTools: OT_COORD_TOOLS },
     { id: 'opentasks', label: 'opentasks (claim_next)', mcpServers: [opentasksMcpServer()], extraTools: OT_COORD_TOOLS },
-  ]).filter((a) => ARM_IDS.includes(a.id));
+  ]).filter((a) => ARM_IDS.includes(a.id))
+    // The gated arm replaces its WorkBench server with the claim-gate proxy, which spawns the real one as a
+    // child. Same MCP name, so the agent still sees exactly `mcp__workbench__*` — the arms differ in what
+    // may be COMMITTED, never in what the agent can see or attempt.
+    .map((a) => (a.id === 'opentasks-gated'
+      ? { ...a, scaffold: { ...a.scaffold, mcpServers: [gatedWorkbenchMcpServer(wbMcp), ...(a.scaffold.mcpServers ?? []).slice(1)] } }
+      : a));
   if (!arms.length) throw new Error(`No arms matched EVAL_ARMS=${ARM_IDS.join(',')} (have stock,notes,opentasks)`);
 
   const gateway: GatewayConfig | undefined = GATEWAY_BASE ? { baseUrl: GATEWAY_BASE, fallbacksDisabled: true } : undefined;
@@ -195,6 +240,20 @@ async function main(): Promise<void> {
         `cpCalls=${m.criticalPathCalls ?? '-'} active=${m.activeAgents ?? '-'}/${N} ` +
         `overlap=${m.agentOverlap !== undefined ? (m.agentOverlap as number).toFixed(2) : '-'} ` +
         `tokens=${r.usage.totalTokens} ${Math.round(r.durationMs / 1000)}s${r.status === 'env_error' ? ` ENV:${r.envError?.kind}` : ''}`,
+    );
+  }
+
+  // Gate validity check. The claim gate FAILS CLOSED, so an infra fault (AGENT_ID not reaching the MCP
+  // child, or an unreachable daemon) refuses every side effect and yields completion 0.00 with zero
+  // duplicates — which reads as flawless coordination. Only the denial REASONS separate the two.
+  const brokenCells = results.filter((r) => ((r.score?.metrics?.gateBroken as number | undefined) ?? 0) > 0);
+  if (brokenCells.length) {
+    console.warn(
+      `\n⚠️  ${brokenCells.length}/${results.length} gated cells had gateBroken > 0 — the gate refused calls for` +
+        ' infrastructure reasons (no-agent-id / claim-lookup-failed), NOT because coordination worked.\n' +
+        '    These cells are INVALID; do not report them. Inspect .wb_gate.jsonl in the cell workspace.\n' +
+        "    If the reason is no-agent-id, AGENT_ID is not reaching the MCP child: swarmkit-eval's native-cli\n" +
+        '    adapter must add it to each mcpServers[...] env when it writes the MCP config.',
     );
   }
 

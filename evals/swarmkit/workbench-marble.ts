@@ -116,6 +116,33 @@ const SEED_MODE: 'single' | 'per-domain' = process.env.WB_SEED_MODE === 'single'
 const ASSIGNMENTS_FILE = 'assignments.md';
 
 /**
+ * Diagnostics for the claim-gated arm (`wb-claim-gate.ts`), from its per-cell audit log.
+ *
+ * `gateBroken` is the one that matters for validity. The gate FAILS CLOSED, so an infrastructure fault —
+ * `AGENT_ID` not reaching the MCP child, or the daemon being unreachable — refuses every side effect and
+ * produces completion 0.00 with zero duplicates. That is indistinguishable from "perfect coordination that
+ * did no work" unless the denial REASONS are inspected. A non-zero `gateBroken` invalidates the cell; it
+ * must never be read as a mechanism result.
+ */
+function gateMetrics(lines: string[]): Record<string, number> {
+  if (!lines.length) return {};
+  let denied = 0;
+  let broken = 0;
+  let allowed = 0;
+  for (const line of lines) {
+    try {
+      const e = JSON.parse(line) as { allow?: boolean; reason?: string };
+      if (e.reason === 'read-only') continue;
+      if (e.allow) { allowed++; continue; }
+      denied++;
+      // `no-claim` / `claim-expired` are the MECHANISM working. The other two are the gate failing.
+      if (e.reason === 'no-agent-id' || e.reason === 'claim-lookup-failed') broken++;
+    } catch { /* a truncated final line — ignore */ }
+  }
+  return { gateAllowed: allowed, gateDenied: denied, gateBroken: broken };
+}
+
+/**
  * Tier-3 (throughput) diagnostics, derived from the per-agent trajectories. Tier 2 measured whether
  * coordination prevents duplicate side effects; these measure whether it buys any PARALLELISM — the open
  * question single-writer seeding cannot answer by construction. See `../TIER3-THROUGHPUT.md`.
@@ -254,7 +281,7 @@ function workbenchService(): ServiceSpec {
       // relative-path autostart. Seed the claimable work into that daemon per SEED_MODE (below).
       let otHome: string | undefined;
       const otEnvFor = (home: string): NodeJS.ProcessEnv => ({ ...process.env, OPENTASKS_PROJECT_DIR: home });
-      if (armId === 'opentasks' && OPENTASKS_CLI) {
+      if ((armId === 'opentasks' || armId === 'opentasks-gated') && OPENTASKS_CLI) {
         otHome = fs.mkdtempSync('/tmp/ote-'); // short → socket ≈35 bytes, well under the 103-byte limit
         try {
           execFileSync(resolveOpentasksNode(), [OPENTASKS_CLI, 'daemon', 'start'], { env: otEnvFor(otHome), stdio: 'ignore', timeout: 20_000 });
@@ -263,8 +290,10 @@ function workbenchService(): ServiceSpec {
         // Seed the claimable work. `single` (Option 1a) seeds ONE "do the whole task" unit so exactly one
         // agent works and the rest stand down; `per-domain` seeds one unit per public domain (the original
         // split). See SEED_MODE above; the opentasks prompt in buildMarblePrompt mirrors this choice.
+        // The gated arm is ALWAYS per-domain: its whole point is to keep the parallelism single-writer
+        // gives up, while the resource-side claim check supplies the safety per-domain lacks.
         const seedTitles =
-          SEED_MODE === 'single'
+          SEED_MODE === 'single' && armId !== 'opentasks-gated'
             ? ['execute the entire task (every domain) yourself']
             : domains.map((d) => `handle the "${d}" part of the task`);
         for (const title of seedTitles) {
@@ -279,7 +308,7 @@ function workbenchService(): ServiceSpec {
       const handle: ServiceHandle = {
         // Exposed to phase.prompt(args.services) so each agent gets the actual task text.
         env: { WB_INSTRUCTION: instruction, WB_DOMAINS: domains.join(', ') },
-        async readState(): Promise<{ actions: string[]; graph: string[]; seededDomains: string[]; daemonList: string }> {
+        async readState(): Promise<{ actions: string[]; graph: string[]; seededDomains: string[]; daemonList: string; gate: string[] }> {
           let actions: string[] = [];
           try {
             actions = fs.readFileSync(actionLogPath, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean);
@@ -293,7 +322,12 @@ function workbenchService(): ServiceSpec {
               daemonList = execFileSync(resolveOpentasksNode(), [OPENTASKS_CLI!, 'list', '--all', '--json'], { env: otEnvFor(otHome), timeout: 15_000 }).toString().slice(0, 4000);
             } catch (e) { daemonList = `list-error: ${(e as Error).message.slice(0, 150)}`; }
           }
-          return { actions, graph, seededDomains: domains, daemonList };
+          // The gate's per-cell audit log (written relative to the agent's cwd, like the action log).
+          let gate: string[] = [];
+          try {
+            gate = fs.readFileSync(path.join(ctx.workspaceRoot, '.wb_gate.jsonl'), 'utf8').split('\n').map((l) => l.trim()).filter(Boolean);
+          } catch { /* ungated arm, or no tool calls */ }
+          return { actions, graph, seededDomains: domains, daemonList, gate };
         },
         async stop(): Promise<void> {
           if (otHome) {
@@ -356,6 +390,31 @@ function buildMarblePrompt(armId: string, agentId: string, width: number, instru
       '  5. Repeat from step 1 until claim_next returns claimed:false, then stop.',
       'The claim is race-free: if claimed:true, no other agent has that domain — never work a domain you did',
       'not claim. This guarantees each domain (and its side effects) is handled exactly once.',
+      '',
+      'The task:',
+      instruction,
+    ].join('\n');
+  }
+
+  if (armId === 'opentasks-gated') {
+    // Same per-domain partition as the instructed arm — but the guarantee no longer depends on the agent
+    // honouring it. The WorkBench MCP is behind a claim gate that refuses any side-effecting call from an
+    // agent not holding a live claim, so "stand down" is enforced at the resource rather than requested in
+    // a prompt. The prompt still explains the protocol (an agent that understands it wastes fewer turns),
+    // but compliance is no longer load-bearing: this arm's safety survives an agent that ignores every
+    // word below. That is the whole point of the comparison against `opentasks` per-domain.
+    return [
+      ...common,
+      'The task is split into per-domain subtasks in the OpenTasks graph. Work ONLY what you claim:',
+      `  1. mcp__opentasks__claim_next with agentId "${agentId}" to ATOMICALLY claim the next domain.`,
+      '  2. mcp__opentasks__get_task on the returned nodeId to see which domain you own (its title).',
+      "  3. Do THAT domain's workplace actions via mcp__workbench__* tools.",
+      '  4. mcp__opentasks__update_task(id: nodeId, status: "closed") when the domain is done.',
+      '  5. Repeat from step 1 until claim_next returns claimed:false, then stop.',
+      '',
+      'ENFORCED: the workplace tools are behind a coordination gate. A create/update/delete/send call made',
+      'while you hold no claim is REFUSED and does not happen — you will get an error, not an effect. So',
+      'never attempt an action for a domain you did not claim; it cannot succeed and only wastes a turn.',
       '',
       'The task:',
       instruction,
@@ -523,8 +582,8 @@ export function workbenchMarbleBenchmark(opts: WorkbenchMarbleOpts): MarbleBench
     },
 
     async score(raw: MultiAgentRawRun, task: EvalTask): Promise<Score> {
-      const st = (raw.services.workbench ?? { actions: [], graph: [], seededDomains: [], daemonList: '' }) as {
-        actions: string[]; graph: string[]; seededDomains: string[]; daemonList: string;
+      const st = (raw.services.workbench ?? { actions: [], graph: [], seededDomains: [], daemonList: '', gate: [] }) as {
+        actions: string[]; graph: string[]; seededDomains: string[]; daemonList: string; gate: string[];
       };
       const unionText = st.actions.join('\n') + (st.actions.length ? '\n' : '');
       // Reuse WorkbenchGrader by feeding the UNION log through a minimal Workspace.
@@ -545,6 +604,7 @@ export function workbenchMarbleBenchmark(opts: WorkbenchMarbleOpts): MarbleBench
         numAgents: opts.n,
         unionSideEffects: workActions,
         ...throughputMetrics(raw.agents),
+        ...gateMetrics(st.gate),
       };
 
       // EVAL_DEBUG_DIR: dump per-agent tool sequences + the opentasks graph (who claimed what) + union

@@ -408,6 +408,43 @@ ran serially, so any speedup reading is invalid. The usual cause is the model co
 pool: it now defaults to `EVAL_CONCURRENCY × EVAL_N` (override with `EVAL_MODEL_CONNECTIONS`)
 rather than `EVAL_CONCURRENCY`, which under-provisioned it whenever N > 1.
 
+### The `opentasks-gated` arm — validating the claim at the resource
+
+The Tier-2 results leave OpenTasks with a choice it should not have to make: single-writer is safe but
+caps the swarm at one worker; per-domain is parallel but collapses because a `claimed:false` agent is
+merely *asked* to stand down (at N=4, 3–4 of 4 haiku agents fired the side effect anyway).
+
+That is the classic distributed-systems failure: **a lease is advisory unless the resource checks the
+fence before accepting a write.** OpenTasks already mints claims with monotonic fence tokens
+(`claim_fence`) and — like every current agent framework — nothing validates them at the point of effect.
+
+`EVAL_ARMS=opentasks-gated` moves enforcement to the resource. `wb-claim-gate.ts` is an MCP proxy between
+the agent and the WorkBench server: read-only calls pass through, and a side-effecting call is forwarded
+**only if the calling agent holds a live claim**. A non-claiming agent is not asked to stand down — it
+*cannot* act, because the call is refused before reaching WorkBench, so the email genuinely is not sent.
+
+This is the one configuration that need not choose: N agents hold DISTINCT claims and work concurrently
+(parallelism), and duplication is impossible regardless of model compliance (safety). It is therefore the
+mechanism that could let a swarm beat a solo agent — the thing single-writer cannot do by construction.
+
+- **Identity is structural.** The gate reads `AGENT_ID`, which the marble engine sets per agent and
+  `NativeCliAdapter` merges into the spawned CLI env; the MCP child inherits it. The gate never asks the
+  agent who it is — an agent that could name itself could also lie.
+- **Always per-domain.** The arm ignores `WB_SEED_MODE=single` (and the runner refuses the combination):
+  its whole point is keeping the parallelism single-writer gives up.
+- **Same visible surface.** The proxy keeps the MCP name `workbench` and passes `tools/list` through
+  untouched, so arms differ in what may be *committed*, never in what the agent can see or attempt.
+- **Fails closed** — and that is a validity hazard, not just a safety property. If `AGENT_ID` does not
+  arrive or the daemon is unreachable, every side effect is refused and the cell scores completion 0.00
+  with zero duplicates, which superficially reads as flawless coordination. `gateMetrics` separates the
+  cases: `no-claim` / `claim-expired` are the mechanism working, `no-agent-id` / `claim-lookup-failed` are
+  the gate broken. **`gateBroken > 0` invalidates the cell**, and the runner warns loudly.
+
+> **Preflight before spending tokens.** `AGENT_ID` propagation into MCP children is the one link that
+> could not be verified offline. Run a single gated cell first and check `.wb_gate.jsonl` in the cell
+> workspace: if denials say `no-agent-id`, the fix is upstream — swarmkit-eval's `native-cli` adapter
+> should add `AGENT_ID` to each `mcpServers[...].env` when it writes the MCP config.
+
 ### The `manager` arm — the orchestrator-worker baseline
 
 `stock` (no channel) and `notes` (a racy shared file) are both strawmen: nobody deploys
