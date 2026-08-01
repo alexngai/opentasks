@@ -129,6 +129,10 @@ robust to agent count. Full write-up:
 configuration is single-writer by construction, so it cannot beat one careful agent —
 only match it. OpenTasks has not yet been shown to buy **throughput**.
 
+**Write-up target.** One paper, research-question-first, with OpenTasks as the instrument
+rather than the contribution — claim, contributions, section structure, and the exhibit →
+run mapping are in [`PAPER-PLAN.md`](./PAPER-PLAN.md).
+
 **Open / next:**
 - **Stage 3 (throughput) — designed, not run.** Pre-registered in
   [`TIER3-THROUGHPUT.md`](./TIER3-THROUGHPUT.md): multi-action tasks where parallelism
